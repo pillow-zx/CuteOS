@@ -24,8 +24,8 @@
  *   send_signal(sig, target)       - 向目标进程发送信号（置 pending 位）。
  *   setup_signal_frame(tf, ka)     - 在用户栈上构建 signal_frame，
  *                                     保存 trap_frame 和 blocked，
- *                                     修改 trap_frame（sepc=handler, a0=signo, ra=trampoline）。
- *   sys_sigreturn()                - 从信号处理器返回，恢复 trap_frame + blocked。
- *   sys_kill(pid, sig)             - kill 系统调用实现。
+ *                                     修改 trap_frame（sepc=handler, a0=signo,
+ * ra=trampoline）。 sys_sigreturn()                - 从信号处理器返回，恢复
+ * trap_frame + blocked。 sys_kill(pid, sig)             - kill 系统调用实现。
  *   sys_sigaction(sig, act, oldact)- sigaction 系统调用（注册/查询处理器）。
  */

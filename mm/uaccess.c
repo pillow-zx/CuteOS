@@ -15,6 +15,7 @@
  *
  * 主要函数：
  *   access_ok(addr, size)        - 检查用户地址范围是否合法（溢出检查）
- *   copy_to_user(to, from, n)    - 从内核空间复制数据到用户空间（当前为 memcpy）
- *   copy_from_user(to, from, n)  - 从用户空间复制数据到内核空间（当前为 memcpy）
+ *   copy_to_user(to, from, n)    - 从内核空间复制数据到用户空间（当前为
+ * memcpy） copy_from_user(to, from, n)  - 从用户空间复制数据到内核空间（当前为
+ * memcpy）
  */

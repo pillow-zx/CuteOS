@@ -7,9 +7,8 @@
  *
  * 主要函数：
  *   sys_times(buf)           - times 系统调用。基于 jiffies 返回进程的
- *                              用户态时间和内核态时间（tms_utime / tms_stime），
- *                              以及 cutime / cstime（子进程累计时间）。
- *   sys_gettimeofday(tv, tz) - gettimeofday 系统调用。
- *                              读取 CLINT 的 mtime 寄存器，
- *                              将其转换为秒 + 微秒精度的时间值。
+ *                              用户态时间和内核态时间（tms_utime /
+ * tms_stime）， 以及 cutime / cstime（子进程累计时间）。 sys_gettimeofday(tv,
+ * tz) - gettimeofday 系统调用。 读取 CLINT 的 mtime 寄存器， 将其转换为秒 +
+ * 微秒精度的时间值。
  */

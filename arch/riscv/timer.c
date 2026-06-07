@@ -33,22 +33,17 @@
 #include <asm/csr.h>
 #include <asm/page.h>
 
-
 #define HZ              100
-#define MTIME_FREQ      10000000UL   
-#define CLOCKS_PER_TICK (MTIME_FREQ / HZ)  
-
+#define MTIME_FREQ      10000000UL
+#define CLOCKS_PER_TICK (MTIME_FREQ / HZ)
 
 volatile uint64_t jiffies = 0;
 
-
 uint64_t get_mtime(void)
 {
-        volatile uint64_t *mtime =
-                (volatile uint64_t *)__va(0x0200BFF8UL);
+        volatile uint64_t *mtime = (volatile uint64_t *)__va(0x0200BFF8UL);
         return *mtime;
 }
-
 
 void timer_init(void)
 {

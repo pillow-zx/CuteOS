@@ -8,7 +8,7 @@
  *
  * 主要函数：
  *   sys_brk(addr)                           - 调整堆边界，不缩小，惰性分配
- *   sys_mmap(addr, len, prot, flags, ...)   - 创建匿名映射（MAP_ANONYMOUS only，
- *                                             惰性分配，缺页时分配物理页）
- *   sys_munmap(addr, len)                   - 解除内存映射
+ *   sys_mmap(addr, len, prot, flags, ...)   - 创建匿名映射（MAP_ANONYMOUS
+ * only， 惰性分配，缺页时分配物理页） sys_munmap(addr, len)                   -
+ * 解除内存映射
  */
