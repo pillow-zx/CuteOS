@@ -1,52 +1,57 @@
 /*
- * arch/riscv/timer.c - CLINT 时钟 (100Hz)
+ * arch/riscv/timer.c - Sstc 时钟 (100Hz)
  *
- * 功能：
- *   基于 RISC-V CLINT（Core Local Interruptor）的定时器管理。
- *   使用 100Hz 固定频率（HZ=100，即每 10ms 一次）驱动时钟中断，
- *   为内核调度器和时间管理提供心跳。
+ * 基于 RISC-V Sstc 扩展的定时器管理。
+ * 使用 100Hz 固定频率（HZ=100，即每 10ms 一次）驱动时钟中断，
+ * 为内核调度器和时间管理提供心跳。
+ *
+ * Sstc 扩展允许 S 模式直接通过 CSR 操作定时器，无需 ecall 陷入 M 模式：
+ *   - time CSR:     读取当前 mtime 计数值
+ *   - stimecmp CSR: 设置下一次时钟中断的比较值
+ *
+ * timer_init() 仅负责设置首次 stimecmp 比较值。
+ * 中断使能（SIE.STIE、sstatus.SIE）由 trap_init() 统一管理。
  *
  * 主要函数：
- *   timer_init()       - 初始化定时器。计算首次超时的 mtime 值，
- *                        通过 sbi_set_timer() 设置 mtimecmp，
- *                        开启 Supervisor Timer 中断 (sie.STIE)。
+ *   get_mtime()    - 读取 time CSR 获取当前时间计数器
+ *   set_mtimecmp() - 写入 stimecmp CSR 设置下一次时钟中断
+ *   timer_init()   - 设置首次超时值
  *
- *   get_mtime()        - 读取 CLINT mtime 寄存器当前值。
- *                        通过 __va(0x0200BFF8) 将物理地址转换为虚拟地址
- *                        后读取（该地址在内核页表的 MMIO 映射区域中）。
- *
- * 时钟中断流程：
- *   1. mtime >= mtimecmp 时 CLINT 触发 Supervisor Timer Interrupt
- *   2. __alltraps → trap_handler() 检测到 scause=5
- *   3. 调用 handle_timer_irq()：更新全局 jiffies 计数器，
- *      检查当前进程时间片，必要时设置 need_resched
- *   4. 通过 sbi_set_timer() 设置下一次 mtimecmp = 当前 mtime + interval
- *   5. 返回 __trapret 恢复执行
- *
- * 相关：
- *   全局变量 jiffies 记录自启动以来的时钟中断总次数。
- *   kernel/sched.c 中的 handle_timer_irq() 由本模块调用。
+ * 全局变量：
+ *   jiffies - 自启动以来的时钟中断总次数
  */
 
 #include <kernel/types.h>
-#include <asm/sbi.h>
 #include <asm/csr.h>
-#include <asm/page.h>
 
 #define HZ              100
 #define MTIME_FREQ      10000000UL
-#define CLOCKS_PER_TICK (MTIME_FREQ / HZ)
+#define CLOCKS_PER_TICK (MTIME_FREQ / HZ) /* 100000 */
 
 volatile uint64_t jiffies = 0;
 
+/*
+ * get_mtime - 通过 time CSR 读取当前时间计数器
+ */
 uint64_t get_mtime(void)
 {
-        volatile uint64_t *mtime = (volatile uint64_t *)__va(0x0200BFF8UL);
-        return *mtime;
+	return csr_read(time);
 }
 
+/*
+ * set_mtimecmp - 通过 stimecmp CSR 设置下一次时钟中断
+ */
+void set_mtimecmp(uint64_t value)
+{
+	csr_write(stimecmp, value);
+}
+
+/*
+ * timer_init - 设置首次时钟中断超时值
+ *
+ * 仅配置 stimecmp，中断使能由 trap_init() 负责。
+ */
 void timer_init(void)
 {
-        sbi_set_timer(get_mtime() + CLOCKS_PER_TICK);
-        csr_set(sie, SIE_STIE);
+	set_mtimecmp(get_mtime() + CLOCKS_PER_TICK);
 }

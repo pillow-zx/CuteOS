@@ -13,10 +13,10 @@
  *   4. console_init_mmio()      — 切换到 UART MMIO 轮询模式
  *   5. buddy_init()             — 物理页分配器（从 _end 到 DRAM 结束）
  *   6. slab_init()              — kmalloc 可用（8 组 size class）
- *   7. trap_init()              — stvec = __alltraps, sscratch = 0
+ *   7. trap_init()              — stvec = __alltraps, sscratch = 0, SIE.STIE + sstatus.SIE
  *   8. task_init()              — 创建 idle (PID 0, BSS 静态), 设置 current
  *      └─ kernel_thread(init_process, NULL)  — 创建 init (PID 1)
- *   9. timer_init()             — 首次 sbi_set_timer, 启用 SIE.STIE
+ *   9. timer_init()             — Sstc stimecmp 设置首次时钟中断
  *  10. schedule()               — 切到 init, idle 在后台 wfi
  *
  * 依赖关系：
@@ -50,6 +50,9 @@ void kernel_main(void)
 
 	trap_init();
 	printk("trap: init successfully\n");
+
+	timer_init();
+	printk("timer: init successfully\n");
 
         printk("=== kernel test ===\n");
 	kernel_test();

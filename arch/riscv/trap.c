@@ -1,37 +1,73 @@
 /*
  * arch/riscv/trap.c - Trap 分发（C 层）
  *
- * 功能：
- *   在汇编层保存完 trap_frame 后，由 trap_handler() 统一接住异常和中断。
- *   当前系统尚未实现细分分发器，因此任何 trap 都会带着诊断信息 panic，
- *   避免静默返回导致更难排查的错误。
+ * 在汇编层保存完 trap_frame 后，由 trap_handler() 统一接住异常和中断。
+ * 根据中断/异常类型分发到对应的处理函数。
+ *
+ * 当前分发：
+ *   - Supervisor Timer Interrupt (scause = 0x8000000000000005)
+ *     → handle_timer_irq(): 更新 jiffies, 设置下一次时钟中断
+ *   - 其他中断/异常 → panic（开发期）
  */
 
 #include <asm/csr.h>
 #include <asm/trap.h>
+#include <asm/sbi.h>
 #include <kernel/printk.h>
 #include <kernel/types.h>
 
-static const __const char *trap_origin(const struct trap_frame *tf)
+extern volatile uint64_t jiffies;
+
+/* Timer tick interval: MTIME_FREQ / HZ = 10000000 / 100 = 100000 */
+#define CLOCKS_PER_TICK 100000UL
+
+static const char *trap_origin(const struct trap_frame *tf)
 {
-	return (tf->sstatus & SSTATUS_SPP) ? "kernel" : "user";
+        return (tf->sstatus & SSTATUS_SPP) ? "kernel" : "user";
 }
 
+/*
+ * handle_timer_irq() - 时钟中断处理
+ *
+ * 每次时钟中断时调用：
+ *   1. 递增全局 jiffies 计数器
+ *   2. 通过 set_mtimecmp 设置下一次时钟中断
+ */
+static void handle_timer_irq(void)
+{
+        jiffies++;
+        set_mtimecmp(get_mtime() + CLOCKS_PER_TICK);
+}
+
+/*
+ * trap_handler() - 统一 trap 处理入口
+ *
+ * 由 entry.S 中的 __alltraps 调用，传入 trap_frame 指针。
+ * 根据 scause 判断 trap 类型并分发。
+ */
 void trap_handler(struct trap_frame *tf)
 {
-	uint64_t scause = tf->scause;
-	bool is_interrupt = (scause & (1UL << 63)) != 0;
-	uint64_t code = scause & ~(1UL << 63);
+        uint64_t scause = tf->scause;
+        bool is_interrupt = (scause & SCAUSE_IRQ_FLAG) != 0;
+        uint64_t code = scause & ~SCAUSE_IRQ_FLAG;
 
-	if (is_interrupt) {
-		panic("unhandled interrupt: origin=%s scause=%lu code=%lu "
-		      "sepc=%p stval=%p",
-		      trap_origin(tf), (size_t)scause, (size_t)code,
-		      (void *)tf->sepc, (void *)tf->stval);
-	} else {
-		panic("unhandled exception: origin=%s scause=%lu code=%lu "
-		      "sepc=%p stval=%p",
-		      trap_origin(tf), (size_t)scause, (size_t)code,
-		      (void *)tf->sepc, (void *)tf->stval);
-	}
+        if (is_interrupt) {
+                switch (code) {
+                case IRQ_S_TIMER:
+                        handle_timer_irq();
+                        return;
+                default:
+                        panic("unhandled interrupt: origin=%s scause=0x%lx "
+                              "code=%lu "
+                              "sepc=%p stval=%p",
+                              trap_origin(tf), (size_t)scause,
+                              (size_t)code, (void *)tf->sepc,
+                              (void *)tf->stval);
+                }
+        } else {
+                panic("unhandled exception: origin=%s scause=0x%lx code=%lu "
+                      "sepc=%p stval=%p",
+                      trap_origin(tf), (size_t)scause,
+                      (size_t)code, (void *)tf->sepc, (void *)tf->stval);
+        }
 }

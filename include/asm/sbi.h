@@ -8,8 +8,7 @@
  * sbi.h - RISC-V SBI (Supervisor Binary Interface) 声明
  *
  * SBI 是 RISC-V 特权级规范中定义的 M 态固件为 S 态操作系统
- * 提供服务的接口。本头文件声明了 cuteOS 使用的基础 SBI 调用，
- * 以及定时器相关辅助函数。
+ * 提供服务的接口。本头文件声明了 cuteOS 使用的基础 SBI 调用。
  */
 
 /*
@@ -31,15 +30,6 @@ struct sbi_ret {
 void sbi_console_putchar(int ch);
 
 /*
- * sbi_set_timer - 设置下一次时钟中断的时间
- * @stime_value: 目标时间，以 mtime 的计数值表示
- *
- * 当 mtime 达到 stime_value 时触发 M 态时钟中断，
- * SBI 固件会将其转发为 S 态的 supervisor timer interrupt。
- */
-void sbi_set_timer(uint64_t stime_value);
-
-/*
  * sbi_shutdown - 关闭系统
  *
  * 通过 SBI 请求固件关闭机器，调用后不会返回。
@@ -47,16 +37,26 @@ void sbi_set_timer(uint64_t stime_value);
 void __noreturn sbi_shutdown(void);
 
 /*
- * get_mtime - 获取当前 mtime 计数值
+ * get_mtime - 获取当前时间计数器
  *
- * 读取 CLINT 中 mtime 寄存器的当前值。
+ * 通过 time CSR (Sstc) 读取当前 mtime 值。
+ * 定义在 arch/riscv/timer.c。
  */
 uint64_t get_mtime(void);
 
 /*
+ * set_mtimecmp - 设置下一次时钟中断
+ *
+ * 通过 stimecmp CSR (Sstc) 设置 mtimecmp 值。
+ * 定义在 arch/riscv/timer.c。
+ */
+void set_mtimecmp(uint64_t value);
+
+/*
  * timer_init - 初始化定时器
  *
- * 首次设置时钟中断，使调度器能够获得周期性的时钟滴答。
+ * 设置首次时钟中断，使调度器能够获得周期性的时钟滴答。
+ * 定义在 arch/riscv/timer.c。
  */
 void timer_init(void);
 

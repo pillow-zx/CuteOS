@@ -19,8 +19,9 @@
  *
  * Bit definitions:
  *   SSTATUS_SPP  - Supervisor Previous Privilege (1 = S-mode, 0 = U-mode)
- *   SIE_STIE     - Supervisor Timer Interrupt Enable
- *   SIE_SEIE     - Supervisor External Interrupt Enable
+ *   SSTATUS_SIE  - Supervisor Timer Interrupt Enable
+ *   SIE_STIE     - Global Interrupt Enable
+ *   SIE_SEIE     - External Interrupt Enable
  *   SATP_MODE_SV39 - SATP mode field for Sv39 paging (8 << 60)
  *
  * Inline asm macros:
@@ -34,6 +35,7 @@
 #include <kernel/bitops.h>
 
 #define SSTATUS_SPP     BIT(8)
+#define SSTATUS_SIE     BIT(1)
 
 #define SIE_STIE        BIT(5)
 #define SIE_SEIE        BIT(9)
