@@ -23,7 +23,8 @@
  *      进入 Supervisor 模式下的内核主初始化流程。
  *
  * 注意事项：
- *   - 临时页表仅使用 1GB mega page（PTE 中 P, R, W, X 置位），不经过多级遍历
+ *   - 临时页表仅使用 1GB mega page，不经过多级遍历
+ *   - DRAM 临时映射为 R/W/X，MMIO 临时映射为 R/W（不可执行）
  *   - kernel_main_virt 位于高地址空间 (0xFFFFFFC0xxxxxxxx)，由链接脚本决定
  *   - 非零 hart 永久 wfi 停泊，后续由内核 S 态 SMP 启动代码唤醒
  */
@@ -35,16 +36,21 @@
 #define PTE_X   (1 << 3)
 #define PTE_G   (1 << 5)
 
-#define PTE_MEGA_FLAGS  (PTE_V | PTE_R | PTE_W | PTE_X | PTE_G)
+#define PTE_MEGA_DRAM_FLAGS  (PTE_V | PTE_R | PTE_W | PTE_X | PTE_G)
+#define PTE_MEGA_MMIO_FLAGS  (PTE_V | PTE_R | PTE_W | PTE_G)
 
         .section .text.entry
         .globl _start
 _start:
         
-        mv      s0, a0                  
+        mv      s0, a0
         bnez    s0, .park
 
-        
+        .option push
+        .option norelax
+        la      gp, __global_pointer$
+        .option pop
+
         lla     sp, boot_stack_top
 
         
@@ -59,7 +65,7 @@ _start:
         lla     t0, tmp_pgd
 
         
-        li      t1, (0x80000000 >> 2) | PTE_MEGA_FLAGS
+        li      t1, (0x80000000 >> 2) | PTE_MEGA_DRAM_FLAGS
         sd      t1, (2*8)(t0)
 
         
@@ -68,7 +74,7 @@ _start:
         sd      t1, 0(t2)
 
         
-        li      t1, (0x00000000 >> 2) | PTE_MEGA_FLAGS
+        li      t1, (0x00000000 >> 2) | PTE_MEGA_MMIO_FLAGS
         sd      t1, (0*8)(t0)
 
         

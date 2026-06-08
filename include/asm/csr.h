@@ -38,7 +38,7 @@
 #define SIE_STIE        BIT(5)
 #define SIE_SEIE        BIT(9)
 
-#define SATP_MODE_SV39  BIT(60)
+#define SATP_MODE_SV39  (8UL << 60)
 
 #define csr_read(csr)                                                          \
         ({                                                                     \

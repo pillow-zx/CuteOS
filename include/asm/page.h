@@ -42,4 +42,20 @@
  */
 #define __va(x)		((void *)((uintptr_t)(x) + KERNEL_VBASE))
 
+/*
+ * kernel_pagetable_init - 初始化正式内核页表并切换 satp
+ *
+ * 使用 4KB 普通页映射 256MB DRAM（高地址 + 恒等映射），
+ * 使用 1GB mega page 映射 MMIO，然后切换到新页表。
+ * 必须在 buddy_init 之前调用。
+ */
+void kernel_pagetable_init(void);
+
+/*
+ * page_table_mem_end - 返回早期页表分配结束后的地址
+ *
+ * buddy_init() 调用此函数确定空闲内存起始位置。
+ */
+void *page_table_mem_end(void);
+
 #endif

@@ -9,8 +9,7 @@
  * 初始化流程（严格按依赖顺序）：
  *   1. console_init_sbi()       — SBI ecall 控制台，printk 可用
  *   2. printk("cuteOS starting...") / printk("DRAM: 256MB at 0x80000000")
- *   3. kernel_pagetable_init()  — 建立正式内核页表（4KB 页 + MMIO mega
- * page），写 satp
+ *   3. kernel_pagetable_init()  — 建立正式内核页表（4KB 页 + MMIO mega page），写 satp
  *   4. console_init_mmio()      — 切换到 UART MMIO 轮询模式
  *   5. buddy_init()             — 物理页分配器（从 _end 到 DRAM 结束）
  *   6. slab_init()              — kmalloc 可用（8 组 size class）
@@ -29,12 +28,16 @@
  */
 
 #include <kernel/printk.h>
+#include <asm/page.h>
 #include <asm/sbi.h>
 
 void kernel_main(void)
 {
-        console_init_sbi();
-        printk("cuteOS starting...\n");
+	console_init_sbi();
+	printk("cuteOS starting...\n");
 
-        sbi_shutdown();
+	printk("DRAM: %dMB at 0x80000000\n", (int)(DRAM_SIZE >> 20));
+	kernel_pagetable_init();
+
+	sbi_shutdown();
 }

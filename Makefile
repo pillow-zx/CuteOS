@@ -85,7 +85,7 @@ include syscall/syscall.mk
 include lib/lib.mk
 
 # Aggregate all kernel objects
-OBJS = \
+OBJ_REL = \
 	$(ARCH_OBJS)        \
 	$(INIT_OBJS)        \
 	$(KERNEL_OBJS)      \
@@ -96,8 +96,17 @@ OBJS = \
 	$(SYSCALL_OBJS)     \
 	$(LIB_OBJS)
 
-# Kernel image name
-KERNEL = cuteos
+# Build profile and artifact layout
+BUILD    ?= debug
+SANITIZE ?= none
+OUTROOT  ?= build
+OUTDIR   = $(OUTROOT)/$(BUILD)/sanitize-$(SANITIZE)
+
+# Kernel artifact names
+KERNEL_NAME = cuteos
+KERNEL      = $(OUTDIR)/$(KERNEL_NAME)
+KERNEL_IMG  = $(KERNEL).img
+OBJS        = $(addprefix $(OUTDIR)/,$(OBJ_REL))
 
 # =============================================================================
 # Compilation Flags
@@ -105,14 +114,13 @@ KERNEL = cuteos
 
 # Architecture and ABI
 CFLAGS  = -march=rv64gc -mabi=lp64 -mcmodel=medany
+ASFLAGS = -march=rv64gc -mabi=lp64
 
 # Warning and error control
 CFLAGS += -Wall -Werror
 CFLAGS += -Wno-unknown-attributes
 CFLAGS += -Wno-main
 
-# Optimization and debugging
-CFLAGS += -O2 -g -ggdb -gdwarf-2
 CFLAGS += -fno-omit-frame-pointer
 
 # Language standard
@@ -142,8 +150,44 @@ CFLAGS += -Wno-maybe-uninitialized
 # Linker flags
 LDFLAGS  = -z max-page-size=4096
 
-# Assembler flags (for .S files)
-ASFLAGS  = -march=rv64gc -mabi=lp64 -g -c
+DEBUG_CFLAGS   = -O0 -g3 -ggdb -gdwarf-4 -DDEBUG
+DEBUG_CFLAGS  += -fno-inline -fno-optimize-sibling-calls
+DEBUG_ASFLAGS  = -g
+DEBUG_LDFLAGS  =
+
+RELEASE_CFLAGS  = -O3 -DNDEBUG
+RELEASE_CFLAGS += -ffunction-sections -fdata-sections
+RELEASE_ASFLAGS =
+RELEASE_LDFLAGS = --gc-sections
+
+ifeq ($(BUILD),debug)
+	CFLAGS  += $(DEBUG_CFLAGS)
+	ASFLAGS += $(DEBUG_ASFLAGS)
+	LDFLAGS += $(DEBUG_LDFLAGS)
+else ifeq ($(BUILD),release)
+	CFLAGS  += $(RELEASE_CFLAGS)
+	ASFLAGS += $(RELEASE_ASFLAGS)
+	LDFLAGS += $(RELEASE_LDFLAGS)
+else
+$(error Unsupported BUILD='$(BUILD)'; expected 'debug' or 'release')
+endif
+
+SANITIZE_CFLAGS =
+SANITIZE_ASFLAGS =
+SANITIZE_LDFLAGS =
+
+ifeq ($(SANITIZE),none)
+else ifeq ($(SANITIZE),undefined)
+	SANITIZE_CFLAGS += -fsanitize=undefined
+	SANITIZE_CFLAGS += -fsanitize-undefined-trap-on-error
+	SANITIZE_CFLAGS += -fno-sanitize-recover=all
+else
+$(error Unsupported SANITIZE='$(SANITIZE)'; expected 'none' or 'undefined')
+endif
+
+CFLAGS  += $(SANITIZE_CFLAGS)
+ASFLAGS += $(SANITIZE_ASFLAGS)
+LDFLAGS += $(SANITIZE_LDFLAGS)
 
 # Dependencies (.d files)
 CFLAGS += -MD
@@ -165,18 +209,26 @@ cmd_OBJDUMP_T = $(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > 
 # Default target
 all: $(KERNEL)
 
+# Backward-compatible aliases
+$(KERNEL_NAME): $(KERNEL)
+
+$(KERNEL_NAME).img: $(KERNEL_IMG)
+
 # Link the kernel
 $(KERNEL): $(OBJS) kernel.ld
+	$(Q)mkdir -p $(dir $@)
 	$(call cmd,LD)
 	$(call cmd,OBJDUMP_S)
 	$(call cmd,OBJDUMP_T)
 
 # Compile C sources
-%.o: %.c
+$(OUTDIR)/%.o: %.c
+	$(Q)mkdir -p $(dir $@)
 	$(call cmd,CC)
 
 # Assemble .S sources
-%.o: %.S
+$(OUTDIR)/%.o: %.S
+	$(Q)mkdir -p $(dir $@)
 	$(call cmd,AS)
 
 # =============================================================================
@@ -207,7 +259,7 @@ QEMUOPTS += -m 256M
 QEMUOPTS += -smp $(CPUS)
 QEMUOPTS += -nographic
 QEMUOPTS += -global virtio-mmio.force-legacy=false
-QEMUOPTS += -drive file=$(KERNEL).img,if=none,format=raw,id=x0
+QEMUOPTS += -drive file=$(KERNEL_IMG),if=none,format=raw,id=x0
 QEMUOPTS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
 
 # Check QEMU version
@@ -219,16 +271,17 @@ check-qemu-version:
 	fi
 
 # Run in QEMU
-qemu: check-qemu-version $(KERNEL) $(KERNEL).img
+qemu: check-qemu-version $(KERNEL) $(KERNEL_IMG)
 	$(QEMU) $(QEMUOPTS)
 
 # Run in QEMU with GDB
-qemu-gdb: $(KERNEL) $(KERNEL).img
+qemu-gdb: $(KERNEL) $(KERNEL_IMG)
 	@echo "*** Now run 'gdb' in another window (target remote :$(GDBPORT))." 1>&2
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
 
 # Create a blank disk image for testing
-$(KERNEL).img:
+$(KERNEL_IMG):
+	$(Q)mkdir -p $(dir $@)
 	$(Q)dd if=/dev/zero of=$@ bs=1M count=16 2>/dev/null
 	$(Q)echo "Created blank disk image: $@ (16MB)"
 	$(Q)echo "Format with: mkfs.ext2 $@"
@@ -245,8 +298,8 @@ print-gdbport:
 print-toolprefix:
 	@echo $(TOOLPREFIX)
 
-# Run clang-format on all source files
-FMT_FILES := $(shell find . -name '*.[ch]' -o -name '*.S' | grep -v .d)
+# Run clang-format on C source and header files only
+FMT_FILES := $(shell find . \( -name '*.c' -o -name '*.h' \))
 format:
 	$(Q)clang-format -i $(FMT_FILES)
 
@@ -262,14 +315,17 @@ sym: $(KERNEL)
 # =============================================================================
 
 clean:
-	$(Q)rm -f $(OBJS)
-	$(Q)rm -f $(OBJS:.o=.d)
-	$(Q)rm -f $(KERNEL) $(KERNEL).asm $(KERNEL).sym $(KERNEL).img
+	$(Q)rm -rf $(OUTDIR)
+	$(Q)rm -f .gdbinit
+
+clean-all:
+	$(Q)rm -rf $(OUTROOT)
 	$(Q)rm -f .gdbinit
 
 # Prevent deletion of intermediate .o files
-.PRECIOUS: %.o
+.PRECIOUS: $(OUTDIR)/%.o
 
 # Declare phony targets
-.PHONY: all qemu qemu-gdb check-qemu-version clean format asm sym
+.PHONY: all qemu qemu-gdb check-qemu-version clean clean-all format asm sym
+.PHONY: $(KERNEL_NAME) $(KERNEL_NAME).img
 .PHONY: print-gdbport print-toolprefix

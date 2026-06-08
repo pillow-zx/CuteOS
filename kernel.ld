@@ -30,11 +30,14 @@ SECTIONS
 
     .data : AT(ADDR(.data) - KERNEL_VBASE) {
         *(.data .data.*)
-        . = ALIGN(4096);
+        *(.sdata .sdata.*)
+        . = ALIGN(8);
+        PROVIDE(__global_pointer$ = . + 0x800);
     } :data
 
     .bss : AT(ADDR(.bss) - KERNEL_VBASE) {
         __bss_start = .;
+        *(.sbss .sbss.*)
         *(.bss .bss.*)
         *(COMMON)
         . = ALIGN(4096);
