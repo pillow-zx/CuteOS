@@ -40,14 +40,6 @@
 #include <asm/pte.h>
 #include <asm/csr.h>
 
-/* ---- PTE 地址转换辅助宏 ---- */
-
-/* 从 PTE 提取物理地址: PA = PPN << 12, PPN = PTE[53:10] */
-#define PTE_TO_PA(pte)	(((pte) >> 10) << 12)
-
-/* 从物理地址构造 PPN 部分: PTE[53:10] = PA >> 12 */
-#define PA_TO_PTE(pa)	(((pte_t)(pa) >> PAGE_SHIFT) << 10)
-
 /* ---- Early bump allocator ---- */
 
 /*

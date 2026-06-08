@@ -37,7 +37,7 @@
 void kernel_main(void)
 {
 	console_init_sbi();
-	printk("cuteOS starting...\n");
+	printk("\ncuteOS starting...\n");
 
 	kernel_pagetable_init();
 	console_init_mmio();
@@ -47,5 +47,6 @@ void kernel_main(void)
 
 	kernel_test();
 
+	printk("cuteOS shutdown...\n");
 	sbi_shutdown();
 }

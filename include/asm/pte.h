@@ -26,6 +26,7 @@
 
 #include <kernel/types.h>
 #include <kernel/bitops.h>
+#include <asm/page.h>
 
 typedef uint64_t        pte_t;
 
@@ -46,5 +47,12 @@ typedef uint64_t        pte_t;
 #define PTE_USER_RWX	(PTE_V | PTE_R | PTE_W | PTE_X | PTE_U | PTE_A | PTE_D)
 #define PTE_USER_RX	(PTE_V | PTE_R | PTE_X | PTE_U | PTE_A | PTE_D)
 #define PTE_USER_RW	(PTE_V | PTE_R | PTE_W | PTE_U | PTE_A | PTE_D)
+
+#define PTE_PPN_SHIFT		10
+#define PTE_PPN(pte)		((pte) >> PTE_PPN_SHIFT)
+#define PTE_CREATE(pfn, flags)	(((uint64_t)(pfn) << PTE_PPN_SHIFT) | (flags))
+
+#define PTE_TO_PA(pte)		((uint64_t)PTE_PPN(pte) << PAGE_SHIFT)
+#define PA_TO_PTE(pa)		(PTE_CREATE(PHYS_PFN(pa), 0))
 
 #endif

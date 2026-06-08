@@ -13,6 +13,13 @@
 /* 页大小 4 KiB，对应的位移量 */
 #define PAGE_SIZE		4096
 #define PAGE_SHIFT		12
+#define PAGE_MASK		(~(PAGE_SIZE - 1))
+
+/* 物理页号计算 */
+#define PFN_DOWN(x)		((x) >> PAGE_SHIFT)
+#define PFN_UP(x)		(((x) + PAGE_SIZE - 1) >> PAGE_SHIFT)
+#define PFN_PHYS(pfn)		((uint64_t)(pfn) << PAGE_SHIFT)
+#define PHYS_PFN(addr)		((addr) >> PAGE_SHIFT)
 
 /* 物理内存 (DRAM) 起始地址与大小 */
 #define DRAM_BASE		0x80000000
