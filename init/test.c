@@ -75,9 +75,5 @@ static void test_slab(void)
  */
 void kernel_test(void)
 {
-        printk("=== kernel test ===\n");
-
         test_slab();
-
-        printk("=== test done ===\n");
 }

@@ -50,6 +50,12 @@
  */
 
 #include <kernel/types.h>
+#include <kernel/bitops.h>
+
+/* SSTATUS.SPP: 1 = trap from S-mode, 0 = trap from U-mode */
+#ifndef SSTATUS_SPP
+#define SSTATUS_SPP BIT(8)
+#endif
 
 struct trap_frame {
 	size_t sepc;
@@ -70,5 +76,16 @@ struct context {
 	size_t s0, s1, s2, s3, s4, s5;
 	size_t s6, s7, s8, s9, s10, s11;
 };
+
+static __always_inline bool from_user(const struct trap_frame *tf)
+{
+	return (tf->sstatus & SSTATUS_SPP) == 0;
+}
+
+void trap_init(void);
+
+void trap_handler(struct trap_frame *tf);
+
+void switch_to(struct context *prev, struct context *next);
 
 #endif

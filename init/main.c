@@ -33,19 +33,27 @@
 #include <kernel/test.h>
 #include <asm/page.h>
 #include <asm/sbi.h>
+#include <asm/trap.h>
 
 void kernel_main(void)
 {
 	console_init_sbi();
-	printk("\ncuteOS starting...\n");
+	printk("cuteOS starting...\n");
 
 	kernel_pagetable_init();
 	console_init_mmio();
+	printk("uart: init successfully\n");
 
 	buddy_init();
 	slab_init();
+	printk("mm: init successfully\n");
 
+	trap_init();
+	printk("trap: init successfully\n");
+
+        printk("=== kernel test ===\n");
 	kernel_test();
+        printk("=== test done ===\n");
 
 	printk("cuteOS shutdown...\n");
 	sbi_shutdown();
