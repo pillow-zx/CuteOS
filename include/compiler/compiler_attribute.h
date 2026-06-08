@@ -43,5 +43,6 @@
 #define __section(section)      __attribute__((__section__(section)))
 #define __weak                  __attribute__((__weak__))
 #define __printf(a, b)          __attribute__((__format__(printf, a, b)))
+#define __malloc		__attribute__((__malloc__))
 
 #endif

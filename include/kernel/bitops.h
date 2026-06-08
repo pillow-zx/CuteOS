@@ -18,17 +18,18 @@
 
 #include <kernel/types.h>
 #include <kernel/compiler.h>
+#include <kernel/tools.h>
 
-#define BIT(n)          (1UL << (n))
-#define BIT_U8(n)       ((uint8_t)1U << (n))
-#define BIT_U32(n)      ((uint32_t)1U << (n))
-#define BIT_U64(n)      ((uint64_t)1ULL << (n))
+#define BIT(n)     (1UL << (n))
+#define BIT_U8(n)  ((uint8_t)1U << (n))
+#define BIT_U32(n) ((uint32_t)1U << (n))
+#define BIT_U64(n) ((uint64_t)1ULL << (n))
 
 #define GENMASK(h, l)                                                          \
         (((~0UL) << (l)) & (~0UL >> ((sizeof(unsigned long) * 8) - 1 - (h))))
 
-#define set_bit(x, n) ((x) |= BIT(n))
-#define clr_bit(x, n) ((x) &= ~BIT(n))
+#define set_bit(x, n)  ((x) |= BIT(n))
+#define clr_bit(x, n)  ((x) &= ~BIT(n))
 #define flip_bit(x, n) ((x) ^= BIT(n))
 #define test_bit(x, n) (!!((x) & BIT(n)))
 
@@ -46,10 +47,8 @@
         ({                                                                     \
                 typeof(x) _x = (x);                                            \
                 typeof(a) _a = (a);                                            \
-                static_assert(constant_p(_a) ? ((_a) != 0) : 1,                \
-                              "ALIGN_UP: alignment must be non-zero");         \
-                static_assert(constant_p(_a) ? (((_a) & ((_a) - 1)) == 0) : 1, \
-                              "ALIGN_UP: alignment must be a power of two");   \
+                if (constant_p(a))                                             \
+                        BUILD_BUG_ON(!IS_POWER_OF_2(a));                       \
                 __ALIGN_MASK(_x, _a - 1);                                      \
         })
 
@@ -57,10 +56,8 @@
         ({                                                                     \
                 typeof(x) _x = (x);                                            \
                 typeof(a) _a = (a);                                            \
-                static_assert(constant_p(_a) ? ((_a) != 0) : 1,                \
-                              "ALIGN_DOWN: alignment must be non-zero");       \
-                static_assert(constant_p(_a) ? (((_a) & ((_a) - 1)) == 0) : 1, \
-                              "ALIGN_DOWN: alignment must be a power of two"); \
+                if (constant_p(a))                                             \
+                        BUILD_BUG_ON(!IS_POWER_OF_2(a));                       \
                 _x & ~(_a - 1);                                                \
         })
 
@@ -68,17 +65,15 @@
         ({                                                                     \
                 typeof(x) _x = (x);                                            \
                 typeof(a) _a = (a);                                            \
-                static_assert(constant_p(_a) ? ((_a) != 0) : 1,                \
-                              "IS_ALIGNED: alignment must be non-zero");       \
-                static_assert(constant_p(_a) ? (((_a) & ((_a) - 1)) == 0) : 1, \
-                              "IS_ALIGNED: alignment must be a power of two"); \
+                if (constant_p(a))                                             \
+                        BUILD_BUG_ON(!IS_POWER_OF_2(a));                       \
                 ((_x & (_a - 1)) == 0);                                        \
         })
 
 static inline int32_t ffz(uint64_t x)
 {
-	if (~x == 0)
-		return 64;
+        if (~x == 0)
+                return 64;
         return ctzll(~x);
 }
 

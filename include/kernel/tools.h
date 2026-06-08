@@ -50,6 +50,9 @@
 #define MMIO_READ(type, addr)       (*(volatile type *)(addr))
 #define MMIO_WRITE(type, addr, val) (*(volatile type *)(addr) = (val))
 
+#define IS_POWER_OF_2(x) ((x) != 0 && (((x) & ((x) - 1)) == 0))
+#define BUILD_BUG_ON(cond) ((void)sizeof(char[1 - 2 * !!(cond)]))
+
 #define TYPESAME(a, b)  types_compatible(a, b)
 #define ISARR(arr, msg) static_assert(!TYPESAME((arr), (&(arr)[0])), msg)
 #define ARRLEN(arr)                                                            \

@@ -28,6 +28,9 @@
  */
 
 #include <kernel/printk.h>
+#include <kernel/buddy.h>
+#include <kernel/slab.h>
+#include <kernel/test.h>
 #include <asm/page.h>
 #include <asm/sbi.h>
 
@@ -36,11 +39,13 @@ void kernel_main(void)
 	console_init_sbi();
 	printk("cuteOS starting...\n");
 
-	printk("DRAM: %dMB at 0x80000000\n", (int)(DRAM_SIZE >> 20));
 	kernel_pagetable_init();
-
 	console_init_mmio();
-	printk("console: switched to UART MMIO\n");
+
+	buddy_init();
+	slab_init();
+
+	kernel_test();
 
 	sbi_shutdown();
 }
