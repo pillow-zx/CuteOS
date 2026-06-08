@@ -20,46 +20,4 @@
 #include <compiler/compiler_attribute.h>
 #include <compiler/compiler_builtin.h>
 
-#define static_assert(cond, msg) _Static_assert(cond, msg)
-
-#define TYPESAME(a, b) types_compatible(a, b)
-#define ISARR(arr, msg) static_assert(!TYPESAME((arr), (&(arr)[0])), msg)
-#define ARRLEN(arr)                                                            \
-        ({                                                                     \
-                ISARR(arr,                                                     \
-                      "ARRLEN: argument must be an array, not an pointer");    \
-                sizeof((arr)) / sizeof((arr)[0]);                              \
-        })
-
-#define container_of(ptr, type, member)                                        \
-        ({                                                                     \
-                static_assert(TYPESAME(*(ptr), ((type *)0)->member) ||         \
-                                      TYPESAME(*(ptr), void),                  \
-                              "pointer type mismatch in container_of()");      \
-                (type *)((void *)((__UINTPTR_TYPE__)(ptr) -                    \
-                                  offsetof(type, member)));                    \
-        })
-
-#define container_of_const(ptr, type, member)                                  \
-        ({                                                                     \
-                static_assert(TYPESAME(*(ptr), ((type *)0)->member) ||         \
-                                      TYPESAME(*(ptr), void),                  \
-                              "pointer type mismatch in container_of()");      \
-                _Generic((ptr),                                                \
-                        const typeof(*(ptr)) *: (const type *)((               \
-                                const void *)((const char *)(ptr) -            \
-                                              offsetof(type, member))),        \
-                        default: (                                             \
-                                 (type *)((void *)((__UINTPTR_TYPE__)(ptr) -   \
-                                                   offsetof(type, member))))); \
-        })
-
-#define constexpr(expr)                                                        \
-        ({                                                                     \
-                static_assert(constant_p(expr),                                \
-                              "constexpr: requires a compile-time constant "   \
-                              "expression");                                   \
-                (expr)                                                         \
-        })
-
 #endif

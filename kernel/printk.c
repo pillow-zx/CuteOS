@@ -36,6 +36,7 @@
 #include <kernel/printk.h>
 #include <asm/csr.h>
 #include <asm/sbi.h>
+#include <drivers/uart.h>
 
 /* 控制台字符输出后端，由 console_init_sbi() 设置 */
 static void (*console_putc)(int ch);
@@ -69,6 +70,20 @@ static void console_write(const char *s)
 void console_init_sbi(void)
 {
         console_putc = sbi_console_putchar;
+}
+
+/*
+ * console_init_mmio - 将 printk 底层切换到 UART MMIO
+ *
+ * 初始化 NS16550A UART 硬件，然后将 console_putc 指向
+ * uart_putc。此后 printk 输出不再经过 SBI ecall，
+ * 而是直接读写 UART 寄存器。
+ * 必须在正式页表建立后调用（MMIO 映射可用）。
+ */
+void console_init_mmio(void)
+{
+        uart_init();
+        console_putc = uart_putc;
 }
 
 /*

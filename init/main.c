@@ -39,5 +39,8 @@ void kernel_main(void)
 	printk("DRAM: %dMB at 0x80000000\n", (int)(DRAM_SIZE >> 20));
 	kernel_pagetable_init();
 
+	console_init_mmio();
+	printk("console: switched to UART MMIO\n");
+
 	sbi_shutdown();
 }

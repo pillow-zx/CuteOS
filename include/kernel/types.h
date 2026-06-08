@@ -18,8 +18,6 @@
  *   NULL / nullptr                            - Null pointer constant
  */
 
-#include <kernel/compiler.h>
-
 typedef unsigned char           uint8_t;
 typedef unsigned short          uint16_t;
 typedef unsigned int            uint32_t;
@@ -44,26 +42,9 @@ enum {
         true = 1,
 };
 
+#define auto __auto_type
+
 #define NULL ((void *)0)
 #define nullptr ((void *)0)
 
-#define MAX(a, b)                                                              \
-        ({                                                                     \
-                static_assert(                                                 \
-                        TYPESAME(a, b),                                        \
-                        "MAX requires both arguments to be the same type");     \
-                typeof(a) _a = (a);                                            \
-                typeof(b) _b = b;                                              \
-                _a > _b ? _a : _b;                                             \
-        })
-
-#define MIN(a, b)                                                              \
-        ({                                                                     \
-                static_assert(                                                 \
-                        types_compatible(a, b),                                \
-                        "MIN Requires both arguments to be the same type");     \
-                typeof(a) _a = (a);                                            \
-                typeof(b) _b = (b);                                            \
-                _a < _b ? _a : _b;                                             \
-        })
 #endif

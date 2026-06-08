@@ -187,7 +187,7 @@ void kernel_pagetable_init(void)
 	uintptr_t satp_val = SATP_MODE_SV39 | (pgd_pa >> PAGE_SHIFT);
 
 	csr_write(satp, satp_val);
-	asm volatile("sfence.vma" ::: "memory");
+	sfence_vma_all();
 
 	printk("page_table: switched to kernel page table (pgd=%p, "
 	       "early_alloc=%dKB)\n",

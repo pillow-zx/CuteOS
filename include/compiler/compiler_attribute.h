@@ -33,7 +33,7 @@
 #define __maybe_unused          __attribute__((__unused__))
 #define __must_check            __attribute__((__warn_unused_result__))
 #define __noreturn              __attribute__((__noreturn__))
-#define __always_inline         __attribute__((__always_inline__))
+#define __always_inline         inline __attribute__((__always_inline__))
 #define __noinline              __attribute__((__noinline__))
 #define __hot                   __attribute__((__hot__))
 #define __cold                  __attribute__((__cold__))

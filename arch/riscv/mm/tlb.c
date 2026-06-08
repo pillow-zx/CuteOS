@@ -19,3 +19,22 @@
  *   - sfence.vma 隐含内存排序屏障，确保之前的页表写操作对后续地址翻译可见
  *   - 在 SMP 环境下，其他 hart 的 TLB 需通过 IPI (SBI remote sfence) 刷新
  */
+
+#include <kernel/types.h>
+#include <asm/csr.h>
+
+static inline void local_sfence_vma(uintptr_t addr, uintptr_t asid)
+{
+        asm volatile("sfence.vma %0, %1" : : "r"(addr), "r"(asid) : "memory");
+}
+
+void sfence_vma_all(void)
+{
+        // addr=0, asid=0 => flush all mappings for current hart
+        local_sfence_vma(0, 0);
+}
+
+void sfence_vma_addr(uintptr_t va)
+{
+        local_sfence_vma(va, 0);
+}
