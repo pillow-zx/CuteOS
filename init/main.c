@@ -30,6 +30,7 @@
 #include <kernel/printk.h>
 #include <kernel/buddy.h>
 #include <kernel/slab.h>
+#include <kernel/task.h>
 #include <kernel/test.h>
 #include <asm/page.h>
 #include <asm/sbi.h>
@@ -50,6 +51,9 @@ void kernel_main(void)
 
 	trap_init();
 	printk("trap: init successfully\n");
+
+	task_init();
+	printk("task: init successfully\n");
 
 	timer_init();
 	printk("timer: init successfully\n");
