@@ -8,21 +8,21 @@
  *
  * 初始化流程（严格按依赖顺序）：
  *   1. console_init_sbi()       — SBI ecall 控制台，printk 可用
- *   2. printk("cuteOS starting...") / printk("DRAM: 256MB at 0x80000000")
- *   3. kernel_pagetable_init()  — 建立正式内核页表（4KB 页 + MMIO mega
- * page），写 satp
+ *   2. printk("cuteOS starting...")
+ *   3. kernel_pagetable_init()  — 建立正式内核页表（4KB 页 + MMIO mega page）
  *   4. console_init_mmio()      — 切换到 UART MMIO 轮询模式
  *   5. buddy_init()             — 物理页分配器（从 _end 到 DRAM 结束）
  *   6. slab_init()              — kmalloc 可用（8 组 size class）
- *   7. trap_init()              — stvec = __alltraps, sscratch = 0, SIE.STIE +
- * sstatus.SIE
+ *   7. trap_init()              — stvec = __alltraps, sscratch = 0, SIE.STIE
  *   8. task_init()              — 创建 idle (PID 0, BSS 静态), 设置 current
- *      └─ kernel_thread(init_process, NULL)  — 创建 init (PID 1)
  *   9. timer_init()             — Sstc stimecmp 设置首次时钟中断
- *  10. schedule()               — 切到 init, idle 在后台 wfi
+ *  10. sched_init()             — 初始化全局就绪队列
+ *  11. kernel_test()            — 运行内核自测
+ *  12. kernel_thread(init_process, NULL) — 创建 init (PID 1)
+ *  13. while(1) { wfi(); schedule(); }   — idle 循环
  *
  * 依赖关系：
- *   console → pagetable → buddy → slab → trap → task → timer → schedule
+ *   console → pagetable → buddy → slab → trap → task → timer → sched → thread
  *
  * 注意事项：
  *   不解析 DTB，所有参数（DRAM_BASE/DRAM_SIZE/设备地址）编译时硬编码。
@@ -40,38 +40,44 @@
 #include <asm/trap.h>
 #include <asm/csr.h>
 
+/* PID 1 init 内核线程入口 (kernel/init_process.c) */
+extern void init_process(void *arg);
+
 void kernel_main(void)
 {
-        console_init_sbi();
-        printk("cuteOS starting...\n");
+	console_init_sbi();
+	printk("cuteOS starting...\n");
 
-        kernel_pagetable_init();
-        console_init_mmio();
-        printk("uart: init successfully\n");
+	kernel_pagetable_init();
+	console_init_mmio();
+	printk("uart: init successfully\n");
 
-        buddy_init();
-        slab_init();
-        printk("mm: init successfully\n");
+	buddy_init();
+	slab_init();
+	printk("mm: init successfully\n");
 
-        trap_init();
-        printk("trap: init successfully\n");
+	trap_init();
+	printk("trap: init successfully\n");
 
-        task_init();
-        printk("task: init successfully\n");
+	task_init();
+	printk("task: init successfully\n");
 
-        timer_init();
-        printk("timer: init successfully\n");
+	timer_init();
+	printk("timer: init successfully\n");
 
-        sched_init();
-        printk("sched: init successfully\n");
+	sched_init();
+	printk("sched: init successfully\n");
 
-        printk("=== kernel test ===\n");
-        kernel_test();
-        printk("=== test done ===\n");
+	printk("=== kernel test ===\n");
+	kernel_test();
+	printk("=== test done ===\n");
 
-        /* 进入 idle 循环 — idle 进程的执行体 */
-        while (1) {
-                wfi();
-                schedule();
-        }
+	/* 创建 init 内核线程 (PID 1) */
+	kernel_thread(init_process, NULL);
+
+	/* 进入 idle 循环 — idle 进程的执行体 */
+	while (1) {
+		wfi();
+		schedule();
+	}
 }

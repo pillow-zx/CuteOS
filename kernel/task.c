@@ -21,6 +21,7 @@
  *                         在栈底写入 CANARY_MAGIC。
  *   task_free(task)     - 释放 task_struct 及其内核栈回 SLAB cache。
  *   check_canary(task)  - 检查任务内核栈 canary 是否完好。
+ *   kernel_thread(fn,arg) - 创建内核线程并通过 __trapret 启动 fn(arg)。
  */
 
 #include <kernel/task.h>
@@ -29,7 +30,9 @@
 #include <kernel/buddy.h>
 #include <kernel/printk.h>
 #include <kernel/string.h>
+#include <kernel/sched.h>
 #include <asm/page.h>
+#include <asm/csr.h>
 
 /* ---- 全局变量 ---- */
 
@@ -142,4 +145,51 @@ void task_init(void)
 	current = &idle_task;
 
 	printk("task: idle (PID 0) created\n");
+}
+
+/* ---- 内核线程创建 ---- */
+
+/* entry.S 中的 trap 返回入口，switch_to 通过它启动新线程 */
+extern void __trapret(void);
+
+/**
+ * kernel_thread - 创建一个内核线程
+ * @fn:  线程入口函数
+ * @arg: 传递给入口函数的参数
+ *
+ * 在内核栈顶构造一个 trap_frame，设置 sepc=fn, a0=arg,
+ * sstatus=SPP|SPIE（S-mode 返回 + 中断使能）。
+ * ctx.ra 设为 __trapret，使 switch_to 首次切入时通过
+ * __trapret → sret 进入 fn(arg)。
+ */
+struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
+{
+	struct task_struct *task = task_alloc();
+	if (!task)
+		return NULL;
+
+	/* 在内核栈顶预留 trap_frame 空间 */
+	struct trap_frame *tf = (struct trap_frame *)
+		((uint8_t *)task->kstack + KSTACK_SIZE - sizeof(struct trap_frame));
+
+	memset(tf, 0, sizeof(struct trap_frame));
+
+	/* sret 后 PC 跳转到 fn, a0 传递 arg */
+	tf->sepc    = (size_t)fn;
+	tf->a0      = (size_t)arg;
+	/* SPP=1 → 返回 S-mode; SPIE=1 → sret 后 SIE=1 (中断使能) */
+	tf->sstatus = SSTATUS_SPP | SSTATUS_SPIE;
+
+	task->tf = tf;
+
+	/* switch_to 加载 ctx 后 ret → __trapret → 恢复 tf → sret → fn(arg) */
+	task->ctx.ra = (size_t)__trapret;
+	task->ctx.sp = (size_t)tf;
+
+	sched_enqueue(task);
+
+	printk("task: kernel thread (PID %d) created, fn=%p\n",
+	       task->pid, (void *)fn);
+
+	return task;
 }

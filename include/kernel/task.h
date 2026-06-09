@@ -129,4 +129,17 @@ void task_free(struct task_struct *task);
  */
 void check_canary(struct task_struct *task);
 
+/**
+ * kernel_thread - 创建一个内核线程
+ * @fn:  线程入口函数，签名为 void (*fn)(void *arg)
+ * @arg: 传递给入口函数的参数
+ *
+ * 分配 task_struct，在内核栈顶构造 trap_frame，使线程通过
+ * __trapret 恢复上下文后进入 fn(arg)。线程以 S-mode 运行，
+ * 中断使能（SPIE=1）。创建后自动加入就绪队列。
+ *
+ * 返回新创建的 task_struct，失败返回 NULL。
+ */
+struct task_struct *kernel_thread(void (*fn)(void *), void *arg);
+
 #endif
