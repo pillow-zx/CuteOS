@@ -45,39 +45,47 @@ extern void init_process(void *arg);
 
 void kernel_main(void)
 {
-	console_init_sbi();
-	printk("cuteOS starting...\n");
+        console_init_sbi();
 
-	kernel_pagetable_init();
-	console_init_mmio();
-	printk("uart: init successfully\n");
+	printk("\n");
+	printk("  /$$$$$$              /$$                /$$$$$$   /$$$$$$ \n");
+	printk(" /$$__  $$            | $$               /$$__  $$ /$$__  $$\n");
+	printk("| $$  \\__/ /$$   /$$ /$$$$$$    /$$$$$$ | $$  \\ $$| $$  \\__/\n");
+	printk("| $$      | $$  | $$|_  $$_/   /$$__  $$| $$  | $$|  $$$$$$ \n");
+	printk("| $$      | $$  | $$  | $$    | $$$$$$$$| $$  | $$ \\____  $$\n");
+	printk("| $$    $$| $$  | $$  | $$ /$$| $$_____/| $$  | $$ /$$  \\ $$\n");
+	printk("|  $$$$$$/|  $$$$$$/  |  $$$$/|  $$$$$$$|  $$$$$$/|  $$$$$$/\n");
+	printk(" \\______/  \\______/    \\___/   \\_______/ \\______/  \\______/ \n");
+	printk("\n");
 
-	buddy_init();
-	slab_init();
-	printk("mm: init successfully\n");
+        kernel_pagetable_init();
+        console_init_mmio();
+        printk("uart: init successfully\n");
 
-	trap_init();
-	printk("trap: init successfully\n");
+        buddy_init();
+        slab_init();
+        printk("mm: init successfully\n");
 
-	task_init();
-	printk("task: init successfully\n");
+        trap_init();
+        printk("trap: init successfully\n");
 
-	timer_init();
-	printk("timer: init successfully\n");
+        task_init();
+        printk("task: init successfully\n");
 
-	sched_init();
-	printk("sched: init successfully\n");
+        timer_init();
+        printk("timer: init successfully\n");
 
-	printk("=== kernel test ===\n");
-	kernel_test();
-	printk("=== test done ===\n");
+        sched_init();
+        printk("sched: init successfully\n");
 
-	/* 创建 init 内核线程 (PID 1) */
-	kernel_thread(init_process, NULL);
+        kernel_test();
 
-	/* 进入 idle 循环 — idle 进程的执行体 */
-	while (1) {
-		wfi();
-		schedule();
-	}
+        /* 创建 init 内核线程 (PID 1) */
+        kernel_thread(init_process, NULL);
+
+        /* 进入 idle 循环 — idle 进程的执行体 */
+        while (1) {
+                wfi();
+                schedule();
+        }
 }
