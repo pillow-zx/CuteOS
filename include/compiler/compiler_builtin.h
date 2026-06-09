@@ -36,6 +36,12 @@
 #define ctz(x)                          __builtin_ctz(x)
 #define ctzl(x)                         __builtin_ctzl(x)
 #define ctzll(x)                        __builtin_ctzll(x)
+
+
+#define popcount(x)                     __builtin_popcount(x)
+#define popcountl(x)                    __builtin_popcountl(x)
+#define popcountll(x)                   __builtin_popcountll(x)
+
 #define constant_p(exp)			__builtin_constant_p(exp)
 
 #define types_compatible(a, b)                                                 \

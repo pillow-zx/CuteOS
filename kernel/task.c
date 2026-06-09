@@ -13,11 +13,133 @@
  *   栈溢出检测，调度切换时校验 canary 完整性。
  *
  * 主要函数：
+ *   task_init()         - 初始化进程管理子系统：
+ *                         创建 idle (PID 0, BSS 静态),
+ *                         初始化 PID 分配器，设置 current 指针。
  *   task_alloc()        - 从 SLAB cache 分配一个新的 task_struct，
  *                         初始化各字段为默认值，分配 8KB 内核栈，
  *                         在栈底写入 CANARY_MAGIC。
  *   task_free(task)     - 释放 task_struct 及其内核栈回 SLAB cache。
- *   kernel_thread(fn, arg, flags) - 创建内核线程。分配 task_struct，
- *                         设置入口函数和参数，初始化内核栈布局
- *                         （switch_to 上下文帧），将线程加入就绪队列。
+ *   check_canary(task)  - 检查任务内核栈 canary 是否完好。
  */
+
+#include <kernel/task.h>
+#include <kernel/pid.h>
+#include <kernel/slab.h>
+#include <kernel/buddy.h>
+#include <kernel/printk.h>
+#include <kernel/string.h>
+#include <asm/page.h>
+
+/* ---- 全局变量 ---- */
+
+/* idle 进程，BSS 段静态分配 */
+struct task_struct	idle_task;
+
+/* 当前运行的进程 */
+struct task_struct	*current;
+
+/* ---- 内联辅助 ---- */
+
+/**
+ * stack_canary_ptr - 获取内核栈 canary 的地址
+ * @task: 目标任务
+ *
+ * canary 位于栈底（最低地址）的前 8 字节。
+ */
+static inline uint64_t *stack_canary_ptr(struct task_struct *task)
+{
+	return (uint64_t *)task->kstack;
+}
+
+/* ---- 公共接口 ---- */
+
+void check_canary(struct task_struct *task)
+{
+	if (!task->kstack)
+		return;
+
+	uint64_t canary = *stack_canary_ptr(task);
+	BUG_ON(canary != CANARY_MAGIC);
+}
+
+struct task_struct *task_alloc(void)
+{
+	/* 1. 从 SLAB 分配 task_struct */
+	struct task_struct *task = kmalloc(sizeof(struct task_struct));
+	if (!task)
+		return NULL;
+
+	/* 2. 从 buddy 分配内核栈 (8KB = 2 pages) */
+	void *kstack = get_free_page(KSTACK_ORDER);
+	if (!kstack) {
+		kfree(task);
+		return NULL;
+	}
+
+	/* 3. 分配 PID */
+	int32_t pid = alloc_pid();
+	if (pid < 0) {
+		free_page(kstack, KSTACK_ORDER);
+		kfree(task);
+		return NULL;
+	}
+
+	/* 4. 初始化 task_struct */
+	memset(task, 0, sizeof(struct task_struct));
+	task->pid = (pid_t)pid;
+	task->state = TASK_RUNNING;
+	task->kstack = kstack;
+	task->tf = NULL;
+	task->mm = NULL;
+
+	INIT_LIST_HEAD(&task->children);
+	INIT_LIST_HEAD(&task->sibling);
+	INIT_LIST_HEAD(&task->run_list);
+
+	/* 5. 内核栈清零并在栈底写入 canary */
+	memset(kstack, 0, KSTACK_SIZE);
+	*stack_canary_ptr(task) = CANARY_MAGIC;
+
+	return task;
+}
+
+void task_free(struct task_struct *task)
+{
+	if (!task)
+		return;
+
+	/* 释放 PID */
+	free_pid(task->pid);
+
+	/* 释放内核栈 */
+	if (task->kstack) {
+		free_page(task->kstack, KSTACK_ORDER);
+		task->kstack = NULL;
+	}
+
+	/* 释放 task_struct */
+	kfree(task);
+}
+
+void task_init(void)
+{
+	/* 1. 初始化 PID 分配器 */
+	pid_init();
+
+	/* 2. 初始化 idle 进程（PID 0，BSS 静态分配） */
+	memset(&idle_task, 0, sizeof(struct task_struct));
+	idle_task.pid = 0;
+	idle_task.state = TASK_RUNNING;
+	idle_task.kstack = NULL; /* idle 使用 boot_stack，无独立内核栈 */
+	idle_task.mm = NULL;
+
+	INIT_LIST_HEAD(&idle_task.children);
+	INIT_LIST_HEAD(&idle_task.sibling);
+	INIT_LIST_HEAD(&idle_task.run_list);
+
+	/* 3. 设置 current 指针 */
+	current = &idle_task;
+
+	printk("task: idle (PID 0) created\n");
+}
