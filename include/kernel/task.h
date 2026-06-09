@@ -37,7 +37,11 @@
 #include <kernel/types.h>
 #include <kernel/list.h>
 #include <kernel/compiler.h>
+#include <asm/page.h>
 #include <asm/trap.h>
+
+/* 前向声明，避免循环依赖 */
+struct mm_struct;
 
 /* ---- 任务状态 ---- */
 
@@ -49,7 +53,7 @@
 /* ---- 内核栈常量 ---- */
 
 #define KSTACK_ORDER	1	/* 2^1 = 2 页 = 8KB */
-#define KSTACK_SIZE	(1UL << 12 << KSTACK_ORDER) /* 8192 字节 */
+#define KSTACK_SIZE	(PAGE_SIZE << KSTACK_ORDER) /* 8192 字节 */
 
 #define CANARY_MAGIC	0xDEADBEEFDEADBEEFUL
 
@@ -66,7 +70,7 @@ struct task_struct {
 	void			*kstack;	/* 栈底（低地址） */
 
 	/* 内存管理（后续 Stage 使用） */
-	void			*mm;		/* 指向 mm_struct，内核线程为 NULL */
+	struct mm_struct	*mm;		/* 指向 mm_struct，内核线程为 NULL */
 
 	/* 文件描述符（后续 Stage 使用） */
 	void			*fd_array[32];	/* 打开的文件 */

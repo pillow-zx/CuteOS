@@ -176,7 +176,7 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 
 	/* sret 后 PC 跳转到 fn, a0 传递 arg */
 	tf->sepc    = (size_t)fn;
-	tf->a0      = (size_t)arg;
+	tf->a0      = (uintptr_t)arg;
 	/* SPP=1 → 返回 S-mode; SPIE=1 → sret 后 SIE=1 (中断使能) */
 	tf->sstatus = SSTATUS_SPP | SSTATUS_SPIE;
 

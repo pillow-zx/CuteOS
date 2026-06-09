@@ -30,6 +30,7 @@
 #include <kernel/page.h>
 #include <kernel/list.h>
 #include <kernel/sched.h>
+#include <kernel/timer.h>
 #include <asm/page.h>
 #include <asm/trap.h>
 #include <asm/csr.h>
@@ -350,12 +351,12 @@ static void test_buddy_stress(void)
 {
 	TEST_BEGIN("buddy: stress alloc/free cycle");
 	{
-#define STRESS_N 64
-		void *ptrs[STRESS_N];
+#define BUDDY_STRESS_N 64
+		void *ptrs[BUDDY_STRESS_N];
 
 		for (int round = 0; round < 3; round++) {
 			/* 分配 */
-			for (int i = 0; i < STRESS_N; i++) {
+			for (int i = 0; i < BUDDY_STRESS_N; i++) {
 				ptrs[i] = get_free_page(0);
 				TEST_ASSERT_NOT_NULL(ptrs[i]);
 				memset(ptrs[i], (uint8_t)(round + i),
@@ -363,10 +364,10 @@ static void test_buddy_stress(void)
 			}
 
 			/* 释放 */
-			for (int i = 0; i < STRESS_N; i++)
+			for (int i = 0; i < BUDDY_STRESS_N; i++)
 				free_page(ptrs[i], 0);
 		}
-#undef STRESS_N
+#undef BUDDY_STRESS_N
 	}
 	TEST_END("buddy: stress alloc/free cycle");
 	return;
@@ -421,32 +422,32 @@ static void test_slab_basic(void)
 {
 	TEST_BEGIN("slab: basic alloc/free");
 	{
-#define NR_CACHES 8
-		static const size_t sizes[NR_CACHES] = {16,  32,  64,   128,
+#define SLAB_NR_CACHES 8
+		static const size_t sizes[SLAB_NR_CACHES] = {16,  32,  64,   128,
 							256, 512, 1024, 2048};
-		void *ptrs[NR_CACHES];
+		void *ptrs[SLAB_NR_CACHES];
 
 		/* Phase 1: 分配各大小并写入模式 */
-		for (int i = 0; i < NR_CACHES; i++) {
+		for (int i = 0; i < SLAB_NR_CACHES; i++) {
 			ptrs[i] = kmalloc(sizes[i]);
 			TEST_ASSERT_NOT_NULL(ptrs[i]);
 			memset(ptrs[i], 0xAA, sizes[i]);
 		}
 
 		/* Phase 2: 全部释放 */
-		for (int i = 0; i < NR_CACHES; i++)
+		for (int i = 0; i < SLAB_NR_CACHES; i++)
 			kfree(ptrs[i]);
 
 		/* Phase 3: 再次分配（应从 free_list 取回） */
-		for (int i = 0; i < NR_CACHES; i++) {
+		for (int i = 0; i < SLAB_NR_CACHES; i++) {
 			ptrs[i] = kmalloc(sizes[i]);
 			TEST_ASSERT_NOT_NULL(ptrs[i]);
 		}
 
 		/* Phase 4: 再次释放 */
-		for (int i = 0; i < NR_CACHES; i++)
+		for (int i = 0; i < SLAB_NR_CACHES; i++)
 			kfree(ptrs[i]);
-#undef NR_CACHES
+#undef SLAB_NR_CACHES
 	}
 	TEST_END("slab: basic alloc/free");
 	return;
@@ -655,11 +656,6 @@ fail:
  *  Timer 测试
  * ================================================================ */
 
-/* timer.c 中声明的全局变量和函数 */
-extern volatile uint64_t jiffies;
-extern uint64_t get_mtime(void);
-extern void set_mtimecmp(uint64_t value);
-
 /**
  * test_timer_mtime - 测试 mtime 单调递增
  *
@@ -845,27 +841,27 @@ static void test_task_multiple(void)
 {
 	TEST_BEGIN("task: multiple tasks");
 	{
-#define N_TASKS 8
-		struct task_struct *tasks[N_TASKS];
-		pid_t pids[N_TASKS];
+#define TASK_N_TASKS 8
+		struct task_struct *tasks[TASK_N_TASKS];
+		pid_t pids[TASK_N_TASKS];
 
-		for (int i = 0; i < N_TASKS; i++) {
+		for (int i = 0; i < TASK_N_TASKS; i++) {
 			tasks[i] = task_alloc();
 			TEST_ASSERT_NOT_NULL(tasks[i]);
 			pids[i] = tasks[i]->pid;
 		}
 
 		/* 所有 PID 应互不相同 */
-		for (int i = 0; i < N_TASKS; i++) {
-			for (int j = i + 1; j < N_TASKS; j++) {
+		for (int i = 0; i < TASK_N_TASKS; i++) {
+			for (int j = i + 1; j < TASK_N_TASKS; j++) {
 				TEST_ASSERT_NE(pids[i], pids[j]);
 			}
 		}
 
 		/* 释放 */
-		for (int i = 0; i < N_TASKS; i++)
+		for (int i = 0; i < TASK_N_TASKS; i++)
 			task_free(tasks[i]);
-#undef N_TASKS
+#undef TASK_N_TASKS
 	}
 	TEST_END("task: multiple tasks");
 	return;

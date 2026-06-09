@@ -12,21 +12,11 @@
  * timer_init() 仅负责设置首次 stimecmp 比较值。
  * 中断使能（SIE.STIE、sstatus.SIE）由 trap_init() 统一管理。
  *
- * 主要函数：
- *   get_mtime()    - 读取 time CSR 获取当前时间计数器
- *   set_mtimecmp() - 写入 stimecmp CSR 设置下一次时钟中断
- *   timer_init()   - 设置首次超时值
- *
- * 全局变量：
- *   jiffies - 自启动以来的时钟中断总次数
+ * 常量和函数声明见 include/kernel/timer.h。
  */
 
-#include <kernel/types.h>
+#include <kernel/timer.h>
 #include <asm/csr.h>
-
-#define HZ              100
-#define MTIME_FREQ      10000000UL
-#define CLOCKS_PER_TICK (MTIME_FREQ / HZ) /* 100000 */
 
 volatile uint64_t jiffies = 0;
 

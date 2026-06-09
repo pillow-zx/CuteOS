@@ -208,6 +208,10 @@ void free_page(void *addr, uint32_t order)
 
         size_t pfn = virt_to_pfn(addr);
 
+        if (pfn >= total_pages)
+                panic("free_page: pfn %zu out of range (total %zu)",
+                      pfn, total_pages);
+
         /* 标记为空闲 */
         mem_map[pfn].flags = 0;
         mem_map[pfn].refcount = 0;

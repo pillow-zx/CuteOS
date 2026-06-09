@@ -17,6 +17,7 @@
 #include <kernel/printk.h>
 #include <kernel/sched.h>
 #include <kernel/task.h>
+#include <asm/csr.h>
 
 /**
  * init_process - PID 1 init 内核线程入口
@@ -30,6 +31,8 @@ void init_process(void *arg)
 	(void)arg;
 	printk("init running (PID %d)\n", current->pid);
 
-	while (1)
+	while (1) {
+		wfi();
 		schedule();
+	}
 }

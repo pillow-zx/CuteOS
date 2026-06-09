@@ -17,11 +17,7 @@
 #include <kernel/types.h>
 #include <kernel/sched.h>
 #include <kernel/task.h>
-
-extern volatile uint64_t jiffies;
-
-/* Timer tick interval: MTIME_FREQ / HZ = 10000000 / 100 = 100000 */
-#define CLOCKS_PER_TICK 100000UL
+#include <kernel/timer.h>
 
 static const char *trap_origin(const struct trap_frame *tf)
 {

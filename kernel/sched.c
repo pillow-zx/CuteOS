@@ -33,6 +33,10 @@
 
 struct list_head runqueue;
 
+/* ---- 抢占计数器 ---- */
+
+volatile int preempt_count;
+
 /**
  * sched_init - 初始化调度器
  *
@@ -80,6 +84,9 @@ void sched_dequeue(struct task_struct *task)
  */
 void schedule(void)
 {
+        if (!preemptible())
+                return;
+
         if (list_empty(&runqueue))
                 return;
 

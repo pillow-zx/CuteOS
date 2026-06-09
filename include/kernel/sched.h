@@ -59,9 +59,28 @@ void sched_enqueue(struct task_struct *task);
  */
 void sched_dequeue(struct task_struct *task);
 
-/* ---- 抢占控制（当前为空宏） ---- */
+/* ---- 抢占控制 ---- */
 
-#define preempt_disable()	do {} while (0)
-#define preempt_enable()	do {} while (0)
+/**
+ * preempt_count - 抢占计数器
+ *
+ * 非 0 时禁止调度。中断处理中调用 schedule() 前应检查 preemptible()。
+ * 每个 preempt_disable() 递增，preempt_enable() 递减。
+ * 嵌套安全：可以多次 disable/enable 配对使用。
+ */
+extern volatile int preempt_count;
+
+#define preempt_disable()	do { preempt_count++; } while (0)
+#define preempt_enable()	do { preempt_count--; } while (0)
+
+/**
+ * preemptible - 检查当前是否允许调度
+ *
+ * 当 preempt_count == 0 时返回 true。
+ */
+static __always_inline bool preemptible(void)
+{
+	return preempt_count == 0;
+}
 
 #endif
