@@ -9,11 +9,13 @@
  * 初始化流程（严格按依赖顺序）：
  *   1. console_init_sbi()       — SBI ecall 控制台，printk 可用
  *   2. printk("cuteOS starting...") / printk("DRAM: 256MB at 0x80000000")
- *   3. kernel_pagetable_init()  — 建立正式内核页表（4KB 页 + MMIO mega page），写 satp
+ *   3. kernel_pagetable_init()  — 建立正式内核页表（4KB 页 + MMIO mega
+ * page），写 satp
  *   4. console_init_mmio()      — 切换到 UART MMIO 轮询模式
  *   5. buddy_init()             — 物理页分配器（从 _end 到 DRAM 结束）
  *   6. slab_init()              — kmalloc 可用（8 组 size class）
- *   7. trap_init()              — stvec = __alltraps, sscratch = 0, SIE.STIE + sstatus.SIE
+ *   7. trap_init()              — stvec = __alltraps, sscratch = 0, SIE.STIE +
+ * sstatus.SIE
  *   8. task_init()              — 创建 idle (PID 0, BSS 静态), 设置 current
  *      └─ kernel_thread(init_process, NULL)  — 创建 init (PID 1)
  *   9. timer_init()             — Sstc stimecmp 设置首次时钟中断
@@ -32,36 +34,44 @@
 #include <kernel/slab.h>
 #include <kernel/task.h>
 #include <kernel/test.h>
+#include <kernel/sched.h>
 #include <asm/page.h>
 #include <asm/sbi.h>
 #include <asm/trap.h>
+#include <asm/csr.h>
 
 void kernel_main(void)
 {
-	console_init_sbi();
-	printk("cuteOS starting...\n");
+        console_init_sbi();
+        printk("cuteOS starting...\n");
 
-	kernel_pagetable_init();
-	console_init_mmio();
-	printk("uart: init successfully\n");
+        kernel_pagetable_init();
+        console_init_mmio();
+        printk("uart: init successfully\n");
 
-	buddy_init();
-	slab_init();
-	printk("mm: init successfully\n");
+        buddy_init();
+        slab_init();
+        printk("mm: init successfully\n");
 
-	trap_init();
-	printk("trap: init successfully\n");
+        trap_init();
+        printk("trap: init successfully\n");
 
-	task_init();
-	printk("task: init successfully\n");
+        task_init();
+        printk("task: init successfully\n");
 
-	timer_init();
-	printk("timer: init successfully\n");
+        timer_init();
+        printk("timer: init successfully\n");
+
+        sched_init();
+        printk("sched: init successfully\n");
 
         printk("=== kernel test ===\n");
-	kernel_test();
+        kernel_test();
         printk("=== test done ===\n");
 
-	printk("cuteOS shutdown...\n");
-	sbi_shutdown();
+        /* 进入 idle 循环 — idle 进程的执行体 */
+        while (1) {
+                wfi();
+                schedule();
+        }
 }

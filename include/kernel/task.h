@@ -83,6 +83,7 @@ struct task_struct {
 
 	/* 调度 */
 	struct list_head	run_list;	/* 就绪队列节点 */
+	volatile uint8_t	need_resched;	/* 时钟 tick 置位，trap 返回前触发调度 */
 };
 
 /* ---- 全局变量 ---- */

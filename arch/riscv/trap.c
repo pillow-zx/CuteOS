@@ -15,6 +15,8 @@
 #include <asm/sbi.h>
 #include <kernel/printk.h>
 #include <kernel/types.h>
+#include <kernel/sched.h>
+#include <kernel/task.h>
 
 extern volatile uint64_t jiffies;
 
@@ -37,6 +39,11 @@ static void handle_timer_irq(void)
 {
         jiffies++;
         set_mtimecmp(get_mtime() + CLOCKS_PER_TICK);
+
+        /* 非 idle 的 RUNNING 进程标记需要调度 */
+        if (current && current != &idle_task &&
+            current->state == TASK_RUNNING)
+                current->need_resched = 1;
 }
 
 /*
@@ -55,6 +62,10 @@ void trap_handler(struct trap_frame *tf)
                 switch (code) {
                 case IRQ_S_TIMER:
                         handle_timer_irq();
+                        if (current && current->need_resched) {
+                                current->need_resched = 0;
+                                schedule();
+                        }
                         return;
                 default:
                         panic("unhandled interrupt: origin=%s scause=0x%lx "

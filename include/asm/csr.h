@@ -56,6 +56,8 @@
 #define csr_clear(csr, bits)                                                   \
         ({ asm volatile("csrc " #csr ", %0" ::"rK"(bits)); })
 
+#define wfi() ({ asm volatile("wfi"); })
+
 void sfence_vma_all(void);
 void sfence_vma_addr(uintptr_t va);
 
