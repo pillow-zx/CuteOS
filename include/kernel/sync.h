@@ -15,10 +15,10 @@
  */
 
 typedef struct {
-        volatile int locked;
+	volatile int locked;
 } spinlock_t;
 
-#define SPINLOCK_INIT        { .locked = 0 }
+#define SPINLOCK_INIT	      {.locked = 0}
 #define DEFINE_SPINLOCK(name) spinlock_t name = SPINLOCK_INIT
 
 #endif

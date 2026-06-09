@@ -284,8 +284,7 @@ static void test_buddy_multi_order(void)
 			/* 写入首尾字节 */
 			memset(ptrs[order], 0xCC, size);
 			TEST_ASSERT(((uint8_t *)ptrs[order])[0] == 0xCC);
-			TEST_ASSERT(((uint8_t *)ptrs[order])[size - 1] ==
-				    0xCC);
+			TEST_ASSERT(((uint8_t *)ptrs[order])[size - 1] == 0xCC);
 		}
 
 		/* 全部释放 */
@@ -423,8 +422,8 @@ static void test_slab_basic(void)
 	TEST_BEGIN("slab: basic alloc/free");
 	{
 #define SLAB_NR_CACHES 8
-		static const size_t sizes[SLAB_NR_CACHES] = {16,  32,  64,   128,
-							256, 512, 1024, 2048};
+		static const size_t sizes[SLAB_NR_CACHES] = {
+			16, 32, 64, 128, 256, 512, 1024, 2048};
 		void *ptrs[SLAB_NR_CACHES];
 
 		/* Phase 1: 分配各大小并写入模式 */
@@ -466,8 +465,8 @@ static void test_slab_cross_cache(void)
 	TEST_BEGIN("slab: cross-cache sizes");
 	{
 		/* 非对齐大小，kmalloc 应向上取整 */
-		size_t odd_sizes[] = {1, 7, 15, 17, 33, 65, 100, 200, 500,
-				      1000, 1500};
+		size_t odd_sizes[] = {1,   7,	15,  17,   33,	65,
+				      100, 200, 500, 1000, 1500};
 		int n = sizeof(odd_sizes) / sizeof(odd_sizes[0]);
 		void *ptrs[16];
 
@@ -541,8 +540,7 @@ static void test_trap_frame_layout(void)
 		TEST_ASSERT_EQ(sizeof(tf), (size_t)(35 * sizeof(size_t)));
 
 		/* 验证 sepc 在最前面 */
-		TEST_ASSERT_EQ(offsetof(struct trap_frame, sepc),
-			       (size_t)0);
+		TEST_ASSERT_EQ(offsetof(struct trap_frame, sepc), (size_t)0);
 
 		/* 验证 scause 偏移 = 32 * sizeof(size_t) */
 		TEST_ASSERT_EQ(offsetof(struct trap_frame, scause),
@@ -606,8 +604,7 @@ static void test_trap_context_layout(void)
 		(void)ctx;
 
 		/* 14 个 callee-saved 寄存器 */
-		TEST_ASSERT_EQ(sizeof(ctx),
-			       (size_t)(14 * sizeof(size_t)));
+		TEST_ASSERT_EQ(sizeof(ctx), (size_t)(14 * sizeof(size_t)));
 
 		/* ra 在最前 */
 		TEST_ASSERT_EQ(offsetof(struct context, ra), (size_t)0);
@@ -899,7 +896,7 @@ static void test_task_process_tree(void)
 
 		int child_count = 0;
 		struct task_struct *pos;
-		list_for_each_entry(pos, &parent->children, sibling)
+		list_for_each_entry (pos, &parent->children, sibling)
 			child_count++;
 		TEST_ASSERT_EQ(child_count, 2);
 
@@ -996,18 +993,18 @@ static void test_sched_enqueue_dequeue(void)
 		TEST_ASSERT(!list_empty(&runqueue));
 
 		/* 出队应按 FIFO 顺序 */
-		struct task_struct *first =
-			list_first_entry(&runqueue, struct task_struct, run_list);
+		struct task_struct *first = list_first_entry(
+			&runqueue, struct task_struct, run_list);
 		TEST_ASSERT_EQ(first->pid, t1->pid);
 		sched_dequeue(first);
 
-		struct task_struct *second =
-			list_first_entry(&runqueue, struct task_struct, run_list);
+		struct task_struct *second = list_first_entry(
+			&runqueue, struct task_struct, run_list);
 		TEST_ASSERT_EQ(second->pid, t2->pid);
 		sched_dequeue(second);
 
-		struct task_struct *third =
-			list_first_entry(&runqueue, struct task_struct, run_list);
+		struct task_struct *third = list_first_entry(
+			&runqueue, struct task_struct, run_list);
 		TEST_ASSERT_EQ(third->pid, t3->pid);
 		sched_dequeue(third);
 
@@ -1117,16 +1114,18 @@ static void test_kernel_thread_ctx_setup(void)
 	TEST_BEGIN("kthread: ctx and trap_frame setup");
 	{
 		int test_arg_val = 0x1234;
-		struct task_struct *t = kernel_thread(dummy_thread_fn,
-						      (void *)(size_t)test_arg_val);
+		struct task_struct *t = kernel_thread(
+			dummy_thread_fn, (void *)(size_t)test_arg_val);
 		TEST_ASSERT_NOT_NULL(t);
 
 		/* ctx.ra 应指向 __trapret */
 		TEST_ASSERT_EQ(t->ctx.ra, (size_t)__trapret);
 
 		/* ctx.sp 应指向栈顶的 trap_frame */
-		struct trap_frame *expected_tf = (struct trap_frame *)
-			((uint8_t *)t->kstack + KSTACK_SIZE - sizeof(struct trap_frame));
+		struct trap_frame *expected_tf =
+			(struct trap_frame *)((uint8_t *)t->kstack +
+					      KSTACK_SIZE -
+					      sizeof(struct trap_frame));
 		TEST_ASSERT_EQ(t->ctx.sp, (size_t)expected_tf);
 
 		/* tf 指针正确 */
@@ -1234,8 +1233,8 @@ void kernel_test(void)
 
 	/* ---- 汇总 ---- */
 	printk("\n========================================\n");
-	printk("  Total: %d  |  Passed: %d  |  Failed: %d\n",
-	       (int)__test_total, (int)__test_passed, (int)__test_failed);
+	printk("  Total: %d  |  Passed: %d  |  Failed: %d\n", (int)__test_total,
+	       (int)__test_passed, (int)__test_failed);
 	printk("========================================\n");
 
 	if (__test_failed > 0)

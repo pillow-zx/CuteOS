@@ -37,10 +37,10 @@
 /* ---- 全局变量 ---- */
 
 /* idle 进程，BSS 段静态分配 */
-struct task_struct	idle_task;
+struct task_struct idle_task;
 
 /* 当前运行的进程 */
-struct task_struct	*current;
+struct task_struct *current;
 
 /* ---- 内联辅助 ---- */
 
@@ -169,14 +169,15 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 		return NULL;
 
 	/* 在内核栈顶预留 trap_frame 空间 */
-	struct trap_frame *tf = (struct trap_frame *)
-		((uint8_t *)task->kstack + KSTACK_SIZE - sizeof(struct trap_frame));
+	struct trap_frame *tf =
+		(struct trap_frame *)((uint8_t *)task->kstack + KSTACK_SIZE -
+				      sizeof(struct trap_frame));
 
 	memset(tf, 0, sizeof(struct trap_frame));
 
 	/* sret 后 PC 跳转到 fn, a0 传递 arg */
-	tf->sepc    = (size_t)fn;
-	tf->a0      = (uintptr_t)arg;
+	tf->sepc = (size_t)fn;
+	tf->a0 = (uintptr_t)arg;
 	/* SPP=1 → 返回 S-mode; SPIE=1 → sret 后 SIE=1 (中断使能) */
 	tf->sstatus = SSTATUS_SPP | SSTATUS_SPIE;
 
@@ -188,8 +189,8 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 
 	sched_enqueue(task);
 
-	printk("task: kernel thread (PID %d) created, fn=%p\n",
-	       task->pid, (void *)fn);
+	printk("task: kernel thread (PID %d) created, fn=%p\n", task->pid,
+	       (void *)fn);
 
 	return task;
 }

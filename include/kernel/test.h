@@ -43,8 +43,7 @@ extern uint32_t __test_failed;
  *
  * 用于 kernel_test() 中各子系统之间的视觉分隔。
  */
-#define TEST_SECTION(name)                                                     \
-	printk("\n=== " name " ===\n")
+#define TEST_SECTION(name) printk("\n=== " name " ===\n")
 
 /**
  * TEST_BEGIN - 开始一项测试用例
@@ -52,8 +51,7 @@ extern uint32_t __test_failed;
  *
  * 打印测试开始标记。
  */
-#define TEST_BEGIN(name)                                                       \
-	printk("  [TEST] %s ... ", name)
+#define TEST_BEGIN(name) printk("  [TEST] %s ... ", name)
 
 /**
  * TEST_END - 结束一项测试用例（通过）
@@ -72,8 +70,7 @@ extern uint32_t __test_failed;
  * TEST_PASS - 快速打印通过信息
  * @name: 测试名称
  */
-#define TEST_PASS(name)                                                        \
-	printk("  [PASS] %s\n", name)
+#define TEST_PASS(name) printk("  [PASS] %s\n", name)
 
 /**
  * TEST_FAIL - 快速打印失败信息
@@ -117,8 +114,8 @@ extern uint32_t __test_failed;
 	do {                                                                   \
 		if (unlikely(!(cond))) {                                       \
 			printk("FAIL\n");                                      \
-			printk("    assert %s failed at %s:%d\n",              \
-			       #cond, __FILE__, __LINE__);                     \
+			printk("    assert %s failed at %s:%d\n", #cond,       \
+			       __FILE__, __LINE__);                            \
 			__test_failed++;                                       \
 			__test_total++;                                        \
 			goto fail;                                             \
@@ -130,14 +127,14 @@ extern uint32_t __test_failed;
  * @a: 左操作数
  * @b: 右操作数
  */
-#define TEST_ASSERT_EQ(a, b)                                                  \
+#define TEST_ASSERT_EQ(a, b)                                                   \
 	do {                                                                   \
 		if (unlikely((a) != (b))) {                                    \
 			printk("FAIL\n");                                      \
 			printk("    assert %s == %s failed"                    \
-			       " (0x%lx != 0x%lx) at %s:%d\n",                \
-			       #a, #b, (unsigned long)(a),                     \
-			       (unsigned long)(b), __FILE__, __LINE__);        \
+			       " (0x%lx != 0x%lx) at %s:%d\n",                 \
+			       #a, #b, (unsigned long)(a), (unsigned long)(b), \
+			       __FILE__, __LINE__);                            \
 			__test_failed++;                                       \
 			__test_total++;                                        \
 			goto fail;                                             \
@@ -149,7 +146,7 @@ extern uint32_t __test_failed;
  * @a: 左操作数
  * @b: 右操作数
  */
-#define TEST_ASSERT_NE(a, b)                                                  \
+#define TEST_ASSERT_NE(a, b)                                                   \
 	do {                                                                   \
 		if (unlikely((a) == (b))) {                                    \
 			printk("FAIL\n");                                      \
@@ -166,7 +163,7 @@ extern uint32_t __test_failed;
  * TEST_ASSERT_NULL - 断言指针为 NULL
  * @p: 指针表达式
  */
-#define TEST_ASSERT_NULL(p)                                                   \
+#define TEST_ASSERT_NULL(p)                                                    \
 	do {                                                                   \
 		if (unlikely((p) != NULL)) {                                   \
 			printk("FAIL\n");                                      \
@@ -183,13 +180,13 @@ extern uint32_t __test_failed;
  * TEST_ASSERT_NOT_NULL - 断言指针不为 NULL
  * @p: 指针表达式
  */
-#define TEST_ASSERT_NOT_NULL(p)                                               \
+#define TEST_ASSERT_NOT_NULL(p)                                                \
 	do {                                                                   \
 		if (unlikely((p) == NULL)) {                                   \
 			printk("FAIL\n");                                      \
 			printk("    assert %s != NULL failed"                  \
 			       " at %s:%d\n",                                  \
-			       #p, __FILE__, __LINE__);                         \
+			       #p, __FILE__, __LINE__);                        \
 			__test_failed++;                                       \
 			__test_total++;                                        \
 			goto fail;                                             \
@@ -201,14 +198,14 @@ extern uint32_t __test_failed;
  * @p:     指针表达式
  * @align: 对齐值（必须是 2 的幂）
  */
-#define TEST_ASSERT_ALIGNED(p, align)                                         \
+#define TEST_ASSERT_ALIGNED(p, align)                                          \
 	do {                                                                   \
-		if (unlikely((uintptr_t)(p) & ((align) - 1))) {               \
+		if (unlikely((uintptr_t)(p) & ((align) - 1))) {                \
 			printk("FAIL\n");                                      \
 			printk("    assert %s aligned to %d failed"            \
 			       " (addr=%p) at %s:%d\n",                        \
-			       #p, (int)(align), (void *)(p),                  \
-			       __FILE__, __LINE__);                            \
+			       #p, (int)(align), (void *)(p), __FILE__,        \
+			       __LINE__);                                      \
 			__test_failed++;                                       \
 			__test_total++;                                        \
 			goto fail;                                             \

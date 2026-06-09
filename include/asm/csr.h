@@ -35,28 +35,28 @@
 #include <kernel/types.h>
 #include <kernel/bitops.h>
 
-#define SSTATUS_SPP     BIT(8)	/* Supervisor Previous Privilege */
-#define SSTATUS_SPIE    BIT(5)	/* Supervisor Previous Interrupt Enable */
-#define SSTATUS_SIE     BIT(1)
+#define SSTATUS_SPP  BIT(8) /* Supervisor Previous Privilege */
+#define SSTATUS_SPIE BIT(5) /* Supervisor Previous Interrupt Enable */
+#define SSTATUS_SIE  BIT(1)
 
-#define SIE_STIE        BIT(5)
-#define SIE_SEIE        BIT(9)
+#define SIE_STIE BIT(5)
+#define SIE_SEIE BIT(9)
 
-#define SATP_MODE_SV39  (8UL << 60)
+#define SATP_MODE_SV39 (8UL << 60)
 
 #define csr_read(csr)                                                          \
-        ({                                                                     \
-                size_t __v;                                                    \
-                asm volatile("csrr %0, " #csr : "=r"(__v));                    \
-                __v;                                                           \
-        })
+	({                                                                     \
+		size_t __v;                                                    \
+		asm volatile("csrr %0, " #csr : "=r"(__v));                    \
+		__v;                                                           \
+	})
 
 #define csr_write(csr, val) ({ asm volatile("csrw " #csr ", %0" ::"rK"(val)); })
 
 #define csr_set(csr, bits) ({ asm volatile("csrs " #csr ", %0" ::"rK"(bits)); })
 
 #define csr_clear(csr, bits)                                                   \
-        ({ asm volatile("csrc " #csr ", %0" ::"rK"(bits)); })
+	({ asm volatile("csrc " #csr ", %0" ::"rK"(bits)); })
 
 #define wfi() ({ asm volatile("wfi"); })
 

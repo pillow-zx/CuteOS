@@ -26,8 +26,8 @@
 
 /* ---- 时钟常量 ---- */
 
-#define HZ              100UL           /* 100 Hz tick = 10ms 间隔 */
-#define MTIME_FREQ      10000000UL      /* QEMU virt: mtime 频率 10 MHz */
+#define HZ		100UL		  /* 100 Hz tick = 10ms 间隔 */
+#define MTIME_FREQ	10000000UL	  /* QEMU virt: mtime 频率 10 MHz */
 #define CLOCKS_PER_TICK (MTIME_FREQ / HZ) /* 100000 ticks per interrupt */
 
 /* ---- 全局变量 ---- */

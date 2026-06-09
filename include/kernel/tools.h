@@ -47,70 +47,70 @@
 
 #define static_assert(cond, msg) _Static_assert(cond, msg)
 
-#define MMIO_READ(type, addr)       (*(volatile type *)(addr))
+#define MMIO_READ(type, addr)	    (*(volatile type *)(addr))
 #define MMIO_WRITE(type, addr, val) (*(volatile type *)(addr) = (val))
 
-#define IS_POWER_OF_2(x) ((x) != 0 && (((x) & ((x) - 1)) == 0))
+#define IS_POWER_OF_2(x)   ((x) != 0 && (((x) & ((x) - 1)) == 0))
 #define BUILD_BUG_ON(cond) ((void)sizeof(char[1 - 2 * !!(cond)]))
 
-#define TYPESAME(a, b)  types_compatible(a, b)
+#define TYPESAME(a, b)	types_compatible(a, b)
 #define ISARR(arr, msg) static_assert(!TYPESAME((arr), (&(arr)[0])), msg)
 #define ARRLEN(arr)                                                            \
-        ({                                                                     \
-                ISARR(arr,                                                     \
-                      "ARRLEN: argument must be an array, not an pointer");    \
-                sizeof((arr)) / sizeof((arr)[0]);                              \
-        })
+	({                                                                     \
+		ISARR(arr,                                                     \
+		      "ARRLEN: argument must be an array, not an pointer");    \
+		sizeof((arr)) / sizeof((arr)[0]);                              \
+	})
 
 #define container_of(ptr, type, member)                                        \
-        ({                                                                     \
-                static_assert(TYPESAME(*(ptr), ((type *)0)->member) ||         \
-                                      TYPESAME(*(ptr), void),                  \
-                              "pointer type mismatch in container_of()");      \
-                (type *)((void *)((__UINTPTR_TYPE__)(ptr) -                    \
-                                  offsetof(type, member)));                    \
-        })
+	({                                                                     \
+		static_assert(TYPESAME(*(ptr), ((type *)0)->member) ||         \
+				      TYPESAME(*(ptr), void),                  \
+			      "pointer type mismatch in container_of()");      \
+		(type *)((void *)((__UINTPTR_TYPE__)(ptr) -                    \
+				  offsetof(type, member)));                    \
+	})
 
 #define container_of_const(ptr, type, member)                                  \
-        ({                                                                     \
-                static_assert(TYPESAME(*(ptr), ((type *)0)->member) ||         \
-                                      TYPESAME(*(ptr), void),                  \
-                              "pointer type mismatch in container_of()");      \
-                _Generic((ptr),                                                \
-                        const typeof(*(ptr)) *: (const type *)((               \
-                                const void *)((const char *)(ptr) -            \
-                                              offsetof(type, member))),        \
-                        default: (                                             \
-                                 (type *)((void *)((__UINTPTR_TYPE__)(ptr) -   \
-                                                   offsetof(type, member))))); \
-        })
+	({                                                                     \
+		static_assert(TYPESAME(*(ptr), ((type *)0)->member) ||         \
+				      TYPESAME(*(ptr), void),                  \
+			      "pointer type mismatch in container_of()");      \
+		_Generic((ptr),                                                \
+			const typeof(*(ptr)) *: (const type *)((               \
+				const void *)((const char *)(ptr) -            \
+					      offsetof(type, member))),        \
+			default: (                                             \
+				 (type *)((void *)((__UINTPTR_TYPE__)(ptr) -   \
+						   offsetof(type, member))))); \
+	})
 
 #define constexpr(expr)                                                        \
-        ({                                                                     \
-                static_assert(constant_p(expr),                                \
-                              "constexpr: requires a compile-time constant "   \
-                              "expression");                                   \
-                (expr)                                                         \
-        })
+	({                                                                     \
+		static_assert(constant_p(expr),                                \
+			      "constexpr: requires a compile-time constant "   \
+			      "expression");                                   \
+		(expr)                                                         \
+	})
 
 #define MAX(a, b)                                                              \
-        ({                                                                     \
-                static_assert(                                                 \
-                        TYPESAME(a, b),                                        \
-                        "MAX requires both arguments to be the same type");    \
-                typeof(a) _a = (a);                                            \
-                typeof(b) _b = b;                                              \
-                _a > _b ? _a : _b;                                             \
-        })
+	({                                                                     \
+		static_assert(                                                 \
+			TYPESAME(a, b),                                        \
+			"MAX requires both arguments to be the same type");    \
+		typeof(a) _a = (a);                                            \
+		typeof(b) _b = b;                                              \
+		_a > _b ? _a : _b;                                             \
+	})
 
 #define MIN(a, b)                                                              \
-        ({                                                                     \
-                static_assert(                                                 \
-                        types_compatible(a, b),                                \
-                        "MIN Requires both arguments to be the same type");    \
-                typeof(a) _a = (a);                                            \
-                typeof(b) _b = (b);                                            \
-                _a < _b ? _a : _b;                                             \
-        })
+	({                                                                     \
+		static_assert(                                                 \
+			types_compatible(a, b),                                \
+			"MIN Requires both arguments to be the same type");    \
+		typeof(a) _a = (a);                                            \
+		typeof(b) _b = (b);                                            \
+		_a < _b ? _a : _b;                                             \
+	})
 
 #endif

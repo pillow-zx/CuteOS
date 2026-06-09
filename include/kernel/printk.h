@@ -42,16 +42,16 @@ int printk(const char *fmt, ...) __printf(1, 2);
 void __noreturn panic(const char *fmt, ...) __printf(1, 2) __cold;
 
 #define BUG_ON(cond)                                                           \
-        do {                                                                   \
-                if (unlikely(cond))                                            \
-                        panic("BUG: %s:%d %s\n", __FILE__, __LINE__, #cond);   \
-        } while (0)
+	do {                                                                   \
+		if (unlikely(cond))                                            \
+			panic("BUG: %s:%d %s\n", __FILE__, __LINE__, #cond);   \
+	} while (0)
 
 #define ASSERT(cond)                                                           \
-        do {                                                                   \
-                if (unlikely(!(cond)))                                         \
-                        panic("ASSERT: %s:%d %s\n", __FILE__, __LINE__,        \
-                              #cond);                                          \
-        } while (0)
+	do {                                                                   \
+		if (unlikely(!(cond)))                                         \
+			panic("ASSERT: %s:%d %s\n", __FILE__, __LINE__,        \
+			      #cond);                                          \
+	} while (0)
 
 #endif

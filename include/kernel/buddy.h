@@ -22,7 +22,7 @@
 #include <kernel/page.h>
 #include <kernel/list.h>
 
-#define MAX_ORDER	9	/* 最大分配阶：2^9 = 512 页 = 2 MB */
+#define MAX_ORDER 9 /* 最大分配阶：2^9 = 512 页 = 2 MB */
 
 /**
  * struct free_area - 某一阶的空闲页块集合

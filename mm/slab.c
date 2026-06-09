@@ -32,12 +32,11 @@
 
 /* ---- 常量 ---- */
 
-#define NR_CACHES	8
-#define SLOT_HDR_SIZE	8	/* cache_idx(4) + pad(4) */
+#define NR_CACHES     8
+#define SLOT_HDR_SIZE 8 /* cache_idx(4) + pad(4) */
 
-static const size_t cache_sizes[NR_CACHES] = {
-	16, 32, 64, 128, 256, 512, 1024, 2048
-};
+static const size_t cache_sizes[NR_CACHES] = {16,  32,	64,   128,
+					      256, 512, 1024, 2048};
 
 /* ---- 数据结构 ---- */
 

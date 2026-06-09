@@ -149,7 +149,8 @@ void kernel_pagetable_init(void)
 
 	/* 初始化 early allocator：从 _end 开始，4KB 对齐 */
 	uintptr_t end_addr = (uintptr_t)_end;
-	early_alloc_ptr = (char *)((end_addr + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1));
+	early_alloc_ptr =
+		(char *)((end_addr + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1));
 
 	/* 1. 分配 PGD 页 */
 	pte_t *pgd = (pte_t *)early_alloc_page();

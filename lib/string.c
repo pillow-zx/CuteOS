@@ -24,130 +24,127 @@
 
 void *memcpy(void *restrict dst, const void *restrict src, size_t n)
 {
-        unsigned char *d = dst;
-        const unsigned char *s = src;
+	unsigned char *d = dst;
+	const unsigned char *s = src;
 
-        while (n--)
-                *d++ = *s++;
+	while (n--)
+		*d++ = *s++;
 
-        return dst;
+	return dst;
 }
 
 void *memset(void *dst, int c, size_t n)
 {
-        unsigned char *p = dst;
+	unsigned char *p = dst;
 
-        while (n--)
-                *p++ = (unsigned char)c;
+	while (n--)
+		*p++ = (unsigned char)c;
 
-        return dst;
+	return dst;
 }
 
 int memcmp(const void *vl, const void *vr, size_t n)
 {
-        const unsigned char *l = vl, *r = vr;
-        for (; n && *l == *r; n--, l++, r++)
-                ;
-        return n ? *l - *r : 0;
+	const unsigned char *l = vl, *r = vr;
+	for (; n && *l == *r; n--, l++, r++)
+		;
+	return n ? *l - *r : 0;
 }
 
 void *memmove(void *dst, const void *src, size_t n)
 {
-        unsigned char *d = dst;
-        const unsigned char *s = src;
+	unsigned char *d = dst;
+	const unsigned char *s = src;
 
-        if (d == s)
-                return dst;
+	if (d == s)
+		return dst;
 
-        if (d < s) {
-                while (n--)
-                        *d++ = *s++;
-        } else {
-                d += n;
-                s += n;
+	if (d < s) {
+		while (n--)
+			*d++ = *s++;
+	} else {
+		d += n;
+		s += n;
 
-                while (n--)
-                        *--d = *--s;
-        }
+		while (n--)
+			*--d = *--s;
+	}
 
-        return dst;
+	return dst;
 }
 
 size_t strlen(const char *s)
 {
-        const char *a = s;
-        for (; *s; s++)
-                ;
-        return s - a;
+	const char *a = s;
+	for (; *s; s++)
+		;
+	return s - a;
 }
 
 int strcmp(const char *l, const char *r)
 {
-        for (; *l == *r && *l; l++, r++)
-                ;
-        return *(unsigned char *)l - *(unsigned char *)r;
+	for (; *l == *r && *l; l++, r++)
+		;
+	return *(unsigned char *)l - *(unsigned char *)r;
 }
 
 int strncmp(const char *_l, const char *_r, size_t n)
 {
-        const unsigned char *l = (void *)_l, *r = (void *)_r;
-        if (!n--)
-                return 0;
-        for (; *l && *r && n && *l == *r; l++, r++, n--)
-                ;
-        return *l - *r;
+	const unsigned char *l = (void *)_l, *r = (void *)_r;
+	if (!n--)
+		return 0;
+	for (; *l && *r && n && *l == *r; l++, r++, n--)
+		;
+	return *l - *r;
 }
 
 char *strcpy(char *restrict d, const char *restrict s)
 {
-        char *ret = d;
+	char *ret = d;
 
-        while ((*d++ = *s++))
-                ;
+	while ((*d++ = *s++))
+		;
 
-        return ret;
+	return ret;
 }
 
 char *strncpy(char *restrict d, const char *restrict s, size_t n)
 {
-        char *ret = d;
+	char *ret = d;
 
-        while (n && *s) {
-                *d++ = *s++;
-                n--;
-        }
+	while (n && *s) {
+		*d++ = *s++;
+		n--;
+	}
 
-        while (n--) {
-                *d++ = '\0';
-        }
+	while (n--)
+		*d++ = '\0';
 
-        return ret;
+	return ret;
 }
 
 char *strchr(const char *s, int c)
 {
-        c = (unsigned char)c;
-        if (!c) {
-                return (char *)s + strlen(s);
-        }
+	c = (unsigned char)c;
+	if (!c)
+		return (char *)s + strlen(s);
 
-        for (; *s && *(unsigned char *)s != c; s++)
-                ;
-        char *r = (char *)s;
+	for (; *s && *(unsigned char *)s != c; s++)
+		;
+	char *r = (char *)s;
 
-        return *(unsigned char *)r == (unsigned char)c ? r : 0;
+	return *(unsigned char *)r == (unsigned char)c ? r : 0;
 }
 
 char *strrchr(const char *s, int c)
 {
-        const unsigned char *m = (void *)s;
-        c = (unsigned char)c;
-        size_t n = strlen(s) + 1;
+	const unsigned char *m = (void *)s;
+	c = (unsigned char)c;
+	size_t n = strlen(s) + 1;
 
-        while (n--) {
-                if (m[n] == c) {
-                        return (void *)(m + n);
-                }
-        }
-        return 0;
+	while (n--) {
+		if (m[n] == c)
+			return (void *)(m + n);
+	}
+	return 0;
 }

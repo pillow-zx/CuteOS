@@ -16,11 +16,11 @@ extern void __alltraps(void);
 
 void trap_init(void)
 {
-        csr_write(stvec, __alltraps);
-        csr_write(sscratch, 0);
-        csr_set(sie, SIE_STIE);
-        csr_set(sstatus, SSTATUS_SIE);
-        printk("stvec: 0x%lx, sscratch: 0x%lx, sie: 0x%lx, sstatus: 0x%lx\n",
-               csr_read(stvec), csr_read(sscratch), csr_read(sie),
-               csr_read(sstatus));
+	csr_write(stvec, __alltraps);
+	csr_write(sscratch, 0);
+	csr_set(sie, SIE_STIE);
+	csr_set(sstatus, SSTATUS_SIE);
+	printk("stvec: 0x%lx, sscratch: 0x%lx, sie: 0x%lx, sstatus: 0x%lx\n",
+	       csr_read(stvec), csr_read(sscratch), csr_read(sie),
+	       csr_read(sstatus));
 }

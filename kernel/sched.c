@@ -45,8 +45,8 @@ volatile int preempt_count;
  */
 void sched_init(void)
 {
-        INIT_LIST_HEAD(&runqueue);
-        printk("sched: runqueue initialized\n");
+	INIT_LIST_HEAD(&runqueue);
+	printk("sched: runqueue initialized\n");
 }
 
 /**
@@ -55,8 +55,8 @@ void sched_init(void)
  */
 void sched_enqueue(struct task_struct *task)
 {
-        BUG_ON(!list_empty(&task->run_list));
-        list_add_tail(&task->run_list, &runqueue);
+	BUG_ON(!list_empty(&task->run_list));
+	list_add_tail(&task->run_list, &runqueue);
 }
 
 /**
@@ -65,7 +65,7 @@ void sched_enqueue(struct task_struct *task)
  */
 void sched_dequeue(struct task_struct *task)
 {
-        list_del(&task->run_list);
+	list_del(&task->run_list);
 }
 
 /**
@@ -84,28 +84,28 @@ void sched_dequeue(struct task_struct *task)
  */
 void schedule(void)
 {
-        if (!preemptible())
-                return;
+	if (!preemptible())
+		return;
 
-        if (list_empty(&runqueue))
-                return;
+	if (list_empty(&runqueue))
+		return;
 
-        struct task_struct *next =
-                list_first_entry(&runqueue, struct task_struct, run_list);
-        list_del(&next->run_list);
+	struct task_struct *next =
+		list_first_entry(&runqueue, struct task_struct, run_list);
+	list_del(&next->run_list);
 
-        struct task_struct *prev = current;
+	struct task_struct *prev = current;
 
-        /* 将当前进程重新入队，除非它是 idle 或即将睡眠 */
-        if (prev != &idle_task && prev->state == TASK_RUNNING)
-                list_add_tail(&prev->run_list, &runqueue);
+	/* 将当前进程重新入队，除非它是 idle 或即将睡眠 */
+	if (prev != &idle_task && prev->state == TASK_RUNNING)
+		list_add_tail(&prev->run_list, &runqueue);
 
-        /* 切换前检查栈 canary */
-        check_canary(prev);
+	/* 切换前检查栈 canary */
+	check_canary(prev);
 
-        /* 更新当前进程指针 */
-        current = next;
+	/* 更新当前进程指针 */
+	current = next;
 
-        /* 上下文切换 */
-        switch_to(&prev->ctx, &next->ctx);
+	/* 上下文切换 */
+	switch_to(&prev->ctx, &next->ctx);
 }

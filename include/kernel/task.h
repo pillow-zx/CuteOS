@@ -45,58 +45,58 @@ struct mm_struct;
 
 /* ---- 任务状态 ---- */
 
-#define TASK_RUNNING	0	/* 可运行或正在执行 */
-#define TASK_SLEEPING	1	/* 等待事件 */
-#define TASK_ZOMBIE	2	/* 已退出，等待父进程回收 */
-#define TASK_DEAD	3	/* 已被回收 */
+#define TASK_RUNNING  0 /* 可运行或正在执行 */
+#define TASK_SLEEPING 1 /* 等待事件 */
+#define TASK_ZOMBIE   2 /* 已退出，等待父进程回收 */
+#define TASK_DEAD     3 /* 已被回收 */
 
 /* ---- 内核栈常量 ---- */
 
-#define KSTACK_ORDER	1	/* 2^1 = 2 页 = 8KB */
-#define KSTACK_SIZE	(PAGE_SIZE << KSTACK_ORDER) /* 8192 字节 */
+#define KSTACK_ORDER 1				 /* 2^1 = 2 页 = 8KB */
+#define KSTACK_SIZE  (PAGE_SIZE << KSTACK_ORDER) /* 8192 字节 */
 
-#define CANARY_MAGIC	0xDEADBEEFDEADBEEFUL
+#define CANARY_MAGIC 0xDEADBEEFDEADBEEFUL
 
 /* ---- 进程控制块 ---- */
 
 struct task_struct {
-	pid_t			pid;		/* 进程 ID */
-	volatile uint32_t	state;		/* 当前任务状态 */
+	pid_t pid;		 /* 进程 ID */
+	volatile uint32_t state; /* 当前任务状态 */
 
-	struct context		ctx;		/* callee-saved 寄存器保存区 */
-	struct trap_frame	*tf;		/* 指向内核栈上的 trap_frame */
+	struct context ctx;    /* callee-saved 寄存器保存区 */
+	struct trap_frame *tf; /* 指向内核栈上的 trap_frame */
 
 	/* 内核栈 */
-	void			*kstack;	/* 栈底（低地址） */
+	void *kstack; /* 栈底（低地址） */
 
 	/* 内存管理（后续 Stage 使用） */
-	struct mm_struct	*mm;		/* 指向 mm_struct，内核线程为 NULL */
+	struct mm_struct *mm; /* 指向 mm_struct，内核线程为 NULL */
 
 	/* 文件描述符（后续 Stage 使用） */
-	void			*fd_array[32];	/* 打开的文件 */
+	void *fd_array[32]; /* 打开的文件 */
 
 	/* 信号处理（后续 Stage 使用） */
-	void			*sighand[32];	/* 信号处理函数表 */
-	uint64_t		blocked;	/* 被屏蔽的信号掩码 */
-	uint64_t		pending;	/* 待处理的信号掩码 */
+	void *sighand[32]; /* 信号处理函数表 */
+	uint64_t blocked;  /* 被屏蔽的信号掩码 */
+	uint64_t pending;  /* 待处理的信号掩码 */
 
 	/* 进程树 */
-	struct task_struct	*parent;	/* 父进程 */
-	struct list_head	children;	/* 子进程链表 */
-	struct list_head	sibling;	/* 在父进程 children 链表中的节点 */
+	struct task_struct *parent; /* 父进程 */
+	struct list_head children;  /* 子进程链表 */
+	struct list_head sibling;   /* 在父进程 children 链表中的节点 */
 
 	/* 调度 */
-	struct list_head	run_list;	/* 就绪队列节点 */
-	volatile uint8_t	need_resched;	/* 时钟 tick 置位，trap 返回前触发调度 */
+	struct list_head run_list;     /* 就绪队列节点 */
+	volatile uint8_t need_resched; /* 时钟 tick 置位，trap 返回前触发调度 */
 };
 
 /* ---- 全局变量 ---- */
 
 /* idle 进程，PID 0，BSS 段静态分配 */
-extern struct task_struct	idle_task;
+extern struct task_struct idle_task;
 
 /* 当前正在运行的进程 */
-extern struct task_struct	*current;
+extern struct task_struct *current;
 
 /* ---- 函数声明 ---- */
 

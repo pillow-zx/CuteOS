@@ -16,8 +16,8 @@
 #include <kernel/types.h>
 #include <kernel/errno.h>
 
-#define PID_MAX		255	/* 最大 PID 值 */
-#define PID_COUNT	256	/* PID 总数 (0 ~ PID_MAX) */
+#define PID_MAX	  255 /* 最大 PID 值 */
+#define PID_COUNT 256 /* PID 总数 (0 ~ PID_MAX) */
 
 /**
  * pid_init - 初始化 PID 位图

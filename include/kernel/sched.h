@@ -28,7 +28,7 @@
 
 /* ---- 全局就绪队列 ---- */
 
-extern struct list_head	runqueue;
+extern struct list_head runqueue;
 
 /* ---- 调度器函数声明 ---- */
 
@@ -70,8 +70,14 @@ void sched_dequeue(struct task_struct *task);
  */
 extern volatile int preempt_count;
 
-#define preempt_disable()	do { preempt_count++; } while (0)
-#define preempt_enable()	do { preempt_count--; } while (0)
+#define preempt_disable()                                                      \
+	do {                                                                   \
+		preempt_count++;                                               \
+	} while (0)
+#define preempt_enable()                                                       \
+	do {                                                                   \
+		preempt_count--;                                               \
+	} while (0)
 
 /**
  * preemptible - 检查当前是否允许调度

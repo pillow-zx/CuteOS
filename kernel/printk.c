@@ -53,11 +53,11 @@ static char printk_buf[PRINTK_BUF_SIZE];
  */
 static void console_write(const char *s)
 {
-        while (*s) {
-                if (*s == '\n')
-                        console_putc('\r');
-                console_putc(*s++);
-        }
+	while (*s) {
+		if (*s == '\n')
+			console_putc('\r');
+		console_putc(*s++);
+	}
 }
 
 /*
@@ -69,7 +69,7 @@ static void console_write(const char *s)
  */
 void console_init_sbi(void)
 {
-        console_putc = sbi_console_putchar;
+	console_putc = sbi_console_putchar;
 }
 
 /*
@@ -82,8 +82,8 @@ void console_init_sbi(void)
  */
 void console_init_mmio(void)
 {
-        uart_init();
-        console_putc = uart_putc;
+	uart_init();
+	console_putc = uart_putc;
 }
 
 /*
@@ -96,16 +96,16 @@ void console_init_mmio(void)
  */
 int printk(const char *fmt, ...)
 {
-        if (!console_putc)
-                return 0;
+	if (!console_putc)
+		return 0;
 
-        va_list ap;
-        va_start(ap, fmt);
-        int n = vsnprintf(printk_buf, PRINTK_BUF_SIZE, fmt, ap);
-        va_end(ap);
+	va_list ap;
+	va_start(ap, fmt);
+	int n = vsnprintf(printk_buf, PRINTK_BUF_SIZE, fmt, ap);
+	va_end(ap);
 
-        console_write(printk_buf);
-        return n;
+	console_write(printk_buf);
+	return n;
 }
 
 /*
@@ -118,25 +118,25 @@ int printk(const char *fmt, ...)
  */
 void __noreturn panic(const char *fmt, ...)
 {
-        printk("\nKERNEL PANIC: ");
+	printk("\nKERNEL PANIC: ");
 
-        va_list ap;
-        va_start(ap, fmt);
-        vsnprintf(printk_buf, PRINTK_BUF_SIZE, fmt, ap);
-        va_end(ap);
-        console_write(printk_buf);
-        printk("\n");
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(printk_buf, PRINTK_BUF_SIZE, fmt, ap);
+	va_end(ap);
+	console_write(printk_buf);
+	printk("\n");
 
-        /* 输出关键 CSR 寄存器用于事后诊断 */
-        printk("  sepc   = %p\n", (void *)(uintptr_t)csr_read(sepc));
-        printk("  scause = %p\n", (void *)(uintptr_t)csr_read(scause));
-        printk("  stval  = %p\n", (void *)(uintptr_t)csr_read(stval));
-        printk("  ra     = %p\n", (void *)(uintptr_t)__return_address());
-        printk("  sp     = %p\n", (void *)(uintptr_t)__frame_address());
+	/* 输出关键 CSR 寄存器用于事后诊断 */
+	printk("  sepc   = %p\n", (void *)(uintptr_t)csr_read(sepc));
+	printk("  scause = %p\n", (void *)(uintptr_t)csr_read(scause));
+	printk("  stval  = %p\n", (void *)(uintptr_t)csr_read(stval));
+	printk("  ra     = %p\n", (void *)(uintptr_t)__return_address());
+	printk("  sp     = %p\n", (void *)(uintptr_t)__frame_address());
 
-        /* 永久挂起 */
-        while (1)
-                __asm__ __volatile__("wfi");
+	/* 永久挂起 */
+	while (1)
+		__asm__ __volatile__("wfi");
 
-        unreachable();
+	unreachable();
 }

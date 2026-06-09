@@ -23,8 +23,8 @@
 #include <kernel/list.h>
 
 /* 页标志位定义 */
-#define PG_RESERVED	0
-#define PG_SLAB		1
+#define PG_RESERVED 0
+#define PG_SLAB	    1
 
 /**
  * struct page - 物理页帧描述符

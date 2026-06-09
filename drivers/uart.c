@@ -52,8 +52,8 @@ void uart_init(void)
 	uart_write_reg(UART_LCR, UART_LCR_DLAB);
 
 	/* 分频器 = 1 (115200 baud @ QEMU) */
-	uart_write_reg(0, 0x01);	/* DLL */
-	uart_write_reg(1, 0x00);	/* DLM */
+	uart_write_reg(0, 0x01); /* DLL */
+	uart_write_reg(1, 0x00); /* DLM */
 
 	/* 8N1，清除 DLAB */
 	uart_write_reg(UART_LCR, UART_LCR_8N1);

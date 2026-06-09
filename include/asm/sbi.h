@@ -17,8 +17,8 @@
  * @value: 调用成功时返回的实际值
  */
 struct sbi_ret {
-        int64_t error;
-        int64_t value;
+	int64_t error;
+	int64_t value;
 };
 
 /*

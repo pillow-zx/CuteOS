@@ -7,7 +7,7 @@ Language: C
 
 IndentWidth: 8
 TabWidth: 8
-UseTab: Never
+UseTab: Always
 
 BreakBeforeBraces: Custom
 BraceWrapping:

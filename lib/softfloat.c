@@ -19,8 +19,8 @@
  *   ffs(x)       - 查找 uint32_t 中第一个置位位 (find first set, 32-bit)
  */
 
-typedef unsigned int      uint32_u;
-typedef unsigned long long uint64_u;
+typedef unsigned int		uint32_t;
+typedef unsigned long long	uint64_t;
 
 /* ---- __ctzdi2 ---- */
 
@@ -28,7 +28,7 @@ typedef unsigned long long uint64_u;
  * __ctzdi2 - count trailing zeros for 64-bit integer
  * @x: 输入值（必须非零）
  */
-int __ctzdi2(uint64_u x)
+int __ctzdi2(uint64_t x)
 {
 	int count = 0;
 
@@ -64,7 +64,7 @@ int __ctzdi2(uint64_u x)
  * __clzdi2 - count leading zeros for 64-bit integer
  * @x: 输入值（必须非零）
  */
-int __clzdi2(uint64_u x)
+int __clzdi2(uint64_t x)
 {
 	int count = 0;
 
@@ -107,7 +107,7 @@ int __clzdi2(uint64_u x)
  *
  * 返回最低置位位的位置（从 1 开始），x==0 返回 0。
  */
-int __ffsdi2(uint64_u x)
+int __ffsdi2(uint64_t x)
 {
 	if (x == 0)
 		return 0;
@@ -122,7 +122,7 @@ int __ffsdi2(uint64_u x)
  *
  * 返回最低置位位的位置（从 1 开始），x==0 返回 0。
  */
-int ffs(uint32_u x)
+int ffs(uint32_t x)
 {
 	if (x == 0)
 		return 0;

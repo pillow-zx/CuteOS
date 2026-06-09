@@ -21,12 +21,12 @@
 
 #define BITMAP_WORD_BITS ((size_t)(sizeof(unsigned long) * 8U))
 #define BITMAP_WORDS(nbits)                                                    \
-        (((nbits) + BITMAP_WORD_BITS - 1) / BITMAP_WORD_BITS)
+	(((nbits) + BITMAP_WORD_BITS - 1) / BITMAP_WORD_BITS)
 
 struct bitmap {
-        unsigned long *words;
-        size_t nbits;
-        size_t nwords;
+	unsigned long *words;
+	size_t nbits;
+	size_t nwords;
 };
 
 /**
@@ -39,73 +39,73 @@ struct bitmap {
  *   static struct bitmap name = { .words = name_storage, ... };
  */
 #define BITMAP_DECLARE(name, n)                                                \
-        unsigned long name##_storage[BITMAP_WORDS(n)];                         \
-        struct bitmap name = {                                                 \
-                .words = name##_storage,                                       \
-                .nbits = (n),                                                  \
-                .nwords = BITMAP_WORDS(n),                                     \
-        }
+	unsigned long name##_storage[BITMAP_WORDS(n)];                         \
+	struct bitmap name = {                                                 \
+		.words = name##_storage,                                       \
+		.nbits = (n),                                                  \
+		.nwords = BITMAP_WORDS(n),                                     \
+	}
 
 #define BITMAP_DECLARE_STATIC(name, n)                                         \
-        static unsigned long name##_storage[BITMAP_WORDS(n)];                  \
-        static struct bitmap name = {                                          \
-                .words = name##_storage,                                       \
-                .nbits = (n),                                                  \
-                .nwords = BITMAP_WORDS(n),                                     \
-        }
+	static unsigned long name##_storage[BITMAP_WORDS(n)];                  \
+	static struct bitmap name = {                                          \
+		.words = name##_storage,                                       \
+		.nbits = (n),                                                  \
+		.nwords = BITMAP_WORDS(n),                                     \
+	}
 
 static __always_inline size_t bitmap_word_index(size_t bit)
 {
-        return bit / BITMAP_WORD_BITS;
+	return bit / BITMAP_WORD_BITS;
 }
 
 static __always_inline size_t bitmap_word_offset(size_t bit)
 {
-        return bit % BITMAP_WORD_BITS;
+	return bit % BITMAP_WORD_BITS;
 }
 
 static __always_inline unsigned long bitmap_tail_mask(size_t nbits)
 {
-        const size_t tail = nbits % BITMAP_WORD_BITS;
+	const size_t tail = nbits % BITMAP_WORD_BITS;
 
-        return tail == 0 ? ~0UL : (1UL << tail) - 1UL;
+	return tail == 0 ? ~0UL : (1UL << tail) - 1UL;
 }
 
 static __always_inline void bitmap_zero(struct bitmap *map)
 {
-        for (size_t i = 0; i < map->nwords; i++)
-                map->words[i] = 0UL;
+	for (size_t i = 0; i < map->nwords; i++)
+		map->words[i] = 0UL;
 }
 
 static __always_inline void bitmap_set(struct bitmap *map, size_t bit)
 {
-        map->words[bitmap_word_index(bit)] |= 1UL << bitmap_word_offset(bit);
+	map->words[bitmap_word_index(bit)] |= 1UL << bitmap_word_offset(bit);
 }
 
 static __always_inline void bitmap_clear(struct bitmap *map, size_t bit)
 {
-        map->words[bitmap_word_index(bit)] &= ~(1UL << bitmap_word_offset(bit));
+	map->words[bitmap_word_index(bit)] &= ~(1UL << bitmap_word_offset(bit));
 }
 
 static __always_inline bool bitmap_test(const struct bitmap *map, size_t bit)
 {
-        return !!(map->words[bitmap_word_index(bit)] &
-                  (1UL << bitmap_word_offset(bit)));
+	return !!(map->words[bitmap_word_index(bit)] &
+		  (1UL << bitmap_word_offset(bit)));
 }
 
 static inline size_t bitmap_find_first_zero(const struct bitmap *map)
 {
-        for (size_t i = 0; i < map->nwords; i++) {
-                unsigned long word = ~map->words[i];
+	for (size_t i = 0; i < map->nwords; i++) {
+		unsigned long word = ~map->words[i];
 
-                if (i + 1 == map->nwords)
-                        word &= bitmap_tail_mask(map->nbits);
+		if (i + 1 == map->nwords)
+			word &= bitmap_tail_mask(map->nbits);
 
-                if (word != 0UL)
-                        return i * BITMAP_WORD_BITS + (size_t)ctzl(word);
-        }
+		if (word != 0UL)
+			return i * BITMAP_WORD_BITS + (size_t)ctzl(word);
+	}
 
-        return map->nbits;
+	return map->nbits;
 }
 
 #endif
