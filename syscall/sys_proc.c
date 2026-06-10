@@ -16,3 +16,18 @@
  *   sys_getuid()        - 返回当前进程的用户 ID
  *   sys_getgid()        - 返回当前进程的组 ID
  */
+
+#include <kernel/printk.h>
+#include <kernel/syscall.h>
+
+ssize_t sys_exit(size_t code, size_t _, size_t __, size_t ___, size_t ____,
+		 size_t _____)
+{
+	(void)_;
+	(void)__;
+	(void)___;
+	(void)____;
+	(void)_____;
+
+	panic("user exit with code %ld", (long)code);
+}

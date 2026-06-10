@@ -28,6 +28,9 @@
  *   1000 fork       1001 execve     (cuteOS-private numbers)
  */
 
+#include <kernel/types.h>
+#include <asm/csr.h>
+
 #define SYS_getcwd	 17
 #define SYS_dup		 23
 #define SYS_dup3	 24
@@ -64,5 +67,32 @@
 #define SYS_mprotect	 226
 #define SYS_wait4	 260
 #define SYS_fork	 1000
+
+static __always_inline bool user_access_begin(void)
+{
+	bool had_sum = (csr_read(sstatus) & SSTATUS_SUM) != 0;
+	if (!had_sum)
+		csr_set(sstatus, SSTATUS_SUM);
+	return had_sum;
+}
+
+static __always_inline void user_access_end(bool had_sum)
+{
+	if (!had_sum)
+		csr_clear(sstatus, SSTATUS_SUM);
+}
+
+ssize_t sys_write(size_t fd, size_t buf, size_t len, size_t _, size_t __,
+		  size_t ___);
+
+ssize_t sys_exit(size_t code, size_t _, size_t __, size_t ___, size_t ____,
+		 size_t _____);
+
+/* ---- 系统调用分发接口 ---- */
+
+struct trap_frame;
+
+void do_syscall(struct trap_frame *tf);
+void syscall_init(void);
 
 #endif

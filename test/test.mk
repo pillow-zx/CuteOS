@@ -1,0 +1,16 @@
+# teste/test.mk — 内核测试代码
+
+TEST_OBJS = \
+	test/test.o \
+	test/bitmap_test.o \
+	test/buddy_test.o \
+	test/kthread_test.o \
+	test/pid_test.o \
+	test/sched_test.o \
+	test/slab_test.o \
+	test/task_test.o \
+	test/timer_test.o \
+	test/trap_test.o \
+	test/user_trap_test.o \
+	test/user_trap_test_stub.o
+	

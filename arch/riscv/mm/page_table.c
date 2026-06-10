@@ -32,13 +32,25 @@
  * 注意事项：
  *   - 页表页使用 early bump allocator 从 _end 之后分配（不依赖 buddy）
  *   - buddy_init() 通过 page_table_mem_end() 获取空闲内存起始位置
+ *   - buddy_init() 后通过 page_table_use_buddy() 切换到 buddy 分配
  */
 
 #include <kernel/printk.h>
 #include <kernel/string.h>
+#include <kernel/buddy.h>
 #include <asm/page.h>
 #include <asm/pte.h>
 #include <asm/csr.h>
+
+/* ---- 页表页分配器 ---- */
+
+/*
+ * 页表页分配函数指针。
+ * 初始使用 early bump allocator（buddy 初始化前），
+ * buddy_init() 完成后通过 page_table_use_buddy() 切换到 buddy 分配。
+ */
+typedef void *(*page_alloc_fn)(void);
+static page_alloc_fn pt_alloc;
 
 /* ---- Early bump allocator ---- */
 
@@ -69,6 +81,29 @@ static void *early_alloc_page(void)
 	return p;
 }
 
+/*
+ * buddy_alloc_page - 使用 buddy 分配器分配一个清零的 4KB 页
+ *
+ * 供 buddy_init 之后的页表操作使用（如创建用户页表）。
+ */
+static void *buddy_alloc_page(void)
+{
+	void *p = get_free_page(0);
+	if (p)
+		memset(p, 0, PAGE_SIZE);
+	return p;
+}
+
+/*
+ * page_table_use_buddy - 将页表分配器切换到 buddy
+ *
+ * 在 buddy_init() 之后调用一次。
+ */
+void page_table_use_buddy(void)
+{
+	pt_alloc = buddy_alloc_page;
+}
+
 /* ---- 页表遍历与映射 ---- */
 
 /*
@@ -81,8 +116,9 @@ static void *early_alloc_page(void)
  * 则分配新页并安装。返回最终 PTE 条目的虚拟地址指针。
  * 若 alloc 为假且中间级缺失，返回 NULL。
  */
-static pte_t *walk_page_table(pte_t *pgd, uintptr_t va, bool alloc)
+pte_t *walk_page_table(pte_t *pgd, uintptr_t va, bool alloc)
 {
+	BUG_ON(!pt_alloc);
 	/* L2: PGD 索引 [38:30] */
 	int idx2 = (va >> 30) & 0x1FF;
 	pte_t *pte2 = &pgd[idx2];
@@ -90,7 +126,8 @@ static pte_t *walk_page_table(pte_t *pgd, uintptr_t va, bool alloc)
 	if (!(*pte2 & PTE_V)) {
 		if (!alloc)
 			return NULL;
-		void *new_page = early_alloc_page();
+		void *new_page = pt_alloc();
+		BUG_ON(!new_page);
 		/* 安装下一级页表指针: PPN | PTE_TABLE (V=1, R=W=X=0) */
 		*pte2 = PA_TO_PTE(__pa((uintptr_t)new_page)) | PTE_TABLE;
 	}
@@ -103,7 +140,8 @@ static pte_t *walk_page_table(pte_t *pgd, uintptr_t va, bool alloc)
 	if (!(*pte1 & PTE_V)) {
 		if (!alloc)
 			return NULL;
-		void *new_page = early_alloc_page();
+		void *new_page = pt_alloc();
+		BUG_ON(!new_page);
 		*pte1 = PA_TO_PTE(__pa((uintptr_t)new_page)) | PTE_TABLE;
 	}
 
@@ -120,7 +158,7 @@ static pte_t *walk_page_table(pte_t *pgd, uintptr_t va, bool alloc)
  * @pa:   物理地址（必须页对齐）
  * @perm: 叶子 PTE 权限位（可直接传入 PTE_KERN_* / PTE_USER_*，需包含 PTE_V）
  */
-static void map_page(pte_t *pgd, uintptr_t va, uintptr_t pa, pte_t perm)
+void map_page(pte_t *pgd, uintptr_t va, uintptr_t pa, pte_t perm)
 {
 	pte_t *pte = walk_page_table(pgd, va, true);
 	if (!pte)
@@ -128,7 +166,7 @@ static void map_page(pte_t *pgd, uintptr_t va, uintptr_t pa, pte_t perm)
 	*pte = PA_TO_PTE(pa) | perm;
 }
 
-static pte_t *current_pgd(void)
+pte_t *current_pgd(void)
 {
 	uintptr_t satp_val = csr_read(satp);
 	uintptr_t pgd_pa = (satp_val & SATP_PPN_MASK) << PAGE_SHIFT;
@@ -176,6 +214,9 @@ void kernel_pagetable_init(void)
 	uintptr_t end_addr = (uintptr_t)_end;
 	early_alloc_ptr =
 		(char *)((end_addr + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1));
+
+	/* 页表分配器初始使用 early allocator */
+	pt_alloc = early_alloc_page;
 
 	/* 1. 分配 PGD 页 */
 	pte_t *pgd = (pte_t *)early_alloc_page();

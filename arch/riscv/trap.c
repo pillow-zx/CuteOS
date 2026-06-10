@@ -7,6 +7,8 @@
  * 当前分发：
  *   - Supervisor Timer Interrupt (scause = 0x8000000000000005)
  *     → handle_timer_irq(): 更新 jiffies, 设置下一次时钟中断
+ *   - ecall from U-mode (scause = 8)
+ *     → do_syscall(): 系统调用分发
  *   - 其他中断/异常 → panic（开发期）
  */
 
@@ -18,6 +20,7 @@
 #include <kernel/sched.h>
 #include <kernel/task.h>
 #include <kernel/timer.h>
+#include <kernel/syscall.h>
 
 static trap_test_hook_t trap_test_hook;
 
@@ -84,9 +87,17 @@ void trap_handler(struct trap_frame *tf)
 			      (void *)tf->sepc, (void *)tf->stval);
 		}
 	} else {
-		panic("unhandled exception: origin=%s scause=0x%lx code=%lu "
-		      "sepc=%p stval=%p",
-		      trap_origin(tf), (size_t)scause, (size_t)code,
-		      (void *)tf->sepc, (void *)tf->stval);
+		switch (code) {
+		case EXC_ECALL_U:
+			/* sepc +4 跳过 ecall 指令 */
+			tf->sepc += 4;
+			do_syscall(tf);
+			return;
+		default:
+			panic("unhandled exception: origin=%s scause=0x%lx code=%lu "
+			      "sepc=%p stval=%p",
+			      trap_origin(tf), (size_t)scause, (size_t)code,
+			      (void *)tf->sepc, (void *)tf->stval);
+		}
 	}
 }

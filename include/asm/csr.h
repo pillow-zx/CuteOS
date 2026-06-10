@@ -38,6 +38,7 @@
 #define SSTATUS_SPP  BIT(8) /* Supervisor Previous Privilege */
 #define SSTATUS_SPIE BIT(5) /* Supervisor Previous Interrupt Enable */
 #define SSTATUS_SIE  BIT(1)
+#define SSTATUS_SUM  BIT(18) /* Supervisor User Memory access */
 
 #define SIE_STIE BIT(5)
 #define SIE_SEIE BIT(9)

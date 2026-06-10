@@ -84,6 +84,7 @@ include drivers/drivers.mk
 include syscall/syscall.mk
 include lib/lib.mk
 include test/test.mk
+include user/user.mk
 
 # Aggregate all kernel objects
 OBJ_REL = \
@@ -216,6 +217,9 @@ $(KERNEL_NAME): $(KERNEL)
 
 $(KERNEL_NAME).img: $(KERNEL_IMG)
 
+# Build user binary before kernel (needed by user_elf.S .incbin)
+$(OUTDIR)/arch/riscv/user_elf.o: $(USER_BIN)
+
 # Link the kernel
 $(KERNEL): $(OBJS) kernel.ld
 	$(Q)mkdir -p $(dir $@)
@@ -316,11 +320,16 @@ sym: $(KERNEL)
 # Cleanup
 # =============================================================================
 
-clean:
+user: $(USER_BIN)
+
+clean-user:
+	$(Q)rm -rf $(USER_OUT)
+
+clean: clean-user
 	$(Q)rm -rf $(OUTDIR)
 	$(Q)rm -f .gdbinit
 
-clean-all:
+clean-all: clean-user
 	$(Q)rm -rf $(OUTROOT)
 	$(Q)rm -f .gdbinit
 
@@ -328,6 +337,7 @@ clean-all:
 .PRECIOUS: $(OUTDIR)/%.o
 
 # Declare phony targets
-.PHONY: all qemu qemu-gdb check-qemu-version clean clean-all format asm sym
+.PHONY: all qemu qemu-gdb check-qemu-version clean clean-all clean-user
+.PHONY: user format asm sym
 .PHONY: $(KERNEL_NAME) $(KERNEL_NAME).img
 .PHONY: print-gdbport print-toolprefix

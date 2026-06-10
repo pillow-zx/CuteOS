@@ -29,4 +29,7 @@
  *   mount_root()            - Mount the root filesystem
  */
 
+#define KERN_STDOUT 1
+#define KERN_STDERR 2
+
 #endif

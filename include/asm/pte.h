@@ -67,4 +67,23 @@ pte_t *page_table_lookup_current(uintptr_t va);
  */
 void page_table_write_current(uintptr_t va, uintptr_t pa, pte_t perm);
 
+/*
+ * map_page - 建立单个 4KB 页的映射
+ * @pgd:  PGD 页虚拟地址
+ * @va:   虚拟地址（必须页对齐）
+ * @pa:   物理地址（必须页对齐）
+ * @perm: 叶子 PTE 权限位
+ */
+void map_page(pte_t *pgd, uintptr_t va, uintptr_t pa, pte_t perm);
+
+/*
+ * page_table_use_buddy - 将页表分配器切换到 buddy
+ *
+ * 在 buddy_init() 之后调用一次。
+ */
+void page_table_use_buddy(void);
+
+
+pte_t *current_pgd(void);
+
 #endif

@@ -37,8 +37,10 @@
 #include <kernel/task.h>
 #include <kernel/sched.h>
 #include <kernel/timer.h>
+#include <kernel/syscall.h>
 #include <asm/trap.h>
 #include <asm/csr.h>
+#include <asm/pte.h>
 
 #ifdef DEBUG_ENABLE
 	#include <kernel/test.h>
@@ -67,6 +69,7 @@ void kernel_main(void)
 	printk("uart: init successfully\n");
 
 	buddy_init();
+	page_table_use_buddy();
 	slab_init();
 	printk("mm: init successfully\n");
 
@@ -81,6 +84,9 @@ void kernel_main(void)
 
 	sched_init();
 	printk("sched: init successfully\n");
+
+	syscall_init();
+	printk("syscall: init successfully\n");
 
 #ifdef DEBUG_ENABLE
 	kernel_test();
