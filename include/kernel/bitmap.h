@@ -1,8 +1,8 @@
 /*
  * include/kernel/bitmap.h - 位图操作
  *
- * 提供位图（bitmap）的声明、初始化及基本操作。位图使用 unsigned long
- * 数组作为底层存储，每个 word 占 sizeof(unsigned long) * 8 位。
+ * 提供位图（bitmap）的声明、初始化及基本操作。位图使用 uintptr_t
+ * 数组作为底层存储，每个 word 占 sizeof(uintptr_t) * 8 位。
  *
  * 接口：
  *   BITMAP_DECLARE(name, nbits)  - 声明并初始化一个全局位图
@@ -19,12 +19,12 @@
 #include <kernel/types.h>
 #include <kernel/compiler.h>
 
-#define BITMAP_WORD_BITS ((size_t)(sizeof(unsigned long) * 8U))
+#define BITMAP_WORD_BITS ((size_t)(sizeof(uintptr_t) * 8U))
 #define BITMAP_WORDS(nbits)                                                    \
 	(((nbits) + BITMAP_WORD_BITS - 1) / BITMAP_WORD_BITS)
 
 struct bitmap {
-	unsigned long *words;
+	uintptr_t *words;
 	size_t nbits;
 	size_t nwords;
 };
@@ -35,11 +35,11 @@ struct bitmap {
  * @nbits: 位数
  *
  * 若需要 static 作用域，请手动展开：
- *   static unsigned long name_storage[BITMAP_WORDS(nbits)];
+ *   static uintptr_t name_storage[BITMAP_WORDS(nbits)];
  *   static struct bitmap name = { .words = name_storage, ... };
  */
 #define BITMAP_DECLARE(name, n)                                                \
-	unsigned long name##_storage[BITMAP_WORDS(n)];                         \
+	uintptr_t name##_storage[BITMAP_WORDS(n)];                         \
 	struct bitmap name = {                                                 \
 		.words = name##_storage,                                       \
 		.nbits = (n),                                                  \
@@ -47,7 +47,7 @@ struct bitmap {
 	}
 
 #define BITMAP_DECLARE_STATIC(name, n)                                         \
-	static unsigned long name##_storage[BITMAP_WORDS(n)];                  \
+	static uintptr_t name##_storage[BITMAP_WORDS(n)];                  \
 	static struct bitmap name = {                                          \
 		.words = name##_storage,                                       \
 		.nbits = (n),                                                  \
@@ -64,7 +64,7 @@ static __always_inline size_t bitmap_word_offset(size_t bit)
 	return bit % BITMAP_WORD_BITS;
 }
 
-static __always_inline unsigned long bitmap_tail_mask(size_t nbits)
+static __always_inline uintptr_t bitmap_tail_mask(size_t nbits)
 {
 	const size_t tail = nbits % BITMAP_WORD_BITS;
 
@@ -96,7 +96,7 @@ static __always_inline bool bitmap_test(const struct bitmap *map, size_t bit)
 static inline size_t bitmap_find_first_zero(const struct bitmap *map)
 {
 	for (size_t i = 0; i < map->nwords; i++) {
-		unsigned long word = ~map->words[i];
+		uintptr_t word = ~map->words[i];
 
 		if (i + 1 == map->nwords)
 			word &= bitmap_tail_mask(map->nbits);

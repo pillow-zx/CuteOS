@@ -136,7 +136,7 @@ void __noreturn panic(const char *fmt, ...)
 
 	/* 永久挂起 */
 	while (1)
-		__asm__ __volatile__("wfi");
+		wfi();
 
 	unreachable();
 }

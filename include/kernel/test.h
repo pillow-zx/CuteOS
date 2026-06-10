@@ -133,7 +133,7 @@ extern uint32_t __test_failed;
 			printk("FAIL\n");                                      \
 			printk("    assert %s == %s failed"                    \
 			       " (0x%lx != 0x%lx) at %s:%d\n",                 \
-			       #a, #b, (unsigned long)(a), (unsigned long)(b), \
+			       #a, #b, (uintptr_t)(a), (uintptr_t)(b), \
 			       __FILE__, __LINE__);                            \
 			__test_failed++;                                       \
 			__test_total++;                                        \

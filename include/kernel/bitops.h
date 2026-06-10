@@ -26,7 +26,7 @@
 #define BIT_U64(n) ((uint64_t)1ULL << (n))
 
 #define GENMASK(h, l)                                                          \
-	(((~0UL) << (l)) & (~0UL >> ((sizeof(unsigned long) * 8) - 1 - (h))))
+	(((~0UL) << (l)) & (~0UL >> ((sizeof(uintptr_t) * 8) - 1 - (h))))
 
 #define set_bit(x, n)  ((x) |= BIT(n))
 #define clr_bit(x, n)  ((x) &= ~BIT(n))

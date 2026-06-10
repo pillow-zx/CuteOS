@@ -19,8 +19,7 @@
  *   ffs(x)       - 查找 uint32_t 中第一个置位位 (find first set, 32-bit)
  */
 
-typedef unsigned int		uint32_t;
-typedef unsigned long long	uint64_t;
+#include <kernel/types.h>
 
 /* ---- __ctzdi2 ---- */
 
@@ -68,31 +67,31 @@ int __clzdi2(uint64_t x)
 {
 	int count = 0;
 
-	if ((x >> 32) == 0) {
+	if ((x >> 32) == 0)
 		count += 32;
-	} else {
+	else
 		x >>= 32;
-	}
-	if ((x >> 16) == 0) {
+
+	if ((x >> 16) == 0)
 		count += 16;
-	} else {
+	else
 		x >>= 16;
-	}
-	if ((x >> 8) == 0) {
+
+	if ((x >> 8) == 0)
 		count += 8;
-	} else {
+	else
 		x >>= 8;
-	}
-	if ((x >> 4) == 0) {
+
+	if ((x >> 4) == 0)
 		count += 4;
-	} else {
+	else
 		x >>= 4;
-	}
-	if ((x >> 2) == 0) {
+
+	if ((x >> 2) == 0)
 		count += 2;
-	} else {
+	else
 		x >>= 2;
-	}
+
 	if ((x >> 1) == 0)
 		count += 1;
 

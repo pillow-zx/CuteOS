@@ -233,9 +233,9 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap)
 			if (len == LEN_LL)
 				unum = va_arg(ap, uint64_t);
 			else if (len == LEN_L)
-				unum = va_arg(ap, unsigned long);
+				unum = va_arg(ap, uintptr_t);
 			else
-				unum = va_arg(ap, unsigned int);
+				unum = va_arg(ap, uint32_t);
 
 			p = emit_num(p, end, unum, 10, 0, width, flag_zero, 0);
 			break;
@@ -246,9 +246,9 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap)
 			if (len == LEN_LL)
 				unum = va_arg(ap, uint64_t);
 			else if (len == LEN_L)
-				unum = va_arg(ap, unsigned long);
+				unum = va_arg(ap, uintptr_t);
 			else
-				unum = va_arg(ap, unsigned int);
+				unum = va_arg(ap, uint32_t);
 
 			if (flag_alt && unum != 0) {
 				p = emit(p, end, '0');
@@ -263,9 +263,9 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap)
 			if (len == LEN_LL)
 				unum = va_arg(ap, uint64_t);
 			else if (len == LEN_L)
-				unum = va_arg(ap, unsigned long);
+				unum = va_arg(ap, uintptr_t);
 			else
-				unum = va_arg(ap, unsigned int);
+				unum = va_arg(ap, uint32_t);
 
 			if (flag_alt && unum != 0) {
 				p = emit(p, end, '0');

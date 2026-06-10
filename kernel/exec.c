@@ -83,13 +83,13 @@ static uint32_t elf_flags_to_vma(uint32_t p_flags)
 void exec_user_elf(void *bin_start, size_t bin_size)
 {
 	printk("exec: loading ELF binary (%lu bytes)\n",
-	       (unsigned long)bin_size);
+	       (size_t)bin_size);
 
 	/* ---- 1. ELF 基本校验 ---- */
 
 	if (bin_size < sizeof(Elf64_Ehdr))
 		panic("exec: ELF too small (%lu bytes)",
-		      (unsigned long)bin_size);
+		      (size_t)bin_size);
 
 	Elf64_Ehdr *ehdr = (Elf64_Ehdr *)bin_start;
 
@@ -129,7 +129,7 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 
 	/* ---- 3. 遍历 PT_LOAD 段，映射到用户地址空间 ---- */
 
-	auto *phdrs = (Elf64_Phdr *)((uint8_t *)bin_start + ehdr->e_phoff);
+	Elf64_Phdr *phdrs = (Elf64_Phdr *)((uint8_t *)bin_start + ehdr->e_phoff);
 	uintptr_t first_vaddr = 0;
 	uintptr_t last_end = 0;
 	int vma_idx = 0;
@@ -139,10 +139,10 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 		if (ph->p_type != PT_LOAD)
 			continue;
 
-		printk("exec: PT_LOAD vaddr=%p filesz=%lu memsz=%lu "
+		printk("exec: PT_LOAD vaddr=%p filesz=%llu memsz=%llu "
 		       "flags=0x%x\n",
-		       (void *)ph->p_vaddr, (unsigned long)ph->p_filesz,
-		       (unsigned long)ph->p_memsz, ph->p_flags);
+		       (void *)ph->p_vaddr, ph->p_filesz,
+		       ph->p_memsz, ph->p_flags);
 
 		if (ph->p_memsz == 0)
 			continue;
