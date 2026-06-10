@@ -58,9 +58,10 @@ void do_exit(int code)
 	/* 设置进程状态为 ZOMBIE */
 	current->state = TASK_ZOMBIE;
 
-	/* 从就绪队列移除（如果仍在队列中） */
-	if (!list_empty(&current->run_list))
-		sched_dequeue(current);
+	/*
+	 * 运行中的进程不在 runqueue 中（schedule 在取队首时已 dequeue），
+	 * 无需再次 sched_dequeue。schedule() 也不会把 ZOMBIE 进程重新入队。
+	 */
 
 	/* 永不返回 */
 	schedule();

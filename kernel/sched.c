@@ -87,8 +87,18 @@ void schedule(void)
 	if (!preemptible())
 		return;
 
-	if (list_empty(&runqueue))
+	/* 如果就绪队列为空，切换到 idle（或直接返回） */
+	if (list_empty(&runqueue)) {
+		if (current == &idle_task)
+			return;
+
+		/* 当前进程不可继续运行（ZOMBIE/SLEEPING 等），切到 idle */
+		struct task_struct *prev = current;
+		check_canary(prev);
+		current = &idle_task;
+		switch_to(&prev->ctx, &idle_task.ctx);
 		return;
+	}
 
 	struct task_struct *next =
 		list_first_entry(&runqueue, struct task_struct, run_list);
