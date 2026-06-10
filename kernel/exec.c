@@ -6,13 +6,15 @@
  *   并通过修改 trap_frame 使当前内核线程切换到用户态执行。
  *
  *   exec_user_binary 执行流程：
- *     1. 从 buddy 分配用户 pgd 页
- *     2. 分配物理页用于用户代码和用户栈
- *     3. 将 flat binary 复制到用户代码页
- *     4. 在用户 pgd 中映射代码页和栈页
- *     5. 复制内核高地址映射，映射 MMIO
- *     6. 设置 trap_frame：sepc=0x10000, sp=0x80000000, SPP=0
- *     7. 在单个 asm 块中：切换 satp → sfence → 设 sscratch → 跳转 __trapret
+ *     1. 调用 mm_alloc() 创建 mm_struct
+ *     2. 调用 mm_create_user_pgd() 创建用户页表 + 复制内核映射
+ *     3. 分配物理页用于用户代码和用户栈
+ *     4. 将 flat binary 复制到用户代码页
+ *     5. 在用户 pgd 中映射代码页和栈页
+ *     6. 创建代码段 VMA（VM_READ | VM_EXEC）
+ *     7. 初始化 mm->brk = code_end（页对齐）
+ *     8. 设置 trap_frame：sepc=0x10000, sp=0x80000000, SPP=0
+ *     9. 在单个 asm 块中：切换 satp → sfence → 设 sscratch → 跳转 __trapret
  *
  * 注意：
  *   当前为 Stage 3.2 最小实现，仅支持 flat binary（无 ELF 解析）。
@@ -26,6 +28,7 @@
 
 #include <kernel/printk.h>
 #include <kernel/string.h>
+#include <kernel/mm.h>
 #include <kernel/buddy.h>
 #include <kernel/task.h>
 #include <drivers/uart.h>
@@ -55,54 +58,69 @@ void exec_user_binary(void *bin_start, size_t bin_size)
 {
 	printk("exec: loading user binary (%lu bytes)\n", (unsigned long)bin_size);
 
-	/* 1. 分配用户 pgd 页 */
-	pte_t *user_pgd = (pte_t *)get_free_page(0);
-	if (!user_pgd)
-		panic("exec: failed to allocate user pgd");
-	memset(user_pgd, 0, PAGE_SIZE);
+	/* 1. 创建 mm_struct */
+	struct mm_struct *mm = mm_alloc();
+	if (!mm)
+		panic("exec: failed to allocate mm_struct");
 
-	/* 2. 分配用户代码页 */
+	/* 2. 创建用户页表（PGD + 内核映射 + MMIO） */
+	mm->pgd = mm_create_user_pgd();
+	if (!mm->pgd)
+		panic("exec: failed to create user pgd");
+
+	/* 3. 分配用户代码页 */
 	void *code_page = get_free_page(0);
 	if (!code_page)
 		panic("exec: failed to allocate user code page");
 	memset(code_page, 0, PAGE_SIZE);
 
-	/* 3. 复制 flat binary 到代码页 */
+	/* 4. 复制 flat binary 到代码页 */
 	if (bin_size > PAGE_SIZE)
 		panic("exec: user binary too large (%lu > %lu)",
 		      (unsigned long)bin_size, (unsigned long)PAGE_SIZE);
 	memcpy(code_page, bin_start, bin_size);
 	__asm__ volatile("fence.i" : : : "memory");
 
-	/* 4. 分配用户栈页 */
+	/* 5. 分配用户栈页 */
 	void *stack_page = get_free_page(0);
 	if (!stack_page)
 		panic("exec: failed to allocate user stack page");
 	memset(stack_page, 0, PAGE_SIZE);
 
-	/* 5. 映射用户代码页（0x10000, RX） */
-	uintptr_t code_pa = __pa((uintptr_t)code_page);
-	map_page(user_pgd, USER_CODE_BASE, code_pa, PTE_USER_RX);
+	/* 6. 映射用户代码页（0x10000, RX） */
+	map_page(mm->pgd, USER_CODE_BASE, __pa((uintptr_t)code_page),
+		 PTE_USER_RX);
 
-	/* 6. 映射用户栈页（0x7FFFF000, RW） */
-	uintptr_t stack_pa = __pa((uintptr_t)stack_page);
-	map_page(user_pgd, USER_STACK_BASE, stack_pa, PTE_USER_RW);
+	/* 7. 映射用户栈页（0x7FFFF000, RW） */
+	map_page(mm->pgd, USER_STACK_BASE, __pa((uintptr_t)stack_page),
+		 PTE_USER_RW);
 
-	/* 7. 复制内核高地址映射（pgd 高 256 项，索引 256~511）
-	 *    确保 trap 进内核后内核代码/数据仍可访问 */
-	pte_t *kern_pgd = current_pgd();
-	for (int i = 256; i < 512; i++)
-		user_pgd[i] = kern_pgd[i];
-	map_page(user_pgd, UART_BASE, UART_BASE, PTE_KERN_RW);
+	/* 8. 创建代码段 VMA */
+	uintptr_t code_end = (USER_CODE_BASE + bin_size + PAGE_SIZE - 1) &
+			     PAGE_MASK;
+	struct vm_area_struct *code_vma = &mm->vma[0];
+	code_vma->vm_start = USER_CODE_BASE;
+	code_vma->vm_end = code_end;
+	code_vma->vm_flags = VM_READ | VM_EXEC;
+	code_vma->used = true;
 
-	/* 8. 先准备切换参数，trap_frame 放到最后构造 */
-	uintptr_t user_pgd_pa = __pa((uintptr_t)user_pgd);
+	/* 9. 初始化 brk = 代码段结束处（页对齐） */
+	mm->code_start = USER_CODE_BASE;
+	mm->code_end = code_end;
+	mm->brk = code_end;
+
+	/* 10. 挂载到当前进程 */
+	current->mm = mm;
+
+	/* 11. 准备 satp 切换参数 */
+	uintptr_t user_pgd_pa = __pa((uintptr_t)mm->pgd);
 	uintptr_t satp_val = SATP_MODE_SV39 | (user_pgd_pa >> PAGE_SHIFT);
 
-	printk("exec: switching to user mode (sepc=%p, sp=%p, pgd=%p)\n",
-	       (void *)USER_CODE_BASE, (void *)USER_STACK_TOP, (void *)user_pgd_pa);
+	printk("exec: switching to user mode (sepc=%p, sp=%p, pgd=%p, brk=%p)\n",
+	       (void *)USER_CODE_BASE, (void *)USER_STACK_TOP,
+	       (void *)user_pgd_pa, (void *)mm->brk);
 
-	/* 9. 在当前 sp 下方的空闲区域构造 trap_frame，并预留 8B scratch */
+	/* 12. 在当前 sp 下方的空闲区域构造 trap_frame，并预留 8B scratch */
 	uintptr_t cur_sp;
 	__asm__ volatile("mv %0, sp" : "=r"(cur_sp));
 	cur_sp &= ~(uintptr_t)0xF;
@@ -121,7 +139,7 @@ void exec_user_binary(void *bin_start, size_t bin_size)
 	current->tf = tf;
 
 	/*
-	 * 10. 在单个 asm 块中完成所有切换操作：
+	 * 13. 在单个 asm 块中完成所有切换操作：
 	 *     切换 satp → sfence.vma → 设 sscratch → 切 sp → 跳 __trapret
 	 *
 	 *     这避免在 satp 切换和 __trapret 之间执行任何 C 代码，

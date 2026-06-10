@@ -26,9 +26,14 @@
 
 #include <kernel/fs.h>
 #include <kernel/types.h>
+#include <kernel/errno.h>
 #include <kernel/syscall.h>
+#include <kernel/mm.h>
 #include <asm/trap.h>
 #include <drivers/uart.h>
+
+/* 内核临时缓冲区大小，sys_write 分块拷贝使用 */
+#define WRITE_BUF_SIZE 256
 
 ssize_t sys_write(struct trap_frame *tf)
 {
@@ -38,13 +43,28 @@ ssize_t sys_write(struct trap_frame *tf)
 
 	/* 当前只支持 fd=1 (stdout) 和 fd=2 (stderr) */
 	if (fd != KERN_STDOUT && fd != KERN_STDERR)
-		return -1;
+		return -EBADF;
 
-	bool had_sum = user_access_begin();
+	/* 校验用户地址范围 */
+	if (!access_ok(buf, len))
+		return -EFAULT;
 
-	for (uint64_t i = 0; i < len; i++)
-		uart_putc(buf[i]);
+	char kbuf[WRITE_BUF_SIZE];
+	size_t written = 0;
 
-	user_access_end(had_sum);
-	return (ssize_t)len;
+	while (written < len) {
+		size_t chunk = len - written;
+		if (chunk > WRITE_BUF_SIZE)
+			chunk = WRITE_BUF_SIZE;
+
+		if (copy_from_user(kbuf, buf + written, chunk) != 0)
+			return -EFAULT;
+
+		for (size_t i = 0; i < chunk; i++)
+			uart_putc(kbuf[i]);
+
+		written += chunk;
+	}
+
+	return (ssize_t)written;
 }

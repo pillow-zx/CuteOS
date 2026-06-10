@@ -86,4 +86,12 @@ void page_table_use_buddy(void);
 
 pte_t *current_pgd(void);
 
+/*
+ * walk_page_table - 遍历/创建 Sv39 三级页表，返回叶子 PTE 指针
+ * @pgd:   PGD 页的虚拟地址
+ * @va:    虚拟地址
+ * @alloc: 是否允许分配缺失的中间页表页
+ */
+pte_t *walk_page_table(pte_t *pgd, uintptr_t va, bool alloc);
+
 #endif

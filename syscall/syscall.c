@@ -18,6 +18,7 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/task.h>
+#include <kernel/mm.h>
 #include <kernel/fs.h>
 #include <asm/trap.h>
 #include <asm/csr.h>
@@ -45,6 +46,7 @@ void syscall_init(void)
 {
 	syscall_table[SYS_write] = sys_write;
 	syscall_table[SYS_exit] = sys_exit;
+	syscall_table[SYS_brk] = sys_brk;
 
 	printk("syscall: initialized (%d entries)\n", NR_SYSCALL);
 }
