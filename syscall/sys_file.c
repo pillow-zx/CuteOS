@@ -27,26 +27,24 @@
 #include <kernel/fs.h>
 #include <kernel/types.h>
 #include <kernel/syscall.h>
+#include <asm/trap.h>
 #include <drivers/uart.h>
 
-ssize_t sys_write(size_t fd, size_t buf, size_t len, size_t _, size_t __, size_t ___)
+ssize_t sys_write(struct trap_frame *tf)
 {
-	(void)_;
-	(void)__;
-	(void)___;
+	size_t fd = tf->a0;
+	const char *buf = (const char *)tf->a1;
+	size_t len = tf->a2;
 
 	/* 当前只支持 fd=1 (stdout) 和 fd=2 (stderr) */
 	if (fd != KERN_STDOUT && fd != KERN_STDERR)
 		return -1;
 
-	const char *s = (const char *)buf;
 	bool had_sum = user_access_begin();
 
 	for (uint64_t i = 0; i < len; i++)
-		uart_putc(s[i]);
+		uart_putc(buf[i]);
 
 	user_access_end(had_sum);
-	return (long)len;
+	return (ssize_t)len;
 }
-
-

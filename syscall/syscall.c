@@ -2,16 +2,16 @@
  * syscall/syscall.c - 系统调用分发
  *
  * 功能：
- *   管理系统调用分发表（syscall_table）。使用 typedef long
- *   (*syscall_fn_t)(uint64_t x 6) 定义统一的系统调用函数签名。从 trap_frame 的
- * a7 寄存器读取系统调用号， 以 a0~a5 作为参数调用 syscall_table[nr]。返回值写入
- *   tf->a0。 未知的系统调用号返回 -ENOSYS。当前共约 34 个系统调用。
+ *   管理系统调用分发表（syscall_table）。每个系统调用处理器接收完整的
+ *   trap_frame 指针，直接从寄存器字段提取参数，无需占位符。
+ *   从 tf->a7 读取系统调用号，调用 syscall_table[nr](tf)，
+ *   返回值写入 tf->a0。未知的系统调用号返回 -ENOSYS。
  *
  * 主要函数：
  *   do_syscall(tf)
  *
  * 关键类型：
- *   syscall_fn_t           - typedef long (*syscall_fn_t)(uint64_t x 6)
+ *   syscall_fn_t           - typedef ssize_t (*syscall_fn_t)(struct trap_frame *)
  */
 
 #include <kernel/syscall.h>
@@ -25,7 +25,7 @@
 
 #define NR_SYSCALL 256
 
-typedef ssize_t (*syscall_fn_t)(size_t, size_t, size_t, size_t, size_t, size_t);
+typedef ssize_t (*syscall_fn_t)(struct trap_frame *);
 
 static syscall_fn_t syscall_table[NR_SYSCALL];
 
@@ -38,15 +38,13 @@ void do_syscall(struct trap_frame *tf)
 		return;
 	}
 
-	ssize_t ret = syscall_table[nr](tf->a0, tf->a1, tf->a2, tf->a3, tf->a4,
-					tf->a5);
-	tf->a0 = (size_t)ret;
+	tf->a0 = (size_t)syscall_table[nr](tf);
 }
 
 void syscall_init(void)
 {
-	syscall_table[SYS_write] = (syscall_fn_t)sys_write;
-	syscall_table[SYS_exit] = (syscall_fn_t)sys_exit;
+	syscall_table[SYS_write] = sys_write;
+	syscall_table[SYS_exit] = sys_exit;
 
 	printk("syscall: initialized (%d entries)\n", NR_SYSCALL);
 }

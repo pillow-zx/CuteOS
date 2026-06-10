@@ -19,15 +19,9 @@
 
 #include <kernel/printk.h>
 #include <kernel/syscall.h>
+#include <asm/trap.h>
 
-ssize_t sys_exit(size_t code, size_t _, size_t __, size_t ___, size_t ____,
-		 size_t _____)
+ssize_t sys_exit(struct trap_frame *tf)
 {
-	(void)_;
-	(void)__;
-	(void)___;
-	(void)____;
-	(void)_____;
-
-	panic("user exit with code %ld", (long)code);
+	panic("user exit with code %ld", (long)tf->a0);
 }

@@ -82,15 +82,12 @@ static __always_inline void user_access_end(bool had_sum)
 		csr_clear(sstatus, SSTATUS_SUM);
 }
 
-ssize_t sys_write(size_t fd, size_t buf, size_t len, size_t _, size_t __,
-		  size_t ___);
+struct trap_frame;
 
-ssize_t sys_exit(size_t code, size_t _, size_t __, size_t ___, size_t ____,
-		 size_t _____);
+ssize_t sys_write(struct trap_frame *tf);
+ssize_t sys_exit(struct trap_frame *tf);
 
 /* ---- 系统调用分发接口 ---- */
-
-struct trap_frame;
 
 void do_syscall(struct trap_frame *tf);
 void syscall_init(void);
