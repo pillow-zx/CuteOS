@@ -30,3 +30,40 @@
  *   release_task(task)          - 最终的 task_struct 回收（供 wait4 调用）。
  *   reparent_children(dead_task)- 将死进程的子进程过继给 init 进程。
  */
+
+#include <kernel/exit.h>
+#include <kernel/printk.h>
+#include <kernel/sched.h>
+#include <kernel/task.h>
+
+/*
+ * do_exit - 终止当前进程（极简版）
+ * @code: 退出码
+ *
+ * 当前实现：
+ *   - 设置 TASK_ZOMBIE
+ *   - 从就绪队列移除
+ *   - schedule() 让出 CPU，永不返回
+ *
+ * 未实现（Stage 4 补充）：
+ *   - 关闭 fd
+ *   - 释放 mm_struct
+ *   - 孤儿过继
+ *   - SIGCHLD 通知
+ */
+void do_exit(int code)
+{
+	printk("do_exit: pid=%d exit_code=%d\n", current->pid, code);
+
+	/* 设置进程状态为 ZOMBIE */
+	current->state = TASK_ZOMBIE;
+
+	/* 从就绪队列移除（如果仍在队列中） */
+	if (!list_empty(&current->run_list))
+		sched_dequeue(current);
+
+	/* 永不返回 */
+	schedule();
+
+	unreachable();
+}

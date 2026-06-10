@@ -9,7 +9,7 @@
  *
  * 设计决策：
  *   - VMA 使用固定大小数组（NR_VMA=16），不用链表/红黑树
- *   - 用户栈不纳入 VMA 管理，保持硬编码单页映射
+ *   - 用户栈纳入 VMA 管理（缺页处理需要）
  *   - mm_struct 通过 kmalloc 分配，内核线程 mm=NULL
  */
 
@@ -123,5 +123,18 @@ size_t copy_to_user(void *to, const void *from, size_t n);
  * 返回未能复制的字节数（0 表示全部成功）。
  */
 size_t copy_from_user(void *to, const void *from, size_t n);
+
+/* ---- 缺页处理 ---- */
+
+struct trap_frame;
+
+/*
+ * do_page_fault - 缺页异常处理总入口
+ * @tf: 指向当前 trap_frame
+ *
+ * 从 tf->stval 读取故障地址，从 tf->scause 区分缺页类型，
+ * 查找 VMA 判断合法性。合法则分配物理页并映射，非法则 do_exit。
+ */
+void do_page_fault(struct trap_frame *tf);
 
 #endif

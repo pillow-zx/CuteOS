@@ -234,6 +234,16 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 	map_page(mm->pgd, USER_STACK_BASE, __pa((uintptr_t)stack_page),
 		 PTE_USER_RW);
 
+	/* 为用户栈创建 VMA（缺页处理需要） */
+	if (vma_idx >= NR_VMA)
+		panic("exec: no VMA slot for stack");
+
+	struct vm_area_struct *stack_vma = &mm->vma[vma_idx++];
+	stack_vma->vm_start = USER_STACK_BASE;
+	stack_vma->vm_end = USER_STACK_TOP;
+	stack_vma->vm_flags = VM_READ | VM_WRITE;
+	stack_vma->used = true;
+
 	/* ---- 6. 挂载到当前进程 ---- */
 
 	current->mm = mm;

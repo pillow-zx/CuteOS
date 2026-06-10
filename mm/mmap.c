@@ -10,7 +10,7 @@
  *   mm_destroy()         - 销毁用户地址空间
  *   mm_create_user_pgd() - 创建用户页表 + 复制内核映射 + 映射 MMIO
  *   find_vma()           - 查找包含指定地址的 VMA
- *   mm_brk()             - brk 内部实现（立即分配，不缩小）
+ *   mm_brk()             - brk 内部实现（lazy allocation，不缩小）
  */
 
 #include <kernel/mm.h>
@@ -131,11 +131,9 @@ struct vm_area_struct *find_vma(struct mm_struct *mm, uintptr_t addr)
  * @mm:   进程地址空间描述符
  * @addr: 新的 brk 地址，0 表示查询
  *
- * 不允许缩小堆。立即分配物理页并建立映射（PTE_USER_RW）。
+ * 不允许缩小堆。仅更新 VMA 边界和 brk 指针，不分配物理页。
+ * 实际的物理页在缺页时由 do_page_fault() 按需分配（lazy allocation）。
  * 如果当前没有堆 VMA，则创建一个新的。
- *
- * TODO: 当前为简化实现，立即分配物理页。未来可改为 lazy allocation：
- *       仅更新 brk 指针，缺页时再分配物理页。
  *
  * 返回新的 brk 值，失败返回当前 brk 值。
  */
@@ -182,26 +180,6 @@ uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr)
 	} else {
 		/* 扩展已有堆 VMA */
 		heap_vma->vm_end = addr;
-	}
-
-	/* 立即分配物理页并映射（页对齐） */
-	uintptr_t start = PFN_UP(old_brk) << PAGE_SHIFT;
-	uintptr_t end = PFN_UP(addr) << PAGE_SHIFT;
-
-	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-		/* 跳过已映射的页 */
-		if (walk_page_table(mm->pgd, va, false))
-			continue;
-
-		void *page = get_free_page(0);
-		if (!page) {
-			/* OOM: 回滚 VMA，恢复旧 brk */
-			heap_vma->vm_end = old_brk;
-			if (heap_vma->vm_start == heap_vma->vm_end)
-				heap_vma->used = false;
-			return old_brk;
-		}
-		map_page(mm->pgd, va, __pa((uintptr_t)page), PTE_USER_RW);
 	}
 
 	mm->brk = addr;

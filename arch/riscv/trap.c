@@ -21,6 +21,7 @@
 #include <kernel/task.h>
 #include <kernel/timer.h>
 #include <kernel/syscall.h>
+#include <kernel/mm.h>
 
 static trap_test_hook_t trap_test_hook;
 
@@ -92,6 +93,12 @@ void trap_handler(struct trap_frame *tf)
 			/* sepc +4 跳过 ecall 指令 */
 			tf->sepc += 4;
 			do_syscall(tf);
+			return;
+		case EXC_INST_PAGE_FAULT:
+		case EXC_LOAD_PAGE_FAULT:
+		case EXC_STORE_PAGE_FAULT:
+			/* 缺页异常：不修改 sepc，sret 后重新执行 */
+			do_page_fault(tf);
 			return;
 		default:
 			panic("unhandled exception: origin=%s scause=0x%lx code=%lu "
