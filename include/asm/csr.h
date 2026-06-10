@@ -43,6 +43,8 @@
 #define SIE_SEIE BIT(9)
 
 #define SATP_MODE_SV39 (8UL << 60)
+#define SATP_PPN_BITS 44
+#define SATP_PPN_MASK MASK(SATP_PPN_BITS)
 
 #define csr_read(csr)                                                          \
 	({                                                                     \

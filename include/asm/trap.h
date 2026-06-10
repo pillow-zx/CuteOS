@@ -109,6 +109,8 @@ struct context {
 	size_t s6, s7, s8, s9, s10, s11;
 };
 
+typedef bool (*trap_test_hook_t)(struct trap_frame *tf);
+
 static __always_inline bool from_user(const struct trap_frame *tf)
 {
 	return (tf->sstatus & SSTATUS_SPP) == 0;
@@ -117,6 +119,8 @@ static __always_inline bool from_user(const struct trap_frame *tf)
 void trap_init(void);
 
 void trap_handler(struct trap_frame *tf);
+
+void trap_set_test_hook(trap_test_hook_t hook);
 
 void switch_to(struct context *prev, struct context *next);
 

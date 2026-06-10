@@ -29,16 +29,20 @@
  *   仅 hart0 运行，非 0 hart 在 boot.S 中已被 park。
  */
 
+// #define DEBUG_ENABLE
+
 #include <kernel/printk.h>
 #include <kernel/buddy.h>
 #include <kernel/slab.h>
 #include <kernel/task.h>
-#include <kernel/test.h>
 #include <kernel/sched.h>
-#include <asm/page.h>
-#include <asm/sbi.h>
+#include <kernel/timer.h>
 #include <asm/trap.h>
 #include <asm/csr.h>
+
+#ifdef DEBUG_ENABLE
+	#include <kernel/test.h>
+#endif
 
 /* PID 1 init 内核线程入口 (kernel/init_process.c) */
 extern void init_process(void *arg);
@@ -78,9 +82,10 @@ void kernel_main(void)
 	sched_init();
 	printk("sched: init successfully\n");
 
+#ifdef DEBUG_ENABLE
 	kernel_test();
+#endif
 
-	/* 创建 init 内核线程 (PID 1) */
 	kernel_thread(init_process, NULL);
 
 	/* 进入 idle 循环 — idle 进程的执行体 */

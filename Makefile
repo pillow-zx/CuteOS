@@ -83,6 +83,7 @@ include block/block.mk
 include drivers/drivers.mk
 include syscall/syscall.mk
 include lib/lib.mk
+include test/test.mk
 
 # Aggregate all kernel objects
 OBJ_REL = \
@@ -94,6 +95,7 @@ OBJ_REL = \
 	$(BLOCK_OBJS)       \
 	$(DRIVER_OBJS)      \
 	$(SYSCALL_OBJS)     \
+	$(TEST_OBJS)	    \
 	$(LIB_OBJS)
 
 # Build profile and artifact layout

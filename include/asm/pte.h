@@ -53,4 +53,18 @@ typedef uint64_t pte_t;
 #define PTE_TO_PA(pte)          ((uint64_t)PTE_PPN(pte) << PAGE_SHIFT)
 #define PA_TO_PTE(pa)           (PTE_CREATE(PHYS_PFN(pa), 0))
 
+pte_t *page_table_lookup_current(uintptr_t va);
+
+/*
+ * page_table_write_current - 修改当前 SATP 页表中的已有映射
+ * @va:   虚拟地址（必须已存在有效 PTE 映射）
+ * @pa:   新的物理地址
+ * @perm: 新的 PTE 权限位
+ *
+ * 读取 satp 获取当前页表，覆盖 PTE 并执行 sfence.vma 刷新 TLB。
+ * 若 @va 无有效映射则 panic。仅适用于内核恒等映射页表；
+ * 引入进程独立地址空间后需重新设计。
+ */
+void page_table_write_current(uintptr_t va, uintptr_t pa, pte_t perm);
+
 #endif

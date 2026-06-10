@@ -19,9 +19,16 @@
 #include <kernel/task.h>
 #include <kernel/timer.h>
 
+static trap_test_hook_t trap_test_hook;
+
 static const char *trap_origin(const struct trap_frame *tf)
 {
 	return (tf->sstatus & SSTATUS_SPP) ? "kernel" : "user";
+}
+
+void trap_set_test_hook(trap_test_hook_t hook)
+{
+	trap_test_hook = hook;
 }
 
 /*
@@ -52,6 +59,13 @@ void trap_handler(struct trap_frame *tf)
 	uint64_t scause = tf->scause;
 	bool is_interrupt = (scause & SCAUSE_IRQ_FLAG) != 0;
 	uint64_t code = scause & ~SCAUSE_IRQ_FLAG;
+
+	/* TODO: 待引入 Kconfig 后，将此测试 hook 置于
+	 * CONFIG_TRAP_TEST_HOOK 编译期守卫之下，避免生产内核
+	 * 在每次 trap 时承受间接调用的开销。
+	 */
+	if (trap_test_hook && trap_test_hook(tf))
+		return;
 
 	if (is_interrupt) {
 		switch (code) {

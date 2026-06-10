@@ -128,6 +128,31 @@ static void map_page(pte_t *pgd, uintptr_t va, uintptr_t pa, pte_t perm)
 	*pte = PA_TO_PTE(pa) | perm;
 }
 
+static pte_t *current_pgd(void)
+{
+	uintptr_t satp_val = csr_read(satp);
+	uintptr_t pgd_pa = (satp_val & SATP_PPN_MASK) << PAGE_SHIFT;
+
+	return (pte_t *)__va(pgd_pa);
+}
+
+pte_t *page_table_lookup_current(uintptr_t va)
+{
+	return walk_page_table(current_pgd(), va, false);
+}
+
+void page_table_write_current(uintptr_t va, uintptr_t pa, pte_t perm)
+{
+	pte_t *pte = page_table_lookup_current(va);
+
+	if (!pte || !(*pte & PTE_V))
+		panic("page_table_write_current: no mapping for va=%p",
+		      (void *)va);
+
+	*pte = PA_TO_PTE(pa) | perm;
+	sfence_vma_addr(va);
+}
+
 /* ---- 公共接口 ---- */
 
 /*

@@ -36,28 +36,4 @@ void sbi_console_putchar(int ch);
  */
 void __noreturn sbi_shutdown(void);
 
-/*
- * get_mtime - 获取当前时间计数器
- *
- * 通过 time CSR (Sstc) 读取当前 mtime 值。
- * 定义在 arch/riscv/timer.c。
- */
-uint64_t get_mtime(void);
-
-/*
- * set_mtimecmp - 设置下一次时钟中断
- *
- * 通过 stimecmp CSR (Sstc) 设置 mtimecmp 值。
- * 定义在 arch/riscv/timer.c。
- */
-void set_mtimecmp(uint64_t value);
-
-/*
- * timer_init - 初始化定时器
- *
- * 设置首次时钟中断，使调度器能够获得周期性的时钟滴答。
- * 定义在 arch/riscv/timer.c。
- */
-void timer_init(void);
-
 #endif
