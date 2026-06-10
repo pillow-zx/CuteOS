@@ -65,5 +65,6 @@
 
 void sfence_vma_all(void);
 void sfence_vma_addr(uintptr_t va);
+void fence_i(void);
 
 #endif

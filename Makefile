@@ -217,8 +217,8 @@ $(KERNEL_NAME): $(KERNEL)
 
 $(KERNEL_NAME).img: $(KERNEL_IMG)
 
-# Build user binary before kernel (needed by user_elf.S .incbin)
-$(OUTDIR)/arch/riscv/user_elf.o: $(USER_BIN)
+# Build user ELF before kernel (needed by user_elf.S .incbin)
+$(OUTDIR)/arch/riscv/user_elf.o: $(USER_ELF)
 
 # Link the kernel
 $(KERNEL): $(OBJS) kernel.ld
@@ -320,7 +320,7 @@ sym: $(KERNEL)
 # Cleanup
 # =============================================================================
 
-user: $(USER_BIN)
+user: $(USER_ELF)
 
 clean-user:
 	$(Q)rm -rf $(USER_OUT)

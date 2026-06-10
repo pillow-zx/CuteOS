@@ -1,126 +1,255 @@
 /*
- * kernel/exec.c - 程序执行（用户态切换）
+ * kernel/exec.c - ELF 加载与用户态切换
  *
  * 功能：
- *   实现 exec_user_binary()，将 flat binary 加载到用户地址空间，
+ *   实现 exec_user_elf()，将内嵌的 ELF64 可执行文件加载到用户地址空间，
  *   并通过修改 trap_frame 使当前内核线程切换到用户态执行。
  *
- *   exec_user_binary 执行流程：
- *     1. 调用 mm_alloc() 创建 mm_struct
- *     2. 调用 mm_create_user_pgd() 创建用户页表 + 复制内核映射
- *     3. 分配物理页用于用户代码和用户栈
- *     4. 将 flat binary 复制到用户代码页
- *     5. 在用户 pgd 中映射代码页和栈页
- *     6. 创建代码段 VMA（VM_READ | VM_EXEC）
- *     7. 初始化 mm->brk = code_end（页对齐）
- *     8. 设置 trap_frame：sepc=0x10000, sp=0x80000000, SPP=0
- *     9. 在单个 asm 块中：切换 satp → sfence → 设 sscratch → 跳转 __trapret
+ *   exec_user_elf 执行流程：
+ *     1. 解析 ELF header，校验 magic / class / endianness
+ *     2. 创建 mm_struct + 用户页表
+ *     3. 遍历 PT_LOAD 段，逐页分配物理页，复制 filesz + 清零 memsz-filesz
+ *     4. 为每个 PT_LOAD 段创建 VMA
+ *     5. 分配用户栈页并映射
+ *     6. fence.i 刷新指令缓存
+ *     7. 设置 trap_frame（sepc=入口, sp=栈顶, SPP=0）
+ *     8. 切换 satp → sfence → 设 sscratch → 跳转 __trapret
  *
  * 注意：
- *   当前为 Stage 3.2 最小实现，仅支持 flat binary（无 ELF 解析）。
- *   Stage 3.3 将实现完整的 sys_execve。
- *
- *   用户态 trap 入口会先用 sscratch 指向的 8 字节 scratch slot
- *   暂存用户 sp，因此 trap_frame 顶部额外预留 1 个 word 空间。
- *   该 trap_frame 必须放在当前 C 调用栈的下方未使用区域，构造完成后
- *   不能再发生新的函数调用，否则会被后续栈帧覆盖。
+ *   此函数不返回。trap_frame 构造在当前 C 栈下方的空闲区域，
+ *   完成后不能再发生函数调用。
  */
 
 #include <kernel/printk.h>
 #include <kernel/string.h>
 #include <kernel/mm.h>
 #include <kernel/buddy.h>
+#include <kernel/elf.h>
 #include <kernel/task.h>
-#include <drivers/uart.h>
 #include <asm/page.h>
 #include <asm/pte.h>
 #include <asm/csr.h>
 #include <asm/trap.h>
 
 /* 用户地址空间常量 */
-#define USER_CODE_BASE	0x10000UL	/* 用户代码加载地址 */
-#define USER_STACK_TOP	0x80000000UL	/* 用户栈顶地址 */
-#define USER_STACK_BASE	0x7FFFF000UL	/* 用户栈底地址（1 页） */
+#define USER_STACK_TOP	0x80000000UL /* 用户栈顶地址 */
+#define USER_STACK_BASE 0x7FFFF000UL /* 用户栈底地址（1 页） */
 
 /* entry.S 中的 trap 返回入口 */
 extern void __trapret(void);
 
+/* ---- ELF 权限转换辅助函数 ---- */
+
+static pte_t elf_flags_to_pte(uint32_t p_flags)
+{
+	bool r = p_flags & PF_R;
+	bool w = p_flags & PF_W;
+	bool x = p_flags & PF_X;
+
+	if (r && w && x)
+		return PTE_USER_RWX;
+	if (r && w)
+		return PTE_USER_RW;
+	if (r && x)
+		return PTE_USER_RX;
+	if (r)
+		return PTE_USER_R;
+
+	/* 不应有不可读的段，fallback */
+	return PTE_USER_RX;
+}
+
+static uint32_t elf_flags_to_vma(uint32_t p_flags)
+{
+	uint32_t flags = 0;
+	if (p_flags & PF_R)
+		flags |= VM_READ;
+	if (p_flags & PF_W)
+		flags |= VM_WRITE;
+	if (p_flags & PF_X)
+		flags |= VM_EXEC;
+	return flags;
+}
+
 /*
- * exec_user_binary - 加载 flat binary 并切换到用户态
- * @bin_start: flat binary 在内核中的起始地址
- * @bin_size:  flat binary 的大小（字节）
+ * exec_user_elf - 加载 ELF 可执行文件并切换到用户态
+ * @bin_start: ELF 文件在内核中的起始地址
+ * @bin_size:  ELF 文件的大小（字节）
  *
- * 为当前进程创建用户地址空间，加载 binary，然后
- * 通过 __trapret → sret 进入用户态。
+ * 为当前进程创建用户地址空间，解析 ELF 并加载 PT_LOAD 段，
+ * 然后通过 __trapret → sret 进入用户态。
  * 此函数不返回。
  */
-void exec_user_binary(void *bin_start, size_t bin_size)
+void exec_user_elf(void *bin_start, size_t bin_size)
 {
-	printk("exec: loading user binary (%lu bytes)\n", (unsigned long)bin_size);
+	printk("exec: loading ELF binary (%lu bytes)\n",
+	       (unsigned long)bin_size);
 
-	/* 1. 创建 mm_struct */
+	/* ---- 1. ELF 基本校验 ---- */
+
+	if (bin_size < sizeof(Elf64_Ehdr))
+		panic("exec: ELF too small (%lu bytes)",
+		      (unsigned long)bin_size);
+
+	Elf64_Ehdr *ehdr = (Elf64_Ehdr *)bin_start;
+
+	if (ehdr->e_ident[EI_MAG0] != ELFMAG0 ||
+	    ehdr->e_ident[EI_MAG1] != ELFMAG1 ||
+	    ehdr->e_ident[EI_MAG2] != ELFMAG2 ||
+	    ehdr->e_ident[EI_MAG3] != ELFMAG3)
+		panic("exec: bad ELF magic");
+
+	if (ehdr->e_ident[EI_CLASS] != ELFCLASS64)
+		panic("exec: not ELF64");
+
+	if (ehdr->e_ident[EI_DATA] != ELFDATA2LSB)
+		panic("exec: not little-endian ELF");
+
+	if (ehdr->e_type != ET_EXEC)
+		panic("exec: not ET_EXEC (type=%u)", ehdr->e_type);
+	if (ehdr->e_machine != EM_RISCV)
+		panic("exec: not RISC-V ELF (machine=%u)", ehdr->e_machine);
+
+	if (ehdr->e_phoff == 0 || ehdr->e_phnum == 0)
+		panic("exec: no program headers");
+
+	if (ehdr->e_phoff + (uint64_t)ehdr->e_phnum * ehdr->e_phentsize >
+	    bin_size)
+		panic("exec: program headers out of bounds");
+
+	/* ---- 2. 创建 mm_struct + 用户页表 ---- */
+
 	struct mm_struct *mm = mm_alloc();
 	if (!mm)
 		panic("exec: failed to allocate mm_struct");
 
-	/* 2. 创建用户页表（PGD + 内核映射 + MMIO） */
 	mm->pgd = mm_create_user_pgd();
 	if (!mm->pgd)
 		panic("exec: failed to create user pgd");
 
-	/* 3. 分配用户代码页 */
-	void *code_page = get_free_page(0);
-	if (!code_page)
-		panic("exec: failed to allocate user code page");
-	memset(code_page, 0, PAGE_SIZE);
+	/* ---- 3. 遍历 PT_LOAD 段，映射到用户地址空间 ---- */
 
-	/* 4. 复制 flat binary 到代码页 */
-	if (bin_size > PAGE_SIZE)
-		panic("exec: user binary too large (%lu > %lu)",
-		      (unsigned long)bin_size, (unsigned long)PAGE_SIZE);
-	memcpy(code_page, bin_start, bin_size);
-	__asm__ volatile("fence.i" : : : "memory");
+	auto *phdrs = (Elf64_Phdr *)((uint8_t *)bin_start + ehdr->e_phoff);
+	uintptr_t first_vaddr = 0;
+	uintptr_t last_end = 0;
+	int vma_idx = 0;
 
-	/* 5. 分配用户栈页 */
+	for (int i = 0; i < ehdr->e_phnum; i++) {
+		Elf64_Phdr *ph = &phdrs[i];
+		if (ph->p_type != PT_LOAD)
+			continue;
+
+		printk("exec: PT_LOAD vaddr=%p filesz=%lu memsz=%lu "
+		       "flags=0x%x\n",
+		       (void *)ph->p_vaddr, (unsigned long)ph->p_filesz,
+		       (unsigned long)ph->p_memsz, ph->p_flags);
+
+		if (ph->p_memsz == 0)
+			continue;
+
+		/* 校验段在文件范围内 */
+		if (ph->p_offset + ph->p_filesz > bin_size)
+			panic("exec: PT_LOAD segment out of file bounds");
+
+		/* 校验地址在用户空间内 */
+		uintptr_t seg_start = ph->p_vaddr;
+		uintptr_t seg_end = ph->p_vaddr + ph->p_memsz;
+		if (seg_end > USER_STACK_BASE)
+			panic("exec: PT_LOAD segment exceeds user space");
+
+		/* 记录第一个段的起始和最后一个段的结束 */
+		if (first_vaddr == 0 || seg_start < first_vaddr)
+			first_vaddr = seg_start;
+		if (seg_end > last_end)
+			last_end = seg_end;
+
+		/* 逐页映射 */
+		uintptr_t page_start = PFN_DOWN(seg_start) << PAGE_SHIFT;
+		uintptr_t page_end = PFN_UP(seg_end) << PAGE_SHIFT;
+
+		for (uintptr_t va = page_start; va < page_end;
+		     va += PAGE_SIZE) {
+			/* 分配物理页 */
+			void *page = get_free_page(0);
+			if (!page)
+				panic("exec: OOM allocating page at %p",
+				      (void *)va);
+			memset(page, 0, PAGE_SIZE);
+
+			/* 计算本页需要复制的范围 */
+			uintptr_t src_start =
+				ph->p_offset +
+				(va < seg_start ? 0 : va - seg_start);
+			uintptr_t src_end = ph->p_offset + ph->p_filesz;
+
+			if (src_start < src_end) {
+				/* 本页内需要复制数据 */
+				uintptr_t copy_off =
+					(va < seg_start) ? seg_start - va : 0;
+				size_t copy_len = PAGE_SIZE - copy_off;
+				uintptr_t remaining = src_end - src_start;
+				if (copy_len > remaining)
+					copy_len = remaining;
+
+				memcpy((uint8_t *)page + copy_off,
+				       (uint8_t *)bin_start + src_start,
+				       copy_len);
+			}
+			/* memsz > filesz 的部分已被 memset 清零 */
+
+			map_page(mm->pgd, va, __pa((uintptr_t)page),
+				 elf_flags_to_pte(ph->p_flags));
+		}
+
+		/* 为此段创建 VMA */
+		if (vma_idx >= NR_VMA)
+			panic("exec: too many PT_LOAD segments (max %d)",
+			      NR_VMA);
+
+		struct vm_area_struct *vma = &mm->vma[vma_idx++];
+		vma->vm_start = seg_start;
+		vma->vm_end = seg_end;
+		vma->vm_flags = elf_flags_to_vma(ph->p_flags);
+		vma->used = true;
+	}
+
+	if (last_end == 0)
+		panic("exec: no PT_LOAD segments found");
+
+	fence_i();
+
+	/* ---- 4. 设置 code_start/code_end/brk ---- */
+
+	mm->code_start = first_vaddr;
+	mm->code_end = PFN_UP(last_end) << PAGE_SHIFT;
+	mm->brk = mm->code_end;
+
+	/* ---- 5. 分配用户栈页 ---- */
+
 	void *stack_page = get_free_page(0);
 	if (!stack_page)
 		panic("exec: failed to allocate user stack page");
 	memset(stack_page, 0, PAGE_SIZE);
 
-	/* 6. 映射用户代码页（0x10000, RX） */
-	map_page(mm->pgd, USER_CODE_BASE, __pa((uintptr_t)code_page),
-		 PTE_USER_RX);
-
-	/* 7. 映射用户栈页（0x7FFFF000, RW） */
 	map_page(mm->pgd, USER_STACK_BASE, __pa((uintptr_t)stack_page),
 		 PTE_USER_RW);
 
-	/* 8. 创建代码段 VMA */
-	uintptr_t code_end = (USER_CODE_BASE + bin_size + PAGE_SIZE - 1) &
-			     PAGE_MASK;
-	struct vm_area_struct *code_vma = &mm->vma[0];
-	code_vma->vm_start = USER_CODE_BASE;
-	code_vma->vm_end = code_end;
-	code_vma->vm_flags = VM_READ | VM_EXEC;
-	code_vma->used = true;
+	/* ---- 6. 挂载到当前进程 ---- */
 
-	/* 9. 初始化 brk = 代码段结束处（页对齐） */
-	mm->code_start = USER_CODE_BASE;
-	mm->code_end = code_end;
-	mm->brk = code_end;
-
-	/* 10. 挂载到当前进程 */
 	current->mm = mm;
 
-	/* 11. 准备 satp 切换参数 */
+	/* ---- 7. 准备 satp 切换参数 ---- */
+
 	uintptr_t user_pgd_pa = __pa((uintptr_t)mm->pgd);
 	uintptr_t satp_val = SATP_MODE_SV39 | (user_pgd_pa >> PAGE_SHIFT);
 
-	printk("exec: switching to user mode (sepc=%p, sp=%p, pgd=%p, brk=%p)\n",
-	       (void *)USER_CODE_BASE, (void *)USER_STACK_TOP,
+	printk("exec: switching to user mode (sepc=%p, sp=%p, pgd=%p, "
+	       "brk=%p)\n",
+	       (void *)ehdr->e_entry, (void *)USER_STACK_TOP,
 	       (void *)user_pgd_pa, (void *)mm->brk);
 
-	/* 12. 在当前 sp 下方的空闲区域构造 trap_frame，并预留 8B scratch */
+	/* ---- 8. 构造 trap_frame 并切换到用户态 ---- */
+
 	uintptr_t cur_sp;
 	__asm__ volatile("mv %0, sp" : "=r"(cur_sp));
 	cur_sp &= ~(uintptr_t)0xF;
@@ -132,30 +261,25 @@ void exec_user_binary(void *bin_start, size_t bin_size)
 
 	BUG_ON((uintptr_t)tf < (uintptr_t)current->kstack);
 
-	tf->sepc = USER_CODE_BASE;	/* 入口地址 */
-	tf->sp = USER_STACK_TOP;	/* 用户栈顶 */
+	tf->sepc = ehdr->e_entry;   /* ELF 入口地址 */
+	tf->sp = USER_STACK_TOP;    /* 用户栈顶 */
 	tf->sstatus = SSTATUS_SPIE; /* SPP=0: sret 返回 U-mode */
 
 	current->tf = tf;
 
 	/*
-	 * 13. 在单个 asm 块中完成所有切换操作：
-	 *     切换 satp → sfence.vma → 设 sscratch → 切 sp → 跳 __trapret
-	 *
-	 *     这避免在 satp 切换和 __trapret 之间执行任何 C 代码，
-	 *     确保指令流在 TLB 刷新后连续不中断。
+	 * 在单个 asm 块中完成所有切换操作：
+	 * 切换 satp → sfence.vma → 设 sscratch → 切 sp → 跳 __trapret
 	 */
-	__asm__ volatile(
-		"csrw    satp, %[satp]\n\t"
-		"sfence.vma zero, zero\n\t"
-		"csrw    sscratch, %[ksp]\n\t"
-		"mv      sp, %[tf]\n\t"
-		"j       __trapret\n\t"
-		:
-		: [satp] "r"(satp_val),
-		  [ksp]  "r"(kstack_top),
-		  [tf]   "r"((uintptr_t)tf)
-		: "memory");
+	__asm__ volatile("csrw    satp, %[satp]\n\t"
+			 "sfence.vma zero, zero\n\t"
+			 "csrw    sscratch, %[ksp]\n\t"
+			 "mv      sp, %[tf]\n\t"
+			 "j       __trapret\n\t"
+			 :
+			 : [satp] "r"(satp_val), [ksp] "r"(kstack_top),
+			   [tf] "r"((uintptr_t)tf)
+			 : "memory");
 
 	unreachable();
 }

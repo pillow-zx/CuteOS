@@ -38,3 +38,16 @@ void sfence_vma_addr(uintptr_t va)
 {
 	local_sfence_vma(va, 0);
 }
+
+/*
+ * fence_i - 刷新指令缓存（I-Cache）
+ *
+ * 在修改内存中的指令后调用，确保修改后的指令对取指可见。
+ * 典型场景：加载 ELF 代码页后、动态代码生成后。
+ *
+ * fence.i 保证后续取指能观察到之前所有对指令内存的写入。
+ */
+void fence_i(void)
+{
+	asm volatile("fence.i" : : : "memory");
+}

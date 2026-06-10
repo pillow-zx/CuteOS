@@ -41,9 +41,11 @@ typedef uint64_t pte_t;
 
 #define PTE_TABLE       PTE_V
 
-#define PTE_KERN_RWX    (PTE_V | PTE_R | PTE_W | PTE_X | PTE_G | PTE_A | PTE_D)
 #define PTE_KERN_RW     (PTE_V | PTE_R | PTE_W | PTE_G | PTE_A | PTE_D)
+#define PTE_KERN_RWX    (PTE_V | PTE_R | PTE_W | PTE_X | PTE_G | PTE_A | PTE_D)
 #define PTE_USER_RWX    (PTE_V | PTE_R | PTE_W | PTE_X | PTE_U | PTE_A | PTE_D)
+
+#define PTE_USER_R      (PTE_V | PTE_R | PTE_U | PTE_A | PTE_D)
 #define PTE_USER_RX     (PTE_V | PTE_R | PTE_X | PTE_U | PTE_A | PTE_D)
 #define PTE_USER_RW     (PTE_V | PTE_R | PTE_W | PTE_U | PTE_A | PTE_D)
 
