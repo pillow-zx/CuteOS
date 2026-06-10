@@ -18,6 +18,8 @@ typedef unsigned long size_t;
 /* Linux riscv64 系统调用号 */
 #define SYS_write	64
 #define SYS_exit	93
+#define SYS_sched_yield	124
+#define SYS_getpid	172
 
 /* ---- syscallN: 底层内联汇编封装 (a0~a5, 最多 6 个参数) ---- */
 
@@ -135,6 +137,16 @@ static inline void exit(int code)
 {
 	syscall(SYS_exit, code);
 	__builtin_unreachable();
+}
+
+static inline long getpid(void)
+{
+	return syscall0(SYS_getpid);
+}
+
+static inline long yield(void)
+{
+	return syscall0(SYS_sched_yield);
 }
 
 #endif

@@ -46,6 +46,8 @@ void syscall_init(void)
 {
 	syscall_table[SYS_write] = sys_write;
 	syscall_table[SYS_exit] = sys_exit;
+	syscall_table[SYS_sched_yield] = sys_sched_yield;
+	syscall_table[SYS_getpid] = sys_getpid;
 	syscall_table[SYS_brk] = sys_brk;
 
 	printk("syscall: initialized (%d entries)\n", NR_SYSCALL);

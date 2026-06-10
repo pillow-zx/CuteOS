@@ -7,21 +7,31 @@
  *
  * 主要函数：
  *   sys_getpid()        - 返回当前进程 PID
- *   sys_getppid()       - 返回当前进程的父进程 PID
- *   sys_fork()          - 创建子进程（复制父进程地址空间和文件描述符）
- *   sys_execve(path, argv, envp) - 加载新程序替换当前进程映像
  *   sys_exit(status)    - 终止当前进程
- *   sys_wait4(pid, status, options) - 等待子进程状态变化
- *   sys_yield()         - 主动让出 CPU
- *   sys_getuid()        - 返回当前进程的用户 ID
- *   sys_getgid()        - 返回当前进程的组 ID
+ *   sys_sched_yield()   - 主动让出 CPU
  */
 
 #include <kernel/printk.h>
 #include <kernel/syscall.h>
+#include <kernel/exit.h>
+#include <kernel/sched.h>
+#include <kernel/task.h>
 #include <asm/trap.h>
+
+ssize_t sys_getpid(struct trap_frame *tf)
+{
+	return (ssize_t)current->pid;
+}
 
 ssize_t sys_exit(struct trap_frame *tf)
 {
-	panic("user exit with code %ld", (long)tf->a0);
+	int code = (int)tf->a0;
+	do_exit(code);
+	unreachable();
+}
+
+ssize_t sys_sched_yield(struct trap_frame *tf)
+{
+	schedule();
+	return 0;
 }
