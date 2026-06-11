@@ -69,8 +69,9 @@ struct task_struct {
 	/* 内核栈 */
 	void *kstack; /* 栈底（低地址） */
 
-	/* 内存管理（后续 Stage 使用） */
-	struct mm_struct *mm; /* 指向 mm_struct，内核线程为 NULL */
+	/* 内存管理 */
+	struct mm_struct *mm;   /* 指向 mm_struct，内核线程为 NULL */
+	uint64_t satp;     /* 预计算的 satp 值，避免 trapret 通过pgd临时计算 */
 
 	/* 文件描述符（后续 Stage 使用） */
 	void *fd_array[32]; /* 打开的文件 */
@@ -89,6 +90,9 @@ struct task_struct {
 	struct list_head run_list;     /* 就绪队列节点 */
 	volatile uint8_t need_resched; /* 时钟 tick 置位，trap 返回前触发调度 */
 };
+
+static_assert(offsetof(struct task_struct, satp) == 144,
+	       "TASK_SATP offset in entry.S out of sync with struct task_struct");
 
 /* ---- 全局变量 ---- */
 

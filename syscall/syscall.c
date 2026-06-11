@@ -24,7 +24,7 @@
 #include <asm/csr.h>
 #include <drivers/uart.h>
 
-#define NR_SYSCALL 256
+#define NR_SYSCALL 1001
 
 typedef ssize_t (*syscall_fn_t)(struct trap_frame *);
 
@@ -49,6 +49,7 @@ void syscall_init(void)
 	syscall_table[SYS_sched_yield] = sys_sched_yield;
 	syscall_table[SYS_getpid] = sys_getpid;
 	syscall_table[SYS_brk] = sys_brk;
+	syscall_table[SYS_fork] = sys_fork;
 
 	printk("syscall: initialized (%d entries)\n", NR_SYSCALL);
 }

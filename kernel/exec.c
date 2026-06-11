@@ -78,14 +78,12 @@ static uint32_t elf_flags_to_vma(uint32_t p_flags)
  */
 void exec_user_elf(void *bin_start, size_t bin_size)
 {
-	printk("exec: loading ELF binary (%lu bytes)\n",
-	       (size_t)bin_size);
+	printk("exec: loading ELF binary (%lu bytes)\n", (size_t)bin_size);
 
 	/* ---- 1. ELF 基本校验 ---- */
 
 	if (bin_size < sizeof(Elf64_Ehdr))
-		panic("exec: ELF too small (%lu bytes)",
-		      (size_t)bin_size);
+		panic("exec: ELF too small (%lu bytes)", (size_t)bin_size);
 
 	Elf64_Ehdr *ehdr = (Elf64_Ehdr *)bin_start;
 
@@ -125,7 +123,8 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 
 	/* ---- 3. 遍历 PT_LOAD 段，映射到用户地址空间 ---- */
 
-	Elf64_Phdr *phdrs = (Elf64_Phdr *)((uint8_t *)bin_start + ehdr->e_phoff);
+	Elf64_Phdr *phdrs =
+		(Elf64_Phdr *)((uint8_t *)bin_start + ehdr->e_phoff);
 	uintptr_t first_vaddr = 0;
 	uintptr_t last_end = 0;
 	int vma_idx = 0;
@@ -137,8 +136,8 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 
 		printk("exec: PT_LOAD vaddr=%p filesz=%llu memsz=%llu "
 		       "flags=0x%x\n",
-		       (void *)ph->p_vaddr, ph->p_filesz,
-		       ph->p_memsz, ph->p_flags);
+		       (void *)ph->p_vaddr, ph->p_filesz, ph->p_memsz,
+		       ph->p_flags);
 
 		if (ph->p_memsz == 0)
 			continue;
@@ -251,6 +250,9 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 	uintptr_t user_pgd_pa = __pa((uintptr_t)mm->pgd);
 	uintptr_t satp_val = SATP_MODE_SV39 | (user_pgd_pa >> PAGE_SHIFT);
 
+	/* 保存 satp 值，trapret 返回用户态时需要切换页表 */
+	current->satp = satp_val;
+
 	printk("exec: switching to user mode (sepc=%p, sp=%p, pgd=%p, "
 	       "brk=%p)\n",
 	       (void *)ehdr->e_entry, (void *)USER_STACK_TOP,
@@ -275,19 +277,11 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 
 	current->tf = tf;
 
-	/*
-	 * 在单个 asm 块中完成所有切换操作：
-	 * 切换 satp → sfence.vma → 设 sscratch → 切 sp → 跳 __trapret
-	 */
-	__asm__ volatile("csrw    satp, %[satp]\n\t"
-			 "sfence.vma zero, zero\n\t"
-			 "csrw    sscratch, %[ksp]\n\t"
-			 "mv      sp, %[tf]\n\t"
-			 "j       __trapret\n\t"
-			 :
-			 : [satp] "r"(satp_val), [ksp] "r"(kstack_top),
-			   [tf] "r"((uintptr_t)tf)
-			 : "memory");
+	asm volatile("mv      sp, %[tf]\n\t"
+		     "j       __trapret\n\t"
+		     :
+		     : [tf] "r"((uintptr_t)tf)
+		     : "memory");
 
 	unreachable();
 }

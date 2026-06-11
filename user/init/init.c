@@ -81,5 +81,29 @@ void main(void)
 	yield();
 	print("[TEST] second yield: OK\n");
 
+	/* ---- Test 7: fork ---- */
+	print("[TEST] fork...\n");
+	long child_pid = fork();
+	if (child_pid == 0) {
+		/* 子进程 */
+		print("[CHILD] I am the child! pid=");
+		print_hex((unsigned long)getpid());
+		print("\n");
+		exit(0);
+	} else if (child_pid > 0) {
+		/* 父进程 */
+		print("[PARENT] fork returned child_pid=");
+		print_hex((unsigned long)child_pid);
+		print("\n");
+		/* 让子进程先运行 */
+		yield();
+		yield();
+		print("[PARENT] child should have exited\n");
+	} else {
+		print("[TEST] fork FAILED, returned ");
+		print_hex((unsigned long)child_pid);
+		print("\n");
+	}
+
 	print("=== All tests passed ===\n");
 }

@@ -89,6 +89,7 @@ ssize_t sys_exit(struct trap_frame *tf);
 ssize_t sys_sched_yield(struct trap_frame *tf);
 ssize_t sys_getpid(struct trap_frame *tf);
 ssize_t sys_brk(struct trap_frame *tf);
+ssize_t sys_fork(struct trap_frame *tf);
 
 /* ---- 系统调用分发接口 ---- */
 

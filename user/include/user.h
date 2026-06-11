@@ -21,6 +21,7 @@ typedef unsigned long size_t;
 #define SYS_sched_yield	124
 #define SYS_getpid	172
 #define SYS_brk		214
+#define SYS_fork	1000
 
 /* ---- syscallN: 底层内联汇编封装 (a0~a5, 最多 6 个参数) ---- */
 
@@ -148,6 +149,11 @@ static inline long getpid(void)
 static inline long yield(void)
 {
 	return syscall0(SYS_sched_yield);
+}
+
+static inline long fork(void)
+{
+	return syscall0(SYS_fork);
 }
 
 /*

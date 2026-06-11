@@ -6,24 +6,198 @@
  *   为子进程的每个 VMA 分配新的物理页并复制父进程的页面内容。
  *   这是朴素但正确的 fork 语义，后续可引入 COW 优化。
  *
- *   fork 的复制策略：
- *     - 用户页表 + 物理页：按 VMA 逐一复制，子进程获得独立的物理页副本。
- *     - 文件描述符表（fd_array）：复制时对每个打开文件执行 refcount++，
- *       父子共享 file 描述。
- *     - 信号处理器（sighand）：复制 sigaction 数组，父子共享 sighand_struct。
- *     - trap_frame：完整复制父进程的 trap_frame，但将子进程的 a0 寄存器
- *       设为 0，使子进程从 fork 返回时得到返回值 0。
- *     - mm_struct 与 VMA 数组：深拷贝，子进程拥有独立的地址空间描述。
- *     - 待处理信号（pending）：不复制，子进程的 pending 位图清零。
- *
- *   调度策略：fork 返回后父进程先运行，子进程排在就绪队列尾部。
- *
  * 主要函数：
  *   sys_fork()          - fork 系统调用入口，调用 do_fork 创建子进程，
  *                         父进程返回子进程 PID。
  *   copy_mm(oldmm)      - 完整复制父进程的用户地址空间：
  *                         分配新 pgd，遍历 VMA 逐一复制物理页并建立映射。
- *   copy_files(oldfs)   - 复制文件描述符表，对每个已打开 file 执行 refcount++。
- *   copy_sighand(oldsig)- 复制信号处理器表（sigaction 数组）。
- *   copy_trap_frame(tf) - 复制 trap_frame，子进程 a0 = 0。
+ *   copy_files(child)   - 复制文件描述符表。
+ *   copy_sighand(child) - 复制信号处理器表，清零 pending。
  */
+
+#include <kernel/task.h>
+#include <kernel/mm.h>
+#include <kernel/sched.h>
+#include <kernel/printk.h>
+#include <kernel/string.h>
+#include <kernel/errno.h>
+#include <kernel/buddy.h>
+#include <kernel/slab.h>
+#include <asm/page.h>
+#include <asm/pte.h>
+#include <asm/trap.h>
+#include <asm/csr.h>
+
+/* entry.S 中的 trap 返回入口 */
+extern void __trapret(void);
+
+/* ---- 内部辅助函数 ---- */
+
+/*
+ * copy_mm - 完整复制父进程的用户地址空间
+ * @oldmm: 父进程的 mm_struct
+ *
+ * 遍历父进程的每个已用 VMA，对 VMA 范围内的每个虚拟页：
+ *   1. walk_page_table(oldmm->pgd, va, false) 检查是否已映射
+ *   2. 若已映射：分配新物理页 → memcpy → map_page 到子进程页表
+ *   3. 若未映射：跳过（子进程访问时走 page fault 懒分配）
+ *
+ * 返回子进程的 mm_struct，失败返回 NULL。
+ */
+static struct mm_struct *copy_mm(struct mm_struct *oldmm)
+{
+	if (!oldmm)
+		return NULL;
+
+	/* 1. 分配子进程的 mm_struct */
+	struct mm_struct *newmm = mm_alloc();
+	if (!newmm)
+		return NULL;
+
+	/* 2. 创建子进程的 PGD 并复制内核映射 */
+	newmm->pgd = mm_create_user_pgd();
+	if (!newmm->pgd) {
+		kfree(newmm);
+		return NULL;
+	}
+
+	/* 3. 复制 mm 元数据 */
+	newmm->brk = oldmm->brk;
+	newmm->code_start = oldmm->code_start;
+	newmm->code_end = oldmm->code_end;
+
+	/* 4. 复制整个 VMA 数组 */
+	memcpy(newmm->vma, oldmm->vma, sizeof(oldmm->vma));
+
+	/* 5. 逐 VMA 遍历，复制已映射的物理页 */
+	for (int i = 0; i < NR_VMA; i++) {
+		if (!oldmm->vma[i].used)
+			continue;
+
+		uintptr_t start = oldmm->vma[i].vm_start;
+		uintptr_t end = oldmm->vma[i].vm_end;
+
+		for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
+			/* 查找父进程页表中该虚拟地址的映射 */
+			pte_t *pte = walk_page_table(oldmm->pgd, va, false);
+			if (!pte || !(*pte & PTE_V))
+				continue; /* 未映射，跳过（懒分配） */
+
+			/* 提取父进程物理页地址 */
+			uintptr_t old_pa = PTE_TO_PA(*pte);
+
+			/* 为子进程分配新物理页 */
+			void *new_page = get_free_page(0);
+			if (!new_page) {
+				mm_destroy(newmm);
+				return NULL;
+			}
+
+			/* 复制页面内容 */
+			memcpy(new_page, __va(old_pa), PAGE_SIZE);
+
+			/* 提取父进程 PTE 的权限位，映射到子进程页表 */
+			pte_t perm = *pte & (PTE_V | PTE_R | PTE_W | PTE_X |
+					     PTE_U | PTE_A | PTE_D | PTE_G);
+			map_page(newmm->pgd, va, __pa((uintptr_t)new_page),
+				 perm);
+		}
+	}
+
+	return newmm;
+}
+
+/*
+ * copy_files - 复制文件描述符表
+ * @child: 子进程 task_struct
+ *
+ * 当前无 struct file / refcount 基础设施，
+ * 仅 memcpy fd_array。待 Stage 5 VFS 完善后补充 refcount++。
+ */
+static void copy_files(struct task_struct *child)
+{
+	memcpy(child->fd_array, current->fd_array,
+	       sizeof(current->fd_array));
+}
+
+/*
+ * copy_sighand - 复制信号处理表
+ * @child: 子进程 task_struct
+ *
+ * 复制 sighand 数组和 blocked 掩码。
+ * 子进程的 pending 清零（不继承待处理信号）。
+ */
+static void copy_sighand(struct task_struct *child)
+{
+	memcpy(child->sighand, current->sighand,
+	       sizeof(current->sighand));
+	child->blocked = current->blocked;
+	child->pending = 0;
+}
+
+/* ---- 公共接口 ---- */
+
+/*
+ * sys_fork - fork 系统调用实现
+ * @tf: 父进程的 trap_frame
+ *
+ * 创建子进程，完整复制父进程的地址空间。
+ * 父进程返回子进程 PID，子进程返回 0。
+ *
+ * 流程：
+ *   1. task_alloc 分配子进程 task_struct + 内核栈 + PID
+ *   2. copy_mm 深拷贝用户地址空间
+ *   3. 在子进程栈顶构造 trap_frame（复制父进程 + a0=0）
+ *   4. 设置子进程 context（ra=__trapret, sp→trap_frame）
+ *   5. 复制 fd_array、sighand
+ *   6. 建立进程树关系
+ *   7. 子进程入就绪队列，父进程继续运行
+ */
+ssize_t sys_fork(struct trap_frame *tf)
+{
+	/* 1. 分配 task_struct */
+	struct task_struct *child = task_alloc();
+	if (!child)
+		return -ENOMEM;
+
+	/* 2. 复制用户地址空间 */
+	child->mm = copy_mm(current->mm);
+	if (!child->mm && current->mm) {
+		task_free(child);
+		return -ENOMEM;
+	}
+
+	/* 3. 计算子进程 satp（与 exec_user_elf 相同逻辑） */
+	if (child->mm) {
+		uintptr_t pgd_pa = __pa((uintptr_t)child->mm->pgd);
+		child->satp = SATP_MODE_SV39 | (pgd_pa >> PAGE_SHIFT);
+	}
+
+	/* 4. 在子进程内核栈顶构造 trap_frame */
+	struct trap_frame *child_tf =
+		(struct trap_frame *)((uint8_t *)child->kstack + KSTACK_SIZE -
+				      sizeof(struct trap_frame));
+	memcpy(child_tf, tf, sizeof(struct trap_frame));
+	child_tf->a0 = 0; /* fork 在子进程中返回 0 */
+	child->tf = child_tf;
+
+	/* 5. 设置子进程 context：首次调度时走 __trapret 返回用户态 */
+	child->ctx.ra = (size_t)__trapret;
+	child->ctx.sp = (size_t)child_tf;
+
+	/* 6. 复制文件描述符和信号处理表 */
+	copy_files(child);
+	copy_sighand(child);
+
+	/* 7. 建立进程树关系 */
+	child->parent = current;
+	list_add(&child->sibling, &current->children);
+
+	/* 8. 子进程入就绪队列 */
+	sched_enqueue(child);
+
+	printk("fork: parent=%d child=%d\n", current->pid, child->pid);
+
+	/* 9. 父进程返回子进程 PID */
+	return child->pid;
+}

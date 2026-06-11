@@ -65,6 +65,15 @@
 #define CTX_S10  (12*8)
 #define CTX_S11  (13*8)
 
+/* ---- task_struct 字段偏移（供 __trapret 读取 current->satp）----
+ * 必须与 include/kernel/task.h 中的 struct task_struct 保持同步；
+ * 偏移正确性由 task.h 内的 _Static_assert 在编译期校验，避免布局
+ * 变动后汇编静默读到错误字段。
+ *
+ *   pid(4) + state(4) + ctx(112) + tf(8) + kstack(8) + mm(8) = 144
+ */
+#define TASK_SATP 144
+
 	.section .text.entry
 	.globl __alltraps
 	.globl __trapret
@@ -266,6 +275,15 @@ __trapret:
 	/* sscratch = 内核栈顶, 供下次 U→S 使用 */
 	addi    t0, sp, (35*8)
 	csrw    sscratch, t0
+
+	/* 切换到当前进程的用户页表 */
+	la      t0, current
+	ld      t0, 0(t0)               /* t0 = current (task_struct *) */
+	ld      t0, TASK_SATP(t0)       /* t0 = current->satp */
+	beqz    t0, .Lret_user_noswitch
+	csrw    satp, t0
+	sfence.vma zero, zero
+.Lret_user_noswitch:
 	ld      t0, TF_T0(sp)
 	ld      sp, TF_SP(sp)
 	sret
