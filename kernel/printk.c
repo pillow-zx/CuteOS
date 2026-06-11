@@ -109,6 +109,36 @@ int printk(const char *fmt, ...)
 }
 
 /*
+ * print_hexdump - 十六进制转储
+ * @buf: 数据缓冲
+ * @len: 字节数
+ *
+ * 每行 16 字节：偏移 + 空格分隔的十六进制 + ASCII（不可打印字符显示 '.'）。
+ */
+void print_hexdump(const void *buf, size_t len)
+{
+	const uint8_t *p = buf;
+
+	for (size_t off = 0; off < len; off += 16) {
+		printk("%04x: ", (unsigned int)off);
+		for (size_t i = 0; i < 16; i++) {
+			if (off + i < len)
+				printk("%02x ", p[off + i]);
+			else
+				printk("   ");
+		}
+		printk(" ");
+		for (size_t i = 0; i < 16; i++) {
+			if (off + i < len) {
+				uint8_t c = p[off + i];
+				printk("%c", (c >= 0x20 && c < 0x7f) ? c : '.');
+			}
+		}
+		printk("\n");
+	}
+}
+
+/*
  * panic - 内核致命错误处理
  * @fmt: 格式字符串
  * @...: 可变参数

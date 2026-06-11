@@ -113,6 +113,10 @@ void kernel_test(void)
 	test_kernel_thread_basic();
 	test_kernel_thread_ctx_setup();
 
+	/* ---- virtio-blk ---- */
+	TEST_SECTION("VirtIO-Blk");
+	test_virtio_blk();
+
 	/* ---- 汇总 ---- */
 	printk("\n========================================\n");
 	printk("  Total: %d  |  Passed: %d  |  Failed: %d\n", (int)__test_total,

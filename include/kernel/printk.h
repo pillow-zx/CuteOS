@@ -38,6 +38,9 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap);
 int vsprintf(char *buf, const char *fmt, va_list ap);
 int printk(const char *fmt, ...) __printf(1, 2);
 
+/* Hex dump: 按 offset + 十六进制 + ASCII 形式输出 len 字节（每行 16 字节） */
+void print_hexdump(const void *buf, size_t len);
+
 /* Panic and assertions */
 void __noreturn panic(const char *fmt, ...) __printf(1, 2) __cold;
 
