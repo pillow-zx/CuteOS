@@ -20,6 +20,7 @@ typedef unsigned long size_t;
 #define SYS_exit	93
 #define SYS_sched_yield	124
 #define SYS_getpid	172
+#define SYS_brk		214
 
 /* ---- syscallN: 底层内联汇编封装 (a0~a5, 最多 6 个参数) ---- */
 
@@ -147,6 +148,32 @@ static inline long getpid(void)
 static inline long yield(void)
 {
 	return syscall0(SYS_sched_yield);
+}
+
+/*
+ * brk - 设置/查询堆顶地址
+ * @addr: 新的 brk 地址，0 表示查询当前值
+ *
+ * 返回新的 brk 地址（失败时返回原值）。
+ */
+static inline long brk(long addr)
+{
+	return syscall(SYS_brk, addr);
+}
+
+/*
+ * sbrk - 增量式堆扩展（用户态实现）
+ * @incr: 要增加的字节数
+ *
+ * 返回增加前的旧 brk 地址，失败返回 -1。
+ */
+static inline long sbrk(long incr)
+{
+	long old = brk(0);
+	long new_addr = old + incr;
+	if (brk(new_addr) != new_addr)
+		return -1;
+	return old;
 }
 
 #endif

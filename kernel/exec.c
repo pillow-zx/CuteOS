@@ -31,10 +31,6 @@
 #include <asm/csr.h>
 #include <asm/trap.h>
 
-/* 用户地址空间常量 */
-#define USER_STACK_TOP	0x80000000UL /* 用户栈顶地址 */
-#define USER_STACK_BASE 0x7FFFF000UL /* 用户栈底地址（1 页） */
-
 /* entry.S 中的 trap 返回入口 */
 extern void __trapret(void);
 
@@ -210,6 +206,7 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 		vma->vm_start = seg_start;
 		vma->vm_end = seg_end;
 		vma->vm_flags = elf_flags_to_vma(ph->p_flags);
+		vma->vm_type = VMA_CODE;
 		vma->used = true;
 	}
 
@@ -242,6 +239,7 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 	stack_vma->vm_start = USER_STACK_BASE;
 	stack_vma->vm_end = USER_STACK_TOP;
 	stack_vma->vm_flags = VM_READ | VM_WRITE;
+	stack_vma->vm_type = VMA_STACK;
 	stack_vma->used = true;
 
 	/* ---- 6. 挂载到当前进程 ---- */

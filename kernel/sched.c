@@ -65,7 +65,7 @@ void sched_enqueue(struct task_struct *task)
  */
 void sched_dequeue(struct task_struct *task)
 {
-	list_del(&task->run_list);
+	list_del_init(&task->run_list);
 }
 
 /**
@@ -87,9 +87,14 @@ void schedule(void)
 	if (!preemptible())
 		return;
 
-	/* 如果就绪队列为空，切换到 idle（或直接返回） */
+	/* 如果就绪队列为空 */
 	if (list_empty(&runqueue)) {
-		if (current == &idle_task)
+		/*
+		 * idle 或仍在 RUNNING 的进程：无其他可运行任务，
+		 * 直接返回继续执行。
+		 */
+		if (current == &idle_task ||
+		    current->state == TASK_RUNNING)
 			return;
 
 		/* 当前进程不可继续运行（ZOMBIE/SLEEPING 等），切到 idle */

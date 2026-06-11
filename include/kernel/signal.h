@@ -22,4 +22,14 @@
  *   SIG_IGN - Ignore signal sentinel
  */
 
+#define SIGINT		2
+#define SIGKILL		9
+#define SIGSEGV		13
+#define SIGTERM		15
+#define SIGUSR1		10
+#define SIGUSR2		12
+#define SIGSTOP		19
+#define SIGCONT		18
+#define SIGCHLD		17
+
 #endif

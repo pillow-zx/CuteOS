@@ -155,18 +155,16 @@ uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr)
 	if (addr > TASK_SIZE)
 		return mm->brk;
 
-	/* 查找或创建堆 VMA */
+	/* 查找堆 VMA（通过类型标记精确匹配） */
+	uintptr_t old_brk = mm->brk;
 	struct vm_area_struct *heap_vma = NULL;
 	for (int i = 0; i < NR_VMA; i++) {
 		if (mm->vma[i].used &&
-		    mm->vma[i].vm_start >= mm->brk) {
-			/* 找到堆区域（起始地址在 brk 附近） */
+		    mm->vma[i].vm_type == VMA_HEAP) {
 			heap_vma = &mm->vma[i];
 			break;
 		}
 	}
-
-	uintptr_t old_brk = mm->brk;
 
 	if (!heap_vma) {
 		/* 首次扩展：创建堆 VMA */
@@ -176,6 +174,7 @@ uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr)
 		heap_vma->vm_start = old_brk;
 		heap_vma->vm_end = addr;
 		heap_vma->vm_flags = VM_READ | VM_WRITE;
+		heap_vma->vm_type = VMA_HEAP;
 		heap_vma->used = true;
 	} else {
 		/* 扩展已有堆 VMA */

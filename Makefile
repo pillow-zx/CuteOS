@@ -326,10 +326,6 @@ clean-user:
 	$(Q)rm -rf $(USER_OUT)
 
 clean: clean-user
-	$(Q)rm -rf $(OUTDIR)
-	$(Q)rm -f .gdbinit
-
-clean-all: clean-user
 	$(Q)rm -rf $(OUTROOT)
 	$(Q)rm -f .gdbinit
 
@@ -337,7 +333,7 @@ clean-all: clean-user
 .PRECIOUS: $(OUTDIR)/%.o
 
 # Declare phony targets
-.PHONY: all qemu qemu-gdb check-qemu-version clean clean-all clean-user
+.PHONY: all qemu qemu-gdb check-qemu-version clean clean-user
 .PHONY: user format asm sym
 .PHONY: $(KERNEL_NAME) $(KERNEL_NAME).img
 .PHONY: print-gdbport print-toolprefix

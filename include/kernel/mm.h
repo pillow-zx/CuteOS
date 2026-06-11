@@ -24,6 +24,12 @@ struct trap_frame; /* 前向声明，避免循环依赖 */
 #define VM_WRITE 0x02  /* 可写 */
 #define VM_EXEC  0x04  /* 可执行 */
 
+/* ---- VMA 类型标志 ---- */
+
+#define VMA_CODE 0x01  /* 代码段 (ELF PT_LOAD) */
+#define VMA_HEAP 0x02  /* 堆 (brk 扩展) */
+#define VMA_STACK 0x04 /* 栈 */
+
 /* ---- VMA 数量上限 ---- */
 
 #define NR_VMA 16
@@ -34,6 +40,7 @@ struct vm_area_struct {
 	uintptr_t vm_start; /* 区域起始虚拟地址（含） */
 	uintptr_t vm_end;   /* 区域结束虚拟地址（不含） */
 	uint32_t vm_flags;  /* VM_READ | VM_WRITE | VM_EXEC */
+	uint32_t vm_type;   /* VMA_CODE | VMA_HEAP | VMA_STACK */
 	bool used;          /* 该槽位是否在用 */
 };
 
