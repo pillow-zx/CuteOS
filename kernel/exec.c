@@ -125,8 +125,8 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 
 	Elf64_Phdr *phdrs =
 		(Elf64_Phdr *)((uint8_t *)bin_start + ehdr->e_phoff);
-	uintptr_t first_vaddr = 0;
-	uintptr_t last_end = 0;
+	vaddr_t first_vaddr = 0;
+	vaddr_t last_end = 0;
 	int vma_idx = 0;
 
 	for (int i = 0; i < ehdr->e_phnum; i++) {
@@ -147,8 +147,8 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 			panic("exec: PT_LOAD segment out of file bounds");
 
 		/* 校验地址在用户空间内 */
-		uintptr_t seg_start = ph->p_vaddr;
-		uintptr_t seg_end = ph->p_vaddr + ph->p_memsz;
+		vaddr_t seg_start = ph->p_vaddr;
+		vaddr_t seg_end = ph->p_vaddr + ph->p_memsz;
 		if (seg_end > USER_STACK_BASE)
 			panic("exec: PT_LOAD segment exceeds user space");
 
@@ -159,10 +159,10 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 			last_end = seg_end;
 
 		/* 逐页映射 */
-		uintptr_t page_start = PFN_DOWN(seg_start) << PAGE_SHIFT;
-		uintptr_t page_end = PFN_UP(seg_end) << PAGE_SHIFT;
+		vaddr_t page_start = PFN_DOWN(seg_start) << PAGE_SHIFT;
+		vaddr_t page_end = PFN_UP(seg_end) << PAGE_SHIFT;
 
-		for (uintptr_t va = page_start; va < page_end;
+		for (vaddr_t va = page_start; va < page_end;
 		     va += PAGE_SIZE) {
 			/* 分配物理页 */
 			void *page = get_free_page(0);
@@ -172,10 +172,10 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 			memset(page, 0, PAGE_SIZE);
 
 			/* 计算本页需要复制的范围 */
-			uintptr_t src_start =
+			vaddr_t src_start =
 				ph->p_offset +
 				(va < seg_start ? 0 : va - seg_start);
-			uintptr_t src_end = ph->p_offset + ph->p_filesz;
+			vaddr_t src_end = ph->p_offset + ph->p_filesz;
 
 			if (src_start < src_end) {
 				/* 本页内需要复制数据 */
@@ -247,7 +247,7 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 
 	/* ---- 7. 准备 satp 切换参数 ---- */
 
-	uintptr_t user_pgd_pa = __pa((uintptr_t)mm->pgd);
+	paddr_t user_pgd_pa = __pa((uintptr_t)mm->pgd);
 	uintptr_t satp_val = SATP_MODE_SV39 | (user_pgd_pa >> PAGE_SHIFT);
 
 	/* 保存 satp 值，trapret 返回用户态时需要切换页表 */

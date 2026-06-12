@@ -113,7 +113,7 @@ static bool check_vma_permission(uint64_t scause,
  */
 void do_page_fault(struct trap_frame *tf)
 {
-	uintptr_t fault_addr = tf->stval;
+	vaddr_t fault_addr = tf->stval;
 	uint64_t scause = tf->scause & ~SCAUSE_IRQ_FLAG;
 	bool from_user_mode = from_user(tf);
 
@@ -153,7 +153,7 @@ void do_page_fault(struct trap_frame *tf)
 	}
 
 	/* 页对齐的虚拟地址 */
-	uintptr_t page_addr = fault_addr & PAGE_MASK;
+	vaddr_t page_addr = fault_addr & PAGE_MASK;
 
 	/* 防御性检查：是否已映射 */
 	pte_t *existing = walk_page_table(current->mm->pgd, page_addr, false);

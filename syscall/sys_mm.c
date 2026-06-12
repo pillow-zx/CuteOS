@@ -20,6 +20,6 @@
  */
 ssize_t sys_brk(struct trap_frame *tf)
 {
-	uintptr_t addr = (uintptr_t)tf->a0;
+	vaddr_t addr = (vaddr_t)tf->a0;
 	return (ssize_t)mm_brk(current->mm, addr);
 }

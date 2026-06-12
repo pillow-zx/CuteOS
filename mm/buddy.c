@@ -114,9 +114,9 @@ void buddy_init(void)
 
 	/* 4. 计算可用页范围 */
 	uintptr_t mem_map_bytes = total_pages * sizeof(struct page);
-	uintptr_t free_start_va =
+	vaddr_t free_start_va =
 		ALIGN_UP((uintptr_t)mem_start + mem_map_bytes, PAGE_SIZE);
-	uintptr_t free_start_pa = __pa(free_start_va);
+	paddr_t free_start_pa = __pa(free_start_va);
 	size_t free_idx = (free_start_pa - DRAM_BASE) / PAGE_SIZE;
 	size_t remaining = total_pages - free_idx;
 

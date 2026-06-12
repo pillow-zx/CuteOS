@@ -116,7 +116,7 @@ void page_table_use_buddy(void)
  * 则分配新页并安装。返回最终 PTE 条目的虚拟地址指针。
  * 若 alloc 为假且中间级缺失，返回 NULL。
  */
-pte_t *walk_page_table(pte_t *pgd, uintptr_t va, bool alloc)
+pte_t *walk_page_table(pte_t *pgd, vaddr_t va, bool alloc)
 {
 	BUG_ON(!pt_alloc);
 	/* L2: PGD 索引 [38:30] */
@@ -158,7 +158,7 @@ pte_t *walk_page_table(pte_t *pgd, uintptr_t va, bool alloc)
  * @pa:   物理地址（必须页对齐）
  * @perm: 叶子 PTE 权限位（可直接传入 PTE_KERN_* / PTE_USER_*，需包含 PTE_V）
  */
-void map_page(pte_t *pgd, uintptr_t va, uintptr_t pa, pte_t perm)
+void map_page(pte_t *pgd, vaddr_t va, paddr_t pa, pte_t perm)
 {
 	pte_t *pte = walk_page_table(pgd, va, true);
 	if (!pte)
@@ -211,7 +211,7 @@ void kernel_pagetable_init(void)
 	extern char _end[];
 
 	/* 初始化 early allocator：从 _end 开始，4KB 对齐 */
-	uintptr_t end_addr = (uintptr_t)_end;
+	paddr_t end_addr = (paddr_t)_end;
 	early_alloc_ptr =
 		(char *)((end_addr + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1));
 
@@ -226,9 +226,9 @@ void kernel_pagetable_init(void)
 	printk("page_table: mapping %dMB DRAM with 4KB pages...\n",
 	       (int)(DRAM_SIZE >> 20));
 
-	for (uintptr_t pa = DRAM_BASE; pa < DRAM_BASE + DRAM_SIZE;
+	for (paddr_t pa = DRAM_BASE; pa < DRAM_BASE + DRAM_SIZE;
 	     pa += PAGE_SIZE) {
-		uintptr_t va = KERNEL_VBASE + pa;
+		vaddr_t va = KERNEL_VBASE + pa;
 		map_page(pgd, va, pa, PTE_KERN_RWX);
 	}
 
@@ -242,7 +242,7 @@ void kernel_pagetable_init(void)
 	pgd[0] = PA_TO_PTE(0UL) | PTE_KERN_RW;
 
 	/* 5. 切换到新页表 */
-	uintptr_t pgd_pa = __pa((uintptr_t)pgd);
+	paddr_t pgd_pa = __pa((uintptr_t)pgd);
 	uintptr_t satp_val = SATP_MODE_SV39 | (pgd_pa >> PAGE_SHIFT);
 
 	csr_write(satp, satp_val);

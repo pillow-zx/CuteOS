@@ -35,7 +35,7 @@ static struct block_device *dev_table[NR_BLOCK_DEVICES];
  */
 int register_block_device(struct block_device *bdev)
 {
-	unsigned int major = MAJOR(bdev->bd_dev);
+	uint32_t major = MAJOR(bdev->bd_dev);
 
 	if (major >= NR_BLOCK_DEVICES)
 		return -EINVAL;
@@ -52,7 +52,7 @@ int register_block_device(struct block_device *bdev)
  */
 struct block_device *lookup_block_device(dev_t dev)
 {
-	unsigned int major = MAJOR(dev);
+	uint32_t major = MAJOR(dev);
 
 	if (major >= NR_BLOCK_DEVICES)
 		return NULL;

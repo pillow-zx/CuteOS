@@ -93,5 +93,6 @@ void test_kernel_thread_ctx_setup(void);
  * ================================================================ */
 
 void test_virtio_blk(void);
+void test_virtio_blk_errors(void);
 
 #endif

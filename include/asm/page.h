@@ -45,7 +45,7 @@
  * 仅适用于通过 KERNEL_VBASE 直接映射的地址，
  * 不适用于 vmalloc 分配的地址或用户空间地址。
  */
-#define __pa(x) ((uintptr_t)(x) - KERNEL_VBASE)
+#define __pa(x) ((vaddr_t)(x) - KERNEL_VBASE)
 
 /*
  * __va - 将物理地址转换为内核虚拟地址
@@ -54,7 +54,7 @@
  * 依赖内核直接映射关系，物理地址加上 KERNEL_VBASE
  * 即可得到对应的内核虚拟地址。
  */
-#define __va(x) ((void *)((uintptr_t)(x) + KERNEL_VBASE))
+#define __va(x) ((void *)((paddr_t)(x) + KERNEL_VBASE))
 
 /*
  * kernel_pagetable_init - 初始化正式内核页表并切换 satp

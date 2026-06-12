@@ -6,6 +6,8 @@
  *   kernel_test() 调用。向靠近磁盘末尾的扇区写入可识别模式，再读回比对，
  *   覆盖：write_sectors、read_sectors、nsec>1（2 扇区）及数据持久化。
  *
+ *   错误路径（参数越界、查找未注册设备等）见 test_virtio_blk_errors()。
+ *
  *   读路径的 always-on smoke test 见 block/virtio_blk.c:vblk_smoke_test()。
  *
  * 注意：本测试会写入磁盘，故受 DEBUG_ENABLE 控制；写入位置选在磁盘末尾，
@@ -14,6 +16,8 @@
 
 #include <kernel/test.h>
 #include <kernel/blkdev.h>
+#include <kernel/errno.h>
+#include <drivers/virtio_blk.h>
 #include <kernel/string.h>
 
 void test_virtio_blk(void)
@@ -56,4 +60,47 @@ void test_virtio_blk(void)
 	return;
 fail:
 	TEST_FAIL("virtio_blk write/readback (2 sectors)", "see above");
+}
+
+/*
+ * test_virtio_blk_errors - virtio-blk 错误路径测试
+ *
+ * 验证驱动与块设备抽象层的防御性校验。所有用例均在发起真实设备 I/O
+ * （kick）之前返回，故安全且无副作用：
+ *   - lookup_block_device 查找未注册的主设备号 → NULL
+ *   - register_block_device 主设备号越界（≥ NR_BLOCK_DEVICES=32）→ -EINVAL
+ *   - read_sectors(nsec=0) → -EINVAL
+ *   - read_sectors(起始扇区越界) → -EINVAL
+ */
+void test_virtio_blk_errors(void)
+{
+	struct block_device *bdev;
+	/* 主设备号 40 ≥ 32（NR_BLOCK_DEVICES）：仅用于触发越界分支 */
+	struct block_device bad = { .bd_dev = MKDEV(40, 0) };
+	static uint8_t buf[SECTOR_SIZE];
+	int ret;
+
+	TEST_BEGIN("virtio_blk error paths");
+	{
+		/* 合法范围但未注册的主设备号 → NULL */
+		TEST_ASSERT_NULL(lookup_block_device(MKDEV(9, 0)));
+
+		/* 主设备号越界 → -EINVAL（不写入 dev_table） */
+		ret = register_block_device(&bad);
+		TEST_ASSERT_EQ(ret, -EINVAL);
+
+		/* 真实设备，但参数非法：均在发起 I/O 前返回 -EINVAL */
+		bdev = lookup_block_device(ROOT_DEV);
+		TEST_ASSERT_NOT_NULL(bdev);
+
+		ret = bdev->bd_ops->read_sectors(bdev, buf, 0, 0);
+		TEST_ASSERT_EQ(ret, -EINVAL);
+
+		ret = bdev->bd_ops->read_sectors(bdev, buf, bdev->bd_sectors, 1);
+		TEST_ASSERT_EQ(ret, -EINVAL);
+	}
+	TEST_END("virtio_blk error paths");
+	return;
+fail:
+	TEST_FAIL("virtio_blk error paths", "see above");
 }

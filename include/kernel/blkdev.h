@@ -17,22 +17,18 @@
  * Functions:
  *   register_block_device(bdev) - 以主设备号为索引注册到 dev_table[]
  *   lookup_block_device(dev)    - 按设备号查找已注册的 struct block_device
- *
- * Globals:
- *   ROOT_DEV - 根文件系统所在块设备号：MKDEV(8, 0)（virtio-blk 主设备号 8）
  */
 
 #include <kernel/types.h>
 
 /* 设备号编码：高 12 位主设备号，低 20 位次设备号（与 Linux 一致）。
- * 用宏实现，使 MKDEV(maj,min) 成为编译期常量，可用于静态初始化。 */
+ * 用宏实现，使 MKDEV(maj,min) 成为编译期常量，可用于静态初始化。
+ * 目前仅用主设备号索引 dev_table；次设备号暂未启用（无分区/多设备）。 */
 #define MINORBITS	20u
-#define MINORMASK	((1u << MINORBITS) - 1u)
 
 #define MKDEV(major, minor) \
 	((dev_t)(((dev_t)(major) << MINORBITS) | (dev_t)(minor)))
 #define MAJOR(dev)	((unsigned int)((dev) >> MINORBITS))
-#define MINOR(dev)	((unsigned int)((dev) & MINORMASK))
 
 /* 块设备扇区大小：virtio-blk 与绝大多数块设备固定 512 字节/扇区 */
 #define SECTOR_SIZE	512u
@@ -70,9 +66,6 @@ struct block_device {
 	const struct block_device_operations *bd_ops;
 	void *bd_private;
 };
-
-/* 根文件系统块设备：virtio-blk，主设备号 8，次设备号 0 */
-#define ROOT_DEV	MKDEV(8, 0)
 
 /* 以主设备号为索引注册块设备；返回 0 成功，-EINVAL 主设备号非法或越界 */
 int register_block_device(struct block_device *bdev);

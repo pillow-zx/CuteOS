@@ -116,6 +116,7 @@ void kernel_test(void)
 	/* ---- virtio-blk ---- */
 	TEST_SECTION("VirtIO-Blk");
 	test_virtio_blk();
+	test_virtio_blk_errors();
 
 	/* ---- 汇总 ---- */
 	printk("\n========================================\n");

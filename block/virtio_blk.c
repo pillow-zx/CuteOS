@@ -3,8 +3,9 @@
  *
  * 功能：
  *   驱动 QEMU virt 平台的 virtio-blk 虚拟块设备（MMIO 传输，modern 版本，
- *   与 Makefile 的 -global virtio-mmio.force-legacy=false 对应）。采用轮询模式：
- *   提交描述符链 → kick 通知 → 自旋等待 used ring 响应，不依赖中断。
+ *   与 Makefile 的 -global virtio-mmio.force-legacy=false
+ * 对应）。采用轮询模式： 提交描述符链 → kick 通知 → 自旋等待 used ring
+ * 响应，不依赖中断。
  *
  *   探测与初始化（virtio_blk_init）遵循 virtio 1.x 状态机：
  *     reset → ACKNOWLEDGE → DRIVER → 特性协商（仅 VIRTIO_F_VERSION_1）
@@ -35,17 +36,16 @@
 /* ---- 配置 ---- */
 
 /* request virtqueue 长度（2 的幂）。每次 I/O 用 3 个描述符，8 绰绰有余 */
-#define VBLK_QSIZE	8
+#define VBLK_QSIZE 8
 
 /* 单次请求最多扇区数（防御性上限，buffer cache 仅需 2） */
-#define VBLK_MAX_SECTORS	256u
+#define VBLK_MAX_SECTORS 256u
 
-/* ---- 驱动本地 virtqueue 存储 ----
- * 按规范对齐：描述符表 16 字节、可用环 2 字节、已用环 4 字节。
- * 容量按 VBLK_QSIZE 固定，单 in-flight 下描述符 0/1/2 反复复用。
- */
+/* 轮询完成的自旋上限（仅作"设备失速"哨兵，非精确超时）。QEMU virtio-blk
+ * 响应在微秒级，留出充足余量避免误判；真正失速的设备最终触发 panic，
+ * 避免无限静默挂起导致不可诊断的故障。 */
+#define VBLK_POLL_SPIN_LIMIT 100000000u
 
-/* 可用环：{flags, idx, ring[QSIZE], used_event} */
 struct vblk_avail {
 	uint16_t flags;
 	uint16_t idx;
@@ -53,7 +53,6 @@ struct vblk_avail {
 	uint16_t used_event;
 };
 
-/* 已用环：{flags, idx, used_elem[QSIZE], avail_event} */
 struct vblk_used {
 	uint16_t flags;
 	uint16_t idx;
@@ -61,20 +60,17 @@ struct vblk_used {
 	uint16_t avail_event;
 };
 
-/* 单次请求：请求头 + 设备回写的状态字节 */
 struct virtio_blk_req {
 	struct virtio_blk_outhdr hdr;
 	uint8_t status;
 };
 
-/* 驱动私有状态（挂在 block_device->bd_private） */
 struct virtio_blk_dev {
 	uintptr_t mmio_base;
-	uint64_t capacity; /* 512 字节扇区总数 */
+	uint64_t capacity;
 };
 
-static struct vring_desc vblk_desc[VBLK_QSIZE]
-	__aligned(VRING_DESC_ALIGN_SIZE);
+static struct vring_desc vblk_desc[VBLK_QSIZE] __aligned(VRING_DESC_ALIGN_SIZE);
 static struct vblk_avail vblk_avail __aligned(VRING_AVAIL_ALIGN_SIZE);
 static struct vblk_used vblk_used __aligned(VRING_USED_ALIGN_SIZE);
 static struct virtio_blk_req vblk_req;
@@ -82,12 +78,12 @@ static struct virtio_blk_dev vblk_dev;
 
 /* ---- 设备状态机辅助 ---- */
 
-static void vblk_status_set(uintptr_t base, uint32_t bits)
+static __always_inline void vblk_status_set(vaddr_t base, uint32_t bits)
 {
 	virtio_mmio_write(base, VIRTIO_MMIO_STATUS, bits);
 }
 
-static uint32_t vblk_status_get(uintptr_t base)
+static __always_inline uint32_t vblk_status_get(vaddr_t base)
 {
 	return virtio_mmio_read(base, VIRTIO_MMIO_STATUS);
 }
@@ -113,21 +109,11 @@ static void vblk_setup_queue(uintptr_t base)
 
 	virtio_mmio_write(base, VIRTIO_MMIO_QUEUE_NUM, VBLK_QSIZE);
 
-	/* 描述符表 */
-	virtio_mmio_write(base, VIRTIO_MMIO_QUEUE_DESC_LOW,
-			  (uint32_t)__pa(vblk_desc));
-	virtio_mmio_write(base, VIRTIO_MMIO_QUEUE_DESC_HIGH,
-			  (uint32_t)(__pa(vblk_desc) >> 32));
-	/* 可用环 */
-	virtio_mmio_write(base, VIRTIO_MMIO_QUEUE_AVAIL_LOW,
-			  (uint32_t)__pa(&vblk_avail));
-	virtio_mmio_write(base, VIRTIO_MMIO_QUEUE_AVAIL_HIGH,
-			  (uint32_t)(__pa(&vblk_avail) >> 32));
-	/* 已用环 */
-	virtio_mmio_write(base, VIRTIO_MMIO_QUEUE_USED_LOW,
-			  (uint32_t)__pa(&vblk_used));
-	virtio_mmio_write(base, VIRTIO_MMIO_QUEUE_USED_HIGH,
-			  (uint32_t)(__pa(&vblk_used) >> 32));
+	/* 描述符表 / 可用环 / 已用环的 64 位物理地址（HIGH = LOW + 4） */
+	virtio_mmio_write64(base, VIRTIO_MMIO_QUEUE_DESC_LOW, __pa(vblk_desc));
+	virtio_mmio_write64(base, VIRTIO_MMIO_QUEUE_AVAIL_LOW,
+			    __pa(&vblk_avail));
+	virtio_mmio_write64(base, VIRTIO_MMIO_QUEUE_USED_LOW, __pa(&vblk_used));
 
 	/* 激活队列 */
 	virtio_mmio_write(base, VIRTIO_MMIO_QUEUE_READY, 1);
@@ -135,7 +121,7 @@ static void vblk_setup_queue(uintptr_t base)
 
 /* ---- 特性协商：仅接受 VIRTIO_F_VERSION_1（modern 必需） ---- */
 
-static void vblk_negotiate_features(uintptr_t base)
+static void vblk_negotiate_features(vaddr_t base)
 {
 	uint32_t status;
 
@@ -155,31 +141,27 @@ static void vblk_negotiate_features(uintptr_t base)
 	vblk_status_set(base, status);
 
 	if (!(vblk_status_get(base) & VIRTIO_CONFIG_S_FEATURES_OK))
-		panic("virtio-blk: feature negotiation failed (VERSION_1 rejected)\n");
+		panic("virtio-blk: feature negotiation failed (VERSION_1 "
+		      "rejected)\n");
 }
 
 /* ---- 核心：提交一次读/写并轮询完成 ----
+ *
+ * 数据通路拆为三步，降低单函数认知负担：
+ *   vblk_build_req()        - 组织请求头与 3 描述符链
+ *   vblk_submit_and_wait()  - 发布到可用环、kick、轮询完成
+ *   virtio_blk_rw()         - 参数校验并编排上述两步
  *
  * @write: true=写（驱动→设备），false=读（设备→驱动）
  * @buf:   数据缓冲，必须位于内核直接映射区（驱动以 __pa() 取物理地址）
  *
  * 返回 0 成功；-EINVAL 参数越界；-EIO 设备报告错误。
  */
-static int virtio_blk_rw(struct block_device *bdev, bool write, void *buf,
-			 uint64_t sector, uint32_t nsec)
+
+/* 组织一次请求：请求头 + 3 描述符链（头→数据→状态） */
+static void vblk_build_req(void *buf, uint64_t sector, uint32_t nsec,
+			   bool write)
 {
-	struct virtio_blk_dev *vd = bdev->bd_private;
-	uintptr_t base = vd->mmio_base;
-	volatile uint16_t *used_idx = (volatile uint16_t *)&vblk_used.idx;
-	uint16_t expected;
-
-	/* 参数校验（溢出安全） */
-	if (nsec == 0 || nsec > VBLK_MAX_SECTORS)
-		return -EINVAL;
-	if (nsec > vd->capacity || sector > vd->capacity - nsec)
-		return -EINVAL;
-
-	/* 组织请求 */
 	vblk_req.hdr.type = write ? VIRTIO_BLK_T_OUT : VIRTIO_BLK_T_IN;
 	vblk_req.hdr.ioprio = 0;
 	vblk_req.hdr.sector = sector;
@@ -194,8 +176,8 @@ static int virtio_blk_rw(struct block_device *bdev, bool write, void *buf,
 	/* desc 1：数据缓冲。写→设备可读，读→设备可写 */
 	vblk_desc[1].addr = __pa(buf);
 	vblk_desc[1].len = (uint32_t)nsec * SECTOR_SIZE;
-	vblk_desc[1].flags = VRING_DESC_F_NEXT |
-			     (write ? 0 : VRING_DESC_F_WRITE);
+	vblk_desc[1].flags =
+		VRING_DESC_F_NEXT | (write ? 0 : VRING_DESC_F_WRITE);
 	vblk_desc[1].next = 2;
 
 	/* desc 2：状态字节，设备可写，链尾 */
@@ -203,9 +185,15 @@ static int virtio_blk_rw(struct block_device *bdev, bool write, void *buf,
 	vblk_desc[2].len = sizeof(vblk_req.status);
 	vblk_desc[2].flags = VRING_DESC_F_WRITE;
 	vblk_desc[2].next = 0;
+}
+
+/* 发布当前请求到可用环并轮询设备完成。返回 0 成功；-EIO 设备状态非 S_OK。 */
+static int vblk_submit_and_wait(vaddr_t base, uint16_t expected)
+{
+	volatile uint16_t *used_idx = (volatile uint16_t *)&vblk_used.idx;
+	uint32_t spins = 0;
 
 	/* 发布到可用环（head = 描述符 0） */
-	expected = (uint16_t)(vblk_avail.idx + 1);
 	vblk_avail.ring[vblk_avail.idx % VBLK_QSIZE] = 0;
 	virtio_wmb(); /* 先让设备看到描述符写入，再更新 idx */
 	vblk_avail.idx = expected;
@@ -213,9 +201,15 @@ static int virtio_blk_rw(struct block_device *bdev, bool write, void *buf,
 	/* kick：通知设备处理队列 0 */
 	virtio_mmio_write(base, VIRTIO_MMIO_QUEUE_NOTIFY, 0);
 
-	/* 轮询等待设备消费本次请求（used->idx 追上 expected） */
-	while (*used_idx != expected)
-		;
+	/* 轮询等待设备消费本次请求（used->idx 追上 expected）。
+	 * 设有限自旋上限：正常设备微秒级完成；失速设备最终 panic，
+	 * 避免无限静默挂起。 */
+	while (*used_idx != expected) {
+		if (++spins > VBLK_POLL_SPIN_LIMIT)
+			panic("virtio-blk: device stalled "
+			      "(used->idx=%u, expected=%u)\n",
+			      (unsigned int)*used_idx, (unsigned int)expected);
+	}
 	virtio_rmb(); /* 先确认 idx 推进，再读取结果数据 */
 
 	/* 校验设备状态字节 */
@@ -223,6 +217,23 @@ static int virtio_blk_rw(struct block_device *bdev, bool write, void *buf,
 		return -EIO;
 
 	return 0;
+}
+
+static int virtio_blk_rw(struct block_device *bdev, bool write, void *buf,
+			 uint64_t sector, uint32_t nsec)
+{
+	struct virtio_blk_dev *vd = bdev->bd_private;
+	uint16_t expected;
+
+	/* 参数校验（溢出安全） */
+	if (nsec == 0 || nsec > VBLK_MAX_SECTORS)
+		return -EINVAL;
+	if (nsec > vd->capacity || sector > vd->capacity - nsec)
+		return -EINVAL;
+
+	vblk_build_req(buf, sector, nsec, write);
+	expected = (uint16_t)(vblk_avail.idx + 1);
+	return vblk_submit_and_wait(vd->mmio_base, expected);
 }
 
 /* ---- 块设备操作向量 ---- */
@@ -244,9 +255,9 @@ static const struct block_device_operations vblk_ops = {
 	.write_sectors = virtio_blk_write_sectors,
 };
 
-/* 静态块设备实例（主设备号 8） */
+/* 静态块设备实例（主设备号 VIRTIO_BLK_MAJOR） */
 static struct block_device vblk_bdev = {
-	.bd_dev = MKDEV(8, 0),
+	.bd_dev = MKDEV(VIRTIO_BLK_MAJOR, 0),
 	.bd_ops = &vblk_ops,
 	.bd_private = &vblk_dev,
 };
@@ -283,7 +294,8 @@ void virtio_blk_init(void)
 
 	version = virtio_mmio_read(base, VIRTIO_MMIO_VERSION);
 	if (version != 2)
-		panic("virtio-blk: unsupported transport version %u (need modern=2)\n",
+		panic("virtio-blk: unsupported transport version %u (need "
+		      "modern=2)\n",
 		      version);
 
 	/* 复位 */
@@ -293,8 +305,7 @@ void virtio_blk_init(void)
 	vblk_status_set(base, VIRTIO_CONFIG_S_ACKNOWLEDGE);
 
 	/* DRIVER：驱动正接管设备 */
-	vblk_status_set(base,
-			VIRTIO_CONFIG_S_ACKNOWLEDGE | VIRTIO_CONFIG_S_DRIVER);
+	vblk_status_set(base, VIRTIO_CONFIG_S_ACKNOWLEDGE | VIRTIO_CONFIG_S_DRIVER);
 
 	/* 特性协商 */
 	vblk_negotiate_features(base);

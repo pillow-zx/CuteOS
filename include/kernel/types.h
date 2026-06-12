@@ -52,6 +52,9 @@ typedef uint32_t		uid_t;
 typedef uint32_t		gid_t;
 typedef uint32_t		dev_t;
 
+typedef uintptr_t		paddr_t;
+typedef uintptr_t		vaddr_t;
+
 enum {
 	false = 0,
 	true = 1,

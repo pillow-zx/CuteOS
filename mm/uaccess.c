@@ -27,7 +27,7 @@
 
 bool access_ok(const void *addr, size_t size)
 {
-	uintptr_t a = (uintptr_t)addr;
+	vaddr_t a = (vaddr_t)addr;
 
 	if (size == 0)
 		return true;
