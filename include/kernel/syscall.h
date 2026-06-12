@@ -85,6 +85,10 @@ static __always_inline void user_access_end(bool had_sum)
 struct trap_frame;
 
 ssize_t sys_write(struct trap_frame *tf);
+ssize_t sys_read(struct trap_frame *tf);
+ssize_t sys_close(struct trap_frame *tf);
+ssize_t sys_dup(struct trap_frame *tf);
+ssize_t sys_dup3(struct trap_frame *tf);
 ssize_t sys_exit(struct trap_frame *tf);
 ssize_t sys_sched_yield(struct trap_frame *tf);
 ssize_t sys_getpid(struct trap_frame *tf);

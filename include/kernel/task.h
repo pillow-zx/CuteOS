@@ -36,12 +36,14 @@
 
 #include <kernel/types.h>
 #include <kernel/list.h>
+#include <kernel/wait.h>
 #include <kernel/compiler.h>
 #include <asm/page.h>
 #include <asm/trap.h>
 
 /* 前向声明，避免循环依赖 */
 struct mm_struct;
+struct file;
 
 /* ---- 任务状态 ---- */
 
@@ -73,8 +75,8 @@ struct task_struct {
 	struct mm_struct *mm;   /* 指向 mm_struct，内核线程为 NULL */
 	uint64_t satp;     /* 预计算的 satp 值，避免 trapret 通过pgd临时计算 */
 
-	/* 文件描述符（后续 Stage 使用） */
-	void *fd_array[32]; /* 打开的文件 */
+	/* 文件描述符 */
+	struct file *fd_array[32]; /* 打开的文件 */
 
 	/* 信号处理（后续 Stage 使用） */
 	void *sighand[32]; /* 信号处理函数表 */
@@ -85,9 +87,11 @@ struct task_struct {
 	struct task_struct *parent; /* 父进程 */
 	struct list_head children;  /* 子进程链表 */
 	struct list_head sibling;   /* 在父进程 children 链表中的节点 */
+	struct wait_queue_head wait_child_queue; /* 父进程等待子进程退出 */
 
 	/* 调度 */
 	struct list_head run_list;     /* 就绪队列节点 */
+	struct list_head wait_list;    /* 等待队列节点 */
 	volatile uint8_t need_resched; /* 时钟 tick 置位，trap 返回前触发调度 */
 };
 

@@ -51,6 +51,7 @@
 
 #include <kernel/types.h>
 #include <kernel/bitops.h>
+#include <kernel/compiler.h>
 #include <asm/csr.h>
 
 /* ---- scause 中断/异常码 ----
@@ -122,6 +123,8 @@ void trap_handler(struct trap_frame *tf);
 
 void trap_set_test_hook(trap_test_hook_t hook);
 
+void __trapret(void);
+void trapret_to_user(struct trap_frame *tf) __noreturn;
 void switch_to(struct context *prev, struct context *next);
 
 #endif

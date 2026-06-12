@@ -16,8 +16,8 @@
  *     8. 切换 satp → sfence → 设 sscratch → 跳转 __trapret
  *
  * 注意：
- *   此函数不返回。trap_frame 构造在当前 C 栈下方的空闲区域，
- *   完成后不能再发生函数调用。
+ *   此函数不返回。trap_frame 构造为当前函数的栈对象，并通过
+ *   noreturn 汇编入口切到 __trapret，避免 release 优化下的控制流歧义。
  */
 
 #include <kernel/printk.h>
@@ -30,9 +30,6 @@
 #include <asm/pte.h>
 #include <asm/csr.h>
 #include <asm/trap.h>
-
-/* entry.S 中的 trap 返回入口 */
-extern void __trapret(void);
 
 /* ---- ELF 权限转换辅助函数 ---- */
 
@@ -260,16 +257,10 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 
 	/* ---- 8. 构造 trap_frame 并切换到用户态 ---- */
 
-	uintptr_t cur_sp;
-	__asm__ volatile("mv %0, sp" : "=r"(cur_sp));
-	cur_sp &= ~(uintptr_t)0xF;
+	struct trap_frame tf_storage;
+	struct trap_frame *tf = &tf_storage;
 
-	uintptr_t kstack_top = cur_sp - sizeof(uintptr_t);
-	struct trap_frame *tf =
-		(struct trap_frame *)(kstack_top - sizeof(struct trap_frame));
 	memset(tf, 0, sizeof(struct trap_frame));
-
-	BUG_ON((uintptr_t)tf < (uintptr_t)current->kstack);
 
 	tf->sepc = ehdr->e_entry;   /* ELF 入口地址 */
 	tf->sp = USER_STACK_TOP;    /* 用户栈顶 */
@@ -277,11 +268,5 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 
 	current->tf = tf;
 
-	asm volatile("mv      sp, %[tf]\n\t"
-		     "j       __trapret\n\t"
-		     :
-		     : [tf] "r"((uintptr_t)tf)
-		     : "memory");
-
-	unreachable();
+	trapret_to_user(tf);
 }

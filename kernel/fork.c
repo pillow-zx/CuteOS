@@ -23,13 +23,11 @@
 #include <kernel/errno.h>
 #include <kernel/buddy.h>
 #include <kernel/slab.h>
+#include <kernel/fs.h>
 #include <asm/page.h>
 #include <asm/pte.h>
 #include <asm/trap.h>
 #include <asm/csr.h>
-
-/* entry.S 中的 trap 返回入口 */
-extern void __trapret(void);
 
 /* ---- 内部辅助函数 ---- */
 
@@ -105,19 +103,6 @@ static struct mm_struct *copy_mm(struct mm_struct *oldmm)
 	}
 
 	return newmm;
-}
-
-/*
- * copy_files - 复制文件描述符表
- * @child: 子进程 task_struct
- *
- * 当前无 struct file / refcount 基础设施，
- * 仅 memcpy fd_array。待 Stage 5 VFS 完善后补充 refcount++。
- */
-static void copy_files(struct task_struct *child)
-{
-	memcpy(child->fd_array, current->fd_array,
-	       sizeof(current->fd_array));
 }
 
 /*

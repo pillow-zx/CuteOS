@@ -1,20 +1,50 @@
 /*
  * kernel/wait.c - 等待队列与睡眠原语
- *
- * 功能：
- *   实现进程睡眠和唤醒机制，基于等待队列（wait_queue_head_t）。
- *   当进程需要等待某个条件满足时，将自己加入等待队列并进入睡眠状态，
- *   条件满足时由唤醒方将队列中的进程移回就绪队列。
- *
- *   典型使用场景：
- *     - pipe 读写阻塞
- *     - sys_wait4 等待子进程
- *     - console read 等待输入
- *
- * 主要函数：
- *   sleep_on(wq)       - 将当前进程加入等待队列 wq，设置状态为 SLEEPING，
- *                        调用 schedule() 让出 CPU。被唤醒后从队列移除。
- *   wake_up(wq)        - 唤醒等待队列 wq 上的第一个进程，
- *                        将其状态设为 RUNNING 并加入就绪队列。
- *   wake_up_all(wq)    - 唤醒等待队列 wq 上的全部进程。
  */
+
+#include <kernel/wait.h>
+#include <kernel/task.h>
+#include <kernel/sched.h>
+
+void init_waitqueue_head(struct wait_queue_head *wq)
+{
+	INIT_LIST_HEAD(&wq->task_list);
+}
+
+void sleep_on(struct wait_queue_head *wq)
+{
+	if (!wq)
+		return;
+
+	if (list_empty(&current->wait_list))
+		list_add_tail(&current->wait_list, &wq->task_list);
+
+	current->state = TASK_SLEEPING;
+	schedule();
+
+	if (!list_empty(&current->wait_list))
+		list_del_init(&current->wait_list);
+
+	current->state = TASK_RUNNING;
+}
+
+void wake_up(struct wait_queue_head *wq)
+{
+	if (!wq || list_empty(&wq->task_list))
+		return;
+
+	struct task_struct *task =
+		list_first_entry(&wq->task_list, struct task_struct, wait_list);
+
+	list_del_init(&task->wait_list);
+	task->state = TASK_RUNNING;
+
+	if (list_empty(&task->run_list))
+		sched_enqueue(task);
+}
+
+void wake_up_all(struct wait_queue_head *wq)
+{
+	while (wq && !list_empty(&wq->task_list))
+		wake_up(wq);
+}

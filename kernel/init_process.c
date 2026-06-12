@@ -20,7 +20,7 @@
 #include <asm/csr.h>
 
 /* exec_user_elf 在 kernel/exec.c 中定义 */
-extern void exec_user_elf(void *bin_start, size_t bin_size);
+extern void exec_user_elf(void *bin_start, size_t bin_size) __noreturn;
 
 /* 内嵌用户 binary 符号，在 arch/riscv/user_elf.S 中定义 */
 extern char _user_init_start[];

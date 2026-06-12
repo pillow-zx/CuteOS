@@ -131,6 +131,7 @@ CFLAGS += -std=gnu17
 
 # Include paths
 CFLAGS += -I include
+ASFLAGS += -I include
 
 # Freestanding environment (no libc)
 CFLAGS += -ffreestanding -fno-common -nostdlib -fno-builtin -nostdinc

@@ -45,6 +45,10 @@ void do_syscall(struct trap_frame *tf)
 void syscall_init(void)
 {
 	syscall_table[SYS_write] = sys_write;
+	syscall_table[SYS_read] = sys_read;
+	syscall_table[SYS_close] = sys_close;
+	syscall_table[SYS_dup] = sys_dup;
+	syscall_table[SYS_dup3] = sys_dup3;
 	syscall_table[SYS_exit] = sys_exit;
 	syscall_table[SYS_sched_yield] = sys_sched_yield;
 	syscall_table[SYS_getpid] = sys_getpid;
