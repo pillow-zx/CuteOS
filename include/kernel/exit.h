@@ -2,24 +2,37 @@
 #define _CUTEOS_KERNEL_EXIT_H
 
 /*
- * include/kernel/exit.h - 进程退出接口
+ * include/kernel/exit.h - 进程退出与回收接口
  *
- * 声明 do_exit()，供 page_fault、syscall 等模块调用。
- * 完整实现（资源释放、wait4 等）在 Stage 4 补充。
+ * 声明 do_exit()/sys_wait4()/release_task()，供 syscall、page_fault
+ * 和进程管理代码使用。
  */
 
+#include <kernel/types.h>
+
 struct task_struct;
+struct trap_frame;
 
 /*
  * do_exit - 终止当前进程
  * @code: 退出码
  *
- * 将当前进程标记为 TASK_ZOMBIE，从就绪队列移除，
- * 调用 schedule() 永不返回。
- *
- * 注意：当前为极简实现，不释放资源（fd、mm 等）。
- * 完整版本在 Stage 4（kernel/exit.c）中补充。
+ * 释放当前进程私有资源，将 task_struct 保留为 zombie，等待父进程
+ * wait4 回收。此函数不会返回。
  */
 void do_exit(int code);
+
+/*
+ * release_task - 释放已被父进程 wait 回收的 zombie task
+ * @task: TASK_ZOMBIE 子进程
+ */
+void release_task(struct task_struct *task);
+
+/*
+ * sys_wait4 - wait4 系统调用实现
+ *
+ * 当前 Stage 4 支持 pid > 0 和 pid == -1，options 必须为 0。
+ */
+ssize_t sys_wait4(struct trap_frame *tf);
 
 #endif

@@ -74,6 +74,7 @@ struct task_struct {
 	/* 内存管理 */
 	struct mm_struct *mm;   /* 指向 mm_struct，内核线程为 NULL */
 	uint64_t satp;     /* 预计算的 satp 值，避免 trapret 通过pgd临时计算 */
+	int exit_code;     /* zombie 状态下保留的退出码 */
 
 	/* 文件描述符 */
 	struct file *fd_array[32]; /* 打开的文件 */

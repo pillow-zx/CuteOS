@@ -20,6 +20,7 @@
 #include <kernel/task.h>
 #include <kernel/mm.h>
 #include <kernel/fs.h>
+#include <kernel/exit.h>
 #include <asm/trap.h>
 #include <asm/csr.h>
 #include <drivers/uart.h>
@@ -54,6 +55,7 @@ void syscall_init(void)
 	syscall_table[SYS_getpid] = sys_getpid;
 	syscall_table[SYS_brk] = sys_brk;
 	syscall_table[SYS_fork] = sys_fork;
+	syscall_table[SYS_wait4] = sys_wait4;
 
 	printk("syscall: initialized (%d entries)\n", NR_SYSCALL);
 }

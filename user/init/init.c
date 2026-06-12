@@ -95,10 +95,14 @@ void main(void)
 		print("[PARENT] fork returned child_pid=");
 		print_hex((unsigned long)child_pid);
 		print("\n");
-		/* 让子进程先运行 */
-		yield();
-		yield();
-		print("[PARENT] child should have exited\n");
+
+		int status = -1;
+		long waited = wait4(child_pid, &status, 0, 0);
+		print("[PARENT] wait4 returned pid=");
+		print_hex((unsigned long)waited);
+		print(", status=");
+		print_hex((unsigned long)status);
+		print(" (expected status 0)\n");
 	} else {
 		print("[TEST] fork FAILED, returned ");
 		print_hex((unsigned long)child_pid);
@@ -106,4 +110,11 @@ void main(void)
 	}
 
 	print("=== All tests passed ===\n");
+
+	/* PID 1 stays alive as the simple Stage 4 reaper. */
+	while (1) {
+		while (wait(0) > 0) {
+		}
+		yield();
+	}
 }

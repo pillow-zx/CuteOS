@@ -61,8 +61,20 @@ static void free_user_page_tables(pte_t *pgd)
 
 			pte_t *pt = (pte_t *)__va(PTE_TO_PA(pmd[j]));
 			for (int k = 0; k < 512; k++) {
-				if (pt[k] & PTE_V)
-					free_page(__va(PTE_TO_PA(pt[k])), 0);
+				if (!(pt[k] & PTE_V))
+					continue;
+
+				paddr_t pa = PTE_TO_PA(pt[k]);
+				/*
+				 * mm_create_user_pgd() currently injects a low
+				 * UART MMIO mapping so trap-time printk works
+				 * while still running on the user page table.
+				 * Only DRAM pages are owned by this mm; MMIO and
+				 * other shared mappings must not be returned to
+				 * the buddy allocator.
+				 */
+				if (pa >= DRAM_BASE && pa < DRAM_BASE + DRAM_SIZE)
+					free_page(__va(pa), 0);
 			}
 			free_page(pt, 0);
 		}

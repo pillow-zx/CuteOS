@@ -51,6 +51,7 @@
  */
 typedef void *(*page_alloc_fn)(void);
 static page_alloc_fn pt_alloc;
+static uintptr_t kernel_satp_val;
 
 /* ---- Early bump allocator ---- */
 
@@ -174,6 +175,11 @@ pte_t *current_pgd(void)
 	return (pte_t *)__va(pgd_pa);
 }
 
+uintptr_t kernel_satp(void)
+{
+	return kernel_satp_val;
+}
+
 pte_t *page_table_lookup_current(uintptr_t va)
 {
 	return walk_page_table(current_pgd(), va, false);
@@ -244,6 +250,7 @@ void kernel_pagetable_init(void)
 	/* 5. 切换到新页表 */
 	paddr_t pgd_pa = __pa((uintptr_t)pgd);
 	uintptr_t satp_val = SATP_MODE_SV39 | (pgd_pa >> PAGE_SHIFT);
+	kernel_satp_val = satp_val;
 
 	csr_write(satp, satp_val);
 	sfence_vma_all();

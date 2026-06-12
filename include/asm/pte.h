@@ -89,6 +89,14 @@ void page_table_use_buddy(void);
 pte_t *current_pgd(void);
 
 /*
+ * kernel_satp - 返回全局内核页表的 satp 值
+ *
+ * 退出当前用户进程并销毁其 mm 之前，必须切回此页表，避免释放当前
+ * satp 正在引用的用户 PGD 后继续执行。
+ */
+uintptr_t kernel_satp(void);
+
+/*
  * walk_page_table - 遍历/创建 Sv39 三级页表，返回叶子 PTE 指针
  * @pgd:   PGD 页的虚拟地址
  * @va:    虚拟地址

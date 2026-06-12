@@ -28,6 +28,8 @@
 
 #include <kernel/sched.h>
 #include <kernel/printk.h>
+#include <asm/csr.h>
+#include <asm/pte.h>
 
 /* ---- 全局就绪队列 ---- */
 
@@ -36,6 +38,13 @@ struct list_head runqueue;
 /* ---- 抢占计数器 ---- */
 
 volatile int preempt_count;
+
+static __always_inline void switch_address_space(const struct task_struct *next)
+{
+	const uintptr_t satp_val = next->satp ? next->satp : kernel_satp();
+	csr_write(satp, satp_val);
+	sfence_vma_all();
+}
 
 /**
  * sched_init - 初始化调度器
@@ -93,13 +102,13 @@ void schedule(void)
 		 * idle 或仍在 RUNNING 的进程：无其他可运行任务，
 		 * 直接返回继续执行。
 		 */
-		if (current == &idle_task ||
-		    current->state == TASK_RUNNING)
+		if (current == &idle_task || current->state == TASK_RUNNING)
 			return;
 
 		/* 当前进程不可继续运行（ZOMBIE/SLEEPING 等），切到 idle */
 		struct task_struct *prev = current;
 		check_canary(prev);
+		switch_address_space(&idle_task);
 		current = &idle_task;
 		switch_to(&prev->ctx, &idle_task.ctx);
 		return;
@@ -107,7 +116,7 @@ void schedule(void)
 
 	struct task_struct *next =
 		list_first_entry(&runqueue, struct task_struct, run_list);
-	list_del(&next->run_list);
+	list_del_init(&next->run_list);
 
 	struct task_struct *prev = current;
 
@@ -120,6 +129,7 @@ void schedule(void)
 
 	/* 更新当前进程指针 */
 	current = next;
+	switch_address_space(next);
 
 	/* 上下文切换 */
 	switch_to(&prev->ctx, &next->ctx);

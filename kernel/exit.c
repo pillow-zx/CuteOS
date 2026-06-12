@@ -32,31 +32,127 @@
  */
 
 #include <kernel/exit.h>
+#include <kernel/errno.h>
+#include <kernel/fs.h>
+#include <kernel/list.h>
+#include <kernel/mm.h>
 #include <kernel/printk.h>
 #include <kernel/sched.h>
+#include <kernel/syscall.h>
 #include <kernel/task.h>
+#include <kernel/wait.h>
+#include <asm/csr.h>
+#include <asm/pte.h>
+#include <asm/trap.h>
+
+static struct task_struct *find_child(pid_t pid)
+{
+	struct task_struct *child;
+
+	list_for_each_entry (child, &current->children, sibling) {
+		if (child->pid == pid)
+			return child;
+	}
+
+	return NULL;
+}
+
+static struct task_struct *find_any_zombie_child(void)
+{
+	struct task_struct *child;
+
+	list_for_each_entry (child, &current->children, sibling) {
+		if (child->state == TASK_ZOMBIE)
+			return child;
+	}
+
+	return NULL;
+}
+
+static struct task_struct *find_waitable_child(pid_t pid)
+{
+	if (pid == (pid_t)-1)
+		return find_any_zombie_child();
+
+	struct task_struct *child = find_child(pid);
+	if (child && child->state == TASK_ZOMBIE)
+		return child;
+
+	return NULL;
+}
+
+static bool has_wait_target(pid_t pid)
+{
+	if (pid == (pid_t)-1)
+		return !list_empty(&current->children);
+
+	return find_child(pid) != NULL;
+}
+
+static struct task_struct *init_task(void)
+{
+	struct task_struct *task;
+
+	list_for_each_entry (task, &idle_task.children, sibling) {
+		if (task->pid == 1)
+			return task;
+	}
+
+	return NULL;
+}
+
+static void reparent_children(struct task_struct *dead)
+{
+	struct task_struct *init = init_task();
+	struct list_head *pos;
+	struct list_head *next;
+
+	list_for_each_safe (pos, next, &dead->children) {
+		struct task_struct *child =
+			list_entry(pos, struct task_struct, sibling);
+
+		list_del_init(&child->sibling);
+		child->parent = init ? init : &idle_task;
+		list_add_tail(&child->sibling, &child->parent->children);
+
+		if (child->state == TASK_ZOMBIE)
+			wake_up(&child->parent->wait_child_queue);
+	}
+}
+
+static void destroy_current_mm(void)
+{
+	struct mm_struct *mm = current->mm;
+
+	if (!mm)
+		return;
+
+	current->mm = NULL;
+	current->satp = 0;
+
+	csr_write(satp, kernel_satp());
+	sfence_vma_all();
+
+	mm_destroy(mm);
+}
 
 /*
- * do_exit - 终止当前进程（极简版）
+ * do_exit - 终止当前进程
  * @code: 退出码
- *
- * 当前实现：
- *   - 设置 TASK_ZOMBIE
- *   - 从就绪队列移除
- *   - schedule() 让出 CPU，永不返回
- *
- * 未实现（Stage 4 补充）：
- *   - 关闭 fd
- *   - 释放 mm_struct
- *   - 孤儿过继
- *   - SIGCHLD 通知
  */
 void do_exit(int code)
 {
 	printk("do_exit: pid=%d exit_code=%d\n", current->pid, code);
 
-	/* 设置进程状态为 ZOMBIE */
+	current->exit_code = code;
+	close_files(current);
+	destroy_current_mm();
+	reparent_children(current);
+
 	current->state = TASK_ZOMBIE;
+
+	if (current->parent)
+		wake_up(&current->parent->wait_child_queue);
 
 	/*
 	 * 运行中的进程不在 runqueue 中（schedule 在取队首时已 dequeue），
@@ -67,4 +163,61 @@ void do_exit(int code)
 	schedule();
 
 	unreachable();
+}
+
+void release_task(struct task_struct *task)
+{
+	if (!task)
+		return;
+
+	BUG_ON(task == current);
+	BUG_ON(task == &idle_task);
+	BUG_ON(task->state != TASK_ZOMBIE);
+	BUG_ON(!list_empty(&task->children));
+
+	if (!list_empty(&task->sibling))
+		list_del_init(&task->sibling);
+	if (!list_empty(&task->run_list))
+		sched_dequeue(task);
+	if (!list_empty(&task->wait_list))
+		list_del_init(&task->wait_list);
+
+	task->state = TASK_DEAD;
+	task_free(task);
+}
+
+ssize_t sys_wait4(struct trap_frame *tf)
+{
+	pid_t pid = (pid_t)tf->a0;
+	int *wstatus = (int *)tf->a1;
+	int options = (int)tf->a2;
+
+	if (pid != (pid_t)-1 && pid <= 0)
+		return -EINVAL;
+	if (options != 0)
+		return -EINVAL;
+	if (wstatus && !access_ok(wstatus, sizeof(*wstatus)))
+		return -EFAULT;
+
+	while (true) {
+		if (!has_wait_target(pid))
+			return -ECHILD;
+
+		struct task_struct *child = find_waitable_child(pid);
+		if (!child) {
+			sleep_on(&current->wait_child_queue);
+			continue;
+		}
+
+		pid_t child_pid = child->pid;
+		int status = child->exit_code << 8;
+
+		if (wstatus) {
+			if (copy_to_user(wstatus, &status, sizeof(status)) != 0)
+				return -EFAULT;
+		}
+
+		release_task(child);
+		return child_pid;
+	}
 }

@@ -194,6 +194,9 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 	task->ctx.ra = (size_t)__trapret;
 	task->ctx.sp = (size_t)tf;
 
+	task->parent = current;
+	list_add_tail(&task->sibling, &current->children);
+
 	sched_enqueue(task);
 
 	printk("task: kernel thread (PID %d) created, fn=%p\n", task->pid,
