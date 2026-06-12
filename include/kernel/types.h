@@ -60,8 +60,6 @@ enum {
 	true = 1,
 };
 
-#define auto                    __auto_type
-
 #define NULL	                ((void *)0)
 #define nullptr                 ((void *)0)
 

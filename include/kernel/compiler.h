@@ -9,15 +9,21 @@
  *
  * 子头文件提供：
  *   compiler/compiler_attribute.h - __packed, __aligned, __section,
- * __noreturn 等 compiler/compiler_builtin.h  - likely(), unlikely(),
- * unreachable() 等
+ *                                   __noreturn 等
+ *   compiler/compiler_builtin.h  - likely(), unlikely(), unreachable() 等
  *
- * 子头文件中定义的其他常用宏：
- *   container_of(ptr, type, member) - 从成员指针获取包含它的结构体
- *   constexpr(expr)                 - 编译期常量表达式断言
+ * 本文件额外提供 GNU C 语法扩展封装：
+ *   auto, auto_type, type_of, statement_expr, static_assert, same_type 等
  */
 
 #include <compiler/compiler_attribute.h>
 #include <compiler/compiler_builtin.h>
+
+#define auto			 __auto_type
+#define type_of(expr)		 __typeof__(expr)
+#define type_of_member(type, m)	 __typeof__(((type *)0)->m)
+#define statement_expr(...)	 __extension__({__VA_ARGS__})
+#define static_assert(cond, msg) _Static_assert(cond, msg)
+#define same_type(a, b)		 types_compatible(a, b)
 
 #endif

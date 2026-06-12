@@ -95,7 +95,7 @@ void kernel_main(void)
 	kernel_test();
 #endif
 
-	kernel_thread(init_process, NULL);
+	set_init_task(kernel_thread(init_process, NULL));
 
 	/* 进入 idle 循环 — idle 进程的执行体 */
 	while (true) {

@@ -30,7 +30,7 @@ ssize_t sys_exit(struct trap_frame *tf)
 	unreachable();
 }
 
-ssize_t sys_sched_yield(struct trap_frame *tf)
+ssize_t sys_yield(struct trap_frame *tf)
 {
 	schedule();
 	return 0;

@@ -23,9 +23,8 @@
  *   134 sigaction   135 sigprocmask 139 sigreturn
  *   160 uname       169 gettimeofday
  *   172 getpid      173 getppid     174 getuid       175 getgid
- *   214 brk         215 munmap      222 mmap         226 mprotect
- *   260 wait4
- *   1000 fork       1001 execve     (cuteOS-private numbers)
+ *   214 brk         215 munmap      220 fork        221 execve
+ *   222 mmap        226 mprotect    260 wait4
  */
 
 #include <kernel/types.h>
@@ -49,7 +48,7 @@
 #define SYS_exit_group	 94
 #define SYS_set_tid_addr 96
 #define SYS_nanosleep	 101
-#define SYS_sched_yield	 124
+#define SYS_yield	 124
 #define SYS_kill	 129
 #define SYS_sigaction	 134
 #define SYS_sigprocmask	 135
@@ -62,11 +61,11 @@
 #define SYS_getgid	 175
 #define SYS_brk		 214
 #define SYS_munmap	 215
+#define SYS_fork	 220
 #define SYS_execve	 221
 #define SYS_mmap	 222
 #define SYS_mprotect	 226
 #define SYS_wait4	 260
-#define SYS_fork	 1000
 
 static __always_inline bool user_access_begin(void)
 {
@@ -90,7 +89,7 @@ ssize_t sys_close(struct trap_frame *tf);
 ssize_t sys_dup(struct trap_frame *tf);
 ssize_t sys_dup3(struct trap_frame *tf);
 ssize_t sys_exit(struct trap_frame *tf);
-ssize_t sys_sched_yield(struct trap_frame *tf);
+ssize_t sys_yield(struct trap_frame *tf);
 ssize_t sys_getpid(struct trap_frame *tf);
 ssize_t sys_brk(struct trap_frame *tf);
 ssize_t sys_fork(struct trap_frame *tf);

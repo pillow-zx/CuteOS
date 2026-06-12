@@ -45,6 +45,8 @@
 #include <asm/pte.h>
 #include <asm/trap.h>
 
+#define WEXITCODE(code) ((code) << 8)
+
 static struct task_struct *find_child(pid_t pid)
 {
 	struct task_struct *child;
@@ -89,21 +91,8 @@ static bool has_wait_target(pid_t pid)
 	return find_child(pid) != NULL;
 }
 
-static struct task_struct *init_task(void)
-{
-	struct task_struct *task;
-
-	list_for_each_entry (task, &idle_task.children, sibling) {
-		if (task->pid == 1)
-			return task;
-	}
-
-	return NULL;
-}
-
 static void reparent_children(struct task_struct *dead)
 {
-	struct task_struct *init = init_task();
 	struct list_head *pos;
 	struct list_head *next;
 
@@ -112,7 +101,7 @@ static void reparent_children(struct task_struct *dead)
 			list_entry(pos, struct task_struct, sibling);
 
 		list_del_init(&child->sibling);
-		child->parent = init ? init : &idle_task;
+		child->parent = init_task ? init_task : &idle_task;
 		list_add_tail(&child->sibling, &child->parent->children);
 
 		if (child->state == TASK_ZOMBIE)
@@ -155,6 +144,10 @@ void do_exit(int code)
 		wake_up(&current->parent->wait_child_queue);
 
 	/*
+	 * From here until schedule() switches away, current is a zombie with
+	 * current->mm == NULL and current->satp == 0. Do not add code here
+	 * that dereferences current->mm or assumes a user address space exists.
+	 *
 	 * 运行中的进程不在 runqueue 中（schedule 在取队首时已 dequeue），
 	 * 无需再次 sched_dequeue。schedule() 也不会把 ZOMBIE 进程重新入队。
 	 */
@@ -210,7 +203,7 @@ ssize_t sys_wait4(struct trap_frame *tf)
 		}
 
 		pid_t child_pid = child->pid;
-		int status = child->exit_code << 8;
+		int status = WEXITCODE(child->exit_code);
 
 		if (wstatus) {
 			if (copy_to_user(wstatus, &status, sizeof(status)) != 0)

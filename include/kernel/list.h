@@ -29,7 +29,7 @@
  */
 
 #include <kernel/types.h>
-#include <kernel/compiler.h>
+#include <kernel/tools.h>
 
 struct list_head {
 	struct list_head *prev;
@@ -115,15 +115,14 @@ list_empty(const struct list_head *head)
 	for (pos = (head)->next, n = pos->next; pos != (head);                 \
 	     pos = n, n = pos->next)
 
-#define list_entry(ptr, type, member)                                          \
-	((type *)((char *)(ptr) - offsetof(type, member)))
+#define list_entry(ptr, type, member) container_of(ptr, type, member)
 
 #define list_first_entry(ptr, type, member)                                    \
 	list_entry((ptr)->next, type, member)
 
 #define list_for_each_entry(pos, head, member)                                 \
-	for (pos = list_entry((head)->next, typeof(*pos), member);             \
+	for (pos = list_entry((head)->next, type_of(*pos), member);            \
 	     &pos->member != (head);                                           \
-	     pos = list_entry(pos->member.next, typeof(*pos), member))
+	     pos = list_entry(pos->member.next, type_of(*pos), member))
 
 #endif

@@ -43,7 +43,10 @@
 
 #define constant_p(exp)		__builtin_constant_p(exp)
 
+#define compiletime_choose(cond, true_expr, false_expr)                        \
+	__builtin_choose_expr((cond), (true_expr), (false_expr))
+
 #define types_compatible(a, b)                                                 \
-	__builtin_types_compatible_p(typeof(a), typeof(b))
+	__builtin_types_compatible_p(__typeof__(a), __typeof__(b))
 
 #endif

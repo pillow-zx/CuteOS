@@ -43,6 +43,9 @@ struct task_struct idle_task;
 /* 当前运行的进程 */
 struct task_struct *current;
 
+/* PID 1 init 进程，供 exit/reparent 路径直接引用。 */
+struct task_struct *init_task;
+
 /* ---- 内联辅助 ---- */
 
 /**
@@ -203,4 +206,13 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 	       (void *)fn);
 
 	return task;
+}
+
+void set_init_task(struct task_struct *task)
+{
+	BUG_ON(!task);
+	BUG_ON(task->pid != 1);
+	BUG_ON(init_task && init_task != task);
+
+	init_task = task;
 }

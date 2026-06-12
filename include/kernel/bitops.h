@@ -35,40 +35,26 @@
 
 #define MASK(n) (BIT(n) - 1)
 #define BITS(x, hi, lo)                                                        \
-	({                                                                     \
-		static_assert((hi) >= (lo), "BITS: hi must be >= lo");         \
-		static_assert((lo) >= 0, "BITS: lo must be >= 0");             \
-		(((x) >> (lo)) & MASK((hi) - (lo) + 1));                       \
-	})
+	statement_expr(static_assert((hi) >= (lo), "BITS: hi must be >= lo");  \
+		       static_assert((lo) >= 0, "BITS: lo must be >= 0");      \
+		       (((x) >> (lo)) & MASK((hi) - (lo) + 1));)
 
 #define __ALIGN_MASK(x, mask) (((x) + (mask)) & ~(mask))
 
 #define ALIGN_UP(x, a)                                                         \
-	({                                                                     \
-		typeof(x) _x = (x);                                            \
-		typeof(a) _a = (a);                                            \
-		if (constant_p(a))                                             \
-			BUILD_BUG_ON(!IS_POWER_OF_2(a));                       \
-		__ALIGN_MASK(_x, _a - 1);                                      \
-	})
+	statement_expr(auto _x = (x); auto _a = (a);                           \
+		       if (constexpr(a)) BUILD_BUG_ON(!IS_POWER_OF_2(a));   \
+		       __ALIGN_MASK(_x, _a - 1);)
 
 #define ALIGN_DOWN(x, a)                                                       \
-	({                                                                     \
-		typeof(x) _x = (x);                                            \
-		typeof(a) _a = (a);                                            \
-		if (constant_p(a))                                             \
-			BUILD_BUG_ON(!IS_POWER_OF_2(a));                       \
-		_x & ~(_a - 1);                                                \
-	})
+	statement_expr(auto _x = (x); auto _a = (a);                           \
+		       if (constexpr(a)) BUILD_BUG_ON(!IS_POWER_OF_2(a));   \
+		       _x & ~(_a - 1);)
 
 #define IS_ALIGNED(x, a)                                                       \
-	({                                                                     \
-		typeof(x) _x = (x);                                            \
-		typeof(a) _a = (a);                                            \
-		if (constant_p(a))                                             \
-			BUILD_BUG_ON(!IS_POWER_OF_2(a));                       \
-		((_x & (_a - 1)) == 0);                                        \
-	})
+	statement_expr(auto _x = (x); auto _a = (a);                           \
+		       if (constexpr(a)) BUILD_BUG_ON(!IS_POWER_OF_2(a));   \
+		       ((_x & (_a - 1)) == 0);)
 
 static inline int32_t ffz(uint64_t x)
 {

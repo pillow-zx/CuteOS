@@ -14,7 +14,7 @@
  *     内存映射 I/O 寄存器读写。通过 volatile 指针访问，
  *     确保编译器不会优化掉或重排序设备寄存器访问。
  *
- *   TYPESAME(a, b)
+ *   same_type(a, b)
  *     编译期判断两个表达式的类型是否兼容。
  *
  *   ISARR(arr, msg)
@@ -32,8 +32,8 @@
  *     返回的结构体指针也保持 const 限定。
  *
  *   constexpr(expr)
- *     断言表达式为编译期常量，否则编译报错。用于需要
- *     编译期求值的场景（如数组大小、switch case 等）。
+ *     判断表达式是否为编译期常量。用于对常量参数启用额外的
+ *     编译期检查。
  *
  *   MAX(a, b) / MIN(a, b)
  *     类型安全的极值宏。编译期检查两个参数类型一致，
@@ -45,72 +45,63 @@
 
 #include <kernel/compiler.h>
 
-#define static_assert(cond, msg) _Static_assert(cond, msg)
-
 #define MMIO_READ(type, addr)	    (*(volatile type *)(addr))
 #define MMIO_WRITE(type, addr, val) (*(volatile type *)(addr) = (val))
 
-#define IS_POWER_OF_2(x)   ((x) != 0 && (((x) & ((x) - 1)) == 0))
-#define BUILD_BUG_ON(cond) ((void)sizeof(char[1 - 2 * !!(cond)]))
+#define ISARR(arr, msg) static_assert(!same_type((arr), &(arr)[0]), msg)
 
-#define TYPESAME(a, b)	types_compatible(a, b)
-#define ISARR(arr, msg) static_assert(!TYPESAME((arr), (&(arr)[0])), msg)
 #define ARRLEN(arr)                                                            \
-	({                                                                     \
+	statement_expr(                                                        \
 		ISARR(arr,                                                     \
 		      "ARRLEN: argument must be an array, not an pointer");    \
-		sizeof((arr)) / sizeof((arr)[0]);                              \
-	})
+		sizeof((arr)) / sizeof((arr)[0]);)
+
+#define BUILD_BUG_ON(cond)	((void)sizeof(char[1 - 2 * !!(cond)]))
+#define BUILD_BUG_ON_ZERO(cond) ((int)sizeof(char[1 - 2 * !!(cond)]) - 1)
+
+#define typecheck(type, expr)                                                  \
+	statement_expr(type __dummy; type_of(expr) __dummy2;                   \
+		       (void)(&__dummy == &__dummy2); 1;)
+
+#define typecheck_pointer(type, expr) typecheck(type *, expr)
 
 #define container_of(ptr, type, member)                                        \
-	({                                                                     \
-		static_assert(TYPESAME(*(ptr), ((type *)0)->member) ||         \
-				      TYPESAME(*(ptr), void),                  \
+	statement_expr(                                                        \
+		static_assert(same_type(*(ptr), ((type *)0)->member) ||        \
+				      same_type(*(ptr), void),                 \
 			      "pointer type mismatch in container_of()");      \
 		(type *)((void *)((__UINTPTR_TYPE__)(ptr) -                    \
-				  offsetof(type, member)));                    \
-	})
+				  offsetof(type, member)));)
 
 #define container_of_const(ptr, type, member)                                  \
-	({                                                                     \
-		static_assert(TYPESAME(*(ptr), ((type *)0)->member) ||         \
-				      TYPESAME(*(ptr), void),                  \
+	statement_expr(                                                        \
+		static_assert(same_type(*(ptr), ((type *)0)->member) ||        \
+				      same_type(*(ptr), void),                 \
 			      "pointer type mismatch in container_of()");      \
 		_Generic((ptr),                                                \
-			const typeof(*(ptr)) *: (const type *)((               \
+			const type_of(*(ptr)) *: (const type *)((              \
 				const void *)((const char *)(ptr) -            \
 					      offsetof(type, member))),        \
-			default: (                                             \
-				 (type *)((void *)((__UINTPTR_TYPE__)(ptr) -   \
-						   offsetof(type, member))))); \
-	})
+			default: ((                                            \
+				type *)((void *)((__UINTPTR_TYPE__)(ptr) -     \
+						 offsetof(type, member)))));)
 
-#define constexpr(expr)                                                        \
-	({                                                                     \
-		static_assert(constant_p(expr),                                \
-			      "constexpr: requires a compile-time constant "   \
-			      "expression");                                   \
-		(expr)                                                         \
-	})
+#define constexpr(expr) constant_p(expr)
+
+#define IS_POWER_OF_2(x) ((x) != 0 && (((x) & ((x) - 1)) == 0))
 
 #define MAX(a, b)                                                              \
-	({                                                                     \
+	statement_expr(                                                        \
 		static_assert(                                                 \
-			TYPESAME(a, b),                                        \
+			same_type(a, b),                                       \
 			"MAX requires both arguments to be the same type");    \
-		typeof(a) _a = (a);                                            \
-		typeof(b) _b = b;                                              \
-		_a > _b ? _a : _b;                                             \
-	})
+		auto _a = (a); auto _b = (b); _a > _b ? _a : _b;)
 
 #define MIN(a, b)                                                              \
-	({                                                                     \
+	statement_expr(                                                        \
 		static_assert(                                                 \
-			types_compatible(a, b),                                \
+			same_type(a, b),                                       \
 			"MIN Requires both arguments to be the same type");    \
-		typeof(a) _a = (a);                                            \
-		typeof(b) _b = (b);                                            \
-		_a < _b ? _a : _b;                                             \
-	})
+		auto _a = (a); auto _b = (b); _a < _b ? _a : _b;)
 
 #endif

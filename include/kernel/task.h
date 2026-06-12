@@ -107,6 +107,9 @@ extern struct task_struct idle_task;
 /* 当前正在运行的进程 */
 extern struct task_struct *current;
 
+/* PID 1 init 进程。创建后保持有效，用于孤儿进程过继。 */
+extern struct task_struct *init_task;
+
 /* ---- 函数声明 ---- */
 
 /**
@@ -154,5 +157,7 @@ void check_canary(struct task_struct *task);
  * 返回新创建的 task_struct，失败返回 NULL。
  */
 struct task_struct *kernel_thread(void (*fn)(void *), void *arg);
+
+void set_init_task(struct task_struct *task);
 
 #endif
