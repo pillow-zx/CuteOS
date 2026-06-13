@@ -22,7 +22,7 @@
  *   101 nanosleep   124 sched_yield 129 kill
  *   134 sigaction   135 sigprocmask 139 sigreturn
  *   160 uname       169 gettimeofday
- *   172 getpid      173 getppid     174 getuid       175 getgid
+ *   172 getpid      172 getppid     174 getuid       175 getgid
  *   214 brk         215 munmap      220 fork        221 execve
  *   222 mmap        226 mprotect    260 wait4
  */
@@ -30,44 +30,92 @@
 #include <kernel/types.h>
 #include <asm/csr.h>
 
-#define SYS_getcwd	 17
-#define SYS_dup		 23
-#define SYS_dup3	 24
-#define SYS_mkdirat	 34
-#define SYS_unlinkat	 35
-#define SYS_chdir	 49
-#define SYS_openat	 56
-#define SYS_close	 57
-#define SYS_pipe2	 59
-#define SYS_getdents64	 61
-#define SYS_lseek	 62
-#define SYS_read	 63
-#define SYS_write	 64
-#define SYS_fstat	 80
-#define SYS_exit	 93
-#define SYS_exit_group	 94
-#define SYS_set_tid_addr 96
-#define SYS_nanosleep	 101
-#define SYS_yield	 124
-#define SYS_kill	 129
-#define SYS_sigaction	 134
-#define SYS_sigprocmask	 135
-#define SYS_sigreturn	 139
-#define SYS_uname	 160
-#define SYS_gettimeofday 169
-#define SYS_getpid	 172
-#define SYS_getppid	 173
-#define SYS_getuid	 174
-#define SYS_getgid	 175
-#define SYS_brk		 214
-#define SYS_munmap	 215
-#define SYS_fork	 220
-#define SYS_execve	 221
-#define SYS_mmap	 222
-#define SYS_mprotect	 226
-#define SYS_wait4	 260
+#define SYS_getcwd	      17
+#define SYS_epoll_create1     20
+#define SYS_epoll_ctl	      21
+#define SYS_epoll_pwait	      22
+#define SYS_dup		      23
+#define SYS_dup3	      24
+#define SYS_ioctl	      29
+#define SYS_mkdirat	      34
+#define SYS_unlinkat	      35
+#define SYS_umount	      39
+#define SYS_mount	      40
+#define SYS_statfs64	      43
+#define SYS_fstatfs64	      44
+#define SYS_ftruncate64	      46
+#define SYS_faccessat	      48
+#define SYS_chdir	      49
+#define SYS_openat	      56
+#define SYS_close	      57
+#define SYS_pipe2	      59
+#define SYS_getdents64	      61
+#define SYS_lseek	      62
+#define SYS_read	      63
+#define SYS_write	      64
+#define SYS_readv	      65
+#define SYS_writev	      66
+#define SYS_pread64	      67
+#define SYS_pwrite64	      68
+#define SYS_ppoll_time32      73
+#define SYS_readlinkat	      78
+#define SYS_newfstatat	      79
+#define SYS_fstat	      80
+#define SYS_fsync	      82
+#define SYS_fdatasync	      83
+#define SYS_exit	      93
+#define SYS_exit_group	      94
+#define SYS_set_tid_addr      96
+#define SYS_robust_list	      99
+#define SYS_nanosleep	      101
+#define SYS_timer_create      107
+#define SYS_sched_setaffinity 122
+#define SYS_sched_getaffinity 123
+#define SYS_yield	      124
+#define SYS_kill	      129
+#define SYS_tgkill	      131
+#define SYS_sigaltstack	      132
+#define SYS_rt_sigaction      134
+#define SYS_rt_sigprocmask    135
+#define SYS_sigreturn	      139
+#define SYS_setgid	      144
+#define SYS_setuid	      146
+#define SYS_times	      153
+#define SYS_getgroups	      158
+#define SYS_setgroups	      159
+#define SYS_uname	      160
+#define SYS_umask	      166
+#define SYS_gettimeofday      169
+#define SYS_getpid	      172
+#define SYS_getppid	      173
+#define SYS_getuid	      174
+#define SYS_geteuid	      175
+#define SYS_getgid	      176
+#define SYS_getegid	      177
+#define SYS_gettid	      178
+#define SYS_sysinfo	      179
+#define SYS_brk		      214
+#define SYS_munmap	      215
+#define SYS_mremap	      216
+#define SYS_clone	      220
+#define SYS_execve	      221
+#define SYS_mmap	      222
+#define SYS_mprotect	      226
+#define SYS_mlock	      228
+#define SYS_munlock	      229
+#define SYS_mincore	      232
+#define SYS_madvise	      233
+#define SYS_wait4	      260
+#define SYS_prlimit64	      261
+#define SYS_renameat2	      276
+#define SYS_getrandom	      278
+#define SYS_rseq	      293
+#define SYS_clock_gettime     403
+#define SYS_clock_nanosleep   407
+#define SYS_timer_settime     409
+#define SYS_futex	      422
 
-#define NR_SYSCALL	 (SYS_wait4 + 1)
+#define NR_SYSCALL (SYS_clock_gettime + 1)
 
 static __always_inline bool user_access_begin(void)
 {
