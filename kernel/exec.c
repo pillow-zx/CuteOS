@@ -28,9 +28,6 @@ struct exec_args {
 	char argv[EXEC_MAX_ARGS][EXEC_MAX_ARG_LEN];
 };
 
-extern char _user_init_start[];
-extern char _user_init_end[];
-
 static pte_t elf_flags_to_pte(uint32_t p_flags)
 {
 	const bool w = p_flags & PF_W;
@@ -121,13 +118,11 @@ static int copy_exec_args(const char *const *uargv, struct exec_args *args)
 static int lookup_exec_image(const char *path, void **bin_start,
 			     size_t *bin_size)
 {
-	if (strcmp(path, "init") != 0 && strcmp(path, "/init") != 0 &&
-	    strcmp(path, "/bin/init") != 0)
-		return -ENOENT;
+	(void)path;
+	(void)bin_start;
+	(void)bin_size;
 
-	*bin_start = _user_init_start;
-	*bin_size = (size_t)(_user_init_end - _user_init_start);
-	return 0;
+	return -ENOENT;
 }
 
 static void *stack_sp_to_kernel(void *stack_page, vaddr_t sp)

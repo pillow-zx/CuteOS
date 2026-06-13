@@ -557,13 +557,14 @@ static int ext2_readdir(struct file *file, void *ctx, filldir_t filldir)
 			return -EIO;
 		}
 
-		file->f_pos += de->rec_len;
+		loff_t next_pos = file->f_pos + de->rec_len;
 		if (de->inode && filldir(ctx, de->name, de->name_len, de->inode,
 					 de->file_type) < 0) {
 			brelse(bh);
 			return 0;
 		}
 
+		file->f_pos = next_pos;
 		brelse(bh);
 	}
 

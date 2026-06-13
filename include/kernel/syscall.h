@@ -37,6 +37,7 @@
 #define SYS_dup		      23
 #define SYS_dup3	      24
 #define SYS_ioctl	      29
+#define SYS_mknodat	      33
 #define SYS_mkdirat	      34
 #define SYS_unlinkat	      35
 #define SYS_umount	      39
@@ -135,7 +136,17 @@ struct trap_frame;
 
 ssize_t sys_write(struct trap_frame *tf);
 ssize_t sys_read(struct trap_frame *tf);
+ssize_t sys_openat(struct trap_frame *tf);
 ssize_t sys_close(struct trap_frame *tf);
+ssize_t sys_lseek(struct trap_frame *tf);
+ssize_t sys_ioctl(struct trap_frame *tf);
+ssize_t sys_mkdirat(struct trap_frame *tf);
+ssize_t sys_unlinkat(struct trap_frame *tf);
+ssize_t sys_chdir(struct trap_frame *tf);
+ssize_t sys_getcwd(struct trap_frame *tf);
+ssize_t sys_getdents64(struct trap_frame *tf);
+ssize_t sys_fstat(struct trap_frame *tf);
+ssize_t sys_mknod(struct trap_frame *tf);
 ssize_t sys_dup(struct trap_frame *tf);
 ssize_t sys_dup3(struct trap_frame *tf);
 ssize_t sys_pipe2(struct trap_frame *tf);

@@ -9,6 +9,8 @@
 #   make clean       — remove build artifacts
 #   make format      — run clang-format on all sources
 
+.DEFAULT_GOAL := all
+
 # =============================================================================
 # Toolchain Detection
 # =============================================================================
@@ -217,9 +219,6 @@ all: $(KERNEL)
 $(KERNEL_NAME): $(KERNEL)
 
 $(KERNEL_NAME).img: $(KERNEL_IMG)
-
-# Build user ELF before kernel (needed by user_elf.S .incbin)
-$(OUTDIR)/arch/riscv/user_elf.o: $(USER_ELF)
 
 # Link the kernel
 $(KERNEL): $(OBJS) kernel.ld

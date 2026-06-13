@@ -15,6 +15,7 @@
  */
 
 #include <kernel/fs.h>
+#include <kernel/errno.h>
 #include <kernel/string.h>
 #include <kernel/task.h>
 #include <kernel/vfs.h>
@@ -139,6 +140,238 @@ struct dentry *path_lookup(const char *path, uint32_t flags)
 	}
 
 	return dentry;
+}
+
+struct dentry *path_parent_lookup(const char *path, char *name,
+				  size_t *namelen)
+{
+	struct dentry *parent;
+	const char *last;
+	size_t last_len;
+	bool absolute;
+
+	if (!path || !*path || !name || !namelen)
+		return NULL;
+
+	absolute = path[0] == '/';
+	while (*path == '/')
+		path++;
+	if (!*path)
+		return NULL;
+
+	if (absolute)
+		parent = root_dentry;
+	else
+		parent = current ? current->cwd : NULL;
+	if (!parent)
+		return NULL;
+
+	dget(parent);
+	last = NULL;
+	last_len = 0;
+
+	while (*path) {
+		const char *component = path;
+		size_t len;
+
+		while (*path && *path != '/')
+			path++;
+		len = (size_t)(path - component);
+		path = skip_slashes(path);
+
+		if (len == 0 || is_dot(component, len))
+			continue;
+
+		if (!*path) {
+			last = component;
+			last_len = len;
+			break;
+		}
+
+		if (is_dotdot(component, len)) {
+			struct dentry *next = follow_dotdot(parent);
+			dput(parent);
+			parent = next;
+			if (!parent)
+				return NULL;
+			continue;
+		}
+
+		struct dentry *next = lookup_one(parent, component, len);
+		dput(parent);
+		if (!next)
+			return NULL;
+		parent = next;
+	}
+
+	if (!last || last_len == 0 || last_len > VFS_NAME_MAX ||
+	    is_dot(last, last_len) || is_dotdot(last, last_len)) {
+		dput(parent);
+		return NULL;
+	}
+
+	memcpy(name, last, last_len);
+	name[last_len] = '\0';
+	*namelen = last_len;
+	return parent;
+}
+
+int vfs_create(const char *path, uint32_t mode, struct dentry **res)
+{
+	char name[VFS_NAME_MAX + 1];
+	size_t namelen;
+	struct dentry *parent;
+	struct dentry *dentry;
+	bool new_dentry = false;
+	int ret;
+
+	if (res)
+		*res = NULL;
+
+	parent = path_parent_lookup(path, name, &namelen);
+	if (!parent)
+		return -ENOENT;
+	if (!parent->d_inode || !parent->d_inode->i_op ||
+	    !parent->d_inode->i_op->create) {
+		dput(parent);
+		return -ENOTDIR;
+	}
+
+	dentry = dcache_lookup(parent, name, namelen);
+	if (dentry && dentry->d_inode) {
+		dput(parent);
+		if (res)
+			*res = dentry;
+		else
+			dput(dentry);
+		return -EEXIST;
+	}
+	if (!dentry) {
+		dentry = dentry_alloc(parent, name, namelen);
+		if (!dentry) {
+			dput(parent);
+			return -ENOMEM;
+		}
+		new_dentry = true;
+	}
+
+	ret = parent->d_inode->i_op->create(parent->d_inode, dentry, mode);
+	if (ret == 0) {
+		if (new_dentry)
+			dcache_insert(dentry);
+		if (res)
+			*res = dentry;
+		else
+			dput(dentry);
+	} else {
+		dput(dentry);
+	}
+
+	dput(parent);
+	return ret;
+}
+
+int vfs_mkdir(const char *path, uint32_t mode)
+{
+	char name[VFS_NAME_MAX + 1];
+	size_t namelen;
+	struct dentry *parent;
+	struct dentry *dentry;
+	bool new_dentry = false;
+	int ret;
+
+	parent = path_parent_lookup(path, name, &namelen);
+	if (!parent)
+		return -ENOENT;
+	if (!parent->d_inode || !parent->d_inode->i_op ||
+	    !parent->d_inode->i_op->mkdir) {
+		dput(parent);
+		return -ENOTDIR;
+	}
+
+	dentry = dcache_lookup(parent, name, namelen);
+	if (dentry && dentry->d_inode) {
+		dput(dentry);
+		dput(parent);
+		return -EEXIST;
+	}
+	if (!dentry) {
+		dentry = dentry_alloc(parent, name, namelen);
+		if (!dentry) {
+			dput(parent);
+			return -ENOMEM;
+		}
+		new_dentry = true;
+	}
+
+	ret = parent->d_inode->i_op->mkdir(parent->d_inode, dentry, mode);
+	if (ret == 0 && new_dentry)
+		dcache_insert(dentry);
+	dput(dentry);
+	dput(parent);
+	return ret;
+}
+
+int vfs_unlink(const char *path, int flags)
+{
+	char name[VFS_NAME_MAX + 1];
+	size_t namelen;
+	struct dentry *parent;
+	struct dentry *dentry;
+	int ret;
+
+	parent = path_parent_lookup(path, name, &namelen);
+	if (!parent)
+		return -ENOENT;
+	if (!parent->d_inode || !parent->d_inode->i_op) {
+		dput(parent);
+		return -ENOTDIR;
+	}
+
+	dentry = lookup_one(parent, name, namelen);
+	if (!dentry) {
+		dput(parent);
+		return -ENOENT;
+	}
+
+	if (flags & AT_REMOVEDIR) {
+		if (!parent->d_inode->i_op->rmdir)
+			ret = -ENOTDIR;
+		else
+			ret = parent->d_inode->i_op->rmdir(parent->d_inode,
+							  dentry);
+	} else {
+		if (!parent->d_inode->i_op->unlink)
+			ret = -EINVAL;
+		else
+			ret = parent->d_inode->i_op->unlink(parent->d_inode,
+							   dentry);
+	}
+
+	dput(dentry);
+	dput(parent);
+	return ret;
+}
+
+int vfs_mknod(const char *path, uint32_t mode, dev_t dev)
+{
+	struct dentry *dentry;
+	int ret;
+
+	ret = vfs_create(path, mode, &dentry);
+	if (ret < 0)
+		return ret;
+
+	if (dentry->d_inode) {
+		dentry->d_inode->i_mode = mode;
+		dentry->d_inode->i_rdev = dev;
+		if (dentry->d_inode->i_sb && dentry->d_inode->i_sb->s_op &&
+		    dentry->d_inode->i_sb->s_op->write_inode)
+			dentry->d_inode->i_sb->s_op->write_inode(
+				dentry->d_inode);
+	}
+	dput(dentry);
+	return 0;
 }
 
 void vfs_set_root_dentry(struct dentry *dentry)

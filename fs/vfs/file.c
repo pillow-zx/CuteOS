@@ -5,6 +5,7 @@
 #include <kernel/fdtable.h>
 #include <kernel/task.h>
 #include <kernel/slab.h>
+#include <kernel/stat.h>
 #include <kernel/string.h>
 #include <kernel/errno.h>
 #include <kernel/vfs.h>
@@ -82,15 +83,53 @@ int vfs_open(const char *path, uint32_t flags, uint32_t mode)
 	struct dentry *dentry;
 	struct file *file;
 	int fd;
+	uint32_t fmode;
 
 	dentry = path_lookup(path, flags);
-	if (!dentry)
-		return -ENOENT;
+	if (!dentry) {
+		if (!(flags & O_CREAT))
+			return -ENOENT;
 
-	file = file_alloc_dentry(dentry, flags, mode);
+		int ret = vfs_create(path, mode, &dentry);
+		if (ret < 0)
+			return ret;
+	} else if ((flags & O_CREAT) && (flags & O_EXCL)) {
+		dput(dentry);
+		return -EEXIST;
+	}
+
+	if ((flags & O_DIRECTORY) && dentry->d_inode &&
+	    (dentry->d_inode->i_mode & S_IFMT) != S_IFDIR) {
+		dput(dentry);
+		return -ENOTDIR;
+	}
+
+	switch (flags & O_ACCMODE) {
+	case O_RDONLY:
+		fmode = FMODE_READ;
+		break;
+	case O_WRONLY:
+		fmode = FMODE_WRITE;
+		break;
+	case O_RDWR:
+		fmode = FMODE_READ | FMODE_WRITE;
+		break;
+	default:
+		dput(dentry);
+		return -EINVAL;
+	}
+
+	file = file_alloc_dentry(dentry, flags, fmode);
 	dput(dentry);
 	if (!file)
 		return -ENOMEM;
+
+	if ((flags & O_TRUNC) && (fmode & FMODE_WRITE) && file->f_inode) {
+		file->f_inode->i_size = 0;
+		if (file->f_inode->i_sb && file->f_inode->i_sb->s_op &&
+		    file->f_inode->i_sb->s_op->write_inode)
+			file->f_inode->i_sb->s_op->write_inode(file->f_inode);
+	}
 
 	fd = fd_alloc(file);
 	if (fd < 0) {

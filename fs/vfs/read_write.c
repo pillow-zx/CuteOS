@@ -39,6 +39,9 @@ ssize_t vfs_write(struct file *file, const char *buf, size_t count)
 	    !file->f_op->write)
 		return -EBADF;
 
+	if ((file->f_flags & O_APPEND) && file->f_inode)
+		file->f_pos = (loff_t)file->f_inode->i_size;
+
 	ssize_t ret = file->f_op->write(file, buf, count);
 	if (ret > 0)
 		file->f_pos += ret;

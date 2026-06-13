@@ -50,6 +50,28 @@ struct super_block;
 #define FMODE_READ  0x1
 #define FMODE_WRITE 0x2
 
+#define O_RDONLY  00000000
+#define O_WRONLY  00000001
+#define O_RDWR	  00000002
+#define O_ACCMODE 00000003
+#define O_CREAT	  00000100
+#define O_EXCL	  00000200
+#define O_TRUNC	  00001000
+#define O_APPEND  00002000
+#define O_DIRECTORY 00200000
+
+#define AT_FDCWD	-100
+#define AT_REMOVEDIR	0x200
+
+#define DT_UNKNOWN 0
+#define DT_FIFO	   1
+#define DT_CHR	   2
+#define DT_DIR	   4
+#define DT_BLK	   6
+#define DT_REG	   8
+#define DT_LNK	   10
+#define DT_SOCK	   12
+
 typedef int (*filldir_t)(void *ctx, const char *name, size_t namelen,
 			 uint64_t ino, uint8_t type);
 

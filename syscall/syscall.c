@@ -47,10 +47,20 @@ void do_syscall(struct trap_frame *tf)
 
 void syscall_init(void)
 {
+	syscall_table[SYS_getcwd] = sys_getcwd;
+	syscall_table[SYS_ioctl] = sys_ioctl;
+	syscall_table[SYS_mknodat] = sys_mknod;
+	syscall_table[SYS_mkdirat] = sys_mkdirat;
+	syscall_table[SYS_unlinkat] = sys_unlinkat;
+	syscall_table[SYS_chdir] = sys_chdir;
+	syscall_table[SYS_openat] = sys_openat;
 	syscall_table[SYS_write] = sys_write;
 	syscall_table[SYS_read] = sys_read;
 	syscall_table[SYS_close] = sys_close;
 	syscall_table[SYS_pipe2] = sys_pipe2;
+	syscall_table[SYS_getdents64] = sys_getdents64;
+	syscall_table[SYS_lseek] = sys_lseek;
+	syscall_table[SYS_fstat] = sys_fstat;
 	syscall_table[SYS_dup] = sys_dup;
 	syscall_table[SYS_dup3] = sys_dup3;
 	syscall_table[SYS_exit] = sys_exit;

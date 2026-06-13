@@ -4,7 +4,6 @@ ARCH_OBJS = \
 	arch/riscv/boot.o              \
 	arch/riscv/entry.o             \
 	arch/riscv/switch.o            \
-	arch/riscv/user_elf.o          \
 	arch/riscv/trap.o              \
 	arch/riscv/trap_init.o         \
 	arch/riscv/timer.o             \
