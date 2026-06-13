@@ -33,20 +33,17 @@ extern char _user_init_end[];
 
 static pte_t elf_flags_to_pte(uint32_t p_flags)
 {
-	const bool r = p_flags & PF_R;
 	const bool w = p_flags & PF_W;
 	const bool x = p_flags & PF_X;
 
-	if (r && w && x)
+	if (w && x)
 		return PTE_USER_RWX;
-	if (r && w)
+	if (w)
 		return PTE_USER_RW;
-	if (r && x)
+	if (x)
 		return PTE_USER_RX;
-	if (r)
-		return PTE_USER_R;
 
-	return PTE_USER_RX;
+	return PTE_USER_R;
 }
 
 static uint32_t elf_flags_to_vma(uint32_t p_flags)
@@ -67,14 +64,15 @@ static int copy_user_string(char *dst, const char *user, size_t max_len)
 {
 	if (!user || max_len == 0)
 		return -EFAULT;
+	if (!access_ok(user, max_len))
+		return -EFAULT;
 
+	/*
+	 * TODO: add fault recovery for unmapped but in-range user pointers.
+	 * access_ok() only validates the address range, not the page table.
+	 */
 	bool had_sum = user_access_begin();
 	for (size_t i = 0; i < max_len; i++) {
-		if (!access_ok(user + i, 1)) {
-			user_access_end(had_sum);
-			return -EFAULT;
-		}
-
 		char c = user[i];
 		dst[i] = c;
 		if (c == '\0') {
@@ -132,15 +130,17 @@ static int lookup_exec_image(const char *path, void **bin_start,
 	return 0;
 }
 
-static void destroy_partial_mm(struct mm_struct *mm)
+static void *stack_sp_to_kernel(void *stack_page, vaddr_t sp)
 {
-	if (mm)
-		mm_destroy(mm);
+	return (uint8_t *)stack_page + (sp - USER_STACK_BASE);
 }
 
 static int setup_user_stack(struct mm_struct *mm, const struct exec_args *args,
 			    vaddr_t *sp_out)
 {
+	static_assert(USER_STACK_TOP - USER_STACK_BASE == PAGE_SIZE,
+		       "setup_user_stack assumes a single mapped stack page");
+
 	void *stack_page = get_free_page(0);
 	if (!stack_page)
 		return -ENOMEM;
@@ -158,8 +158,7 @@ static int setup_user_stack(struct mm_struct *mm, const struct exec_args *args,
 			return -E2BIG;
 
 		sp -= len;
-		memcpy((uint8_t *)stack_page + (sp - USER_STACK_BASE),
-		       args->argv[i], len);
+		memcpy(stack_sp_to_kernel(stack_page, sp), args->argv[i], len);
 		user_argv[i] = sp;
 	}
 	user_argv[args->argc] = 0;
@@ -175,7 +174,7 @@ static int setup_user_stack(struct mm_struct *mm, const struct exec_args *args,
 
 	sp -= frame_bytes + padding;
 
-	uint8_t *frame = (uint8_t *)stack_page + (sp - USER_STACK_BASE);
+	uint8_t *frame = stack_sp_to_kernel(stack_page, sp);
 	*(uintptr_t *)frame = (uintptr_t)args->argc;
 	memcpy(frame + sizeof(uintptr_t), user_argv, argv_bytes);
 
@@ -222,7 +221,7 @@ static int load_elf_image(void *bin_start, size_t bin_size,
 
 	mm->pgd = mm_create_user_pgd();
 	if (!mm->pgd) {
-		destroy_partial_mm(mm);
+		mm_destroy(mm);
 		return -ENOMEM;
 	}
 
@@ -244,15 +243,20 @@ static int load_elf_image(void *bin_start, size_t bin_size,
 		       (void *)ph->p_vaddr, ph->p_filesz, ph->p_memsz,
 		       ph->p_flags);
 
+		if (!(ph->p_flags & PF_R)) {
+			mm_destroy(mm);
+			return -ENOEXEC;
+		}
+
 		if (ph->p_offset + ph->p_filesz > bin_size) {
-			destroy_partial_mm(mm);
+			mm_destroy(mm);
 			return -ENOEXEC;
 		}
 
 		vaddr_t seg_start = ph->p_vaddr;
 		vaddr_t seg_end = ph->p_vaddr + ph->p_memsz;
 		if (seg_end < seg_start || seg_end > USER_STACK_BASE) {
-			destroy_partial_mm(mm);
+			mm_destroy(mm);
 			return -ENOEXEC;
 		}
 
@@ -267,7 +271,7 @@ static int load_elf_image(void *bin_start, size_t bin_size,
 		for (vaddr_t va = page_start; va < page_end; va += PAGE_SIZE) {
 			void *page = get_free_page(0);
 			if (!page) {
-				destroy_partial_mm(mm);
+				mm_destroy(mm);
 				return -ENOMEM;
 			}
 			memset(page, 0, PAGE_SIZE);
@@ -295,7 +299,7 @@ static int load_elf_image(void *bin_start, size_t bin_size,
 		}
 
 		if (vma_idx >= NR_VMA) {
-			destroy_partial_mm(mm);
+			mm_destroy(mm);
 			return -E2BIG;
 		}
 
@@ -308,7 +312,7 @@ static int load_elf_image(void *bin_start, size_t bin_size,
 	}
 
 	if (last_end == 0) {
-		destroy_partial_mm(mm);
+		mm_destroy(mm);
 		return -ENOEXEC;
 	}
 
@@ -321,12 +325,12 @@ static int load_elf_image(void *bin_start, size_t bin_size,
 	vaddr_t user_sp;
 	int ret = setup_user_stack(mm, args, &user_sp);
 	if (ret < 0) {
-		destroy_partial_mm(mm);
+		mm_destroy(mm);
 		return ret;
 	}
 
 	if (vma_idx >= NR_VMA) {
-		destroy_partial_mm(mm);
+		mm_destroy(mm);
 		return -E2BIG;
 	}
 
@@ -424,6 +428,10 @@ ssize_t sys_execve(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
+	/*
+	 * Success replaces the current trap frame. do_syscall() will only write
+	 * the returned 0 into the new frame's a0 before trap return.
+	 */
 	install_exec_mm(mm, tf, entry, sp);
 	return 0;
 }

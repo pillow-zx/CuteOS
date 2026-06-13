@@ -20,7 +20,29 @@
 
 ssize_t sys_getpid(struct trap_frame *tf)
 {
+	(void)tf;
 	return (ssize_t)current->pid;
+}
+
+ssize_t sys_getppid(struct trap_frame *tf)
+{
+	(void)tf;
+	if (!current->parent)
+		return 0;
+
+	return (ssize_t)current->parent->pid;
+}
+
+ssize_t sys_getuid(struct trap_frame *tf)
+{
+	(void)tf;
+	return 0;
+}
+
+ssize_t sys_getgid(struct trap_frame *tf)
+{
+	(void)tf;
+	return 0;
 }
 
 ssize_t sys_exit(struct trap_frame *tf)

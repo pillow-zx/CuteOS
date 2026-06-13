@@ -11,7 +11,7 @@
  *   do_syscall(tf)
  *
  * 关键类型：
- *   syscall_fn_t           - typedef ssize_t (*syscall_fn_t)(struct trap_frame *)
+ *   syscall_fn_t           - 系统调用处理函数指针
  */
 
 #include <kernel/syscall.h>
@@ -40,6 +40,11 @@ void do_syscall(struct trap_frame *tf)
 		return;
 	}
 
+	/*
+	 * Some successful syscalls may rewrite the trap frame in place. execve
+	 * installs the new user context this way; after the handler returns,
+	 * keep dispatcher post-processing limited to storing the return value.
+	 */
 	tf->a0 = (size_t)syscall_table[nr](tf);
 }
 
@@ -48,11 +53,16 @@ void syscall_init(void)
 	syscall_table[SYS_write] = sys_write;
 	syscall_table[SYS_read] = sys_read;
 	syscall_table[SYS_close] = sys_close;
+	syscall_table[SYS_pipe2] = sys_pipe2;
 	syscall_table[SYS_dup] = sys_dup;
 	syscall_table[SYS_dup3] = sys_dup3;
 	syscall_table[SYS_exit] = sys_exit;
+	syscall_table[SYS_exit_group] = sys_exit;
 	syscall_table[SYS_yield] = sys_yield;
 	syscall_table[SYS_getpid] = sys_getpid;
+	syscall_table[SYS_getppid] = sys_getppid;
+	syscall_table[SYS_getuid] = sys_getuid;
+	syscall_table[SYS_getgid] = sys_getgid;
 	syscall_table[SYS_brk] = sys_brk;
 	syscall_table[SYS_fork] = sys_fork;
 	syscall_table[SYS_execve] = sys_execve;

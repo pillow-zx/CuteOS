@@ -32,6 +32,15 @@ static void print_hex(unsigned long val)
 	print(buf);
 }
 
+static void print_long(long val)
+{
+	if (val < 0) {
+		print("-");
+		val = -val;
+	}
+	print_hex((unsigned long)val);
+}
+
 static int streq(const char *a, const char *b)
 {
 	while (*a && *b && *a == *b) {
@@ -56,29 +65,28 @@ static void print_argv(int argc, char **argv)
 	}
 }
 
-int main(int argc, char **argv)
+static int test_basic_syscalls(void)
 {
-	print("=== CuteOS Syscall Test ===\n");
-	print_argv(argc, argv);
+	int failures = 0;
 
-	if (argc > 1 && streq(argv[1], "exec-child")) {
-		print("[EXEC-CHILD] execve replaced the fork child\n");
-		if (argc > 2 && streq(argv[2], "argv-ok"))
-			print("[EXEC-CHILD] argv preserved OK\n");
-		return 7;
-	}
-
-	/* ---- Test 1: getpid ---- */
 	long pid = getpid();
 	print("[TEST] getpid = ");
 	print_hex((unsigned long)pid);
 	print(" (expected 1)\n");
+	if (pid != 1)
+		failures++;
 
-	/* ---- Test 2: write (already working, verify again) ---- */
+	print("[TEST] getppid = ");
+	print_hex((unsigned long)getppid());
+	print(", uid = ");
+	print_hex((unsigned long)getuid());
+	print(", gid = ");
+	print_hex((unsigned long)getgid());
+	print("\n");
+
 	print("[TEST] write: ");
 	print("OK\n");
 
-	/* ---- Test 3: yield ---- */
 	print("[TEST] yield...\n");
 	yield();
 	print("[TEST] yield: returned OK\n");
@@ -97,7 +105,6 @@ int main(int argc, char **argv)
 	print_hex((unsigned long)new_brk);
 	print("\n");
 
-	/* 访问新分配的堆内存 — 触发 lazy page fault */
 	if (new_brk == initial_brk + 4096) {
 		volatile char *heap = (volatile char *)initial_brk;
 		heap[0] = 0x42; /* 写入：触发 store page fault → 分配物理页 */
@@ -107,17 +114,190 @@ int main(int argc, char **argv)
 		print(", heap[100] = ");
 		print_hex((unsigned long)heap[100]);
 		print(" (expected 0x42, 0x43)\n");
+		if (heap[0] != 0x42 || heap[100] != 0x43)
+			failures++;
+	} else {
+		failures++;
 	}
 
-	/* ---- Test 6: second yield ---- */
 	yield();
 	print("[TEST] second yield: OK\n");
 
-	/* ---- Test 7: fork ---- */
+	return failures;
+}
+
+static int test_dup(void)
+{
+	int failures = 0;
+	long dup_fd = dup(1);
+
+	if (dup_fd >= 0) {
+		write((int)dup_fd, "[TEST] dup stdout: OK\n", 22);
+		close((int)dup_fd);
+	} else {
+		print("[TEST] dup FAILED, ret=");
+		print_long(dup_fd);
+		print("\n");
+		failures++;
+	}
+
+	long dup2_fd = dup2(1, 5);
+	if (dup2_fd == 5) {
+		write(5, "[TEST] dup2 stdout: OK\n", 23);
+		close(5);
+	} else {
+		print("[TEST] dup2 FAILED, ret=");
+		print_long(dup2_fd);
+		print("\n");
+		failures++;
+	}
+
+	return failures;
+}
+
+static int test_pipe_parent_child(void)
+{
+	print("[TEST] pipe parent->child...\n");
+
+	int p2c[2];
+	if (pipe(p2c) != 0) {
+		print("[TEST] pipe parent->child FAILED\n");
+		return 1;
+	}
+
+	long pipe_child = fork();
+	if (pipe_child == 0) {
+		char buf[8];
+		close(p2c[1]);
+		long n = read(p2c[0], buf, 5);
+		if (n >= 0 && n < (long)sizeof(buf))
+			buf[n] = '\0';
+		else
+			buf[0] = '\0';
+		print("[PIPE-CHILD] read ");
+		print_long(n);
+		print(" bytes: ");
+		print(buf);
+		print("\n");
+		close(p2c[0]);
+		exit(n == 5 && streq(buf, "ping!") ? 11 : 12);
+	}
+	if (pipe_child < 0) {
+		close(p2c[0]);
+		close(p2c[1]);
+		return 1;
+	}
+
+	close(p2c[0]);
+	long n = write(p2c[1], "ping!", 5);
+	print("[PIPE-PARENT] wrote ");
+	print_long(n);
+	print(" bytes\n");
+	close(p2c[1]);
+
+	int status = -1;
+	long waited = wait4(pipe_child, &status, 0, 0);
+	print("[PIPE-PARENT] wait returned pid=");
+	print_hex((unsigned long)waited);
+	print(", status=");
+	print_hex((unsigned long)status);
+	print(" (expected status 0xb00)\n");
+
+	return waited == pipe_child && status == 0xb00 ? 0 : 1;
+}
+
+static int test_pipe_child_parent(void)
+{
+	print("[TEST] pipe child->parent...\n");
+
+	int c2p[2];
+	if (pipe(c2p) != 0) {
+		print("[TEST] pipe child->parent FAILED\n");
+		return 1;
+	}
+
+	long pipe_child = fork();
+	if (pipe_child == 0) {
+		close(c2p[0]);
+		write(c2p[1], "pong?", 5);
+		close(c2p[1]);
+		exit(13);
+	}
+	if (pipe_child < 0) {
+		close(c2p[0]);
+		close(c2p[1]);
+		return 1;
+	}
+
+	char buf[8];
+	close(c2p[1]);
+	long n = read(c2p[0], buf, 5);
+	if (n >= 0 && n < (long)sizeof(buf))
+		buf[n] = '\0';
+	else
+		buf[0] = '\0';
+	print("[PIPE-PARENT] read ");
+	print_long(n);
+	print(" bytes: ");
+	print(buf);
+	print("\n");
+	int got_message = n == 5 && streq(buf, "pong?");
+
+	long eof = read(c2p[0], buf, sizeof(buf));
+	print("[PIPE-PARENT] EOF read returned ");
+	print_long(eof);
+	print(" (expected 0)\n");
+	close(c2p[0]);
+
+	int status = -1;
+	long waited = wait4(pipe_child, &status, 0, 0);
+	print("[PIPE-PARENT] child status=");
+	print_hex((unsigned long)status);
+	print(" (expected status 0xd00)\n");
+
+	return waited == pipe_child && got_message && eof == 0 &&
+			       status == 0xd00
+		       ? 0
+		       : 1;
+}
+
+static int test_pipe_epipe(void)
+{
+	print("[TEST] pipe refcount / EPIPE...\n");
+
+	int epipefd[2];
+	if (pipe(epipefd) != 0) {
+		print("[TEST] pipe EPIPE setup FAILED\n");
+		return 1;
+	}
+
+	long dup_read = dup(epipefd[0]);
+	close(epipefd[0]);
+
+	long keepalive_write = write(epipefd[1], "x", 1);
+	print("[TEST] write with duplicated reader returned ");
+	print_long(keepalive_write);
+	print(" (expected 1)\n");
+
+	if (dup_read >= 0)
+		close((int)dup_read);
+
+	long broken_write = write(epipefd[1], "y", 1);
+	print("[TEST] write without readers returned ");
+	print_long(broken_write);
+	print(" (expected -0x20)\n");
+	close(epipefd[1]);
+
+	return dup_read >= 0 && keepalive_write == 1 && broken_write == -32 ? 0
+									    : 1;
+}
+
+static int test_fork_exec_wait(void)
+{
 	print("[TEST] fork...\n");
+
 	long child_pid = fork();
 	if (child_pid == 0) {
-		/* 子进程 */
 		print("[CHILD] execve from fork child, pid=");
 		print_hex((unsigned long)getpid());
 		print("\n");
@@ -133,8 +313,8 @@ int main(int argc, char **argv)
 		print_hex((unsigned long)ret);
 		print("\n");
 		exit(2);
+		return 1;
 	} else if (child_pid > 0) {
-		/* 父进程 */
 		print("[PARENT] fork returned child_pid=");
 		print_hex((unsigned long)child_pid);
 		print("\n");
@@ -146,13 +326,43 @@ int main(int argc, char **argv)
 		print(", status=");
 		print_hex((unsigned long)status);
 		print(" (expected status 0x700)\n");
+		return waited == child_pid && status == 0x700 ? 0 : 1;
 	} else {
 		print("[TEST] fork FAILED, returned ");
 		print_hex((unsigned long)child_pid);
 		print("\n");
+		return 1;
+	}
+}
+
+int main(int argc, char **argv)
+{
+	int failures = 0;
+
+	print("=== CuteOS Syscall Test ===\n");
+	print_argv(argc, argv);
+
+	if (argc > 1 && streq(argv[1], "exec-child")) {
+		print("[EXEC-CHILD] execve replaced the fork child\n");
+		if (argc > 2 && streq(argv[2], "argv-ok"))
+			print("[EXEC-CHILD] argv preserved OK\n");
+		return 7;
 	}
 
-	print("=== All tests passed ===\n");
+	failures += test_basic_syscalls();
+	failures += test_dup();
+	failures += test_pipe_parent_child();
+	failures += test_pipe_child_parent();
+	failures += test_pipe_epipe();
+	failures += test_fork_exec_wait();
+
+	if (failures == 0) {
+		print("=== All tests passed ===\n");
+	} else {
+		print("=== Tests failed: ");
+		print_long(failures);
+		print(" ===\n");
+	}
 
 	/* PID 1 stays alive as the simple Stage 4 reaper. */
 	while (1) {

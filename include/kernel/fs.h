@@ -81,5 +81,6 @@ ssize_t sys_write(struct trap_frame *tf);
 ssize_t sys_close(struct trap_frame *tf);
 ssize_t sys_dup(struct trap_frame *tf);
 ssize_t sys_dup3(struct trap_frame *tf);
+ssize_t sys_pipe2(struct trap_frame *tf);
 
 #endif

@@ -16,14 +16,22 @@
 typedef unsigned long size_t;
 
 /* Linux riscv64 系统调用号 */
-#define SYS_write	64
-#define SYS_exit	93
-#define SYS_yield	124
-#define SYS_getpid	172
-#define SYS_brk		214
-#define SYS_fork	220
-#define SYS_execve	221
-#define SYS_wait4	260
+#define SYS_dup	    23
+#define SYS_dup3    24
+#define SYS_close   57
+#define SYS_pipe2   59
+#define SYS_read    63
+#define SYS_write   64
+#define SYS_exit    93
+#define SYS_yield   124
+#define SYS_getpid  172
+#define SYS_getppid 173
+#define SYS_getuid  174
+#define SYS_getgid  175
+#define SYS_brk	    214
+#define SYS_fork    220
+#define SYS_execve  221
+#define SYS_wait4   260
 
 /* ---- syscallN: 底层内联汇编封装 (a0~a5, 最多 6 个参数) ---- */
 
@@ -48,10 +56,7 @@ static inline long syscall2(long n, long a, long b)
 	register long a7 __asm__("a7") = n;
 	register long _a0 __asm__("a0") = a;
 	register long _a1 __asm__("a1") = b;
-	__asm__ volatile("ecall"
-			 : "+r"(_a0)
-			 : "r"(_a1), "r"(a7)
-			 : "memory");
+	__asm__ volatile("ecall" : "+r"(_a0) : "r"(_a1), "r"(a7) : "memory");
 	return _a0;
 }
 
@@ -97,7 +102,8 @@ static inline long syscall5(long n, long a, long b, long c, long d, long e)
 	return _a0;
 }
 
-static inline long syscall6(long n, long a, long b, long c, long d, long e, long f)
+static inline long syscall6(long n, long a, long b, long c, long d, long e,
+			    long f)
 {
 	register long a7 __asm__("a7") = n;
 	register long _a0 __asm__("a0") = a;
@@ -108,7 +114,8 @@ static inline long syscall6(long n, long a, long b, long c, long d, long e, long
 	register long _a5 __asm__("a5") = f;
 	__asm__ volatile("ecall"
 			 : "+r"(_a0)
-			 : "r"(_a1), "r"(_a2), "r"(_a3), "r"(_a4), "r"(_a5), "r"(a7)
+			 : "r"(_a1), "r"(_a2), "r"(_a3), "r"(_a4), "r"(_a5),
+			   "r"(a7)
 			 : "memory");
 	return _a0;
 }
@@ -126,8 +133,8 @@ static inline long syscall6(long n, long a, long b, long c, long d, long e, long
 #define _SYSCALL_NARGS_X(_1, _2, _3, _4, _5, _6, _7, n, ...) n
 #define _SYSCALL_NARGS(...) _SYSCALL_NARGS_X(__VA_ARGS__, 6, 5, 4, 3, 2, 1, 0)
 #define _SYSCALL_CONCAT_X(x, y) x##y
-#define _SYSCALL_CONCAT(x, y) _SYSCALL_CONCAT_X(x, y)
-#define syscall(...) \
+#define _SYSCALL_CONCAT(x, y)	_SYSCALL_CONCAT_X(x, y)
+#define syscall(...)                                                           \
 	_SYSCALL_CONCAT(syscall, _SYSCALL_NARGS(__VA_ARGS__))(__VA_ARGS__)
 
 /* ---- 便捷封装 ---- */
@@ -135,6 +142,31 @@ static inline long syscall6(long n, long a, long b, long c, long d, long e, long
 static inline long write(int fd, const void *buf, size_t len)
 {
 	return syscall(SYS_write, fd, (long)buf, (long)len);
+}
+
+static inline long read(int fd, void *buf, size_t len)
+{
+	return syscall(SYS_read, fd, (long)buf, (long)len);
+}
+
+static inline long close(int fd)
+{
+	return syscall(SYS_close, fd);
+}
+
+static inline long dup(int oldfd)
+{
+	return syscall(SYS_dup, oldfd);
+}
+
+static inline long dup2(int oldfd, int newfd)
+{
+	return syscall(SYS_dup3, oldfd, newfd, 0);
+}
+
+static inline long pipe(int pipefd[2])
+{
+	return syscall(SYS_pipe2, (long)pipefd, 0);
 }
 
 static inline void exit(int code)
@@ -146,6 +178,21 @@ static inline void exit(int code)
 static inline long getpid(void)
 {
 	return syscall0(SYS_getpid);
+}
+
+static inline long getppid(void)
+{
+	return syscall0(SYS_getppid);
+}
+
+static inline long getuid(void)
+{
+	return syscall0(SYS_getuid);
+}
+
+static inline long getgid(void)
+{
+	return syscall0(SYS_getgid);
 }
 
 static inline long yield(void)

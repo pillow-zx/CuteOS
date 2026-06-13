@@ -91,9 +91,13 @@ ssize_t sys_dup3(struct trap_frame *tf);
 ssize_t sys_exit(struct trap_frame *tf);
 ssize_t sys_yield(struct trap_frame *tf);
 ssize_t sys_getpid(struct trap_frame *tf);
+ssize_t sys_getppid(struct trap_frame *tf);
+ssize_t sys_getuid(struct trap_frame *tf);
+ssize_t sys_getgid(struct trap_frame *tf);
 ssize_t sys_brk(struct trap_frame *tf);
 ssize_t sys_fork(struct trap_frame *tf);
 ssize_t sys_execve(struct trap_frame *tf);
+ssize_t sys_wait4(struct trap_frame *tf);
 
 /* ---- 系统调用分发接口 ---- */
 
