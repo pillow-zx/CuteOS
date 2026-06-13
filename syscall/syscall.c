@@ -55,6 +55,7 @@ void syscall_init(void)
 	syscall_table[SYS_getpid] = sys_getpid;
 	syscall_table[SYS_brk] = sys_brk;
 	syscall_table[SYS_fork] = sys_fork;
+	syscall_table[SYS_execve] = sys_execve;
 	syscall_table[SYS_wait4] = sys_wait4;
 
 	printk("syscall: initialized (%d entries)\n", NR_SYSCALL);

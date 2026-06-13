@@ -22,6 +22,7 @@ typedef unsigned long size_t;
 #define SYS_getpid	172
 #define SYS_brk		214
 #define SYS_fork	220
+#define SYS_execve	221
 #define SYS_wait4	260
 
 /* ---- syscallN: 底层内联汇编封装 (a0~a5, 最多 6 个参数) ---- */
@@ -155,6 +156,12 @@ static inline long yield(void)
 static inline long fork(void)
 {
 	return syscall0(SYS_fork);
+}
+
+static inline long execve(const char *path, char *const argv[],
+			  char *const envp[])
+{
+	return syscall(SYS_execve, (long)path, (long)argv, (long)envp);
 }
 
 static inline long wait4(long pid, int *status, int options, void *rusage)

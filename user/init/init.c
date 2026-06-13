@@ -32,9 +32,41 @@ static void print_hex(unsigned long val)
 	print(buf);
 }
 
-void main(void)
+static int streq(const char *a, const char *b)
+{
+	while (*a && *b && *a == *b) {
+		a++;
+		b++;
+	}
+	return *a == *b;
+}
+
+static void print_argv(int argc, char **argv)
+{
+	print("[TEST] argc = ");
+	print_hex((unsigned long)argc);
+	print("\n");
+
+	for (int i = 0; i < argc; i++) {
+		print("[TEST] argv[");
+		print_hex((unsigned long)i);
+		print("] = ");
+		print(argv[i]);
+		print("\n");
+	}
+}
+
+int main(int argc, char **argv)
 {
 	print("=== CuteOS Syscall Test ===\n");
+	print_argv(argc, argv);
+
+	if (argc > 1 && streq(argv[1], "exec-child")) {
+		print("[EXEC-CHILD] execve replaced the fork child\n");
+		if (argc > 2 && streq(argv[2], "argv-ok"))
+			print("[EXEC-CHILD] argv preserved OK\n");
+		return 7;
+	}
 
 	/* ---- Test 1: getpid ---- */
 	long pid = getpid();
@@ -68,7 +100,7 @@ void main(void)
 	/* 访问新分配的堆内存 — 触发 lazy page fault */
 	if (new_brk == initial_brk + 4096) {
 		volatile char *heap = (volatile char *)initial_brk;
-		heap[0] = 0x42;  /* 写入：触发 store page fault → 分配物理页 */
+		heap[0] = 0x42; /* 写入：触发 store page fault → 分配物理页 */
 		heap[100] = 0x43;
 		print("[TEST] heap[0] = ");
 		print_hex((unsigned long)heap[0]);
@@ -86,10 +118,21 @@ void main(void)
 	long child_pid = fork();
 	if (child_pid == 0) {
 		/* 子进程 */
-		print("[CHILD] I am the child! pid=");
+		print("[CHILD] execve from fork child, pid=");
 		print_hex((unsigned long)getpid());
 		print("\n");
-		exit(0);
+
+		char *child_argv[] = {
+			"init",
+			"exec-child",
+			"argv-ok",
+			0,
+		};
+		long ret = execve("/init", child_argv, 0);
+		print("[CHILD] execve FAILED, ret=");
+		print_hex((unsigned long)ret);
+		print("\n");
+		exit(2);
 	} else if (child_pid > 0) {
 		/* 父进程 */
 		print("[PARENT] fork returned child_pid=");
@@ -102,7 +145,7 @@ void main(void)
 		print_hex((unsigned long)waited);
 		print(", status=");
 		print_hex((unsigned long)status);
-		print(" (expected status 0)\n");
+		print(" (expected status 0x700)\n");
 	} else {
 		print("[TEST] fork FAILED, returned ");
 		print_hex((unsigned long)child_pid);
@@ -117,4 +160,6 @@ void main(void)
 		}
 		yield();
 	}
+
+	return 0;
 }

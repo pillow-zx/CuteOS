@@ -1,43 +1,41 @@
 /*
- * kernel/exec.c - ELF 加载与用户态切换
+ * kernel/exec.c - ELF 加载与 execve 替换语义
  *
- * 功能：
- *   实现 exec_user_elf()，将内嵌的 ELF64 可执行文件加载到用户地址空间，
- *   并通过修改 trap_frame 使当前内核线程切换到用户态执行。
- *
- *   exec_user_elf 执行流程：
- *     1. 解析 ELF header，校验 magic / class / endianness
- *     2. 创建 mm_struct + 用户页表
- *     3. 遍历 PT_LOAD 段，逐页分配物理页，复制 filesz + 清零 memsz-filesz
- *     4. 为每个 PT_LOAD 段创建 VMA
- *     5. 分配用户栈页并映射
- *     6. fence.i 刷新指令缓存
- *     7. 设置 trap_frame（sepc=入口, sp=栈顶, SPP=0）
- *     8. 切换 satp → sfence → 设 sscratch → 跳转 __trapret
- *
- * 注意：
- *   此函数不返回。trap_frame 构造为当前函数的栈对象，并通过
- *   noreturn 汇编入口切到 __trapret，避免 release 优化下的控制流歧义。
+ * 当前阶段只支持内核内嵌的用户 ELF，不从路径读取磁盘文件。
+ * exec 成功时替换当前进程的 mm/satp/trap_frame，保留 PID、父子关系、
+ * 打开的 fd 和信号占位状态。
  */
 
+#include <kernel/elf.h>
+#include <kernel/errno.h>
+#include <kernel/buddy.h>
+#include <kernel/mm.h>
 #include <kernel/printk.h>
 #include <kernel/string.h>
-#include <kernel/mm.h>
-#include <kernel/buddy.h>
-#include <kernel/elf.h>
+#include <kernel/syscall.h>
 #include <kernel/task.h>
+#include <asm/csr.h>
 #include <asm/page.h>
 #include <asm/pte.h>
-#include <asm/csr.h>
 #include <asm/trap.h>
 
-/* ---- ELF 权限转换辅助函数 ---- */
+#define EXEC_MAX_ARGS	  16
+#define EXEC_MAX_ARG_LEN  128
+#define EXEC_MAX_PATH_LEN 64
+
+struct exec_args {
+	int argc;
+	char argv[EXEC_MAX_ARGS][EXEC_MAX_ARG_LEN];
+};
+
+extern char _user_init_start[];
+extern char _user_init_end[];
 
 static pte_t elf_flags_to_pte(uint32_t p_flags)
 {
-	bool r = p_flags & PF_R;
-	bool w = p_flags & PF_W;
-	bool x = p_flags & PF_X;
+	const bool r = p_flags & PF_R;
+	const bool w = p_flags & PF_W;
+	const bool x = p_flags & PF_X;
 
 	if (r && w && x)
 		return PTE_USER_RWX;
@@ -48,39 +46,156 @@ static pte_t elf_flags_to_pte(uint32_t p_flags)
 	if (r)
 		return PTE_USER_R;
 
-	/* 不应有不可读的段，fallback */
 	return PTE_USER_RX;
 }
 
 static uint32_t elf_flags_to_vma(uint32_t p_flags)
 {
 	uint32_t flags = 0;
+
 	if (p_flags & PF_R)
 		flags |= VM_READ;
 	if (p_flags & PF_W)
 		flags |= VM_WRITE;
 	if (p_flags & PF_X)
 		flags |= VM_EXEC;
+
 	return flags;
 }
 
-/*
- * exec_user_elf - 加载 ELF 可执行文件并切换到用户态
- * @bin_start: ELF 文件在内核中的起始地址
- * @bin_size:  ELF 文件的大小（字节）
- *
- * 为当前进程创建用户地址空间，解析 ELF 并加载 PT_LOAD 段，
- * 然后通过 __trapret → sret 进入用户态。
- * 此函数不返回。
- */
-void exec_user_elf(void *bin_start, size_t bin_size)
+static int copy_user_string(char *dst, const char *user, size_t max_len)
 {
+	if (!user || max_len == 0)
+		return -EFAULT;
+
+	bool had_sum = user_access_begin();
+	for (size_t i = 0; i < max_len; i++) {
+		if (!access_ok(user + i, 1)) {
+			user_access_end(had_sum);
+			return -EFAULT;
+		}
+
+		char c = user[i];
+		dst[i] = c;
+		if (c == '\0') {
+			user_access_end(had_sum);
+			return 0;
+		}
+	}
+	user_access_end(had_sum);
+
+	dst[max_len - 1] = '\0';
+	return -E2BIG;
+}
+
+static int copy_exec_args(const char *const *uargv, struct exec_args *args)
+{
+	memset(args, 0, sizeof(*args));
+
+	if (!uargv)
+		return 0;
+
+	for (int i = 0; i < EXEC_MAX_ARGS; i++) {
+		const char *uarg;
+
+		if (copy_from_user(&uarg, &uargv[i], sizeof(uarg)) != 0)
+			return -EFAULT;
+		if (!uarg)
+			return 0;
+
+		int ret =
+			copy_user_string(args->argv[i], uarg, EXEC_MAX_ARG_LEN);
+		if (ret < 0)
+			return ret;
+
+		args->argc++;
+	}
+
+	const char *extra;
+	if (copy_from_user(&extra, &uargv[EXEC_MAX_ARGS], sizeof(extra)) != 0)
+		return -EFAULT;
+	if (extra)
+		return -E2BIG;
+
+	return 0;
+}
+
+static int lookup_exec_image(const char *path, void **bin_start,
+			     size_t *bin_size)
+{
+	if (strcmp(path, "init") != 0 && strcmp(path, "/init") != 0 &&
+	    strcmp(path, "/bin/init") != 0)
+		return -ENOENT;
+
+	*bin_start = _user_init_start;
+	*bin_size = (size_t)(_user_init_end - _user_init_start);
+	return 0;
+}
+
+static void destroy_partial_mm(struct mm_struct *mm)
+{
+	if (mm)
+		mm_destroy(mm);
+}
+
+static int setup_user_stack(struct mm_struct *mm, const struct exec_args *args,
+			    vaddr_t *sp_out)
+{
+	void *stack_page = get_free_page(0);
+	if (!stack_page)
+		return -ENOMEM;
+	memset(stack_page, 0, PAGE_SIZE);
+
+	map_page(mm->pgd, USER_STACK_BASE, __pa((uintptr_t)stack_page),
+		 PTE_USER_RW);
+
+	uintptr_t user_argv[EXEC_MAX_ARGS + 1];
+	uintptr_t sp = USER_STACK_TOP;
+
+	for (int i = args->argc - 1; i >= 0; i--) {
+		size_t len = strlen(args->argv[i]) + 1;
+		if (sp < USER_STACK_BASE + len)
+			return -E2BIG;
+
+		sp -= len;
+		memcpy((uint8_t *)stack_page + (sp - USER_STACK_BASE),
+		       args->argv[i], len);
+		user_argv[i] = sp;
+	}
+	user_argv[args->argc] = 0;
+
+	sp &= ~(uintptr_t)0xf;
+
+	size_t argv_bytes = (size_t)(args->argc + 1) * sizeof(uintptr_t);
+	size_t frame_bytes = sizeof(uintptr_t) + argv_bytes;
+	size_t padding = frame_bytes & 0xf ? 16 - (frame_bytes & 0xf) : 0;
+
+	if (sp < USER_STACK_BASE + frame_bytes + padding)
+		return -E2BIG;
+
+	sp -= frame_bytes + padding;
+
+	uint8_t *frame = (uint8_t *)stack_page + (sp - USER_STACK_BASE);
+	*(uintptr_t *)frame = (uintptr_t)args->argc;
+	memcpy(frame + sizeof(uintptr_t), user_argv, argv_bytes);
+
+	*sp_out = sp;
+	return 0;
+}
+
+static int load_elf_image(void *bin_start, size_t bin_size,
+			  const struct exec_args *args,
+			  struct mm_struct **mm_out, vaddr_t *entry_out,
+			  vaddr_t *sp_out)
+{
+	*mm_out = NULL;
+	*entry_out = 0;
+	*sp_out = 0;
+
 	printk("exec: loading ELF binary (%lu bytes)\n", (size_t)bin_size);
 
-	/* ---- 1. ELF 基本校验 ---- */
-
 	if (bin_size < sizeof(Elf64_Ehdr))
-		panic("exec: ELF too small (%lu bytes)", (size_t)bin_size);
+		return -ENOEXEC;
 
 	Elf64_Ehdr *ehdr = (Elf64_Ehdr *)bin_start;
 
@@ -88,37 +203,28 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 	    ehdr->e_ident[EI_MAG1] != ELFMAG1 ||
 	    ehdr->e_ident[EI_MAG2] != ELFMAG2 ||
 	    ehdr->e_ident[EI_MAG3] != ELFMAG3)
-		panic("exec: bad ELF magic");
-
+		return -ENOEXEC;
 	if (ehdr->e_ident[EI_CLASS] != ELFCLASS64)
-		panic("exec: not ELF64");
-
+		return -ENOEXEC;
 	if (ehdr->e_ident[EI_DATA] != ELFDATA2LSB)
-		panic("exec: not little-endian ELF");
-
-	if (ehdr->e_type != ET_EXEC)
-		panic("exec: not ET_EXEC (type=%u)", ehdr->e_type);
-	if (ehdr->e_machine != EM_RISCV)
-		panic("exec: not RISC-V ELF (machine=%u)", ehdr->e_machine);
-
+		return -ENOEXEC;
+	if (ehdr->e_type != ET_EXEC || ehdr->e_machine != EM_RISCV)
+		return -ENOEXEC;
 	if (ehdr->e_phoff == 0 || ehdr->e_phnum == 0)
-		panic("exec: no program headers");
-
+		return -ENOEXEC;
 	if (ehdr->e_phoff + (uint64_t)ehdr->e_phnum * ehdr->e_phentsize >
 	    bin_size)
-		panic("exec: program headers out of bounds");
-
-	/* ---- 2. 创建 mm_struct + 用户页表 ---- */
+		return -ENOEXEC;
 
 	struct mm_struct *mm = mm_alloc();
 	if (!mm)
-		panic("exec: failed to allocate mm_struct");
+		return -ENOMEM;
 
 	mm->pgd = mm_create_user_pgd();
-	if (!mm->pgd)
-		panic("exec: failed to create user pgd");
-
-	/* ---- 3. 遍历 PT_LOAD 段，映射到用户地址空间 ---- */
+	if (!mm->pgd) {
+		destroy_partial_mm(mm);
+		return -ENOMEM;
+	}
 
 	Elf64_Phdr *phdrs =
 		(Elf64_Phdr *)((uint8_t *)bin_start + ehdr->e_phoff);
@@ -130,52 +236,48 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 		Elf64_Phdr *ph = &phdrs[i];
 		if (ph->p_type != PT_LOAD)
 			continue;
+		if (ph->p_memsz == 0)
+			continue;
 
 		printk("exec: PT_LOAD vaddr=%p filesz=%llu memsz=%llu "
 		       "flags=0x%x\n",
 		       (void *)ph->p_vaddr, ph->p_filesz, ph->p_memsz,
 		       ph->p_flags);
 
-		if (ph->p_memsz == 0)
-			continue;
+		if (ph->p_offset + ph->p_filesz > bin_size) {
+			destroy_partial_mm(mm);
+			return -ENOEXEC;
+		}
 
-		/* 校验段在文件范围内 */
-		if (ph->p_offset + ph->p_filesz > bin_size)
-			panic("exec: PT_LOAD segment out of file bounds");
-
-		/* 校验地址在用户空间内 */
 		vaddr_t seg_start = ph->p_vaddr;
 		vaddr_t seg_end = ph->p_vaddr + ph->p_memsz;
-		if (seg_end > USER_STACK_BASE)
-			panic("exec: PT_LOAD segment exceeds user space");
+		if (seg_end < seg_start || seg_end > USER_STACK_BASE) {
+			destroy_partial_mm(mm);
+			return -ENOEXEC;
+		}
 
-		/* 记录第一个段的起始和最后一个段的结束 */
 		if (first_vaddr == 0 || seg_start < first_vaddr)
 			first_vaddr = seg_start;
 		if (seg_end > last_end)
 			last_end = seg_end;
 
-		/* 逐页映射 */
 		vaddr_t page_start = PFN_DOWN(seg_start) << PAGE_SHIFT;
 		vaddr_t page_end = PFN_UP(seg_end) << PAGE_SHIFT;
 
-		for (vaddr_t va = page_start; va < page_end;
-		     va += PAGE_SIZE) {
-			/* 分配物理页 */
+		for (vaddr_t va = page_start; va < page_end; va += PAGE_SIZE) {
 			void *page = get_free_page(0);
-			if (!page)
-				panic("exec: OOM allocating page at %p",
-				      (void *)va);
+			if (!page) {
+				destroy_partial_mm(mm);
+				return -ENOMEM;
+			}
 			memset(page, 0, PAGE_SIZE);
 
-			/* 计算本页需要复制的范围 */
 			vaddr_t src_start =
 				ph->p_offset +
 				(va < seg_start ? 0 : va - seg_start);
 			vaddr_t src_end = ph->p_offset + ph->p_filesz;
 
 			if (src_start < src_end) {
-				/* 本页内需要复制数据 */
 				uintptr_t copy_off =
 					(va < seg_start) ? seg_start - va : 0;
 				size_t copy_len = PAGE_SIZE - copy_off;
@@ -187,16 +289,15 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 				       (uint8_t *)bin_start + src_start,
 				       copy_len);
 			}
-			/* memsz > filesz 的部分已被 memset 清零 */
 
 			map_page(mm->pgd, va, __pa((uintptr_t)page),
 				 elf_flags_to_pte(ph->p_flags));
 		}
 
-		/* 为此段创建 VMA */
-		if (vma_idx >= NR_VMA)
-			panic("exec: too many PT_LOAD segments (max %d)",
-			      NR_VMA);
+		if (vma_idx >= NR_VMA) {
+			destroy_partial_mm(mm);
+			return -E2BIG;
+		}
 
 		struct vm_area_struct *vma = &mm->vma[vma_idx++];
 		vma->vm_start = seg_start;
@@ -206,30 +307,28 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 		vma->used = true;
 	}
 
-	if (last_end == 0)
-		panic("exec: no PT_LOAD segments found");
+	if (last_end == 0) {
+		destroy_partial_mm(mm);
+		return -ENOEXEC;
+	}
 
 	fence_i();
-
-	/* ---- 4. 设置 code_start/code_end/brk ---- */
 
 	mm->code_start = first_vaddr;
 	mm->code_end = PFN_UP(last_end) << PAGE_SHIFT;
 	mm->brk = mm->code_end;
 
-	/* ---- 5. 分配用户栈页 ---- */
+	vaddr_t user_sp;
+	int ret = setup_user_stack(mm, args, &user_sp);
+	if (ret < 0) {
+		destroy_partial_mm(mm);
+		return ret;
+	}
 
-	void *stack_page = get_free_page(0);
-	if (!stack_page)
-		panic("exec: failed to allocate user stack page");
-	memset(stack_page, 0, PAGE_SIZE);
-
-	map_page(mm->pgd, USER_STACK_BASE, __pa((uintptr_t)stack_page),
-		 PTE_USER_RW);
-
-	/* 为用户栈创建 VMA（缺页处理需要） */
-	if (vma_idx >= NR_VMA)
-		panic("exec: no VMA slot for stack");
+	if (vma_idx >= NR_VMA) {
+		destroy_partial_mm(mm);
+		return -E2BIG;
+	}
 
 	struct vm_area_struct *stack_vma = &mm->vma[vma_idx++];
 	stack_vma->vm_start = USER_STACK_BASE;
@@ -238,35 +337,93 @@ void exec_user_elf(void *bin_start, size_t bin_size)
 	stack_vma->vm_type = VMA_STACK;
 	stack_vma->used = true;
 
-	/* ---- 6. 挂载到当前进程 ---- */
+	*mm_out = mm;
+	*entry_out = ehdr->e_entry;
+	*sp_out = user_sp;
+	return 0;
+}
 
-	current->mm = mm;
+static void flush_old_exec(struct mm_struct *oldmm)
+{
+	if (!oldmm)
+		return;
 
-	/* ---- 7. 准备 satp 切换参数 ---- */
+	csr_write(satp, kernel_satp());
+	sfence_vma_all();
+	mm_destroy(oldmm);
+}
 
+static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
+			    vaddr_t entry, vaddr_t sp)
+{
+	struct mm_struct *oldmm = current->mm;
 	paddr_t user_pgd_pa = __pa((uintptr_t)mm->pgd);
 	uintptr_t satp_val = SATP_MODE_SV39 | (user_pgd_pa >> PAGE_SHIFT);
 
-	/* 保存 satp 值，trapret 返回用户态时需要切换页表 */
+	current->mm = mm;
 	current->satp = satp_val;
+	current->tf = tf;
+
+	flush_old_exec(oldmm);
 
 	printk("exec: switching to user mode (sepc=%p, sp=%p, pgd=%p, "
 	       "brk=%p)\n",
-	       (void *)ehdr->e_entry, (void *)USER_STACK_TOP,
-	       (void *)user_pgd_pa, (void *)mm->brk);
+	       (void *)entry, (void *)sp, (void *)user_pgd_pa, (void *)mm->brk);
 
-	/* ---- 8. 构造 trap_frame 并切换到用户态 ---- */
+	memset(tf, 0, sizeof(*tf));
+	tf->sepc = entry;
+	tf->sp = sp;
+	tf->sstatus = SSTATUS_SPIE;
+}
+
+void exec_user_elf(void *bin_start, size_t bin_size)
+{
+	struct exec_args args;
+	memset(&args, 0, sizeof(args));
+	args.argc = 1;
+	strcpy(args.argv[0], "init");
+
+	struct mm_struct *mm;
+	vaddr_t entry;
+	vaddr_t sp;
+	int ret = load_elf_image(bin_start, bin_size, &args, &mm, &entry, &sp);
+	if (ret < 0)
+		panic("exec: initial ELF load failed (%d)", ret);
 
 	struct trap_frame tf_storage;
-	struct trap_frame *tf = &tf_storage;
+	install_exec_mm(mm, &tf_storage, entry, sp);
 
-	memset(tf, 0, sizeof(struct trap_frame));
+	trapret_to_user(&tf_storage);
+}
 
-	tf->sepc = ehdr->e_entry;   /* ELF 入口地址 */
-	tf->sp = USER_STACK_TOP;    /* 用户栈顶 */
-	tf->sstatus = SSTATUS_SPIE; /* SPP=0: sret 返回 U-mode */
+ssize_t sys_execve(struct trap_frame *tf)
+{
+	const char *upath = (const char *)tf->a0;
+	const char *const *uargv = (const char *const *)tf->a1;
 
-	current->tf = tf;
+	char path[EXEC_MAX_PATH_LEN];
+	int ret = copy_user_string(path, upath, sizeof(path));
+	if (ret < 0)
+		return ret;
 
-	trapret_to_user(tf);
+	struct exec_args args;
+	ret = copy_exec_args(uargv, &args);
+	if (ret < 0)
+		return ret;
+
+	void *bin_start;
+	size_t bin_size;
+	ret = lookup_exec_image(path, &bin_start, &bin_size);
+	if (ret < 0)
+		return ret;
+
+	struct mm_struct *mm;
+	vaddr_t entry;
+	vaddr_t sp;
+	ret = load_elf_image(bin_start, bin_size, &args, &mm, &entry, &sp);
+	if (ret < 0)
+		return ret;
+
+	install_exec_mm(mm, tf, entry, sp);
+	return 0;
 }
