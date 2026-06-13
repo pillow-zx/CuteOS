@@ -33,7 +33,8 @@
 
 #include <kernel/exit.h>
 #include <kernel/errno.h>
-#include <kernel/fs.h>
+#include <kernel/fdtable.h>
+#include <kernel/fs_struct.h>
 #include <kernel/list.h>
 #include <kernel/mm.h>
 #include <kernel/printk.h>
@@ -135,6 +136,7 @@ void do_exit(int code)
 
 	current->exit_code = code;
 	close_files(current);
+	exit_fs(current);
 	destroy_current_mm();
 	reparent_children(current);
 

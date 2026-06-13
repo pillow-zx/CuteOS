@@ -64,6 +64,15 @@ struct mm_struct {
 struct mm_struct *mm_alloc(void);
 
 /*
+ * dup_mm - 深拷贝用户地址空间
+ * @oldmm: 父进程地址空间
+ *
+ * 复制 mm 元数据、VMA 数组以及所有已经映射的用户物理页。未映射的
+ * lazy allocation 页面保持未映射，后续访问继续走缺页处理。
+ */
+struct mm_struct *dup_mm(struct mm_struct *oldmm);
+
+/*
  * mm_destroy - 销毁用户地址空间
  * @mm: 要销毁的 mm_struct
  *

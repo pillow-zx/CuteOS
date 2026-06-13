@@ -19,13 +19,10 @@
 #include <kernel/printk.h>
 #include <kernel/task.h>
 #include <kernel/mm.h>
-#include <kernel/fs.h>
 #include <kernel/exit.h>
 #include <asm/trap.h>
 #include <asm/csr.h>
 #include <drivers/uart.h>
-
-#define NR_SYSCALL (SYS_wait4 + 1)
 
 typedef ssize_t (*syscall_fn_t)(struct trap_frame *);
 

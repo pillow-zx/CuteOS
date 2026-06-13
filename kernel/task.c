@@ -31,7 +31,9 @@
 #include <kernel/printk.h>
 #include <kernel/string.h>
 #include <kernel/sched.h>
-#include <kernel/fs.h>
+#include <kernel/fdtable.h>
+#include <kernel/fs_struct.h>
+#include <kernel/vfs.h>
 #include <asm/page.h>
 #include <asm/csr.h>
 
@@ -106,6 +108,7 @@ struct task_struct *task_alloc(void)
 	INIT_LIST_HEAD(&task->wait_list);
 	init_waitqueue_head(&task->wait_child_queue);
 	file_install_standard_fds(task);
+	init_fs(task);
 
 	/* 5. 内核栈清零并在栈底写入 canary */
 	memset(kstack, 0, KSTACK_SIZE);
@@ -121,6 +124,8 @@ void task_free(struct task_struct *task)
 
 	/* 释放 PID */
 	free_pid(task->pid);
+
+	exit_fs(task);
 
 	/* 释放内核栈 */
 	if (task->kstack) {
@@ -150,6 +155,7 @@ void task_init(void)
 	INIT_LIST_HEAD(&idle_task.wait_list);
 	init_waitqueue_head(&idle_task.wait_child_queue);
 	file_install_standard_fds(&idle_task);
+	init_fs(&idle_task);
 
 	/* 3. 设置 current 指针 */
 	current = &idle_task;

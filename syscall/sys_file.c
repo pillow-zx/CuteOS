@@ -24,6 +24,7 @@
  *   sys_mknod(path, mode, dev)         - 创建设备节点
  */
 
+#include <kernel/fdtable.h>
 #include <kernel/fs.h>
 #include <kernel/types.h>
 #include <kernel/errno.h>
@@ -60,7 +61,7 @@ ssize_t sys_write(struct trap_frame *tf)
 		if (copy_from_user(kbuf, buf + written, chunk) != 0)
 			return -EFAULT;
 
-		ssize_t ret = file->f_op->write(file, kbuf, chunk);
+		ssize_t ret = vfs_write(file, kbuf, chunk);
 		if (ret < 0)
 			return ret;
 		if ((size_t)ret != chunk)
@@ -94,7 +95,7 @@ ssize_t sys_read(struct trap_frame *tf)
 		if (chunk > WRITE_BUF_SIZE)
 			chunk = WRITE_BUF_SIZE;
 
-		ssize_t ret = file->f_op->read(file, kbuf, chunk);
+		ssize_t ret = vfs_read(file, kbuf, chunk);
 		if (ret < 0)
 			return ret;
 		if (ret == 0)

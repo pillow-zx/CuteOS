@@ -5,6 +5,7 @@ VFS_OBJS = \
 	fs/vfs/inode.o          \
 	fs/vfs/dentry.o         \
 	fs/vfs/namei.o          \
+	fs/vfs/fs_struct.o      \
 	fs/vfs/file.o           \
 	fs/vfs/read_write.o
 

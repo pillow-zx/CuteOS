@@ -44,6 +44,7 @@
 /* 前向声明，避免循环依赖 */
 struct mm_struct;
 struct file;
+struct dentry;
 
 /* ---- 任务状态 ---- */
 
@@ -78,6 +79,7 @@ struct task_struct {
 
 	/* 文件描述符 */
 	struct file *fd_array[32]; /* 打开的文件 */
+	struct dentry *cwd;	    /* 当前工作目录 */
 
 	/* 信号处理（后续 Stage 使用） */
 	void *sighand[32]; /* 信号处理函数表 */

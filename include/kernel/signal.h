@@ -20,6 +20,9 @@
  * Constants:
  *   SIG_DFL - Default signal handler sentinel
  *   SIG_IGN - Ignore signal sentinel
+ *
+ * TODO(signal): Stage 6 完整信号机制实现时，把 task_struct 中的
+ * sighand/blocked/pending 访问收敛到 signal.c 提供的 API。
  */
 
 #define SIGINT		2

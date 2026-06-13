@@ -20,7 +20,7 @@
 
 #include <kernel/buddy.h>
 #include <kernel/errno.h>
-#include <kernel/fs.h>
+#include <kernel/fdtable.h>
 #include <kernel/mm.h>
 #include <kernel/slab.h>
 #include <kernel/string.h>

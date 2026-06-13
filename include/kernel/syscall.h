@@ -67,6 +67,8 @@
 #define SYS_mprotect	 226
 #define SYS_wait4	 260
 
+#define NR_SYSCALL	 (SYS_wait4 + 1)
+
 static __always_inline bool user_access_begin(void)
 {
 	bool had_sum = (csr_read(sstatus) & SSTATUS_SUM) != 0;
@@ -88,6 +90,7 @@ ssize_t sys_read(struct trap_frame *tf);
 ssize_t sys_close(struct trap_frame *tf);
 ssize_t sys_dup(struct trap_frame *tf);
 ssize_t sys_dup3(struct trap_frame *tf);
+ssize_t sys_pipe2(struct trap_frame *tf);
 ssize_t sys_exit(struct trap_frame *tf);
 ssize_t sys_yield(struct trap_frame *tf);
 ssize_t sys_getpid(struct trap_frame *tf);

@@ -38,6 +38,7 @@
 #include <kernel/sched.h>
 #include <kernel/timer.h>
 #include <kernel/syscall.h>
+#include <kernel/vfs.h>
 #include <drivers/virtio_blk.h>
 #include <asm/trap.h>
 #include <asm/csr.h>
@@ -88,6 +89,9 @@ void kernel_main(void)
 
 	syscall_init();
 	printk("syscall: init successfully\n");
+
+	vfs_init();
+	printk("vfs: init successfully\n");
 
 	virtio_blk_init();
 

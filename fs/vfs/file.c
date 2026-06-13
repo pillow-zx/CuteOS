@@ -2,11 +2,12 @@
  * fs/vfs/file.c - Stage 4 最小 file/fd 层
  */
 
-#include <kernel/fs.h>
+#include <kernel/fdtable.h>
 #include <kernel/task.h>
 #include <kernel/slab.h>
 #include <kernel/string.h>
 #include <kernel/errno.h>
+#include <kernel/vfs.h>
 #include <drivers/uart.h>
 
 static ssize_t console_write(struct file *file, const char *buf, size_t count);
@@ -45,6 +46,37 @@ struct file *file_alloc(const struct file_operations *f_op, uint32_t mode,
 	return file;
 }
 
+struct file *file_alloc_dentry(struct dentry *dentry, uint32_t flags,
+			       uint32_t mode)
+{
+	if (!dentry || !dentry->d_inode)
+		return NULL;
+
+	struct file *file = file_alloc(dentry->d_inode->i_fop, mode, NULL);
+	if (!file)
+		return NULL;
+
+	file->f_dentry = dentry;
+	file->f_inode = dentry->d_inode;
+	file->f_flags = flags;
+	dget(dentry);
+	igrab(file->f_inode);
+
+	if (file->f_op && file->f_op->open) {
+		int ret = file->f_op->open(file->f_inode, file);
+		if (ret < 0) {
+			file->f_dentry = NULL;
+			file->f_inode = NULL;
+			dput(dentry);
+			iput(dentry->d_inode);
+			kfree(file);
+			return NULL;
+		}
+	}
+
+	return file;
+}
+
 void file_get(struct file *file)
 {
 	if (file && !file->static_file)
@@ -63,6 +95,8 @@ void file_put(struct file *file)
 	if (file->f_op && file->f_op->release)
 		file->f_op->release(file);
 
+	dput(file->f_dentry);
+	iput(file->f_inode);
 	kfree(file);
 }
 

@@ -95,6 +95,57 @@ struct mm_struct *mm_alloc(void)
 	return mm;
 }
 
+struct mm_struct *dup_mm(struct mm_struct *oldmm)
+{
+	if (!oldmm)
+		return NULL;
+
+	struct mm_struct *newmm = mm_alloc();
+	if (!newmm)
+		return NULL;
+
+	newmm->pgd = mm_create_user_pgd();
+	if (!newmm->pgd) {
+		kfree(newmm);
+		return NULL;
+	}
+
+	newmm->brk = oldmm->brk;
+	newmm->code_start = oldmm->code_start;
+	newmm->code_end = oldmm->code_end;
+	memcpy(newmm->vma, oldmm->vma, sizeof(oldmm->vma));
+
+	for (int i = 0; i < NR_VMA; i++) {
+		if (!oldmm->vma[i].used)
+			continue;
+
+		uintptr_t start = oldmm->vma[i].vm_start;
+		uintptr_t end = oldmm->vma[i].vm_end;
+
+		for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
+			pte_t *pte = walk_page_table(oldmm->pgd, va, false);
+			if (!pte || !(*pte & PTE_V))
+				continue;
+
+			uintptr_t old_pa = PTE_TO_PA(*pte);
+			void *new_page = get_free_page(0);
+			if (!new_page) {
+				mm_destroy(newmm);
+				return NULL;
+			}
+
+			memcpy(new_page, __va(old_pa), PAGE_SIZE);
+
+			pte_t perm = *pte & (PTE_V | PTE_R | PTE_W | PTE_X |
+					     PTE_U | PTE_A | PTE_D | PTE_G);
+			map_page(newmm->pgd, va, __pa((uintptr_t)new_page),
+				 perm);
+		}
+	}
+
+	return newmm;
+}
+
 void mm_destroy(struct mm_struct *mm)
 {
 	if (!mm)

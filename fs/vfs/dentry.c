@@ -19,3 +19,108 @@
  *   dentry.d_parent          - 指向父 dentry，用于 ".." 遍历
  *   dcache 哈希表            - 128 桶，以 (parent, name) 为键，无驱逐策略
  */
+
+#include <kernel/errno.h>
+#include <kernel/fs.h>
+#include <kernel/slab.h>
+#include <kernel/string.h>
+#include <kernel/vfs.h>
+
+#define DCACHE_HASH_BITS 7
+#define DCACHE_HASH_SIZE (1u << DCACHE_HASH_BITS)
+
+static struct list_head dentry_hashtable[DCACHE_HASH_SIZE];
+
+static uint32_t dentry_hash(struct dentry *parent, const char *name,
+			    size_t namelen)
+{
+	uintptr_t key = (uintptr_t)parent;
+
+	for (size_t i = 0; i < namelen; i++)
+		key = (key * 33u) ^ (uint8_t)name[i];
+
+	return (uint32_t)key & (DCACHE_HASH_SIZE - 1);
+}
+
+void dcache_init(void)
+{
+	for (uint32_t i = 0; i < DCACHE_HASH_SIZE; i++)
+		INIT_LIST_HEAD(&dentry_hashtable[i]);
+}
+
+struct dentry *dentry_alloc(struct dentry *parent, const char *name,
+			    size_t namelen)
+{
+	if (!name || namelen > VFS_NAME_MAX)
+		return NULL;
+
+	struct dentry *dentry = kmalloc(sizeof(*dentry));
+	if (!dentry)
+		return NULL;
+
+	memset(dentry, 0, sizeof(*dentry));
+	memcpy(dentry->d_name, name, namelen);
+	dentry->d_name[namelen] = '\0';
+	dentry->d_namelen = (uint8_t)namelen;
+	dentry->d_refcount = 1;
+	dentry->d_parent = parent ? parent : dentry;
+	dentry->d_sb = parent ? parent->d_sb : NULL;
+	INIT_LIST_HEAD(&dentry->d_hash);
+	INIT_LIST_HEAD(&dentry->d_child);
+	INIT_LIST_HEAD(&dentry->d_subdirs);
+
+	if (parent)
+		list_add_tail(&dentry->d_child, &parent->d_subdirs);
+
+	return dentry;
+}
+
+struct dentry *dcache_lookup(struct dentry *parent, const char *name,
+			     size_t namelen)
+{
+	if (!parent || !name || namelen > VFS_NAME_MAX)
+		return NULL;
+
+	uint32_t hash = dentry_hash(parent, name, namelen);
+	struct list_head *pos;
+
+	list_for_each(pos, &dentry_hashtable[hash]) {
+		struct dentry *dentry = list_entry(pos, struct dentry, d_hash);
+
+		if (dentry->d_parent != parent || dentry->d_namelen != namelen)
+			continue;
+		if (memcmp(dentry->d_name, name, namelen) != 0)
+			continue;
+
+		dget(dentry);
+		return dentry;
+	}
+
+	return NULL;
+}
+
+void dcache_insert(struct dentry *dentry)
+{
+	if (!dentry || !dentry->d_parent)
+		return;
+
+	uint32_t hash = dentry_hash(dentry->d_parent, dentry->d_name,
+				    dentry->d_namelen);
+
+	list_add(&dentry->d_hash, &dentry_hashtable[hash]);
+}
+
+void dget(struct dentry *dentry)
+{
+	if (dentry)
+		dentry->d_refcount++;
+}
+
+void dput(struct dentry *dentry)
+{
+	if (!dentry)
+		return;
+
+	if (dentry->d_refcount > 0)
+		dentry->d_refcount--;
+}

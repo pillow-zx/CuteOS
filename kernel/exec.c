@@ -187,6 +187,8 @@ static int load_elf_image(void *bin_start, size_t bin_size,
 			  struct mm_struct **mm_out, vaddr_t *entry_out,
 			  vaddr_t *sp_out)
 {
+	/* TODO(mm): 这里仍直接建立 ELF 段映射和用户栈。等文件 exec 与 mmap
+	 * 稳定后，把“分配页并映射文件内容/栈”的通用部分沉到 mm 层。 */
 	*mm_out = NULL;
 	*entry_out = 0;
 	*sp_out = 0;
