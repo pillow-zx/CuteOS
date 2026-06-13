@@ -3,6 +3,7 @@
 TEST_OBJS = \
 	test/test.o \
 	test/bitmap_test.o \
+	test/buffer_test.o \
 	test/buddy_test.o \
 	test/kthread_test.o \
 	test/pid_test.o \

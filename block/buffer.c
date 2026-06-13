@@ -21,3 +21,158 @@
  *             缓冲区保留在哈希表中不驱逐。
  *   mark_buffer_dirty(bh) - 标记为脏并立即同步写磁盘（写穿透）。
  */
+
+#include <kernel/buffer.h>
+#include <kernel/blkdev.h>
+#include <kernel/errno.h>
+#include <kernel/list.h>
+#include <kernel/slab.h>
+#include <kernel/string.h>
+
+#define BUFFER_HASH_SIZE 128U
+#define NR_BUFFERS	 512U
+
+static struct list_head buffer_hashtable[BUFFER_HASH_SIZE];
+static uint32_t nr_buffers;
+static bool buffer_cache_ready;
+
+static void buffer_cache_init_once(void)
+{
+	uint32_t i;
+
+	if (buffer_cache_ready)
+		return;
+
+	for (i = 0; i < BUFFER_HASH_SIZE; i++)
+		INIT_LIST_HEAD(&buffer_hashtable[i]);
+	buffer_cache_ready = true;
+}
+
+static uint32_t buffer_hash(dev_t dev, uint64_t block)
+{
+	return (uint32_t)((dev ^ block) & (BUFFER_HASH_SIZE - 1));
+}
+
+static struct buffer_head *find_buffer(dev_t dev, uint64_t block)
+{
+	struct list_head *head;
+	struct buffer_head *bh;
+
+	head = &buffer_hashtable[buffer_hash(dev, block)];
+	list_for_each_entry(bh, head, b_hash) {
+		if (bh->b_dev == dev && bh->b_blocknr == block)
+			return bh;
+	}
+
+	return NULL;
+}
+
+static void free_buffer(struct buffer_head *bh)
+{
+	if (!bh)
+		return;
+
+	kfree(bh->b_data);
+	kfree(bh);
+}
+
+static int read_buffer(struct buffer_head *bh)
+{
+	struct block_device *bdev;
+	uint64_t sector;
+
+	bdev = lookup_block_device(bh->b_dev);
+	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->read_sectors)
+		return -ENXIO;
+
+	sector = bh->b_blocknr * BLOCK_SECTORS;
+	return bdev->bd_ops->read_sectors(bdev, bh->b_data, sector,
+					  BLOCK_SECTORS);
+}
+
+static struct buffer_head *alloc_buffer(dev_t dev, uint64_t block)
+{
+	struct buffer_head *bh;
+
+	if (nr_buffers >= NR_BUFFERS)
+		return NULL;
+
+	bh = kmalloc(sizeof(*bh));
+	if (!bh)
+		return NULL;
+	memset(bh, 0, sizeof(*bh));
+
+	bh->b_data = kmalloc(BLOCK_SIZE);
+	if (!bh->b_data) {
+		kfree(bh);
+		return NULL;
+	}
+
+	bh->b_dev = dev;
+	bh->b_blocknr = block;
+	bh->b_refcnt = 1;
+	bh->b_dirty = false;
+	INIT_LIST_HEAD(&bh->b_hash);
+	nr_buffers++;
+
+	return bh;
+}
+
+struct buffer_head *bread(dev_t dev, uint64_t block)
+{
+	struct buffer_head *bh;
+	struct list_head *head;
+
+	buffer_cache_init_once();
+
+	bh = find_buffer(dev, block);
+	if (bh) {
+		bh->b_refcnt++;
+		return bh;
+	}
+
+	bh = alloc_buffer(dev, block);
+	if (!bh)
+		return NULL;
+
+	if (read_buffer(bh) < 0) {
+		free_buffer(bh);
+		nr_buffers--;
+		return NULL;
+	}
+
+	head = &buffer_hashtable[buffer_hash(dev, block)];
+	list_add(&bh->b_hash, head);
+	return bh;
+}
+
+void brelse(struct buffer_head *bh)
+{
+	if (!bh)
+		return;
+
+	if (bh->b_refcnt > 0)
+		bh->b_refcnt--;
+}
+
+int bwrite(struct buffer_head *bh)
+{
+	struct block_device *bdev;
+	uint64_t sector;
+	int ret;
+
+	if (!bh)
+		return -EINVAL;
+
+	bdev = lookup_block_device(bh->b_dev);
+	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->write_sectors)
+		return -ENXIO;
+
+	sector = bh->b_blocknr * BLOCK_SECTORS;
+	ret = bdev->bd_ops->write_sectors(bdev, bh->b_data, sector,
+					  BLOCK_SECTORS);
+	if (ret == 0)
+		bh->b_dirty = false;
+
+	return ret;
+}

@@ -1,6 +1,3 @@
-#ifndef _CUTEOS_KERNEL_BUFFER_H
-#define _CUTEOS_KERNEL_BUFFER_H
-
 /*
  * include/kernel/buffer.h - 块设备 I/O 缓冲区缓存
  *
@@ -21,4 +18,27 @@
  *   bwrite(bh)         - Write a dirty buffer_head back to disk
  */
 
-#endif
+#ifndef _CUTEOS_KERNEL_BUFFER_H
+#define _CUTEOS_KERNEL_BUFFER_H
+
+#include <kernel/types.h>
+#include <kernel/list.h>
+#include <kernel/blkdev.h>
+
+#define BLOCK_SIZE	1024u
+#define BLOCK_SECTORS	(BLOCK_SIZE / SECTOR_SIZE)
+
+struct buffer_head {
+	dev_t b_dev;
+	uint64_t b_blocknr;
+	uint8_t *b_data;
+	uint32_t b_refcnt;
+	bool b_dirty;
+	struct list_head b_hash;
+};
+
+struct buffer_head *bread(dev_t dev, uint64_t block);
+void brelse(struct buffer_head *bh);
+int bwrite(struct buffer_head *bh);
+
+#endif /* _CUTEOS_KERNEL_BUFFER_H */

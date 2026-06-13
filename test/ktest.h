@@ -95,4 +95,11 @@ void test_kernel_thread_ctx_setup(void);
 void test_virtio_blk(void);
 void test_virtio_blk_errors(void);
 
+/* ================================================================
+ *  Buffer Cache 测试
+ * ================================================================ */
+
+void test_buffer_cache_basic(void);
+void test_buffer_cache_errors(void);
+
 #endif

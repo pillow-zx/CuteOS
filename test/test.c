@@ -118,6 +118,11 @@ void kernel_test(void)
 	test_virtio_blk();
 	test_virtio_blk_errors();
 
+	/* ---- Buffer Cache ---- */
+	TEST_SECTION("Buffer Cache");
+	test_buffer_cache_basic();
+	test_buffer_cache_errors();
+
 	/* ---- 汇总 ---- */
 	printk("\n========================================\n");
 	printk("  Total: %d  |  Passed: %d  |  Failed: %d\n", (int)__test_total,
