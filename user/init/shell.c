@@ -100,8 +100,7 @@ static void run_command(int argc, char **argv)
 	}
 
 	if (streq(argv[0], "exit")) {
-		print("exit: PID 1 shell cannot exit\n");
-		return;
+		exit(0);
 	}
 
 	if (argv[0][0] != '/' && strlen(argv[0]) + 5 >= sizeof(path)) {
