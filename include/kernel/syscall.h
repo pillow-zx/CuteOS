@@ -58,7 +58,7 @@
 #define SYS_writev	      66
 #define SYS_pread64	      67
 #define SYS_pwrite64	      68
-#define SYS_ppoll_time32      73
+#define SYS_ppoll	      73
 #define SYS_readlinkat	      78
 #define SYS_newfstatat	      79
 #define SYS_fstat	      80
@@ -68,8 +68,19 @@
 #define SYS_exit_group	      94
 #define SYS_set_tid_addr      96
 #define SYS_futex	      98
-#define SYS_robust_list	      99
+#define SYS_set_robust_list   99
+#define SYS_get_robust_list   100
 #define SYS_nanosleep	      101
+#define SYS_getitimer	      102
+#define SYS_setitimer	      103
+#define SYS_timer_gettime     108
+#define SYS_timer_getoverrun  109
+#define SYS_timer_settime     110
+#define SYS_timer_delete      111
+#define SYS_clock_settime     112
+#define SYS_clock_gettime     113
+#define SYS_clock_getres      114
+#define SYS_clock_nanosleep   115
 #define SYS_timer_create      107
 #define SYS_sched_setaffinity 122
 #define SYS_sched_getaffinity 123
@@ -112,19 +123,16 @@
 #define SYS_renameat2	      276
 #define SYS_getrandom	      278
 #define SYS_rseq	      293
-#define SYS_clock_gettime     403
-#define SYS_clock_nanosleep   407
-#define SYS_timer_settime     409
 
-#define NR_SYSCALL (SYS_clock_gettime + 1)
+#define NR_SYSCALL (SYS_rseq + 1)
 
-#define PROT_READ	      0x1
-#define PROT_WRITE	      0x2
-#define PROT_EXEC	      0x4
+#define PROT_READ  0x1
+#define PROT_WRITE 0x2
+#define PROT_EXEC  0x4
 
-#define MAP_PRIVATE	      0x02
-#define MAP_FIXED	      0x10
-#define MAP_ANONYMOUS	      0x20
+#define MAP_PRIVATE   0x02
+#define MAP_FIXED     0x10
+#define MAP_ANONYMOUS 0x20
 
 static __always_inline bool user_access_begin(void)
 {
@@ -163,7 +171,10 @@ ssize_t sys_yield(struct trap_frame *tf);
 ssize_t sys_getpid(struct trap_frame *tf);
 ssize_t sys_getppid(struct trap_frame *tf);
 ssize_t sys_getuid(struct trap_frame *tf);
+ssize_t sys_geteuid(struct trap_frame *tf);
 ssize_t sys_getgid(struct trap_frame *tf);
+ssize_t sys_getegid(struct trap_frame *tf);
+ssize_t sys_gettid(struct trap_frame *tf);
 ssize_t sys_brk(struct trap_frame *tf);
 ssize_t sys_mmap(struct trap_frame *tf);
 ssize_t sys_munmap(struct trap_frame *tf);
@@ -172,9 +183,25 @@ ssize_t sys_execve(struct trap_frame *tf);
 void exec_user_path(const char *path) __noreturn;
 ssize_t sys_wait4(struct trap_frame *tf);
 ssize_t sys_kill(struct trap_frame *tf);
+ssize_t sys_tgkill(struct trap_frame *tf);
+ssize_t sys_sigaltstack(struct trap_frame *tf);
 ssize_t sys_sigaction(struct trap_frame *tf);
 ssize_t sys_sigprocmask(struct trap_frame *tf);
 ssize_t sys_sigreturn(struct trap_frame *tf);
+ssize_t sys_nanosleep(struct trap_frame *tf);
+ssize_t sys_getitimer(struct trap_frame *tf);
+ssize_t sys_setitimer(struct trap_frame *tf);
+ssize_t sys_timer_create(struct trap_frame *tf);
+ssize_t sys_timer_gettime(struct trap_frame *tf);
+ssize_t sys_timer_getoverrun(struct trap_frame *tf);
+ssize_t sys_timer_settime(struct trap_frame *tf);
+ssize_t sys_timer_delete(struct trap_frame *tf);
+ssize_t sys_clock_settime(struct trap_frame *tf);
+ssize_t sys_clock_gettime(struct trap_frame *tf);
+ssize_t sys_clock_getres(struct trap_frame *tf);
+ssize_t sys_clock_nanosleep(struct trap_frame *tf);
+ssize_t sys_times(struct trap_frame *tf);
+ssize_t sys_gettimeofday(struct trap_frame *tf);
 
 /* ---- 系统调用分发接口 ---- */
 

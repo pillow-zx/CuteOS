@@ -354,6 +354,44 @@ ssize_t sys_kill(struct trap_frame *tf)
 	return send_signal(sig, task);
 }
 
+ssize_t sys_tgkill(struct trap_frame *tf)
+{
+	pid_t tgid = (pid_t)tf->a0;
+	pid_t tid = (pid_t)tf->a1;
+	int sig = (int)tf->a2;
+	struct task_struct *task;
+
+	if (sig != 0 && !signal_is_valid(sig))
+		return -EINVAL;
+	if (tgid <= 0 || tid <= 0)
+		return -EINVAL;
+
+	/*
+	 * TODO(signal): 当前内核没有线程组，tid 与 pid 等价。等 clone
+	 * 支持线程后，应按 tgid 校验线程组成员关系。
+	 */
+	if (tgid != tid)
+		return -ESRCH;
+
+	task = find_task_by_pid(tid);
+	if (!task)
+		return -ESRCH;
+	if (sig == 0)
+		return 0;
+
+	return send_signal(sig, task);
+}
+
+ssize_t sys_sigaltstack(struct trap_frame *tf)
+{
+	(void)tf;
+	/*
+	 * TODO(signal): 需要在 task_struct 中保存用户备用信号栈，并在
+	 * setup_signal_frame 中支持 SA_ONSTACK 后再实现。
+	 */
+	return -ENOSYS;
+}
+
 ssize_t sys_sigaction(struct trap_frame *tf)
 {
 	int sig = (int)tf->a0;
@@ -438,6 +476,8 @@ ssize_t sys_sigreturn(struct trap_frame *tf)
 	struct signal_frame *user_frame = (struct signal_frame *)tf->sp;
 
 	if (copy_from_user(&frame, user_frame, sizeof(frame)) != 0)
+		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+	if (!signal_is_valid((int)frame.sig))
 		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 
 	*tf = frame.tf;

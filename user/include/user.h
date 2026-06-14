@@ -24,15 +24,23 @@ typedef unsigned long size_t;
 #define SYS_read    63
 #define SYS_write   64
 #define SYS_exit    93
+#define SYS_clock_gettime 113
+#define SYS_clock_getres  114
 #define SYS_yield   124
 #define SYS_kill    129
+#define SYS_tgkill  131
 #define SYS_rt_sigaction   134
 #define SYS_rt_sigprocmask 135
 #define SYS_sigreturn	    139
+#define SYS_times   153
+#define SYS_gettimeofday 169
 #define SYS_getpid  172
 #define SYS_getppid 173
 #define SYS_getuid  174
-#define SYS_getgid  175
+#define SYS_geteuid 175
+#define SYS_getgid  176
+#define SYS_getegid 177
+#define SYS_gettid  178
 #define SYS_brk	    214
 #define SYS_munmap  215
 #define SYS_fork    220
@@ -57,6 +65,27 @@ typedef unsigned long size_t;
 #define MAP_PRIVATE   0x02
 #define MAP_FIXED     0x10
 #define MAP_ANONYMOUS 0x20
+
+#define CLOCK_REALTIME  0
+#define CLOCK_MONOTONIC 1
+#define CLOCK_BOOTTIME  7
+
+struct tms {
+	long tms_utime;
+	long tms_stime;
+	long tms_cutime;
+	long tms_cstime;
+};
+
+struct timeval {
+	long tv_sec;
+	long tv_usec;
+};
+
+struct timespec {
+	long tv_sec;
+	long tv_nsec;
+};
 
 /*
  * 信号 ABI 常量。本块与 include/kernel/signal.h 中的同名定义刻意各自
@@ -276,9 +305,24 @@ static inline long getuid(void)
 	return syscall0(SYS_getuid);
 }
 
+static inline long geteuid(void)
+{
+	return syscall0(SYS_geteuid);
+}
+
 static inline long getgid(void)
 {
 	return syscall0(SYS_getgid);
+}
+
+static inline long getegid(void)
+{
+	return syscall0(SYS_getegid);
+}
+
+static inline long gettid(void)
+{
+	return syscall0(SYS_gettid);
 }
 
 static inline long yield(void)
@@ -289,6 +333,11 @@ static inline long yield(void)
 static inline long kill(long pid, int sig)
 {
 	return syscall(SYS_kill, pid, sig);
+}
+
+static inline long tgkill(long tgid, long tid, int sig)
+{
+	return syscall(SYS_tgkill, tgid, tid, sig);
 }
 
 static inline long sigaction(int sig, const struct sigaction *act,
@@ -324,6 +373,26 @@ static inline long wait4(long pid, int *status, int options, void *rusage)
 static inline long wait(int *status)
 {
 	return wait4(-1, status, 0, 0);
+}
+
+static inline long times(struct tms *buf)
+{
+	return syscall(SYS_times, (long)buf);
+}
+
+static inline long gettimeofday(struct timeval *tv, void *tz)
+{
+	return syscall(SYS_gettimeofday, (long)tv, (long)tz);
+}
+
+static inline long clock_gettime(int clock_id, struct timespec *ts)
+{
+	return syscall(SYS_clock_gettime, clock_id, (long)ts);
+}
+
+static inline long clock_getres(int clock_id, struct timespec *ts)
+{
+	return syscall(SYS_clock_getres, clock_id, (long)ts);
 }
 
 /*

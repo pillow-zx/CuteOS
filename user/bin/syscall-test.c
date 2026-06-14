@@ -38,9 +38,18 @@ static int test_basic_syscalls(void)
 	print_hex((unsigned long)getppid());
 	print(", uid = ");
 	print_hex((unsigned long)getuid());
+	print(", euid = ");
+	print_hex((unsigned long)geteuid());
 	print(", gid = ");
 	print_hex((unsigned long)getgid());
+	print(", egid = ");
+	print_hex((unsigned long)getegid());
+	print(", tid = ");
+	print_hex((unsigned long)gettid());
 	print("\n");
+	if (getuid() != 0 || geteuid() != 0 || getgid() != 0 ||
+	    getegid() != 0 || gettid() != pid)
+		failures++;
 
 	print("[TEST] write: OK\n");
 	print("[TEST] yield...\n");
@@ -103,6 +112,44 @@ static int test_dup(void)
 	} else {
 		failures++;
 	}
+
+	return failures;
+}
+
+static int test_time_syscalls(void)
+{
+	int failures = 0;
+	struct tms tms_buf;
+	struct timeval tv;
+	struct timespec ts;
+	struct timespec res;
+	long ticks;
+
+	ticks = times(&tms_buf);
+	print("[TEST] times = ");
+	print_long(ticks);
+	print("\n");
+	if (ticks < 0)
+		failures++;
+
+	if (gettimeofday(&tv, 0) == 0) {
+		print("[TEST] gettimeofday sec = ");
+		print_long(tv.tv_sec);
+		print("\n");
+	} else {
+		failures++;
+	}
+
+	if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+		print("[TEST] clock_gettime nsec = ");
+		print_long(ts.tv_nsec);
+		print("\n");
+	} else {
+		failures++;
+	}
+
+	if (clock_getres(CLOCK_MONOTONIC, &res) != 0 || res.tv_nsec <= 0)
+		failures++;
 
 	return failures;
 }
@@ -217,6 +264,7 @@ int main(int argc, char **argv, char **envp)
 
 	failures += test_basic_syscalls();
 	failures += test_dup();
+	failures += test_time_syscalls();
 	failures += test_dev_null();
 	failures += test_pipe();
 	failures += test_fork_exec_wait();
