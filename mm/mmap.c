@@ -19,6 +19,7 @@
 #include <kernel/string.h>
 #include <kernel/slab.h>
 #include <kernel/buddy.h>
+#include <kernel/signal.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <asm/page.h>
@@ -110,16 +111,17 @@ static uintptr_t find_unmapped_area(struct mm_struct *mm, size_t length)
 		return 0;
 
 	len = align_up_page(length);
-	if (len == 0 || len >= USER_STACK_BASE)
+	if (len == 0 || len >= signal_trampoline_start())
 		return 0;
 
 	if (low < PAGE_SIZE)
 		low = PAGE_SIZE;
 
-	start = (USER_STACK_BASE - len) & PAGE_MASK;
+	start = (signal_trampoline_start() - len) & PAGE_MASK;
 
 	while (start >= low) {
-		if (!range_overlaps_vma(mm, start, start + len))
+		if (!signal_trampoline_overlaps(start, start + len) &&
+		    !range_overlaps_vma(mm, start, start + len))
 			return start;
 		if (start < low + PAGE_SIZE)
 			break;
@@ -216,7 +218,12 @@ static void free_user_page_tables(pte_t *pgd)
 				if (!(pt[k] & PTE_V))
 					continue;
 
+				vaddr_t va = ((vaddr_t)i << 30) |
+					     ((vaddr_t)j << 21) |
+					     ((vaddr_t)k << 12);
 				paddr_t pa = PTE_TO_PA(pt[k]);
+				if (signal_trampoline_contains(va))
+					continue;
 				/*
 				 * mm_create_user_pgd() currently injects a low
 				 * UART MMIO mapping so trap-time printk works
@@ -327,6 +334,10 @@ pte_t *mm_create_user_pgd(void)
 	/* 3. 映射 trap 后仍可能访问的低地址 MMIO。 */
 	map_page(user_pgd, UART_BASE, UART_BASE, PTE_KERN_RW);
 	map_page(user_pgd, VIRTIO_MMIO_BASE, VIRTIO_MMIO_BASE, PTE_KERN_RW);
+	if (signal_map_trampoline(user_pgd) < 0) {
+		free_user_page_tables(user_pgd);
+		return NULL;
+	}
 
 	return user_pgd;
 }
@@ -444,6 +455,9 @@ ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length,
 		return -EINVAL;
 
 	if (end > TASK_SIZE || end > USER_STACK_BASE)
+		return -EINVAL;
+
+	if (signal_trampoline_overlaps(start, end))
 		return -EINVAL;
 
 	if (range_overlaps_vma(mm, start, end))

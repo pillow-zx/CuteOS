@@ -22,6 +22,7 @@
 #include <kernel/timer.h>
 #include <kernel/syscall.h>
 #include <kernel/mm.h>
+#include <kernel/signal.h>
 
 static trap_test_hook_t trap_test_hook;
 
@@ -63,6 +64,10 @@ void trap_handler(struct trap_frame *tf)
 	uint64_t scause = tf->scause;
 	bool is_interrupt = (scause & SCAUSE_IRQ_FLAG) != 0;
 	uint64_t code = scause & ~SCAUSE_IRQ_FLAG;
+	bool user = from_user(tf);
+
+	if (current)
+		current->tf = tf;
 
 	/* TODO: 待引入 Kconfig 后，将此测试 hook 置于
 	 * CONFIG_TRAP_TEST_HOOK 编译期守卫之下，避免生产内核
@@ -75,11 +80,12 @@ void trap_handler(struct trap_frame *tf)
 		switch (code) {
 		case IRQ_S_TIMER:
 			handle_timer_irq();
-			if (!(tf->sstatus & SSTATUS_SPP) && current &&
-			    current->need_resched) {
+			if (user && current && current->need_resched) {
 				current->need_resched = 0;
 				schedule();
 			}
+			if (user)
+				do_signal(tf);
 			return;
 		default:
 			panic("unhandled interrupt: origin=%s scause=0x%lx "
@@ -94,12 +100,16 @@ void trap_handler(struct trap_frame *tf)
 			/* sepc +4 跳过 ecall 指令 */
 			tf->sepc += 4;
 			do_syscall(tf);
+			if (user)
+				do_signal(tf);
 			return;
 		case EXC_INST_PAGE_FAULT:
 		case EXC_LOAD_PAGE_FAULT:
 		case EXC_STORE_PAGE_FAULT:
 			/* 缺页异常：不修改 sepc，sret 后重新执行 */
 			do_page_fault(tf);
+			if (user)
+				do_signal(tf);
 			return;
 		default:
 			panic("unhandled exception: origin=%s scause=0x%lx code=%lu "

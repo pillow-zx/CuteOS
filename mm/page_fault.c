@@ -27,6 +27,7 @@
 #include <kernel/buddy.h>
 #include <kernel/exit.h>
 #include <kernel/printk.h>
+#include <kernel/signal.h>
 #include <kernel/string.h>
 #include <kernel/task.h>
 #include <asm/page.h>
@@ -95,6 +96,31 @@ static bool check_vma_permission(uint64_t scause,
 	}
 }
 
+static bool pte_allows_fault(uint64_t scause, pte_t pte)
+{
+	switch (scause) {
+	case EXC_INST_PAGE_FAULT:
+		return (pte & PTE_X) != 0;
+	case EXC_LOAD_PAGE_FAULT:
+		return (pte & PTE_R) != 0;
+	case EXC_STORE_PAGE_FAULT:
+		return (pte & PTE_W) != 0;
+	default:
+		return false;
+	}
+}
+
+static void signal_or_exit_segv(bool from_user_mode)
+{
+	if (from_user_mode) {
+		if (force_signal(SIGSEGV, current) < 0)
+			do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+		return;
+	}
+
+	do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+}
+
 /* ---- 公共接口 ---- */
 
 /*
@@ -135,8 +161,8 @@ void do_page_fault(struct trap_frame *tf)
 		       (void *)tf->sepc,
 		       from_user_mode ? "user" : "kernel",
 		       current->pid);
-		do_exit(1);
-		unreachable();
+		signal_or_exit_segv(from_user_mode);
+		return;
 	}
 
 	/* 检查权限 */
@@ -148,8 +174,8 @@ void do_page_fault(struct trap_frame *tf)
 		       vma->vm_flags, (void *)tf->sepc,
 		       from_user_mode ? "user" : "kernel",
 		       current->pid);
-		do_exit(1);
-		unreachable();
+		signal_or_exit_segv(from_user_mode);
+		return;
 	}
 
 	/* 页对齐的虚拟地址 */
@@ -158,11 +184,21 @@ void do_page_fault(struct trap_frame *tf)
 	/* 防御性检查：是否已映射 */
 	pte_t *existing = walk_page_table(current->mm->pgd, page_addr, false);
 	if (existing && (*existing & PTE_V)) {
-		/*
-		 * 已有映射但仍然缺页，可能是权限变更或 TLB 一致性问题。
-		 * 刷新 TLB 后直接返回，让指令重新执行。
-		 */
-		sfence_vma_addr(page_addr);
+		if (pte_allows_fault(scause, *existing)) {
+			/*
+			 * 已有合法映射但仍然缺页，可能是 TLB 一致性问题。
+			 * 刷新 TLB 后直接返回，让指令重新执行。
+			 */
+			sfence_vma_addr(page_addr);
+			return;
+		}
+
+		printk("page fault: mapped page permission denied "
+		       "type=%s addr=%p pte=0x%lx sepc=%p origin=%s pid=%d\n",
+		       fault_type_name(scause), (void *)fault_addr,
+		       (size_t)*existing, (void *)tf->sepc,
+		       from_user_mode ? "user" : "kernel", current->pid);
+		signal_or_exit_segv(from_user_mode);
 		return;
 	}
 

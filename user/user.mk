@@ -21,12 +21,16 @@ USER_OUT  = build/user
 USER_INIT_ELF = $(USER_OUT)/init/init.elf
 USER_SH_ELF   = $(USER_OUT)/init/sh.elf
 USER_TEST_ELF = $(USER_OUT)/bin/syscall-test.elf
-USER_ELFS     = $(USER_INIT_ELF) $(USER_SH_ELF) $(USER_TEST_ELF)
+USER_SIGNAL_TEST_ELF = $(USER_OUT)/bin/signal-test.elf
+USER_ELFS     = $(USER_INIT_ELF) $(USER_SH_ELF) $(USER_TEST_ELF) \
+		$(USER_SIGNAL_TEST_ELF)
 
 USER_COMMON_OBJS = $(USER_OUT)/start.o $(USER_OUT)/lib/ulib.o
 USER_INIT_OBJS   = $(USER_COMMON_OBJS) $(USER_OUT)/init/init.o
 USER_SH_OBJS     = $(USER_COMMON_OBJS) $(USER_OUT)/init/shell.o
 USER_TEST_OBJS   = $(USER_COMMON_OBJS) $(USER_OUT)/bin/syscall-test.o
+USER_SIGNAL_TEST_OBJS = $(USER_COMMON_OBJS) \
+			$(USER_OUT)/bin/signal-test.o
 
 # Verbose control — reuse V / Q from main Makefile
 #
@@ -58,4 +62,7 @@ $(USER_SH_ELF): $(USER_SH_OBJS) user/user.ld
 	$(call user_cmd,LD)
 
 $(USER_TEST_ELF): $(USER_TEST_OBJS) user/user.ld
+	$(call user_cmd,LD)
+
+$(USER_SIGNAL_TEST_ELF): $(USER_SIGNAL_TEST_OBJS) user/user.ld
 	$(call user_cmd,LD)

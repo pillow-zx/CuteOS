@@ -66,6 +66,10 @@ void syscall_init(void)
 	syscall_table[SYS_exit] = sys_exit;
 	syscall_table[SYS_exit_group] = sys_exit;
 	syscall_table[SYS_yield] = sys_yield;
+	syscall_table[SYS_kill] = sys_kill;
+	syscall_table[SYS_rt_sigaction] = sys_sigaction;
+	syscall_table[SYS_rt_sigprocmask] = sys_sigprocmask;
+	syscall_table[SYS_sigreturn] = sys_sigreturn;
 	syscall_table[SYS_getpid] = sys_getpid;
 	syscall_table[SYS_getppid] = sys_getppid;
 	syscall_table[SYS_getuid] = sys_getuid;

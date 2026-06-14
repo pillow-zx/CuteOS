@@ -224,7 +224,7 @@ cmd_LD = $(LD) $(LDFLAGS) -T kernel.ld -o $@ $(OBJS)
 cmd_OBJDUMP_S = $(OBJDUMP) -S $@ > $@.asm
 cmd_OBJDUMP_T = $(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $@.sym
 
-cmd_FSIMG = $(MKIMG) $@ $(USER_INIT_ELF) $(USER_SH_ELF) $(USER_TEST_ELF)
+cmd_FSIMG = $(MKIMG) $@ $(USER_INIT_ELF) $(USER_SH_ELF) $(filter-out $(USER_INIT_ELF) $(USER_SH_ELF),$(USER_ELFS))
 
 # =============================================================================
 # Build Rules

@@ -23,7 +23,9 @@
 #include <kernel/fdtable.h>
 #include <kernel/mm.h>
 #include <kernel/slab.h>
+#include <kernel/signal.h>
 #include <kernel/string.h>
+#include <kernel/task.h>
 #include <kernel/wait.h>
 #include <asm/page.h>
 #include <asm/trap.h>
@@ -154,8 +156,11 @@ static ssize_t pipe_write(struct file *file, const char *buf, size_t count)
 		return -EINVAL;
 
 	while (done < count) {
-		if (pipe->readers == 0)
+		if (pipe->readers == 0) {
+			if (done == 0)
+				send_signal(SIGPIPE, current);
 			return done ? (ssize_t)done : -EPIPE;
+		}
 
 		if (pipe->used == PIPE_SIZE) {
 			if (done > 0)

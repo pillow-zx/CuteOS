@@ -95,7 +95,8 @@ static void run_command(int argc, char **argv)
 	long pid;
 
 	if (streq(argv[0], "help")) {
-		print("commands: help, syscall-test, /path/to/program\n");
+		print("commands: help, syscall-test, signal-test, ");
+		print("/path/to/program\n");
 		return;
 	}
 

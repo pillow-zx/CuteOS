@@ -11,10 +11,11 @@
  *                         父进程返回子进程 PID。
  *   dup_mm(oldmm)       - 完整复制父进程的用户地址空间。
  *   copy_files(child)   - 复制文件描述符表。
- *   copy_sighand(child) - 复制信号处理器表，清零 pending。
+ *   signals_clone(child)   - 继承可继承的信号状态（实现在 kernel/signal.c）。
  */
 
 #include <kernel/task.h>
+#include <kernel/signal.h>
 #include <kernel/mm.h>
 #include <kernel/sched.h>
 #include <kernel/printk.h>
@@ -25,24 +26,6 @@
 #include <asm/page.h>
 #include <asm/trap.h>
 #include <asm/csr.h>
-
-/*
- * copy_sighand - 复制信号处理表
- * @child: 子进程 task_struct
- *
- * 复制 sighand 数组和 blocked 掩码。
- * 子进程的 pending 清零（不继承待处理信号）。
- */
-static void copy_sighand(struct task_struct *child)
-{
-	/* TODO(signal): Stage 6 完整信号机制落地时，把 sighand/blocked/
-	 * pending 的复制封装成 signals_clone()，避免 fork 直接知道信号
-	 * 状态布局。 */
-	memcpy(child->sighand, current->sighand,
-	       sizeof(current->sighand));
-	child->blocked = current->blocked;
-	child->pending = 0;
-}
 
 /* ---- 公共接口 ---- */
 
@@ -58,7 +41,7 @@ static void copy_sighand(struct task_struct *child)
  *   2. dup_mm 深拷贝用户地址空间
  *   3. 在子进程栈顶构造 trap_frame（复制父进程 + a0=0）
  *   4. 设置子进程 context（ra=__trapret, sp→trap_frame）
- *   5. 复制 fd_array、sighand
+ *   5. 复制 fd_array、调用 signals_clone 继承信号状态
  *   6. 建立进程树关系
  *   7. 子进程入就绪队列，父进程继续运行
  */
@@ -104,7 +87,7 @@ ssize_t sys_fork(struct trap_frame *tf)
 		return ret;
 	}
 	copy_fs(child);
-	copy_sighand(child);
+	signals_clone(child);
 
 	/* 7. 建立进程树关系 */
 	child->parent = current;

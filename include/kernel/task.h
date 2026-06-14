@@ -12,7 +12,7 @@
  *   state      - Current task state (RUNNING/SLEEPING/ZOMBIE/DEAD)
  *   mm         - Pointer to mm_struct (NULL for kernel threads)
  *   fd_array   - Open file descriptors (fixed array of 32 entries)
- *   sighand    - Signal handler table (32 entries)
+ *   sigactions - Signal action table (32 entries)
  *   blocked    - Blocked signal mask
  *   pending    - Pending signal mask
  *   ctx        - Saved callee-saved registers for context switch
@@ -38,6 +38,7 @@
 #include <kernel/list.h>
 #include <kernel/wait.h>
 #include <kernel/compiler.h>
+#include <kernel/signal.h>
 #include <asm/page.h>
 #include <asm/trap.h>
 
@@ -52,6 +53,7 @@ struct dentry;
 #define TASK_SLEEPING 1 /* 等待事件 */
 #define TASK_ZOMBIE   2 /* 已退出，等待父进程回收 */
 #define TASK_DEAD     3 /* 已被回收 */
+#define TASK_STOPPED  4 /* 被 SIGSTOP 暂停 */
 
 /* ---- 内核栈常量 ---- */
 
@@ -81,10 +83,11 @@ struct task_struct {
 	struct file *fd_array[32]; /* 打开的文件 */
 	struct dentry *cwd;	    /* 当前工作目录 */
 
-	/* 信号处理（后续 Stage 使用） */
-	void *sighand[32]; /* 信号处理函数表 */
-	uint64_t blocked;  /* 被屏蔽的信号掩码 */
-	uint64_t pending;  /* 待处理的信号掩码 */
+	/* 信号处理 */
+	struct sigaction sigactions[NSIG]; /* 每个信号的处理动作 */
+	uint64_t blocked;	/* 被屏蔽的信号掩码 */
+	uint64_t pending;	/* 待处理的信号掩码 */
+	uint64_t in_handler;	/* 当前正在运行其 handler 的信号掩码（防重入） */
 
 	/* 进程树 */
 	struct task_struct *parent; /* 父进程 */

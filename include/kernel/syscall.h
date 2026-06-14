@@ -67,6 +67,7 @@
 #define SYS_exit	      93
 #define SYS_exit_group	      94
 #define SYS_set_tid_addr      96
+#define SYS_futex	      98
 #define SYS_robust_list	      99
 #define SYS_nanosleep	      101
 #define SYS_timer_create      107
@@ -114,7 +115,6 @@
 #define SYS_clock_gettime     403
 #define SYS_clock_nanosleep   407
 #define SYS_timer_settime     409
-#define SYS_futex	      422
 
 #define NR_SYSCALL (SYS_clock_gettime + 1)
 
@@ -171,6 +171,10 @@ ssize_t sys_fork(struct trap_frame *tf);
 ssize_t sys_execve(struct trap_frame *tf);
 void exec_user_path(const char *path) __noreturn;
 ssize_t sys_wait4(struct trap_frame *tf);
+ssize_t sys_kill(struct trap_frame *tf);
+ssize_t sys_sigaction(struct trap_frame *tf);
+ssize_t sys_sigprocmask(struct trap_frame *tf);
+ssize_t sys_sigreturn(struct trap_frame *tf);
 
 /* ---- 系统调用分发接口 ---- */
 

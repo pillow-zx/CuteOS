@@ -39,6 +39,7 @@
 #include <kernel/mm.h>
 #include <kernel/printk.h>
 #include <kernel/sched.h>
+#include <kernel/signal.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <kernel/wait.h>
@@ -142,8 +143,10 @@ void do_exit(int code)
 
 	current->state = TASK_ZOMBIE;
 
-	if (current->parent)
+	if (current->parent) {
+		send_signal(SIGCHLD, current->parent);
 		wake_up(&current->parent->wait_child_queue);
+	}
 
 	/*
 	 * From here until schedule() switches away, current is a zombie with

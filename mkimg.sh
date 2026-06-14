@@ -2,8 +2,8 @@
 
 set -eu
 
-if [ "$#" -ne 4 ]; then
-	echo "usage: $0 <image> <init-elf> <shell-elf> <syscall-test-elf>" >&2
+if [ "$#" -lt 4 ]; then
+	echo "usage: $0 <image> <init-elf> <shell-elf> <bin-elf>..." >&2
 	exit 1
 fi
 
@@ -35,7 +35,12 @@ cd /
 write $init_elf /init
 write $init_elf /bin/init
 write $shell_elf /bin/sh
-write $test_elf /bin/syscall-test
 EOF
+
+shift 3
+for elf in "$@"; do
+	name=$(basename "$elf" .elf)
+	printf 'write %s /bin/%s\n' "$elf" "$name" >>"$debugfs_cmds"
+done
 
 debugfs -w -f "$debugfs_cmds" "$img" >/dev/null
