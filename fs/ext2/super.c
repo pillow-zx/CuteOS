@@ -1,15 +1,234 @@
-/*
- * fs/ext2/super.c - EXT2 超级块
- *
- * 功能：
- *   实现 EXT2 文件系统超级块的读取和解析。ext2_read_super 从块设备
- *   读取块 1（超级块），验证魔数 0xEF53。随后读取块组描述符表。
- *   从超级块中提取关键参数：block_size、inode_size、blocks_per_group
- *   等，使用 mkfs 默认参数。
- *
- * 主要函数：
- *   ext2_read_super(sb, dev) - 读取块 1（超级块），校验 0xEF53 魔数
- *   ext2_read_bgdt(sb)      - 读取块组描述符表
- *   ext2_init()              - 从超级块提取 block_size/inode_size/
- *                              blocks_per_group 等参数
- */
+#include "ext2.h"
+
+#include <kernel/blkdev.h>
+#include <kernel/buffer.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <kernel/slab.h>
+#include <kernel/string.h>
+#include <kernel/vfs.h>
+
+#define EXT2_ROOT_DEV	 MKDEV(8, 0)
+#define EXT2_SUPER_BLOCK 1
+#define EXT2_BGDT_BLOCK	 2
+
+static struct super_block *ext2_mount(struct file_system_type *fs_type,
+				      dev_t dev, void *data);
+static void ext2_evict_inode(struct inode *inode);
+
+static const struct super_operations ext2_sops = {
+	.read_inode = ext2_read_inode,
+	.write_inode = ext2_write_inode,
+	.evict_inode = ext2_evict_inode,
+};
+
+static struct file_system_type ext2_fs_type = {
+	.name = "ext2",
+	.mount = ext2_mount,
+};
+
+static void ext2_evict_inode(struct inode *inode)
+{
+	if (!inode)
+		return;
+
+	kfree(inode->i_private);
+	inode->i_private = NULL;
+}
+
+static void ext2_free_sbi(struct ext2_sb_info *sbi)
+{
+	if (!sbi)
+		return;
+
+	kfree(sbi->s_group_desc);
+	kfree(sbi);
+}
+
+static void ext2_free_super(struct super_block *sb)
+{
+	if (!sb)
+		return;
+
+	ext2_free_sbi(EXT2_SB(sb));
+	kfree(sb);
+}
+
+static uint32_t div_round_up_u32(uint32_t value, uint32_t divisor)
+{
+	return (value + divisor - 1) / divisor;
+}
+
+static int ext2_read_bgdt(struct super_block *sb)
+{
+	struct ext2_sb_info *sbi = EXT2_SB(sb);
+	uint32_t desc_per_block = BLOCK_SIZE / sizeof(struct ext2_group_desc);
+	uint32_t bytes = sbi->s_groups_count * sizeof(struct ext2_group_desc);
+	uint8_t *dst;
+
+	if (bytes > 2048)
+		return -ENOMEM;
+
+	sbi->s_group_desc = kmalloc(bytes);
+	if (!sbi->s_group_desc)
+		return -ENOMEM;
+
+	dst = (uint8_t *)sbi->s_group_desc;
+	for (uint32_t block = 0;
+	     block < div_round_up_u32(sbi->s_groups_count, desc_per_block);
+	     block++) {
+		struct buffer_head *bh =
+			bread(sb->s_dev, EXT2_BGDT_BLOCK + block);
+		uint32_t copy = bytes - block * BLOCK_SIZE;
+
+		if (!bh) {
+			kfree(sbi->s_group_desc);
+			sbi->s_group_desc = NULL;
+			return -EIO;
+		}
+		if (copy > BLOCK_SIZE)
+			copy = BLOCK_SIZE;
+
+		memcpy(dst + block * BLOCK_SIZE, bh->b_data, copy);
+		brelse(bh);
+	}
+
+	return 0;
+}
+
+static int ext2_read_super(struct super_block *sb)
+{
+	struct ext2_sb_info *sbi;
+	struct buffer_head *bh;
+	uint32_t block_size;
+	int ret;
+
+	sbi = kmalloc(sizeof(*sbi));
+	if (!sbi)
+		return -ENOMEM;
+	memset(sbi, 0, sizeof(*sbi));
+
+	bh = bread(sb->s_dev, EXT2_SUPER_BLOCK);
+	if (!bh) {
+		kfree(sbi);
+		return -EIO;
+	}
+
+	memcpy(&sbi->s_es, bh->b_data, sizeof(sbi->s_es));
+	brelse(bh);
+
+	if (sbi->s_es.s_magic != EXT2_SUPER_MAGIC) {
+		kfree(sbi);
+		return -EINVAL;
+	}
+
+	block_size = 1024u << sbi->s_es.s_log_block_size;
+	if (block_size != BLOCK_SIZE) {
+		kfree(sbi);
+		return -EINVAL;
+	}
+
+	sbi->s_inode_size = sbi->s_es.s_rev_level == EXT2_GOOD_OLD_REV
+				    ? EXT2_GOOD_OLD_INODE_SIZE
+				    : sbi->s_es.s_inode_size;
+	if (sbi->s_inode_size < sizeof(struct ext2_inode)) {
+		kfree(sbi);
+		return -EINVAL;
+	}
+
+	sbi->s_blocks_per_group = sbi->s_es.s_blocks_per_group;
+	sbi->s_inodes_per_group = sbi->s_es.s_inodes_per_group;
+	sbi->s_first_data_block = sbi->s_es.s_first_data_block;
+	if (!sbi->s_blocks_per_group || !sbi->s_inodes_per_group) {
+		kfree(sbi);
+		return -EINVAL;
+	}
+
+	sbi->s_groups_count = div_round_up_u32(sbi->s_es.s_blocks_count -
+						       sbi->s_first_data_block,
+					       sbi->s_blocks_per_group);
+
+	sb->s_blocksize = BLOCK_SIZE;
+	sb->s_op = &ext2_sops;
+	sb->s_private = sbi;
+
+	ret = ext2_read_bgdt(sb);
+	if (ret < 0) {
+		ext2_free_sbi(sbi);
+		sb->s_private = NULL;
+		return ret;
+	}
+
+	return 0;
+}
+
+static struct super_block *ext2_mount(struct file_system_type *fs_type,
+				      dev_t dev, void *data)
+{
+	struct super_block *sb;
+	struct inode *root_inode;
+	struct dentry *root;
+	int ret;
+
+	(void)data;
+
+	sb = super_alloc(fs_type, dev);
+	if (!sb)
+		return NULL;
+
+	ret = ext2_read_super(sb);
+	if (ret < 0) {
+		ext2_free_super(sb);
+		return NULL;
+	}
+
+	root = dentry_alloc(NULL, "/", 1);
+	if (!root) {
+		ext2_free_super(sb);
+		return NULL;
+	}
+
+	root_inode = iget(sb, EXT2_ROOT_INO);
+	if (!root_inode) {
+		kfree(root);
+		ext2_free_super(sb);
+		return NULL;
+	}
+
+	root->d_inode = root_inode;
+	root->d_sb = sb;
+	root->d_parent = root;
+	sb->s_root = root;
+
+	return sb;
+}
+
+int ext2_init(void)
+{
+	return register_filesystem(&ext2_fs_type);
+}
+
+int mount_root(void)
+{
+	struct file_system_type *fs_type;
+	struct super_block *sb;
+
+	fs_type = get_filesystem_type("ext2");
+	if (!fs_type) {
+		int ret = ext2_init();
+		if (ret < 0)
+			return ret;
+		fs_type = get_filesystem_type("ext2");
+	}
+
+	if (!fs_type || !fs_type->mount)
+		return -EINVAL;
+
+	sb = fs_type->mount(fs_type, EXT2_ROOT_DEV, NULL);
+	if (!sb)
+		return -EINVAL;
+
+	vfs_set_root_dentry(sb->s_root);
+	printk("VFS: mounted root (ext2)\n");
+	return 0;
+}

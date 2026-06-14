@@ -68,6 +68,7 @@ struct inode_operations {
 		    struct dentry *new_dentry);
 	int (*unlink)(struct inode *dir, struct dentry *dentry);
 	int (*mkdir)(struct inode *dir, struct dentry *dentry, uint32_t mode);
+	int (*rmdir)(struct inode *dir, struct dentry *dentry);
 };
 
 struct file_operations {
@@ -139,8 +140,10 @@ struct file {
 	bool static_file;
 };
 
+int vfs_open(const char *path, uint32_t flags, uint32_t mode);
 ssize_t vfs_read(struct file *file, char *buf, size_t count);
 ssize_t vfs_write(struct file *file, const char *buf, size_t count);
 loff_t vfs_llseek(struct file *file, loff_t offset, int whence);
+int vfs_readdir(struct file *file, void *ctx, filldir_t filldir);
 
 #endif

@@ -78,3 +78,13 @@ loff_t vfs_llseek(struct file *file, loff_t offset, int whence)
 	file->f_pos = base + offset;
 	return file->f_pos;
 }
+
+int vfs_readdir(struct file *file, void *ctx, filldir_t filldir)
+{
+	if (!file || !file->f_op || !file->f_op->readdir)
+		return -EBADF;
+	if (!filldir)
+		return -EINVAL;
+
+	return file->f_op->readdir(file, ctx, filldir);
+}

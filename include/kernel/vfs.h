@@ -14,6 +14,7 @@ struct inode *inode_alloc(struct super_block *sb, uint64_t ino);
 struct inode *iget(struct super_block *sb, uint64_t ino);
 void igrab(struct inode *inode);
 void iput(struct inode *inode);
+void inode_forget(struct inode *inode);
 void icache_init(void);
 
 struct dentry *dentry_alloc(struct dentry *parent, const char *name,
@@ -34,5 +35,6 @@ int register_filesystem(struct file_system_type *fs_type);
 struct file_system_type *get_filesystem_type(const char *name);
 struct super_block *super_alloc(struct file_system_type *fs_type, dev_t dev);
 void vfs_init(void);
+int mount_root(void);
 
 #endif

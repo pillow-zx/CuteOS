@@ -118,3 +118,19 @@ void iput(struct inode *inode)
 
 	inode->i_refcount--;
 }
+
+void inode_forget(struct inode *inode)
+{
+	if (!inode)
+		return;
+
+	if (inode->i_hash.next && inode->i_hash.prev)
+		list_del(&inode->i_hash);
+	if (inode->i_sb_list.next && inode->i_sb_list.prev)
+		list_del(&inode->i_sb_list);
+
+	if (inode->i_sb && inode->i_sb->s_op && inode->i_sb->s_op->evict_inode)
+		inode->i_sb->s_op->evict_inode(inode);
+
+	kfree(inode);
+}

@@ -94,6 +94,8 @@ void kernel_main(void)
 	printk("vfs: init successfully\n");
 
 	virtio_blk_init();
+	if (mount_root() < 0)
+		printk("VFS: root mount skipped\n");
 
 #ifdef DEBUG_ENABLE
 	kernel_test();

@@ -77,6 +77,30 @@ struct file *file_alloc_dentry(struct dentry *dentry, uint32_t flags,
 	return file;
 }
 
+int vfs_open(const char *path, uint32_t flags, uint32_t mode)
+{
+	struct dentry *dentry;
+	struct file *file;
+	int fd;
+
+	dentry = path_lookup(path, flags);
+	if (!dentry)
+		return -ENOENT;
+
+	file = file_alloc_dentry(dentry, flags, mode);
+	dput(dentry);
+	if (!file)
+		return -ENOMEM;
+
+	fd = fd_alloc(file);
+	if (fd < 0) {
+		file_put(file);
+		return fd;
+	}
+
+	return fd;
+}
+
 void file_get(struct file *file)
 {
 	if (file && !file->static_file)
