@@ -14,10 +14,12 @@
  */
 
 #include <kernel/mm.h>
+#include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/string.h>
 #include <kernel/slab.h>
 #include <kernel/buddy.h>
+#include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <asm/page.h>
 #include <asm/pte.h>
@@ -39,6 +41,155 @@ static struct vm_area_struct *vma_alloc_slot(struct mm_struct *mm)
 			return &mm->vma[i];
 	}
 	return NULL;
+}
+
+static void vma_free_slot(struct vm_area_struct *vma)
+{
+	memset(vma, 0, sizeof(*vma));
+}
+
+static uintptr_t align_up_page(uintptr_t addr)
+{
+	return (addr + PAGE_SIZE - 1) & PAGE_MASK;
+}
+
+static bool range_overflows(uintptr_t start, size_t length, uintptr_t *end)
+{
+	uintptr_t aligned_len;
+
+	if (length > TASK_SIZE)
+		return true;
+
+	aligned_len = align_up_page(length);
+
+	if (aligned_len == 0 || start + aligned_len < start)
+		return true;
+
+	*end = start + aligned_len;
+	return false;
+}
+
+static bool vma_overlaps(struct vm_area_struct *vma, uintptr_t start,
+			 uintptr_t end)
+{
+	return vma->used && start < vma->vm_end && end > vma->vm_start;
+}
+
+static bool range_overlaps_other_vma(struct mm_struct *mm,
+				     struct vm_area_struct *skip,
+				     uintptr_t start, uintptr_t end)
+{
+	for (int i = 0; i < NR_VMA; i++) {
+		if (&mm->vma[i] == skip)
+			continue;
+		if (vma_overlaps(&mm->vma[i], start, end))
+			return true;
+	}
+
+	return false;
+}
+
+static bool range_overlaps_vma(struct mm_struct *mm, uintptr_t start,
+			       uintptr_t end)
+{
+	for (int i = 0; i < NR_VMA; i++) {
+		if (vma_overlaps(&mm->vma[i], start, end))
+			return true;
+	}
+
+	return false;
+}
+
+static uintptr_t find_unmapped_area(struct mm_struct *mm, size_t length)
+{
+	uintptr_t len;
+	uintptr_t low = align_up_page(mm->brk);
+	uintptr_t start;
+
+	if (length > TASK_SIZE)
+		return 0;
+
+	len = align_up_page(length);
+	if (len == 0 || len >= USER_STACK_BASE)
+		return 0;
+
+	if (low < PAGE_SIZE)
+		low = PAGE_SIZE;
+
+	start = (USER_STACK_BASE - len) & PAGE_MASK;
+
+	while (start >= low) {
+		if (!range_overlaps_vma(mm, start, start + len))
+			return start;
+		if (start < low + PAGE_SIZE)
+			break;
+		start -= PAGE_SIZE;
+	}
+
+	return 0;
+}
+
+static void unmap_user_pages(pte_t *pgd, uintptr_t start, uintptr_t end)
+{
+	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
+		pte_t *pte = walk_page_table(pgd, va, false);
+
+		if (!pte || !(*pte & PTE_V))
+			continue;
+
+		paddr_t pa = PTE_TO_PA(*pte);
+		if (pa >= DRAM_BASE && pa < DRAM_BASE + DRAM_SIZE)
+			free_page(__va(pa), 0);
+
+		*pte = 0;
+		sfence_vma_addr(va);
+	}
+}
+
+static int unmap_vma_range(struct mm_struct *mm,
+			   struct vm_area_struct *vma,
+			   uintptr_t start, uintptr_t end)
+{
+	if (!vma_overlaps(vma, start, end))
+		return 0;
+
+	uintptr_t unmap_start =
+		start > vma->vm_start ? start : vma->vm_start;
+	uintptr_t unmap_end = end < vma->vm_end ? end : vma->vm_end;
+	uintptr_t old_start = vma->vm_start;
+	uintptr_t old_end = vma->vm_end;
+	struct vm_area_struct *tail = NULL;
+
+	if (unmap_start != old_start && unmap_end != old_end) {
+		tail = vma_alloc_slot(mm);
+		if (!tail)
+			return -ENOMEM;
+	}
+
+	if (unmap_start == old_start && unmap_end == old_end) {
+		unmap_user_pages(mm->pgd, unmap_start, unmap_end);
+		vma_free_slot(vma);
+		return 0;
+	}
+
+	if (unmap_start == old_start) {
+		unmap_user_pages(mm->pgd, unmap_start, unmap_end);
+		vma->vm_start = unmap_end;
+		return 0;
+	}
+
+	if (unmap_end == old_end) {
+		unmap_user_pages(mm->pgd, unmap_start, unmap_end);
+		vma->vm_end = unmap_start;
+		return 0;
+	}
+
+	unmap_user_pages(mm->pgd, unmap_start, unmap_end);
+	*tail = *vma;
+	tail->vm_start = unmap_end;
+	tail->vm_end = old_end;
+	vma->vm_end = unmap_start;
+	return 0;
 }
 
 /*
@@ -232,6 +383,9 @@ uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr)
 	}
 
 	if (!heap_vma) {
+		if (range_overlaps_vma(mm, old_brk, addr))
+			return old_brk;
+
 		/* 首次扩展：创建堆 VMA */
 		heap_vma = vma_alloc_slot(mm);
 		if (!heap_vma)
@@ -242,10 +396,100 @@ uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr)
 		heap_vma->vm_type = VMA_HEAP;
 		heap_vma->used = true;
 	} else {
+		if (range_overlaps_other_vma(mm, heap_vma,
+					     heap_vma->vm_start, addr))
+			return old_brk;
+
 		/* 扩展已有堆 VMA */
 		heap_vma->vm_end = addr;
 	}
 
 	mm->brk = addr;
 	return addr;
+}
+
+ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length,
+		int prot, int flags)
+{
+	uintptr_t start;
+	uintptr_t end;
+	uint32_t vm_flags = 0;
+	struct vm_area_struct *vma;
+
+	if (!mm)
+		return -ENOMEM;
+
+	if (!(flags & MAP_ANONYMOUS))
+		return -ENOSYS;
+
+	if (!(flags & MAP_PRIVATE))
+		return -EINVAL;
+
+	if (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC))
+		return -EINVAL;
+
+	if (flags & MAP_FIXED) {
+		if (addr == 0 || (addr & (PAGE_SIZE - 1)))
+			return -EINVAL;
+		start = addr;
+	} else if (addr != 0) {
+		start = align_up_page(addr);
+	} else {
+		start = find_unmapped_area(mm, length);
+		if (!start)
+			return -ENOMEM;
+	}
+
+	if (range_overflows(start, length, &end))
+		return -EINVAL;
+
+	if (end > TASK_SIZE || end > USER_STACK_BASE)
+		return -EINVAL;
+
+	if (range_overlaps_vma(mm, start, end))
+		return -EINVAL;
+
+	vma = vma_alloc_slot(mm);
+	if (!vma)
+		return -ENOMEM;
+
+	if (prot & PROT_READ)
+		vm_flags |= VM_READ;
+	if (prot & PROT_WRITE)
+		vm_flags |= VM_READ | VM_WRITE;
+	if (prot & PROT_EXEC)
+		vm_flags |= VM_EXEC;
+
+	vma->vm_start = start;
+	vma->vm_end = end;
+	vma->vm_flags = vm_flags;
+	vma->vm_type = VMA_MMAP;
+	vma->used = true;
+	return start;
+}
+
+int mm_munmap(struct mm_struct *mm, uintptr_t addr, size_t length)
+{
+	uintptr_t end;
+
+	if (!mm)
+		return -ENOMEM;
+
+	if (addr & (PAGE_SIZE - 1))
+		return -EINVAL;
+
+	if (range_overflows(addr, length, &end))
+		return -EINVAL;
+
+	if (end > TASK_SIZE)
+		return -EINVAL;
+
+	for (int i = 0; i < NR_VMA; i++) {
+		int ret = unmap_vma_range(mm, &mm->vma[i], addr, end);
+
+		if (ret < 0)
+			return ret;
+	}
+
+	return 0;
 }

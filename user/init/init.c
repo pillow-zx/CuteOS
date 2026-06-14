@@ -120,6 +120,31 @@ static int test_basic_syscalls(void)
 		failures++;
 	}
 
+	char *map = mmap(0, 8192, PROT_READ | PROT_WRITE,
+			 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	print("[TEST] mmap anonymous = ");
+	print_hex((unsigned long)map);
+	print("\n");
+	if ((long)map < 0) {
+		failures++;
+	} else {
+		map[0] = 0x55;
+		map[4096] = 0x66;
+		print("[TEST] mmap[0] = ");
+		print_hex((unsigned long)map[0]);
+		print(", mmap[4096] = ");
+		print_hex((unsigned long)map[4096]);
+		print(" (expected 0x55, 0x66)\n");
+		if (map[0] != 0x55 || map[4096] != 0x66)
+			failures++;
+		if (munmap(map, 8192) != 0) {
+			print("[TEST] munmap FAILED\n");
+			failures++;
+		} else {
+			print("[TEST] munmap: OK\n");
+		}
+	}
+
 	yield();
 	print("[TEST] second yield: OK\n");
 

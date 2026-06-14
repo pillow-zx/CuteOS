@@ -29,6 +29,7 @@ struct trap_frame; /* 前向声明，避免循环依赖 */
 #define VMA_CODE 0x01  /* 代码段 (ELF PT_LOAD) */
 #define VMA_HEAP 0x02  /* 堆 (brk 扩展) */
 #define VMA_STACK 0x04 /* 栈 */
+#define VMA_MMAP 0x08  /* mmap 匿名映射 */
 
 /* ---- VMA 数量上限 ---- */
 
@@ -104,10 +105,33 @@ struct vm_area_struct *find_vma(struct mm_struct *mm, uintptr_t addr);
  * @mm:   进程地址空间描述符
  * @addr: 新的 brk 值，0 表示查询当前值
  *
- * 不允许缩小堆。立即分配物理页并建立映射（PTE_USER_RW）。
+ * 不允许缩小堆。仅更新 VMA，物理页由缺页处理按需分配。
  * 返回新的 brk 值，失败返回当前 brk 值。
  */
 uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr);
+
+/*
+ * mm_mmap - 创建匿名用户映射
+ * @mm:     进程地址空间描述符
+ * @addr:   建议起始地址，0 表示由内核选择
+ * @length: 映射长度，按页向上取整
+ * @prot:   Linux PROT_* 权限位
+ * @flags:  Linux MAP_* 标志，当前仅支持 MAP_ANONYMOUS
+ *
+ * 返回映射起始地址，失败返回负 errno。
+ */
+ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length,
+		int prot, int flags);
+
+/*
+ * mm_munmap - 解除用户映射
+ * @mm:     进程地址空间描述符
+ * @addr:   起始地址，必须页对齐
+ * @length: 解除长度，按页向上取整
+ *
+ * 释放范围内已经分配的物理页，并调整受影响的 VMA。
+ */
+int mm_munmap(struct mm_struct *mm, uintptr_t addr, size_t length);
 
 /* ---- 用户空间安全访问（uaccess） ---- */
 

@@ -29,9 +29,19 @@ typedef unsigned long size_t;
 #define SYS_getuid  174
 #define SYS_getgid  175
 #define SYS_brk	    214
+#define SYS_munmap  215
 #define SYS_fork    220
 #define SYS_execve  221
+#define SYS_mmap    222
 #define SYS_wait4   260
+
+#define PROT_READ   0x1
+#define PROT_WRITE  0x2
+#define PROT_EXEC   0x4
+
+#define MAP_PRIVATE   0x02
+#define MAP_FIXED     0x10
+#define MAP_ANONYMOUS 0x20
 
 /* ---- syscallN: 底层内联汇编封装 (a0~a5, 最多 6 个参数) ---- */
 
@@ -230,6 +240,18 @@ static inline long wait(int *status)
 static inline long brk(long addr)
 {
 	return syscall(SYS_brk, addr);
+}
+
+static inline void *mmap(void *addr, size_t length, int prot, int flags,
+			 int fd, long offset)
+{
+	return (void *)syscall(SYS_mmap, (long)addr, (long)length, prot,
+			       flags, fd, offset);
+}
+
+static inline long munmap(void *addr, size_t length)
+{
+	return syscall(SYS_munmap, (long)addr, (long)length);
 }
 
 /*

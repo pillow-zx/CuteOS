@@ -71,8 +71,10 @@ void syscall_init(void)
 	syscall_table[SYS_getuid] = sys_getuid;
 	syscall_table[SYS_getgid] = sys_getgid;
 	syscall_table[SYS_brk] = sys_brk;
+	syscall_table[SYS_munmap] = sys_munmap;
 	syscall_table[SYS_clone] = sys_fork;
 	syscall_table[SYS_execve] = sys_execve;
+	syscall_table[SYS_mmap] = sys_mmap;
 	syscall_table[SYS_wait4] = sys_wait4;
 
 	printk("syscall: initialized (%d entries)\n", NR_SYSCALL);

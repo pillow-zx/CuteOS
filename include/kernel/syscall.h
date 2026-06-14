@@ -118,6 +118,14 @@
 
 #define NR_SYSCALL (SYS_clock_gettime + 1)
 
+#define PROT_READ	      0x1
+#define PROT_WRITE	      0x2
+#define PROT_EXEC	      0x4
+
+#define MAP_PRIVATE	      0x02
+#define MAP_FIXED	      0x10
+#define MAP_ANONYMOUS	      0x20
+
 static __always_inline bool user_access_begin(void)
 {
 	bool had_sum = (csr_read(sstatus) & SSTATUS_SUM) != 0;
@@ -157,6 +165,8 @@ ssize_t sys_getppid(struct trap_frame *tf);
 ssize_t sys_getuid(struct trap_frame *tf);
 ssize_t sys_getgid(struct trap_frame *tf);
 ssize_t sys_brk(struct trap_frame *tf);
+ssize_t sys_mmap(struct trap_frame *tf);
+ssize_t sys_munmap(struct trap_frame *tf);
 ssize_t sys_fork(struct trap_frame *tf);
 ssize_t sys_execve(struct trap_frame *tf);
 void exec_user_path(const char *path) __noreturn;
