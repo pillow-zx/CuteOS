@@ -23,6 +23,7 @@
 #include <asm/pte.h>
 #include <asm/csr.h>
 #include <drivers/uart.h>
+#include <drivers/virtio.h>
 
 /* ---- 内部辅助函数 ---- */
 
@@ -172,8 +173,9 @@ pte_t *mm_create_user_pgd(void)
 	for (int i = 256; i < 512; i++)
 		user_pgd[i] = kern_pgd[i];
 
-	/* 3. 映射 UART MMIO（trap 处理中 printk 可能用到） */
+	/* 3. 映射 trap 后仍可能访问的低地址 MMIO。 */
 	map_page(user_pgd, UART_BASE, UART_BASE, PTE_KERN_RW);
+	map_page(user_pgd, VIRTIO_MMIO_BASE, VIRTIO_MMIO_BASE, PTE_KERN_RW);
 
 	return user_pgd;
 }

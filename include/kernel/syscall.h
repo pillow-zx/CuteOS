@@ -159,6 +159,7 @@ ssize_t sys_getgid(struct trap_frame *tf);
 ssize_t sys_brk(struct trap_frame *tf);
 ssize_t sys_fork(struct trap_frame *tf);
 ssize_t sys_execve(struct trap_frame *tf);
+void exec_user_path(const char *path) __noreturn;
 ssize_t sys_wait4(struct trap_frame *tf);
 
 /* ---- 系统调用分发接口 ---- */

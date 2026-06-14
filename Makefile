@@ -66,6 +66,7 @@ quiet_cmd_AS = AS
 quiet_cmd_LD = LD
 quiet_cmd_OBJDUMP_S = OBJDUMP
 quiet_cmd_OBJDUMP_T = OBJDUMP
+quiet_cmd_FSIMG = FSIMG
 
 # Execute a command with optional quiet output
 #   V=0: print "  CC      xxx.o" then run command silently
@@ -207,6 +208,10 @@ cmd_AS = $(CC) $(ASFLAGS) -c -o $@ $<
 cmd_LD = $(LD) $(LDFLAGS) -T kernel.ld -o $@ $(OBJS)
 cmd_OBJDUMP_S = $(OBJDUMP) -S $@ > $@.asm
 cmd_OBJDUMP_T = $(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $@.sym
+cmd_FSIMG = rm -f $@ && dd if=/dev/zero of=$@ bs=1M count=16 2>/dev/null && \
+	mkfs.ext2 -q -F -b 1024 $@ && \
+	printf 'mkdir /bin\nwrite $(USER_ELF) /init\nwrite $(USER_ELF) /bin/init\n' | \
+	debugfs -w -f - $@ >/dev/null
 
 # =============================================================================
 # Build Rules
@@ -285,12 +290,10 @@ qemu-gdb: $(KERNEL) $(KERNEL_IMG)
 	@echo "*** Now run 'gdb' in another window (target remote :$(GDBPORT))." 1>&2
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
 
-# Create a blank disk image for testing
-$(KERNEL_IMG):
+# Create an EXT2 disk image with the test init program.
+$(KERNEL_IMG): $(USER_ELF)
 	$(Q)mkdir -p $(dir $@)
-	$(Q)dd if=/dev/zero of=$@ bs=1M count=16 2>/dev/null
-	$(Q)echo "Created blank disk image: $@ (16MB)"
-	$(Q)echo "Format with: mkfs.ext2 $@"
+	$(call cmd,FSIMG)
 
 # =============================================================================
 # Utility Targets
