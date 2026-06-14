@@ -42,9 +42,24 @@ OBJCOPY  = $(TOOLPREFIX)objcopy
 OBJDUMP  = $(TOOLPREFIX)objdump
 AR       = $(TOOLPREFIX)ar
 QEMU     = qemu-system-riscv64
+MKIMG    = ./mkimg.sh
 
 # Minimum QEMU version required
 MIN_QEMU_VERSION = 7.2
+
+# Build profile and artifact layout
+BUILD    ?= debug
+SANITIZE ?= none
+OUTROOT  ?= build
+OUTDIR   = $(OUTROOT)/$(BUILD)/sanitize-$(SANITIZE)
+
+ifeq ($(BUILD),debug)
+KERNEL_TEST_ENABLE := 1
+else ifeq ($(BUILD),release)
+KERNEL_TEST_ENABLE := 0
+else
+$(error Unsupported BUILD='$(BUILD)'; expected 'debug' or 'release')
+endif
 
 # =============================================================================
 # Verbosity Control (Linux kernel style)
@@ -86,7 +101,14 @@ include block/block.mk
 include drivers/drivers.mk
 include syscall/syscall.mk
 include lib/lib.mk
+
+ifeq ($(KERNEL_TEST_ENABLE),1)
 include test/test.mk
+KERNEL_TEST_OBJS = $(TEST_OBJS)
+else
+KERNEL_TEST_OBJS =
+endif
+
 include user/user.mk
 
 # Aggregate all kernel objects
@@ -99,14 +121,8 @@ OBJ_REL = \
 	$(BLOCK_OBJS)       \
 	$(DRIVER_OBJS)      \
 	$(SYSCALL_OBJS)     \
-	$(TEST_OBJS)	    \
+	$(KERNEL_TEST_OBJS) \
 	$(LIB_OBJS)
-
-# Build profile and artifact layout
-BUILD    ?= debug
-SANITIZE ?= none
-OUTROOT  ?= build
-OUTDIR   = $(OUTROOT)/$(BUILD)/sanitize-$(SANITIZE)
 
 # Kernel artifact names
 KERNEL_NAME = cuteos
@@ -171,12 +187,11 @@ ifeq ($(BUILD),debug)
 	CFLAGS  += $(DEBUG_CFLAGS)
 	ASFLAGS += $(DEBUG_ASFLAGS)
 	LDFLAGS += $(DEBUG_LDFLAGS)
+	CFLAGS  += -DCONFIG_KERNEL_TEST
 else ifeq ($(BUILD),release)
 	CFLAGS  += $(RELEASE_CFLAGS)
 	ASFLAGS += $(RELEASE_ASFLAGS)
 	LDFLAGS += $(RELEASE_LDFLAGS)
-else
-$(error Unsupported BUILD='$(BUILD)'; expected 'debug' or 'release')
 endif
 
 SANITIZE_CFLAGS =
@@ -209,24 +224,7 @@ cmd_LD = $(LD) $(LDFLAGS) -T kernel.ld -o $@ $(OBJS)
 cmd_OBJDUMP_S = $(OBJDUMP) -S $@ > $@.asm
 cmd_OBJDUMP_T = $(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $@.sym
 
-define FSIMG_SCRIPT
-mkdir /bin
-mkdir /dev
-cd /dev
-mknod console c 5 1
-mknod null c 1 3
-cd /
-write $(USER_INIT_ELF) /init
-write $(USER_INIT_ELF) /bin/init
-write $(USER_SH_ELF) /bin/sh
-write $(USER_TEST_ELF) /bin/syscall-test
-endef
-export FSIMG_SCRIPT
-
-cmd_FSIMG = rm -f $@ && dd if=/dev/zero of=$@ bs=1M count=16 2>/dev/null && \
-	mkfs.ext2 -q -F -b 1024 $@ && \
-	printf '%s\n' "$$FSIMG_SCRIPT" | \
-	debugfs -w -f - $@ >/dev/null
+cmd_FSIMG = $(MKIMG) $@ $(USER_INIT_ELF) $(USER_SH_ELF) $(USER_TEST_ELF)
 
 # =============================================================================
 # Build Rules
@@ -306,7 +304,7 @@ qemu-gdb: $(KERNEL) $(KERNEL_IMG)
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
 
 # Create an EXT2 disk image with the test init program.
-$(KERNEL_IMG): $(USER_ELFS)
+$(KERNEL_IMG): $(USER_ELFS) $(MKIMG)
 	$(Q)mkdir -p $(dir $@)
 	$(call cmd,FSIMG)
 

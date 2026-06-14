@@ -17,7 +17,7 @@
  *   8. task_init()              — 创建 idle (PID 0, BSS 静态), 设置 current
  *   9. timer_init()             — Sstc stimecmp 设置首次时钟中断
  *  10. sched_init()             — 初始化全局就绪队列
- *  11. kernel_test()            — 运行内核自测
+ *  11. kernel_test()            — DEBUG 构建运行内核自测
  *  12. kernel_thread(init_process, NULL) — 创建 init (PID 1)
  *  13. while(1) { wfi(); schedule(); }   — idle 循环
  *
@@ -28,8 +28,6 @@
  *   不解析 DTB，所有参数（DRAM_BASE/DRAM_SIZE/设备地址）编译时硬编码。
  *   仅 hart0 运行，非 0 hart 在 boot.S 中已被 park。
  */
-
-// #define DEBUG_ENABLE
 
 #include <kernel/printk.h>
 #include <kernel/buddy.h>
@@ -44,8 +42,8 @@
 #include <asm/csr.h>
 #include <asm/pte.h>
 
-#ifdef DEBUG_ENABLE
-	#include <kernel/test.h>
+#ifdef CONFIG_KERNEL_TEST
+#include <kernel/test.h>
 #endif
 
 /* PID 1 init 内核线程入口 (kernel/init_process.c) */
@@ -97,7 +95,7 @@ void kernel_main(void)
 	if (mount_root() < 0)
 		printk("VFS: root mount skipped\n");
 
-#ifdef DEBUG_ENABLE
+#ifdef CONFIG_KERNEL_TEST
 	kernel_test();
 #endif
 
