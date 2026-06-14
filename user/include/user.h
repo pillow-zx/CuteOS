@@ -18,6 +18,7 @@ typedef unsigned long size_t;
 /* Linux riscv64 系统调用号 */
 #define SYS_dup	    23
 #define SYS_dup3    24
+#define SYS_openat  56
 #define SYS_close   57
 #define SYS_pipe2   59
 #define SYS_read    63
@@ -34,6 +35,16 @@ typedef unsigned long size_t;
 #define SYS_execve  221
 #define SYS_mmap    222
 #define SYS_wait4   260
+
+#define AT_FDCWD    -100
+
+#define O_RDONLY    00000000
+#define O_WRONLY    00000001
+#define O_RDWR	    00000002
+#define O_CREAT	    00000100
+#define O_EXCL	    00000200
+#define O_TRUNC	    00001000
+#define O_APPEND    00002000
 
 #define PROT_READ   0x1
 #define PROT_WRITE  0x2
@@ -157,6 +168,16 @@ static inline long write(int fd, const void *buf, size_t len)
 static inline long read(int fd, void *buf, size_t len)
 {
 	return syscall(SYS_read, fd, (long)buf, (long)len);
+}
+
+static inline long openat(int dfd, const char *path, int flags, int mode)
+{
+	return syscall(SYS_openat, dfd, (long)path, flags, mode);
+}
+
+static inline long open(const char *path, int flags)
+{
+	return openat(AT_FDCWD, path, flags, 0);
 }
 
 static inline long close(int fd)

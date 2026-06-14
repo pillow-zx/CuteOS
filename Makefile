@@ -208,9 +208,22 @@ cmd_AS = $(CC) $(ASFLAGS) -c -o $@ $<
 cmd_LD = $(LD) $(LDFLAGS) -T kernel.ld -o $@ $(OBJS)
 cmd_OBJDUMP_S = $(OBJDUMP) -S $@ > $@.asm
 cmd_OBJDUMP_T = $(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $@.sym
+
+define FSIMG_SCRIPT
+mkdir /bin
+mkdir /dev
+cd /dev
+mknod console c 5 1
+mknod null c 1 3
+cd /
+write $(USER_ELF) /init
+write $(USER_ELF) /bin/init
+endef
+export FSIMG_SCRIPT
+
 cmd_FSIMG = rm -f $@ && dd if=/dev/zero of=$@ bs=1M count=16 2>/dev/null && \
 	mkfs.ext2 -q -F -b 1024 $@ && \
-	printf 'mkdir /bin\nwrite $(USER_ELF) /init\nwrite $(USER_ELF) /bin/init\n' | \
+	printf '%s\n' "$$FSIMG_SCRIPT" | \
 	debugfs -w -f - $@ >/dev/null
 
 # =============================================================================

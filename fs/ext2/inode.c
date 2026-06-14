@@ -1,8 +1,10 @@
 #include "ext2.h"
 
 #include <kernel/buffer.h>
+#include <kernel/blkdev.h>
 #include <kernel/errno.h>
 #include <kernel/slab.h>
+#include <kernel/stat.h>
 #include <kernel/string.h>
 
 static int ext2_inode_location(struct inode *inode, uint32_t *block,
@@ -30,6 +32,19 @@ static int ext2_inode_location(struct inode *inode, uint32_t *block,
 	return 0;
 }
 
+static dev_t ext2_decode_dev(uint32_t raw)
+{
+	uint32_t major = (raw >> 8) & 0xff;
+	uint32_t minor = raw & 0xff;
+
+	return MKDEV(major, minor);
+}
+
+static uint32_t ext2_encode_dev(dev_t dev)
+{
+	return (MAJOR(dev) << 8) | (dev & 0xff);
+}
+
 static void ext2_fill_vfs_inode(struct inode *inode)
 {
 	struct ext2_inode *raw = &EXT2_I(inode)->raw_inode;
@@ -39,6 +54,9 @@ static void ext2_fill_vfs_inode(struct inode *inode)
 	inode->i_gid = raw->i_gid;
 	inode->i_nlink = raw->i_links_count;
 	inode->i_size = raw->i_size;
+	if ((raw->i_mode & EXT2_S_IFMT) == EXT2_S_IFCHR ||
+	    (raw->i_mode & EXT2_S_IFMT) == EXT2_S_IFBLK)
+		inode->i_rdev = ext2_decode_dev(raw->i_block[0]);
 
 	switch (raw->i_mode & EXT2_S_IFMT) {
 	case EXT2_S_IFDIR:
@@ -106,6 +124,9 @@ int ext2_write_inode(struct inode *inode)
 	ei->raw_inode.i_gid = (uint16_t)inode->i_gid;
 	ei->raw_inode.i_links_count = (uint16_t)inode->i_nlink;
 	ei->raw_inode.i_size = (uint32_t)inode->i_size;
+	if ((inode->i_mode & S_IFMT) == S_IFCHR ||
+	    (inode->i_mode & S_IFMT) == S_IFBLK)
+		ei->raw_inode.i_block[0] = ext2_encode_dev(inode->i_rdev);
 
 	ret = ext2_inode_location(inode, &block, &offset);
 	if (ret < 0)

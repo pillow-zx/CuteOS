@@ -6,15 +6,25 @@
 #include <kernel/task.h>
 #include <kernel/slab.h>
 #include <kernel/stat.h>
+#include <kernel/blkdev.h>
 #include <kernel/string.h>
 #include <kernel/errno.h>
 #include <kernel/vfs.h>
 #include <drivers/uart.h>
 
+static ssize_t console_read(struct file *file, char *buf, size_t count);
 static ssize_t console_write(struct file *file, const char *buf, size_t count);
+static ssize_t null_read(struct file *file, char *buf, size_t count);
+static ssize_t null_write(struct file *file, const char *buf, size_t count);
 
 static const struct file_operations console_fops = {
+	.read = console_read,
 	.write = console_write,
+};
+
+static const struct file_operations null_fops = {
+	.read = null_read,
+	.write = null_write,
 };
 
 static struct file console_stdout = {
@@ -53,7 +63,22 @@ struct file *file_alloc_dentry(struct dentry *dentry, uint32_t flags,
 	if (!dentry || !dentry->d_inode)
 		return NULL;
 
-	struct file *file = file_alloc(dentry->d_inode->i_fop, mode, NULL);
+	const struct file_operations *f_op = dentry->d_inode->i_fop;
+
+	if ((dentry->d_inode->i_mode & S_IFMT) == S_IFCHR) {
+		switch (dentry->d_inode->i_rdev) {
+		case MKDEV(5, 1):
+			f_op = &console_fops;
+			break;
+		case MKDEV(1, 3):
+			f_op = &null_fops;
+			break;
+		default:
+			return NULL;
+		}
+	}
+
+	struct file *file = file_alloc(f_op, mode, NULL);
 	if (!file)
 		return NULL;
 
@@ -269,12 +294,39 @@ void file_install_standard_fds(struct task_struct *task)
 	task->fd_array[KERN_STDERR] = &console_stderr;
 }
 
+static ssize_t console_read(struct file *file, char *buf, size_t count)
+{
+	(void)file;
+
+	for (size_t i = 0; i < count; i++)
+		buf[i] = (char)uart_getc();
+
+	return (ssize_t)count;
+}
+
 static ssize_t console_write(struct file *file, const char *buf, size_t count)
 {
 	(void)file;
 
 	for (size_t i = 0; i < count; i++)
 		uart_putc(buf[i]);
+
+	return (ssize_t)count;
+}
+
+static ssize_t null_read(struct file *file, char *buf, size_t count)
+{
+	(void)file;
+	(void)buf;
+	(void)count;
+
+	return 0;
+}
+
+static ssize_t null_write(struct file *file, const char *buf, size_t count)
+{
+	(void)file;
+	(void)buf;
 
 	return (ssize_t)count;
 }
