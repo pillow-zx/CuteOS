@@ -10,6 +10,8 @@
 
 #include <user.h>
 
+#define NULL ((void *)0)
+
 static void print(const char *s)
 {
 	int len = 0;
@@ -50,7 +52,7 @@ static int streq(const char *a, const char *b)
 	return *a == *b;
 }
 
-static void print_argv(int argc, char **argv)
+static void print_argv_envp(int argc, char **argv, char **envp)
 {
 	print("[TEST] argc = ");
 	print_hex((unsigned long)argc);
@@ -61,6 +63,15 @@ static void print_argv(int argc, char **argv)
 		print_hex((unsigned long)i);
 		print("] = ");
 		print(argv[i]);
+		print("\n");
+	}
+
+	char **env_ptr = envp;
+	for (int i = 0; env_ptr[i] != NULL; i++) {
+		print("[TEST] envp[");
+		print_hex((unsigned long)i);
+		print("] = ");
+		print(env_ptr[i]);
 		print("\n");
 	}
 }
@@ -175,6 +186,30 @@ static int test_dup(void)
 		print_long(dup2_fd);
 		print("\n");
 		failures++;
+	}
+
+	return failures;
+}
+
+static int test_dev_null(void)
+{
+	int failures = 0;
+	long fd = open("/dev/null", O_WRONLY);
+
+	print("[TEST] open /dev/null = ");
+	print_long(fd);
+	print("\n");
+
+	if (fd < 0) {
+		failures++;
+	} else {
+		long n = write((int)fd, "discard", 7);
+		print("[TEST] write /dev/null returned ");
+		print_long(n);
+		print(" (expected 7)\n");
+		if (n != 7)
+			failures++;
+		close((int)fd);
 	}
 
 	return failures;
@@ -333,7 +368,11 @@ static int test_fork_exec_wait(void)
 			"argv-ok",
 			0,
 		};
-		long ret = execve("/init", child_argv, 0);
+		char *child_envp[] = {
+			"CUTEOS_ENV=ok",
+			0,
+		};
+		long ret = execve("/init", child_argv, child_envp);
 		print("[CHILD] execve FAILED, ret=");
 		print_hex((unsigned long)ret);
 		print("\n");
@@ -360,22 +399,28 @@ static int test_fork_exec_wait(void)
 	}
 }
 
-int main(int argc, char **argv)
+int main(int argc, char **argv, char **envp)
 {
 	int failures = 0;
 
 	print("=== CuteOS Syscall Test ===\n");
-	print_argv(argc, argv);
+	print_argv_envp(argc, argv, envp);
 
 	if (argc > 1 && streq(argv[1], "exec-child")) {
 		print("[EXEC-CHILD] execve replaced the fork child\n");
 		if (argc > 2 && streq(argv[2], "argv-ok"))
 			print("[EXEC-CHILD] argv preserved OK\n");
-		return 7;
+		if (envp && envp[0] && streq(envp[0], "CUTEOS_ENV=ok")) {
+			print("[EXEC-CHILD] envp preserved OK\n");
+			return 7;
+		}
+		print("[EXEC-CHILD] envp FAILED\n");
+		return 8;
 	}
 
 	failures += test_basic_syscalls();
 	failures += test_dup();
+	failures += test_dev_null();
 	failures += test_pipe_parent_child();
 	failures += test_pipe_child_parent();
 	failures += test_pipe_epipe();

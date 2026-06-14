@@ -5,7 +5,8 @@
  * 初始栈布局由内核 exec 构造：
  *   sp + 0: argc
  *   sp + 8: argv[0]
- * 清零帧指针后调用 main(argc, argv)，返回值作为 exit 状态码。
+ *   ...    argv NULL, envp[0], envp NULL
+ * 清零帧指针后调用 main(argc, argv, envp)，返回值作为 exit 状态码。
  */
 
 	.globl _start
@@ -14,9 +15,12 @@ _start:
 	/* 清零 fp (s0)，标记栈回溯终点 */
 	li	s0, 0
 
-	/* 调用 main(argc, argv) */
+	/* 调用 main(argc, argv, envp) */
 	ld	a0, 0(sp)
 	addi	a1, sp, 8
+	slli	t0, a0, 3
+	add	a2, a1, t0
+	addi	a2, a2, 8
 	call	main
 
 	/* main 返回值作为 exit 状态码 */

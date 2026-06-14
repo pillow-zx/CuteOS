@@ -25,10 +25,14 @@
 #define EXEC_MAX_ARGS	  16
 #define EXEC_MAX_ARG_LEN  128
 #define EXEC_MAX_PATH_LEN 64
+#define EXEC_MAX_ENVS	  16
+#define EXEC_MAX_ENV_LEN  128
 
-struct exec_args {
+struct exec_args_envp {
 	int argc;
 	char argv[EXEC_MAX_ARGS][EXEC_MAX_ARG_LEN];
+	int envc;
+	char envp[EXEC_MAX_ENVS][EXEC_MAX_ENV_LEN];
 };
 
 struct exec_image {
@@ -91,23 +95,25 @@ static int copy_user_string(char *dst, const char *user, size_t max_len)
 	return -E2BIG;
 }
 
-static int copy_exec_args(const char *const *uargv, struct exec_args *args)
+static int copy_arg_array(const char *const *user_array,
+			  struct exec_args_envp *args)
 {
-	memset(args, 0, sizeof(*args));
+	args->argc = 0;
 
-	if (!uargv)
+	if (!user_array)
 		return 0;
 
 	for (int i = 0; i < EXEC_MAX_ARGS; i++) {
-		const char *uarg;
+		const char *user_string;
 
-		if (copy_from_user(&uarg, &uargv[i], sizeof(uarg)) != 0)
+		if (copy_from_user(&user_string, &user_array[i],
+				   sizeof(user_string)) != 0)
 			return -EFAULT;
-		if (!uarg)
+		if (!user_string)
 			return 0;
 
-		int ret =
-			copy_user_string(args->argv[i], uarg, EXEC_MAX_ARG_LEN);
+		int ret = copy_user_string(args->argv[i], user_string,
+					   EXEC_MAX_ARG_LEN);
 		if (ret < 0)
 			return ret;
 
@@ -115,12 +121,62 @@ static int copy_exec_args(const char *const *uargv, struct exec_args *args)
 	}
 
 	const char *extra;
-	if (copy_from_user(&extra, &uargv[EXEC_MAX_ARGS], sizeof(extra)) != 0)
+	if (copy_from_user(&extra, &user_array[EXEC_MAX_ARGS],
+			   sizeof(extra)) != 0)
 		return -EFAULT;
 	if (extra)
 		return -E2BIG;
 
 	return 0;
+}
+
+static int copy_env_array(const char *const *user_array,
+			  struct exec_args_envp *args)
+{
+	args->envc = 0;
+
+	if (!user_array)
+		return 0;
+
+	for (int i = 0; i < EXEC_MAX_ENVS; i++) {
+		const char *user_string;
+
+		if (copy_from_user(&user_string, &user_array[i],
+				   sizeof(user_string)) != 0)
+			return -EFAULT;
+		if (!user_string)
+			return 0;
+
+		int ret = copy_user_string(args->envp[i], user_string,
+					   EXEC_MAX_ENV_LEN);
+		if (ret < 0)
+			return ret;
+
+		args->envc++;
+	}
+
+	const char *extra;
+	if (copy_from_user(&extra, &user_array[EXEC_MAX_ENVS],
+			   sizeof(extra)) != 0)
+		return -EFAULT;
+	if (extra)
+		return -E2BIG;
+
+	return 0;
+}
+
+static int copy_exec_args(const char *const *uargv, const char *const *uenvp,
+			  struct exec_args_envp *args)
+{
+	int ret;
+
+	memset(args, 0, sizeof(*args));
+
+	ret = copy_arg_array(uargv, args);
+	if (ret < 0)
+		return ret;
+
+	return copy_env_array(uenvp, args);
 }
 
 static int open_exec_image(const char *path, struct exec_image *image)
@@ -182,7 +238,7 @@ static void *stack_sp_to_kernel(void *stack_page, vaddr_t sp)
 	return (uint8_t *)stack_page + (sp - USER_STACK_BASE);
 }
 
-static int setup_user_stack(struct mm_struct *mm, const struct exec_args *args,
+static int setup_user_stack(struct mm_struct *mm, const struct exec_args_envp *args,
 			    vaddr_t *sp_out)
 {
 	static_assert(USER_STACK_TOP - USER_STACK_BASE == PAGE_SIZE,
@@ -197,7 +253,19 @@ static int setup_user_stack(struct mm_struct *mm, const struct exec_args *args,
 		 PTE_USER_RW);
 
 	uintptr_t user_argv[EXEC_MAX_ARGS + 1];
+	uintptr_t user_envp[EXEC_MAX_ENVS + 1];
 	uintptr_t sp = USER_STACK_TOP;
+
+	for (int i = args->envc - 1; i >= 0; i--) {
+		size_t len = strlen(args->envp[i]) + 1;
+		if (sp < USER_STACK_BASE + len)
+			return -E2BIG;
+
+		sp -= len;
+		memcpy(stack_sp_to_kernel(stack_page, sp), args->envp[i], len);
+		user_envp[i] = sp;
+	}
+	user_envp[args->envc] = 0;
 
 	for (int i = args->argc - 1; i >= 0; i--) {
 		size_t len = strlen(args->argv[i]) + 1;
@@ -213,7 +281,8 @@ static int setup_user_stack(struct mm_struct *mm, const struct exec_args *args,
 	sp &= ~(uintptr_t)0xf;
 
 	size_t argv_bytes = (size_t)(args->argc + 1) * sizeof(uintptr_t);
-	size_t frame_bytes = sizeof(uintptr_t) + argv_bytes;
+	size_t envp_bytes = (size_t)(args->envc + 1) * sizeof(uintptr_t);
+	size_t frame_bytes = sizeof(uintptr_t) + argv_bytes + envp_bytes;
 	size_t padding = frame_bytes & 0xf ? 16 - (frame_bytes & 0xf) : 0;
 
 	if (sp < USER_STACK_BASE + frame_bytes + padding)
@@ -224,179 +293,13 @@ static int setup_user_stack(struct mm_struct *mm, const struct exec_args *args,
 	uint8_t *frame = stack_sp_to_kernel(stack_page, sp);
 	*(uintptr_t *)frame = (uintptr_t)args->argc;
 	memcpy(frame + sizeof(uintptr_t), user_argv, argv_bytes);
+	memcpy(frame + sizeof(uintptr_t) + argv_bytes, user_envp, envp_bytes);
 
 	*sp_out = sp;
 	return 0;
 }
 
-static int load_elf_image(void *bin_start, size_t bin_size,
-			  const struct exec_args *args,
-			  struct mm_struct **mm_out, vaddr_t *entry_out,
-			  vaddr_t *sp_out)
-{
-	/* TODO(mm): 这里仍直接建立 ELF 段映射和用户栈。等文件 exec 与 mmap
-	 * 稳定后，把“分配页并映射文件内容/栈”的通用部分沉到 mm 层。 */
-	*mm_out = NULL;
-	*entry_out = 0;
-	*sp_out = 0;
-
-	printk("exec: loading ELF binary (%lu bytes)\n", (size_t)bin_size);
-
-	if (bin_size < sizeof(Elf64_Ehdr))
-		return -ENOEXEC;
-
-	Elf64_Ehdr *ehdr = (Elf64_Ehdr *)bin_start;
-
-	if (ehdr->e_ident[EI_MAG0] != ELFMAG0 ||
-	    ehdr->e_ident[EI_MAG1] != ELFMAG1 ||
-	    ehdr->e_ident[EI_MAG2] != ELFMAG2 ||
-	    ehdr->e_ident[EI_MAG3] != ELFMAG3)
-		return -ENOEXEC;
-	if (ehdr->e_ident[EI_CLASS] != ELFCLASS64)
-		return -ENOEXEC;
-	if (ehdr->e_ident[EI_DATA] != ELFDATA2LSB)
-		return -ENOEXEC;
-	if (ehdr->e_type != ET_EXEC || ehdr->e_machine != EM_RISCV)
-		return -ENOEXEC;
-	if (ehdr->e_phoff == 0 || ehdr->e_phnum == 0)
-		return -ENOEXEC;
-	if (ehdr->e_phoff + (uint64_t)ehdr->e_phnum * ehdr->e_phentsize >
-	    bin_size)
-		return -ENOEXEC;
-
-	struct mm_struct *mm = mm_alloc();
-	if (!mm)
-		return -ENOMEM;
-
-	mm->pgd = mm_create_user_pgd();
-	if (!mm->pgd) {
-		mm_destroy(mm);
-		return -ENOMEM;
-	}
-
-	Elf64_Phdr *phdrs =
-		(Elf64_Phdr *)((uint8_t *)bin_start + ehdr->e_phoff);
-	vaddr_t first_vaddr = 0;
-	vaddr_t last_end = 0;
-	int vma_idx = 0;
-
-	for (int i = 0; i < ehdr->e_phnum; i++) {
-		Elf64_Phdr *ph = &phdrs[i];
-		if (ph->p_type != PT_LOAD)
-			continue;
-		if (ph->p_memsz == 0)
-			continue;
-
-		printk("exec: PT_LOAD vaddr=%p filesz=%llu memsz=%llu "
-		       "flags=0x%x\n",
-		       (void *)ph->p_vaddr, ph->p_filesz, ph->p_memsz,
-		       ph->p_flags);
-
-		if (!(ph->p_flags & PF_R)) {
-			mm_destroy(mm);
-			return -ENOEXEC;
-		}
-
-		if (ph->p_offset + ph->p_filesz > bin_size) {
-			mm_destroy(mm);
-			return -ENOEXEC;
-		}
-
-		vaddr_t seg_start = ph->p_vaddr;
-		vaddr_t seg_end = ph->p_vaddr + ph->p_memsz;
-		if (seg_end < seg_start || seg_end > USER_STACK_BASE) {
-			mm_destroy(mm);
-			return -ENOEXEC;
-		}
-
-		if (first_vaddr == 0 || seg_start < first_vaddr)
-			first_vaddr = seg_start;
-		if (seg_end > last_end)
-			last_end = seg_end;
-
-		vaddr_t page_start = PFN_DOWN(seg_start) << PAGE_SHIFT;
-		vaddr_t page_end = PFN_UP(seg_end) << PAGE_SHIFT;
-
-		for (vaddr_t va = page_start; va < page_end; va += PAGE_SIZE) {
-			void *page = get_free_page(0);
-			if (!page) {
-				mm_destroy(mm);
-				return -ENOMEM;
-			}
-			memset(page, 0, PAGE_SIZE);
-
-			vaddr_t src_start =
-				ph->p_offset +
-				(va < seg_start ? 0 : va - seg_start);
-			vaddr_t src_end = ph->p_offset + ph->p_filesz;
-
-			if (src_start < src_end) {
-				uintptr_t copy_off =
-					(va < seg_start) ? seg_start - va : 0;
-				size_t copy_len = PAGE_SIZE - copy_off;
-				uintptr_t remaining = src_end - src_start;
-				if (copy_len > remaining)
-					copy_len = remaining;
-
-				memcpy((uint8_t *)page + copy_off,
-				       (uint8_t *)bin_start + src_start,
-				       copy_len);
-			}
-
-			map_page(mm->pgd, va, __pa((uintptr_t)page),
-				 elf_flags_to_pte(ph->p_flags));
-		}
-
-		if (vma_idx >= NR_VMA) {
-			mm_destroy(mm);
-			return -E2BIG;
-		}
-
-		struct vm_area_struct *vma = &mm->vma[vma_idx++];
-		vma->vm_start = seg_start;
-		vma->vm_end = seg_end;
-		vma->vm_flags = elf_flags_to_vma(ph->p_flags);
-		vma->vm_type = VMA_CODE;
-		vma->used = true;
-	}
-
-	if (last_end == 0) {
-		mm_destroy(mm);
-		return -ENOEXEC;
-	}
-
-	fence_i();
-
-	mm->code_start = first_vaddr;
-	mm->code_end = PFN_UP(last_end) << PAGE_SHIFT;
-	mm->brk = mm->code_end;
-
-	vaddr_t user_sp;
-	int ret = setup_user_stack(mm, args, &user_sp);
-	if (ret < 0) {
-		mm_destroy(mm);
-		return ret;
-	}
-
-	if (vma_idx >= NR_VMA) {
-		mm_destroy(mm);
-		return -E2BIG;
-	}
-
-	struct vm_area_struct *stack_vma = &mm->vma[vma_idx++];
-	stack_vma->vm_start = USER_STACK_BASE;
-	stack_vma->vm_end = USER_STACK_TOP;
-	stack_vma->vm_flags = VM_READ | VM_WRITE;
-	stack_vma->vm_type = VMA_STACK;
-	stack_vma->used = true;
-
-	*mm_out = mm;
-	*entry_out = ehdr->e_entry;
-	*sp_out = user_sp;
-	return 0;
-}
-
-static int load_elf_file(struct exec_image *image, const struct exec_args *args,
+static int load_elf_file(struct exec_image *image, const struct exec_args_envp *args,
 			 struct mm_struct **mm_out, vaddr_t *entry_out,
 			 vaddr_t *sp_out)
 {
@@ -625,32 +528,14 @@ static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
 	tf->sstatus = SSTATUS_SPIE;
 }
 
-void exec_user_elf(void *bin_start, size_t bin_size)
-{
-	struct exec_args args;
-	memset(&args, 0, sizeof(args));
-	args.argc = 1;
-	strcpy(args.argv[0], "init");
-
-	struct mm_struct *mm;
-	vaddr_t entry;
-	vaddr_t sp;
-	int ret = load_elf_image(bin_start, bin_size, &args, &mm, &entry, &sp);
-	if (ret < 0)
-		panic("exec: initial ELF load failed (%d)", ret);
-
-	struct trap_frame tf_storage;
-	install_exec_mm(mm, &tf_storage, entry, sp);
-
-	trapret_to_user(&tf_storage);
-}
-
 void exec_user_path(const char *path)
 {
-	struct exec_args args;
+	struct exec_args_envp args;
 	memset(&args, 0, sizeof(args));
-	args.argc = 1;
-	strcpy(args.argv[0], path);
+	/* args.argc = 1; */
+	/* strcpy(args.argv[0], path); */
+	/* args.envc = 1; */
+	/* strcpy(args.envp[0], "envp test" ); */
 
 	struct exec_image image;
 	int ret = open_exec_image(path, &image);
@@ -675,14 +560,15 @@ ssize_t sys_execve(struct trap_frame *tf)
 {
 	const char *upath = (const char *)tf->a0;
 	const char *const *uargv = (const char *const *)tf->a1;
+	const char *const *uenvp = (const char *const *)tf->a2;
 
 	char path[EXEC_MAX_PATH_LEN];
 	int ret = copy_user_string(path, upath, sizeof(path));
 	if (ret < 0)
 		return ret;
 
-	struct exec_args args;
-	ret = copy_exec_args(uargv, &args);
+	struct exec_args_envp args;
+	ret = copy_exec_args(uargv, uenvp, &args);
 	if (ret < 0)
 		return ret;
 

@@ -76,7 +76,7 @@ ssize_t sys_fork(struct trap_frame *tf)
 		return -ENOMEM;
 	}
 
-	/* 3. 计算子进程 satp（与 exec_user_elf 相同逻辑） */
+	/* 3. 计算子进程 satp */
 	if (child->mm) {
 		paddr_t pgd_pa = __pa((uintptr_t)child->mm->pgd);
 		child->satp = SATP_MODE_SV39 | (pgd_pa >> PAGE_SHIFT);
