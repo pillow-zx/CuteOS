@@ -98,8 +98,12 @@ struct task_struct {
 	volatile uint8_t need_resched; /* 时钟 tick 置位，trap 返回前触发调度 */
 };
 
+static_assert(offsetof(struct task_struct, kstack) == 128,
+	       "TASK_KSTACK offset in entry.S out of sync with task_struct");
 static_assert(offsetof(struct task_struct, satp) == 144,
-	       "TASK_SATP offset in entry.S out of sync with struct task_struct");
+	       "TASK_SATP offset in entry.S out of sync with task_struct");
+static_assert(KSTACK_SIZE == 8192,
+                "entry.S __trapret hardcodes kstack+8192; update both if KSTACK_ORDER changes");
 
 /* ---- 全局变量 ---- */
 

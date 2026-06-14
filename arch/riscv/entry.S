@@ -212,13 +212,21 @@ __trapret:
 
 .Lret_user:
 	/*
-	 * sscratch = 内核栈顶。
+	 * sscratch = 当前进程内核栈顶。
 	 *
 	 * U→S 入口会把 user_sp 写入 -8(sscratch)，即栈顶下方的
 	 * scratch slot。这样不写出栈顶，也不会让下一次 trap_frame
-	 * 的 frame base 漂移。
+	 * 的 frame base 漂移。不要从当前 trap_frame 的地址推导栈顶：
+	 * exec_user_path() 首次进入用户态时使用的是普通内核栈局部 frame。
 	 */
-	addi    t0, sp, TRAP_FRAME_SIZE
+	la      t0, current
+	ld      t0, 0(t0)               /* t0 = current (task_struct *) */
+	ld      t0, TASK_KSTACK(t0)     /* t0 = current->kstack */
+	addi    t0, t0, 2047
+	addi    t0, t0, 2047
+	addi    t0, t0, 2047
+	addi    t0, t0, 2047
+	addi    t0, t0, 4               /* t0 = kstack + 8192 */
 	csrw    sscratch, t0
 
 	/* 切换到当前进程的用户页表 */

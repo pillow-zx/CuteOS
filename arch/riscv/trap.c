@@ -75,7 +75,8 @@ void trap_handler(struct trap_frame *tf)
 		switch (code) {
 		case IRQ_S_TIMER:
 			handle_timer_irq();
-			if (current && current->need_resched) {
+			if (!(tf->sstatus & SSTATUS_SPP) && current &&
+			    current->need_resched) {
 				current->need_resched = 0;
 				schedule();
 			}

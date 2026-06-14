@@ -71,9 +71,12 @@
 #define CTX_S11  (13*8)
 
 /*
- * Must match offsetof(struct task_struct, satp). The C side checks this in
+ * Must match offsetof(struct task_struct, ...). The C side checks these in
  * include/kernel/task.h, catching layout drift at build time.
  */
+#define TASK_KSTACK 128
 #define TASK_SATP 144
+
+#define TASK_KSTACK_SIZE 8192
 
 #endif
