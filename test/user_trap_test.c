@@ -199,6 +199,8 @@ void test_trap_user_return_task_setup(void)
 	void *stack_page = NULL;
 	bool enqueued = false;
 	bool hook_installed = false;
+	bool timer_quiesced = false;
+	unsigned long saved_sie = 0;
 	uintptr_t user_pc = 0;
 	uintptr_t user_sp = 0;
 	uintptr_t code_pa = 0;
@@ -248,10 +250,27 @@ void test_trap_user_return_task_setup(void)
 		trap_set_test_hook(user_trap_test_hook);
 		hook_installed = true;
 
+		/*
+		 * 关闭时钟中断，使整段手工编排的 U->S 往返对 timer 原子。
+		 *
+		 * 本测试的 test hook 会把"测试任务发出的任意 trap"一律改写到
+		 * resume 并手工 switch_to(idle)。若 timer 在 schedule() /
+		 * __trapret / resume 等 S 态脚手架中（此时 SIE=1）打断，hook
+		 * 会在上下文切换中途强行 switch，破坏手工切换的不变量，随机
+		 * 表现为 panic 退出或卡死。注意伪造任务的 sstatus=0 已保证 U
+		 * 态中断关闭，但 S 态脚手架仍暴露在 timer 下，故在此显式屏蔽。
+		 */
+		saved_sie = csr_read(sie);
+		csr_clear(sie, SIE_STIE);
+		timer_quiesced = true;
+
 		sched_enqueue(t);
 		enqueued = true;
 		schedule();
 		enqueued = false;
+
+		csr_write(sie, saved_sie);
+		timer_quiesced = false;
 
 		trap_set_test_hook(NULL);
 		hook_installed = false;
@@ -270,6 +289,10 @@ fail:
 cleanup:
 	if (hook_installed)
 		trap_set_test_hook(NULL);
+	if (timer_quiesced) {
+		csr_write(sie, saved_sie);
+		timer_quiesced = false;
+	}
 	if (enqueued)
 		sched_dequeue(t);
 	if (t)
