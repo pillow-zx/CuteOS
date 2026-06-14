@@ -1,10 +1,9 @@
 # user/build.mk - 用户态程序构建
 #
-# 编译用户程序为 flat binary (init.bin)，
-# 供内核通过 .incbin 嵌入。
+# 每个用户程序链接为独立 ELF，由根文件系统镜像写入 /bin。
 #
 # 构建流程：
-#   .c → .o → .elf → .bin (objcopy -O binary)
+#   .c → .o → .elf
 #
 # 由主 Makefile include 引入，TOOLPREFIX 由主 Makefile 检测。
 
@@ -18,10 +17,16 @@ USER_CFLAGS  += -Wall -Werror -O0 -g
 USER_CFLAGS  += -I user/include
 
 USER_OUT  = build/user
-USER_ELF  = $(USER_OUT)/init.elf
-USER_BIN  = $(USER_OUT)/init.bin
 
-USER_OBJS = $(USER_OUT)/start.o $(USER_OUT)/init/init.o
+USER_INIT_ELF = $(USER_OUT)/init/init.elf
+USER_SH_ELF   = $(USER_OUT)/init/sh.elf
+USER_TEST_ELF = $(USER_OUT)/bin/syscall-test.elf
+USER_ELFS     = $(USER_INIT_ELF) $(USER_SH_ELF) $(USER_TEST_ELF)
+
+USER_COMMON_OBJS = $(USER_OUT)/start.o $(USER_OUT)/lib/ulib.o
+USER_INIT_OBJS   = $(USER_COMMON_OBJS) $(USER_OUT)/init/init.o
+USER_SH_OBJS     = $(USER_COMMON_OBJS) $(USER_OUT)/init/shell.o
+USER_TEST_OBJS   = $(USER_COMMON_OBJS) $(USER_OUT)/bin/syscall-test.o
 
 # Verbose control — reuse V / Q from main Makefile
 #
@@ -35,7 +40,7 @@ quiet_user_OBJCOPY  = OBJCOPY
 user_cmd = $(if $(filter 1,$(V)),$(user_cmd_$(1)),$(Q)printf '  %-7s %s\n' '$(quiet_user_$(1))' '$@' && $(user_cmd_$(1)))
 
 user_cmd_CC      = $(USER_CC) $(USER_CFLAGS) -c -o $@ $<
-user_cmd_LD      = $(USER_LD) -T user/user.ld -o $@ $(USER_OBJS)
+user_cmd_LD      = $(USER_LD) -T user/user.ld -o $@ $(filter %.o,$^)
 user_cmd_OBJCOPY = $(USER_OBJCOPY) -O binary $< $@
 
 $(USER_OUT)/%.o: user/%.S
@@ -46,8 +51,11 @@ $(USER_OUT)/%.o: user/%.c
 	@mkdir -p $(dir $@)
 	$(call user_cmd,CC)
 
-$(USER_ELF): $(USER_OBJS) user/user.ld
+$(USER_INIT_ELF): $(USER_INIT_OBJS) user/user.ld
 	$(call user_cmd,LD)
 
-$(USER_BIN): $(USER_ELF)
-	$(call user_cmd,OBJCOPY)
+$(USER_SH_ELF): $(USER_SH_OBJS) user/user.ld
+	$(call user_cmd,LD)
+
+$(USER_TEST_ELF): $(USER_TEST_OBJS) user/user.ld
+	$(call user_cmd,LD)

@@ -27,6 +27,13 @@ static const struct file_operations null_fops = {
 	.write = null_write,
 };
 
+static struct file console_stdin = {
+	.f_op = &console_fops,
+	.f_mode = FMODE_READ,
+	.refcount = 1,
+	.static_file = true,
+};
+
 static struct file console_stdout = {
 	.f_op = &console_fops,
 	.f_mode = FMODE_WRITE,
@@ -290,6 +297,7 @@ void file_install_standard_fds(struct task_struct *task)
 	if (!task)
 		return;
 
+	task->fd_array[KERN_STDIN] = &console_stdin;
 	task->fd_array[KERN_STDOUT] = &console_stdout;
 	task->fd_array[KERN_STDERR] = &console_stderr;
 }

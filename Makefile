@@ -216,8 +216,10 @@ cd /dev
 mknod console c 5 1
 mknod null c 1 3
 cd /
-write $(USER_ELF) /init
-write $(USER_ELF) /bin/init
+write $(USER_INIT_ELF) /init
+write $(USER_INIT_ELF) /bin/init
+write $(USER_SH_ELF) /bin/sh
+write $(USER_TEST_ELF) /bin/syscall-test
 endef
 export FSIMG_SCRIPT
 
@@ -304,7 +306,7 @@ qemu-gdb: $(KERNEL) $(KERNEL_IMG)
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
 
 # Create an EXT2 disk image with the test init program.
-$(KERNEL_IMG): $(USER_ELF)
+$(KERNEL_IMG): $(USER_ELFS)
 	$(Q)mkdir -p $(dir $@)
 	$(call cmd,FSIMG)
 
@@ -336,7 +338,7 @@ sym: $(KERNEL)
 # Cleanup
 # =============================================================================
 
-user: $(USER_ELF)
+user: $(USER_ELFS)
 
 clean-user:
 	$(Q)rm -rf $(USER_OUT)
