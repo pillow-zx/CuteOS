@@ -4,27 +4,16 @@
 /*
  * include/kernel/syscall.h - 系统调用号（Linux riscv64 ABI）
  *
- * 定义约 34 个系统调用的 SYS_* 常量。
- * 编号遵循 Linux riscv64 ABI，以确保与 busybox 等
+ * 定义 SYS_* 常量，编号遵循 Linux riscv64 ABI，以便与 busybox 等
  * 用户空间二进制程序兼容。
  *
  * 系统调用分发：
  *   syscall_table[] - 按 SYS_* 编号索引的函数指针数组
  *   do_syscall(tf)  - 从 trap_handler 在用户模式 ecall 时调用
  *
- * 支持的 SYS_* 编号：
- *   17  getcwd      23  dup         24  dup3
- *   34  mkdirat     35  unlinkat    49  chdir
- *   56  openat      57  close       59  pipe2
- *   61  getdents64  62  lseek       63  read         64  write
- *   80  fstat
- *   93  exit        94  exit_group  96  set_tid_addr
- *   101 nanosleep   124 sched_yield 129 kill
- *   134 sigaction   135 sigprocmask 139 sigreturn
- *   160 uname       169 gettimeofday
- *   172 getpid      172 getppid     174 getuid       175 getgid
- *   214 brk         215 munmap      220 fork        221 execve
- *   222 mmap        226 mprotect    260 wait4
+ * 已实现的入口在 syscall/syscall.c::syscall_init() 中登记；尚未实现的
+ * 兼容入口集中在 syscall/sys_stub.c 返回 -ENOSYS。具体编号请直接查阅
+ * 下面的 #define，避免在此维护易过期的编号清单。
  */
 
 #include <kernel/types.h>
@@ -45,6 +34,7 @@
 #define SYS_statfs64	      43
 #define SYS_fstatfs64	      44
 #define SYS_ftruncate64	      46
+#define SYS_fallocate	      47
 #define SYS_faccessat	      48
 #define SYS_chdir	      49
 #define SYS_openat	      56
@@ -152,6 +142,10 @@ struct trap_frame;
 
 ssize_t sys_write(struct trap_frame *tf);
 ssize_t sys_read(struct trap_frame *tf);
+ssize_t sys_readv(struct trap_frame *tf);
+ssize_t sys_writev(struct trap_frame *tf);
+ssize_t sys_pread64(struct trap_frame *tf);
+ssize_t sys_pwrite64(struct trap_frame *tf);
 ssize_t sys_openat(struct trap_frame *tf);
 ssize_t sys_close(struct trap_frame *tf);
 ssize_t sys_lseek(struct trap_frame *tf);
@@ -160,8 +154,14 @@ ssize_t sys_mkdirat(struct trap_frame *tf);
 ssize_t sys_unlinkat(struct trap_frame *tf);
 ssize_t sys_chdir(struct trap_frame *tf);
 ssize_t sys_getcwd(struct trap_frame *tf);
+ssize_t sys_faccessat(struct trap_frame *tf);
 ssize_t sys_getdents64(struct trap_frame *tf);
+ssize_t sys_newfstatat(struct trap_frame *tf);
 ssize_t sys_fstat(struct trap_frame *tf);
+ssize_t sys_fsync(struct trap_frame *tf);
+ssize_t sys_fdatasync(struct trap_frame *tf);
+ssize_t sys_ftruncate64(struct trap_frame *tf);
+ssize_t sys_fallocate(struct trap_frame *tf);
 ssize_t sys_mknod(struct trap_frame *tf);
 ssize_t sys_dup(struct trap_frame *tf);
 ssize_t sys_dup3(struct trap_frame *tf);
@@ -175,13 +175,41 @@ ssize_t sys_geteuid(struct trap_frame *tf);
 ssize_t sys_getgid(struct trap_frame *tf);
 ssize_t sys_getegid(struct trap_frame *tf);
 ssize_t sys_gettid(struct trap_frame *tf);
+ssize_t sys_set_tid_addr(struct trap_frame *tf);
+ssize_t sys_setuid(struct trap_frame *tf);
+ssize_t sys_setgid(struct trap_frame *tf);
+ssize_t sys_getgroups(struct trap_frame *tf);
+ssize_t sys_setgroups(struct trap_frame *tf);
+ssize_t sys_uname(struct trap_frame *tf);
+ssize_t sys_umask(struct trap_frame *tf);
+ssize_t sys_sysinfo(struct trap_frame *tf);
 ssize_t sys_brk(struct trap_frame *tf);
 ssize_t sys_mmap(struct trap_frame *tf);
 ssize_t sys_munmap(struct trap_frame *tf);
+ssize_t sys_mremap(struct trap_frame *tf);
+ssize_t sys_mprotect(struct trap_frame *tf);
+ssize_t sys_mlock(struct trap_frame *tf);
+ssize_t sys_munlock(struct trap_frame *tf);
+ssize_t sys_mincore(struct trap_frame *tf);
+ssize_t sys_madvise(struct trap_frame *tf);
 ssize_t sys_fork(struct trap_frame *tf);
 ssize_t sys_execve(struct trap_frame *tf);
 void exec_user_path(const char *path) __noreturn;
 ssize_t sys_wait4(struct trap_frame *tf);
+ssize_t sys_epoll_create1(struct trap_frame *tf);
+ssize_t sys_epoll_ctl(struct trap_frame *tf);
+ssize_t sys_epoll_pwait(struct trap_frame *tf);
+ssize_t sys_umount(struct trap_frame *tf);
+ssize_t sys_mount(struct trap_frame *tf);
+ssize_t sys_statfs64(struct trap_frame *tf);
+ssize_t sys_fstatfs64(struct trap_frame *tf);
+ssize_t sys_ppoll(struct trap_frame *tf);
+ssize_t sys_readlinkat(struct trap_frame *tf);
+ssize_t sys_futex(struct trap_frame *tf);
+ssize_t sys_set_robust_list(struct trap_frame *tf);
+ssize_t sys_get_robust_list(struct trap_frame *tf);
+ssize_t sys_sched_setaffinity(struct trap_frame *tf);
+ssize_t sys_sched_getaffinity(struct trap_frame *tf);
 ssize_t sys_kill(struct trap_frame *tf);
 ssize_t sys_tgkill(struct trap_frame *tf);
 ssize_t sys_sigaltstack(struct trap_frame *tf);
@@ -202,6 +230,10 @@ ssize_t sys_clock_getres(struct trap_frame *tf);
 ssize_t sys_clock_nanosleep(struct trap_frame *tf);
 ssize_t sys_times(struct trap_frame *tf);
 ssize_t sys_gettimeofday(struct trap_frame *tf);
+ssize_t sys_prlimit64(struct trap_frame *tf);
+ssize_t sys_renameat2(struct trap_frame *tf);
+ssize_t sys_getrandom(struct trap_frame *tf);
+ssize_t sys_rseq(struct trap_frame *tf);
 
 /* ---- 系统调用分发接口 ---- */
 

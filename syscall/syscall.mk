@@ -5,4 +5,6 @@ SYSCALL_OBJS = \
 	syscall/sys_proc.o      \
 	syscall/sys_file.o      \
 	syscall/sys_mm.o        \
-	syscall/sys_signal.o
+	syscall/sys_signal.o    \
+	syscall/sys_misc.o      \
+	syscall/sys_stub.o

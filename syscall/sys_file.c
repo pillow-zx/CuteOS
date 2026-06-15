@@ -38,7 +38,6 @@
 
 /* 内核临时缓冲区大小，sys_write 分块拷贝使用 */
 #define WRITE_BUF_SIZE 256
-#define DIRENT_BUF_SIZE 512
 #define PATH_BUF_SIZE  256
 
 #define SEEK_SET 0
@@ -46,6 +45,22 @@
 #define SEEK_END 2
 
 #define TCGETS 0x5401
+
+#define F_OK 0
+#define R_OK 4
+#define W_OK 2
+#define X_OK 1
+
+#define AT_EMPTY_PATH 0x1000
+
+#define FALLOC_FL_KEEP_SIZE 0x01
+
+/*
+ * ftruncate/fallocate 允许设置的最大 i_size。真实上界取决于具体文件系统；
+ * 此处取保守值，主要防止无界膨胀导致 fill_kstat 的 st_blocks 计算溢出，
+ * 以及未来 extent/块分配逻辑对越界 i_size 误判。
+ */
+#define MAX_FILE_SIZE (1ULL << 40) /* 1 TiB */
 
 struct linux_dirent64 {
 	uint64_t d_ino;
@@ -61,6 +76,48 @@ struct getdents_ctx {
 	size_t written;
 	loff_t pos;
 };
+
+struct sys_iovec {
+	uint64_t iov_base;
+	uint64_t iov_len;
+};
+
+static struct file *fd_get_readable(int fd)
+{
+	struct file *file = fd_get(fd);
+
+	if (!file || !(file->f_mode & FMODE_READ) || !file->f_op ||
+	    !file->f_op->read)
+		return NULL;
+
+	return file;
+}
+
+static struct file *fd_get_writable(int fd)
+{
+	struct file *file = fd_get(fd);
+
+	if (!file || !(file->f_mode & FMODE_WRITE) || !file->f_op ||
+	    !file->f_op->write)
+		return NULL;
+
+	return file;
+}
+
+static void inode_persist(struct inode *inode)
+{
+	if (inode && inode->i_sb && inode->i_sb->s_op &&
+	    inode->i_sb->s_op->write_inode)
+		inode->i_sb->s_op->write_inode(inode);
+}
+
+static uint32_t apply_umask(uint32_t mode)
+{
+	if (!current)
+		return mode;
+
+	return mode & ~current->umask;
+}
 
 static uint8_t vfs_type_to_dirent(uint8_t type)
 {
@@ -121,7 +178,8 @@ static void fill_kstat(struct kstat *st, struct inode *inode)
 	st->st_rdev = inode->i_rdev;
 	st->st_size = (int64_t)inode->i_size;
 	st->st_blksize = 1024;
-	st->st_blocks = (inode->i_size + 511) / 512;
+	/* 向上取整；逐项运算避免 i_size 极大时 (i_size + 511) 溢出 */
+	st->st_blocks = inode->i_size / 512 + (inode->i_size % 512 ? 1 : 0);
 }
 
 static int getcwd_build(char *buf, size_t size)
@@ -158,6 +216,101 @@ static int getcwd_build(char *buf, size_t size)
 
 	buf[pos] = '\0';
 	return (int)pos + 1;
+}
+
+static ssize_t rw_user_buffer(struct file *file, void *buf, size_t len,
+			      bool write)
+{
+	char kbuf[WRITE_BUF_SIZE];
+	size_t done = 0;
+
+	if (!access_ok(buf, len))
+		return -EFAULT;
+
+	while (done < len) {
+		size_t chunk = len - done;
+		ssize_t ret;
+
+		if (chunk > WRITE_BUF_SIZE)
+			chunk = WRITE_BUF_SIZE;
+
+		if (write) {
+			if (copy_from_user(kbuf, (char *)buf + done, chunk) !=
+			    0)
+				return -EFAULT;
+			ret = vfs_write(file, kbuf, chunk);
+		} else {
+			ret = vfs_read(file, kbuf, chunk);
+			if (ret > 0 &&
+			    copy_to_user((char *)buf + done, kbuf,
+					 (size_t)ret) != 0)
+				return -EFAULT;
+		}
+
+		if (ret < 0)
+			return ret;
+		if (ret == 0)
+			break;
+
+		done += (size_t)ret;
+		if ((size_t)ret < chunk)
+			break;
+	}
+
+	return (ssize_t)done;
+}
+
+static ssize_t rw_at_offset(struct file *file, void *buf, size_t len,
+			    loff_t offset, bool write)
+{
+	loff_t old_pos;
+	ssize_t ret;
+
+	if (offset < 0)
+		return -EINVAL;
+
+	old_pos = file->f_pos;
+	file->f_pos = offset;
+	ret = rw_user_buffer(file, buf, len, write);
+	file->f_pos = old_pos;
+
+	return ret;
+}
+
+static ssize_t rw_iovec(struct file *file, const struct sys_iovec *uiov,
+			size_t iovcnt, bool write)
+{
+	struct sys_iovec iov;
+	ssize_t total = 0;
+
+	if (iovcnt > 64)
+		return -EINVAL;
+
+	for (size_t i = 0; i < iovcnt; i++) {
+		size_t done = 0;
+
+		if (copy_from_user(&iov, uiov + i, sizeof(iov)) != 0)
+			return total ? total : -EFAULT;
+		if (!access_ok((void *)(uintptr_t)iov.iov_base, iov.iov_len))
+			return total ? total : -EFAULT;
+
+		while (done < iov.iov_len) {
+			ssize_t ret = rw_user_buffer(
+				file,
+				(void *)(uintptr_t)(iov.iov_base + done),
+				(size_t)(iov.iov_len - done), write);
+
+			if (ret < 0)
+				return total ? total : ret;
+			if (ret == 0)
+				return total;
+
+			done += (size_t)ret;
+			total += ret;
+		}
+	}
+
+	return total;
 }
 
 static int filldir64(void *arg, const char *name, size_t namelen,
@@ -203,7 +356,7 @@ ssize_t sys_openat(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	return vfs_open(path, flags, mode);
+	return vfs_open(path, flags, apply_umask(mode));
 }
 
 ssize_t sys_write(struct trap_frame *tf)
@@ -211,37 +364,12 @@ ssize_t sys_write(struct trap_frame *tf)
 	int fd = (int)tf->a0;
 	const char *buf = (const char *)tf->a1;
 	size_t len = tf->a2;
+	struct file *file = fd_get_writable(fd);
 
-	struct file *file = fd_get(fd);
-	if (!file || !(file->f_mode & FMODE_WRITE) || !file->f_op ||
-	    !file->f_op->write)
+	if (!file)
 		return -EBADF;
 
-	/* 校验用户地址范围 */
-	if (!access_ok(buf, len))
-		return -EFAULT;
-
-	char kbuf[DIRENT_BUF_SIZE];
-	size_t written = 0;
-
-	while (written < len) {
-		size_t chunk = len - written;
-		if (chunk > WRITE_BUF_SIZE)
-			chunk = WRITE_BUF_SIZE;
-
-		if (copy_from_user(kbuf, buf + written, chunk) != 0)
-			return -EFAULT;
-
-		ssize_t ret = vfs_write(file, kbuf, chunk);
-		if (ret < 0)
-			return ret;
-		if ((size_t)ret != chunk)
-			return (ssize_t)(written + (size_t)ret);
-
-		written += chunk;
-	}
-
-	return (ssize_t)written;
+	return rw_user_buffer(file, (void *)buf, len, true);
 }
 
 ssize_t sys_read(struct trap_frame *tf)
@@ -249,38 +377,70 @@ ssize_t sys_read(struct trap_frame *tf)
 	int fd = (int)tf->a0;
 	char *buf = (char *)tf->a1;
 	size_t len = tf->a2;
+	struct file *file = fd_get_readable(fd);
 
-	struct file *file = fd_get(fd);
-	if (!file || !(file->f_mode & FMODE_READ) || !file->f_op ||
-	    !file->f_op->read)
+	if (!file)
 		return -EBADF;
 
-	if (!access_ok(buf, len))
+	return rw_user_buffer(file, buf, len, false);
+}
+
+ssize_t sys_readv(struct trap_frame *tf)
+{
+	int fd = (int)tf->a0;
+	const struct sys_iovec *uiov = (const struct sys_iovec *)tf->a1;
+	size_t iovcnt = tf->a2;
+	struct file *file = fd_get_readable(fd);
+
+	if (!file)
+		return -EBADF;
+	if (!access_ok(uiov, iovcnt * sizeof(*uiov)))
 		return -EFAULT;
 
-	char kbuf[WRITE_BUF_SIZE];
-	size_t done = 0;
+	return rw_iovec(file, uiov, iovcnt, false);
+}
 
-	while (done < len) {
-		size_t chunk = len - done;
-		if (chunk > WRITE_BUF_SIZE)
-			chunk = WRITE_BUF_SIZE;
+ssize_t sys_writev(struct trap_frame *tf)
+{
+	int fd = (int)tf->a0;
+	const struct sys_iovec *uiov = (const struct sys_iovec *)tf->a1;
+	size_t iovcnt = tf->a2;
+	struct file *file = fd_get_writable(fd);
 
-		ssize_t ret = vfs_read(file, kbuf, chunk);
-		if (ret < 0)
-			return ret;
-		if (ret == 0)
-			break;
+	if (!file)
+		return -EBADF;
+	if (!access_ok(uiov, iovcnt * sizeof(*uiov)))
+		return -EFAULT;
 
-		if (copy_to_user(buf + done, kbuf, (size_t)ret) != 0)
-			return -EFAULT;
+	return rw_iovec(file, uiov, iovcnt, true);
+}
 
-		done += (size_t)ret;
-		if ((size_t)ret < chunk)
-			break;
-	}
+ssize_t sys_pread64(struct trap_frame *tf)
+{
+	int fd = (int)tf->a0;
+	char *buf = (char *)tf->a1;
+	size_t len = tf->a2;
+	loff_t offset = (loff_t)tf->a3;
+	struct file *file = fd_get_readable(fd);
 
-	return (ssize_t)done;
+	if (!file)
+		return -EBADF;
+
+	return rw_at_offset(file, buf, len, offset, false);
+}
+
+ssize_t sys_pwrite64(struct trap_frame *tf)
+{
+	int fd = (int)tf->a0;
+	const char *buf = (const char *)tf->a1;
+	size_t len = tf->a2;
+	loff_t offset = (loff_t)tf->a3;
+	struct file *file = fd_get_writable(fd);
+
+	if (!file)
+		return -EBADF;
+
+	return rw_at_offset(file, (void *)buf, len, offset, true);
 }
 
 ssize_t sys_close(struct trap_frame *tf)
@@ -328,7 +488,7 @@ ssize_t sys_mkdirat(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	return vfs_mkdir(path, mode);
+	return vfs_mkdir(path, apply_umask(mode));
 }
 
 ssize_t sys_unlinkat(struct trap_frame *tf)
@@ -373,6 +533,36 @@ ssize_t sys_chdir(struct trap_frame *tf)
 	if (current->cwd)
 		dput(current->cwd);
 	current->cwd = dentry;
+	return 0;
+}
+
+ssize_t sys_faccessat(struct trap_frame *tf)
+{
+	int dfd = (int)tf->a0;
+	const char *upath = (const char *)tf->a1;
+	int mode = (int)tf->a2;
+	char path[PATH_BUF_SIZE];
+	struct dentry *dentry;
+	int ret;
+
+	if (dfd != AT_FDCWD)
+		return -EINVAL;
+	if (mode & ~(R_OK | W_OK | X_OK))
+		return -EINVAL;
+
+	/*
+	 * TODO(perm): 当前没有权限模型，access 只能校验路径存在性。
+	 * 接入 inode 权限后需要按 mode 检查 R_OK/W_OK/X_OK。
+	 */
+	ret = copy_user_path(path, upath);
+	if (ret < 0)
+		return ret;
+
+	dentry = path_lookup(path, 0);
+	if (!dentry)
+		return -ENOENT;
+	dput(dentry);
+
 	return 0;
 }
 
@@ -473,6 +663,59 @@ ssize_t sys_fstat(struct trap_frame *tf)
 	return 0;
 }
 
+ssize_t sys_newfstatat(struct trap_frame *tf)
+{
+	int dfd = (int)tf->a0;
+	const char *upath = (const char *)tf->a1;
+	struct kstat *ustat = (struct kstat *)tf->a2;
+	int flags = (int)tf->a3;
+	char path[PATH_BUF_SIZE];
+	struct dentry *dentry;
+	struct kstat st;
+	int ret;
+
+	if (!ustat || !access_ok(ustat, sizeof(*ustat)))
+		return -EFAULT;
+	if (flags & ~AT_EMPTY_PATH)
+		return -EINVAL;
+
+	if ((flags & AT_EMPTY_PATH) && upath) {
+		char first;
+
+		if (copy_from_user(&first, upath, sizeof(first)) != 0)
+			return -EFAULT;
+
+		if (first == '\0') {
+			struct file *file = fd_get(dfd);
+
+			if (!file)
+				return -EBADF;
+			fill_kstat(&st, file->f_inode);
+			if (copy_to_user(ustat, &st, sizeof(st)) != 0)
+				return -EFAULT;
+			return 0;
+		}
+	}
+
+	if (dfd != AT_FDCWD)
+		return -EINVAL;
+
+	ret = copy_user_path(path, upath);
+	if (ret < 0)
+		return ret;
+
+	dentry = path_lookup(path, 0);
+	if (!dentry)
+		return -ENOENT;
+
+	fill_kstat(&st, dentry->d_inode);
+	dput(dentry);
+	if (copy_to_user(ustat, &st, sizeof(st)) != 0)
+		return -EFAULT;
+
+	return 0;
+}
+
 ssize_t sys_mknod(struct trap_frame *tf)
 {
 	int dfd = (int)tf->a0;
@@ -489,7 +732,7 @@ ssize_t sys_mknod(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	return vfs_mknod(path, mode, dev);
+	return vfs_mknod(path, apply_umask(mode), dev);
 }
 
 ssize_t sys_dup(struct trap_frame *tf)
@@ -507,4 +750,65 @@ ssize_t sys_dup3(struct trap_frame *tf)
 		return -EINVAL;
 
 	return fd_dup2(oldfd, newfd);
+}
+
+ssize_t sys_fsync(struct trap_frame *tf)
+{
+	if (!fd_get((int)tf->a0))
+		return -EBADF;
+
+	return 0;
+}
+
+ssize_t sys_fdatasync(struct trap_frame *tf)
+{
+	return sys_fsync(tf);
+}
+
+ssize_t sys_ftruncate64(struct trap_frame *tf)
+{
+	struct file *file = fd_get((int)tf->a0);
+	int64_t length = (int64_t)tf->a1;
+
+	if (!file || !(file->f_mode & FMODE_WRITE))
+		return -EBADF;
+	if (length < 0 || length > MAX_FILE_SIZE)
+		return -EINVAL;
+	if (!file->f_inode)
+		return -EINVAL;
+
+	file->f_inode->i_size = (uint64_t)length;
+	inode_persist(file->f_inode);
+
+	return 0;
+}
+
+ssize_t sys_fallocate(struct trap_frame *tf)
+{
+	struct file *file = fd_get((int)tf->a0);
+	int mode = (int)tf->a1;
+	loff_t offset = (loff_t)tf->a2;
+	loff_t len = (loff_t)tf->a3;
+	uint64_t end;
+
+	if (!file || !(file->f_mode & FMODE_WRITE))
+		return -EBADF;
+	if ((mode & ~FALLOC_FL_KEEP_SIZE) || offset < 0 || len <= 0)
+		return -EINVAL;
+	/* 防止 offset+len 溢出及无界膨胀 i_size */
+	if (offset > MAX_FILE_SIZE || len > MAX_FILE_SIZE ||
+	    (uint64_t)len > MAX_FILE_SIZE - (uint64_t)offset)
+		return -EINVAL;
+	if (!file->f_inode)
+		return -EINVAL;
+	if (mode & FALLOC_FL_KEEP_SIZE)
+		return 0;
+
+	end = (uint64_t)offset + (uint64_t)len;
+	if (end > file->f_inode->i_size) {
+		file->f_inode->i_size = end;
+		inode_persist(file->f_inode);
+	}
+
+	return 0;
 }

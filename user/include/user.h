@@ -18,12 +18,25 @@ typedef unsigned long size_t;
 /* Linux riscv64 系统调用号 */
 #define SYS_dup	    23
 #define SYS_dup3    24
+#define SYS_faccessat 48
+#define SYS_unlinkat 35
 #define SYS_openat  56
 #define SYS_close   57
 #define SYS_pipe2   59
 #define SYS_read    63
 #define SYS_write   64
+#define SYS_readv   65
+#define SYS_writev  66
+#define SYS_pread64 67
+#define SYS_pwrite64 68
+#define SYS_newfstatat 79
+#define SYS_lseek   62
 #define SYS_exit    93
+#define SYS_fsync   82
+#define SYS_fdatasync 83
+#define SYS_ftruncate64 46
+#define SYS_fallocate 47
+#define SYS_set_tid_addr 96
 #define SYS_clock_gettime 113
 #define SYS_clock_getres  114
 #define SYS_yield   124
@@ -32,7 +45,13 @@ typedef unsigned long size_t;
 #define SYS_rt_sigaction   134
 #define SYS_rt_sigprocmask 135
 #define SYS_sigreturn	    139
+#define SYS_setgid  144
+#define SYS_setuid  146
 #define SYS_times   153
+#define SYS_getgroups 158
+#define SYS_setgroups 159
+#define SYS_uname   160
+#define SYS_umask   166
 #define SYS_gettimeofday 169
 #define SYS_getpid  172
 #define SYS_getppid 173
@@ -41,6 +60,7 @@ typedef unsigned long size_t;
 #define SYS_getgid  176
 #define SYS_getegid 177
 #define SYS_gettid  178
+#define SYS_sysinfo 179
 #define SYS_brk	    214
 #define SYS_munmap  215
 #define SYS_fork    220
@@ -49,6 +69,7 @@ typedef unsigned long size_t;
 #define SYS_wait4   260
 
 #define AT_FDCWD    -100
+#define AT_EMPTY_PATH 0x1000
 
 #define O_RDONLY    00000000
 #define O_WRONLY    00000001
@@ -57,6 +78,17 @@ typedef unsigned long size_t;
 #define O_EXCL	    00000200
 #define O_TRUNC	    00001000
 #define O_APPEND    00002000
+
+#define R_OK	    4
+#define W_OK	    2
+#define X_OK	    1
+#define F_OK	    0
+
+#define SEEK_SET    0
+#define SEEK_CUR    1
+#define SEEK_END    2
+
+#define FALLOC_FL_KEEP_SIZE 0x01
 
 #define PROT_READ   0x1
 #define PROT_WRITE  0x2
@@ -85,6 +117,62 @@ struct timeval {
 struct timespec {
 	long tv_sec;
 	long tv_nsec;
+};
+
+struct iovec {
+	void *iov_base;
+	size_t iov_len;
+};
+
+/*
+ * 必须与 include/kernel/stat.h 的 struct kstat 逐字节一致：内核 fstat/
+ * newfstatat 直接 copy_to_user 一个 struct kstat 出来。修改任一侧都要同步。
+ */
+struct stat {
+	unsigned long st_dev;
+	unsigned long st_ino;
+	unsigned int st_mode;
+	unsigned int st_nlink;
+	unsigned int st_uid;
+	unsigned int st_gid;
+	unsigned long st_rdev;
+	unsigned long __pad1;
+	long st_size;
+	unsigned int st_blksize;
+	unsigned int __pad2;
+	unsigned long st_blocks;
+	long st_atime_sec;
+	unsigned long st_atime_nsec;
+	long st_mtime_sec;
+	unsigned long st_mtime_nsec;
+	long st_ctime_sec;
+	unsigned long st_ctime_nsec;
+	unsigned int st_unused[2];
+};
+
+struct utsname {
+	char sysname[65];
+	char nodename[65];
+	char release[65];
+	char version[65];
+	char machine[65];
+	char domainname[65];
+};
+
+struct sysinfo {
+	long uptime;
+	unsigned long loads[3];
+	unsigned long totalram;
+	unsigned long freeram;
+	unsigned long sharedram;
+	unsigned long bufferram;
+	unsigned long totalswap;
+	unsigned long freeswap;
+	unsigned short procs;
+	unsigned short pad;
+	unsigned long totalhigh;
+	unsigned long freehigh;
+	unsigned int mem_unit;
 };
 
 /*
@@ -254,6 +342,26 @@ static inline long read(int fd, void *buf, size_t len)
 	return syscall(SYS_read, fd, (long)buf, (long)len);
 }
 
+static inline long readv(int fd, const struct iovec *iov, int iovcnt)
+{
+	return syscall(SYS_readv, fd, (long)iov, iovcnt);
+}
+
+static inline long writev(int fd, const struct iovec *iov, int iovcnt)
+{
+	return syscall(SYS_writev, fd, (long)iov, iovcnt);
+}
+
+static inline long pread64(int fd, void *buf, size_t len, long offset)
+{
+	return syscall(SYS_pread64, fd, (long)buf, (long)len, offset);
+}
+
+static inline long pwrite64(int fd, const void *buf, size_t len, long offset)
+{
+	return syscall(SYS_pwrite64, fd, (long)buf, (long)len, offset);
+}
+
 static inline long openat(int dfd, const char *path, int flags, int mode)
 {
 	return syscall(SYS_openat, dfd, (long)path, flags, mode);
@@ -267,6 +375,37 @@ static inline long open(const char *path, int flags)
 static inline long close(int fd)
 {
 	return syscall(SYS_close, fd);
+}
+
+static inline long faccessat(int dfd, const char *path, int mode, int flags)
+{
+	return syscall(SYS_faccessat, dfd, (long)path, mode, flags);
+}
+
+static inline long fstatat(int dfd, const char *path, struct stat *st,
+			   int flags)
+{
+	return syscall(SYS_newfstatat, dfd, (long)path, (long)st, flags);
+}
+
+static inline long fsync(int fd)
+{
+	return syscall(SYS_fsync, fd);
+}
+
+static inline long fdatasync(int fd)
+{
+	return syscall(SYS_fdatasync, fd);
+}
+
+static inline long ftruncate(int fd, long length)
+{
+	return syscall(SYS_ftruncate64, fd, length);
+}
+
+static inline long fallocate(int fd, int mode, long offset, long len)
+{
+	return syscall(SYS_fallocate, fd, mode, offset, len);
 }
 
 static inline long dup(int oldfd)
@@ -323,6 +462,46 @@ static inline long getegid(void)
 static inline long gettid(void)
 {
 	return syscall0(SYS_gettid);
+}
+
+static inline long set_tid_addr(int *tidptr)
+{
+	return syscall(SYS_set_tid_addr, (long)tidptr);
+}
+
+static inline long setuid(unsigned int uid)
+{
+	return syscall(SYS_setuid, uid);
+}
+
+static inline long setgid(unsigned int gid)
+{
+	return syscall(SYS_setgid, gid);
+}
+
+static inline long getgroups(int size, unsigned int *groups)
+{
+	return syscall(SYS_getgroups, size, (long)groups);
+}
+
+static inline long setgroups(int size, const unsigned int *groups)
+{
+	return syscall(SYS_setgroups, size, (long)groups);
+}
+
+static inline long uname(struct utsname *buf)
+{
+	return syscall(SYS_uname, (long)buf);
+}
+
+static inline long umask(unsigned int mask)
+{
+	return syscall(SYS_umask, mask);
+}
+
+static inline long sysinfo(struct sysinfo *info)
+{
+	return syscall(SYS_sysinfo, (long)info);
 }
 
 static inline long yield(void)

@@ -82,6 +82,7 @@ struct task_struct {
 	/* 文件描述符 */
 	struct file *fd_array[32]; /* 打开的文件 */
 	struct dentry *cwd;	    /* 当前工作目录 */
+	uint32_t umask;	    /* 文件创建权限掩码 */
 
 	/* 信号处理 */
 	struct sigaction sigactions[NSIG]; /* 每个信号的处理动作 */

@@ -87,6 +87,7 @@ ssize_t sys_fork(struct trap_frame *tf)
 		return ret;
 	}
 	copy_fs(child);
+	child->umask = current->umask;
 	signals_clone(child);
 
 	/* 7. 建立进程树关系 */
