@@ -173,6 +173,7 @@ struct ext2_inode_info {
 };
 
 extern const struct inode_operations ext2_dir_inode_operations;
+extern const struct inode_operations ext2_symlink_inode_operations;
 extern const struct file_operations ext2_dir_operations;
 extern const struct file_operations ext2_file_operations;
 

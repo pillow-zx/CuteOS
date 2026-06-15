@@ -13,6 +13,7 @@ shell_elf=$3
 test_elf=$4
 size_mb=${MKIMG_SIZE_MB:-16}
 debugfs_cmds=$(mktemp)
+slow_symlink_target=/slow-target-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-bin
 
 cleanup()
 {
@@ -35,6 +36,10 @@ cd /
 write $init_elf /init
 write $init_elf /bin/init
 write $shell_elf /bin/sh
+write $test_elf $slow_symlink_target
+symlink /fast-syscall-test /bin/syscall-test
+symlink /slow-syscall-test $slow_symlink_target
+symlink /loop-symlink /loop-symlink
 EOF
 
 shift 3

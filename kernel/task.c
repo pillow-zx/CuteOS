@@ -102,6 +102,8 @@ struct task_struct *task_alloc(void)
 	task->tf = NULL;
 	task->mm = NULL;
 	task->umask = 0022;
+	task->uid = 0;
+	task->gid = 0;
 
 	INIT_LIST_HEAD(&task->children);
 	INIT_LIST_HEAD(&task->sibling);
@@ -150,6 +152,8 @@ void task_init(void)
 	idle_task.kstack = NULL; /* idle 使用 boot_stack，无独立内核栈 */
 	idle_task.mm = NULL;
 	idle_task.umask = 0022;
+	idle_task.uid = 0;
+	idle_task.gid = 0;
 
 	INIT_LIST_HEAD(&idle_task.children);
 	INIT_LIST_HEAD(&idle_task.sibling);

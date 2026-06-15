@@ -4,23 +4,47 @@
  * 功能：
  *   实现 VFS 层的路径名解析（Pathname Lookup）。path_lookup 逐分量
  *   解析路径。绝对路径从 root_dentry 开始，相对路径从 current->cwd
- *   开始。每个分量处理 "."（跳过）和 ".."（回溯到 d_parent）。不
- *   支持符号链接跟随。每个分量最终调用 i_op->lookup 在磁盘上查找。
+ *   开始。每个分量处理 "."（跳过）和 ".."（回溯到 d_parent）。遇到
+ *   符号链接时读取其目标并继续解析；中间分量总是跟随符号链接，末端
+ *   分量在未设置 LOOKUP_NOFOLLOW 时跟随。跟随深度受 MAXSYMLINKS 限制
+ *   以防环路。每个分量最终调用 i_op->lookup 在磁盘上查找。
  *
  * 主要函数：
  *   path_lookup(path, flags) - 主路径解析函数。绝对路径从 root_dentry
  *                              开始，相对路径从 current->cwd 开始
+ *   walk_path(base, path, …) - 从 base 起逐分量解析并跟随符号链接
+ *   follow_symlink(dir, link, …) - 读取符号链接目标并解析出目标 dentry
  *   follow_dotdot(dentry)    - 处理 ".." 分量，通过 d_parent 回溯
  *   lookup_one(parent, name) - 单级分量解析，调用 i_op->lookup
  */
 
 #include <kernel/fs.h>
 #include <kernel/errno.h>
+#include <kernel/buddy.h>
+#include <kernel/stat.h>
 #include <kernel/string.h>
 #include <kernel/task.h>
 #include <kernel/vfs.h>
+#include <asm/page.h>
 
 struct dentry *root_dentry;
+
+/* 单次路径解析中允许跟随的符号链接最大深度，防止符号链接环路。 */
+#define MAXSYMLINKS 8
+
+static_assert(VFS_PATH_MAX <= PAGE_SIZE,
+	      "VFS path buffers are allocated as one page");
+
+static void init_new_inode_owner(struct inode *inode)
+{
+	if (!inode)
+		return;
+
+	inode->i_uid = current->uid;
+	inode->i_gid = current->gid;
+	if (inode->i_sb && inode->i_sb->s_op && inode->i_sb->s_op->write_inode)
+		inode->i_sb->s_op->write_inode(inode);
+}
 
 static bool is_dot(const char *name, size_t len)
 {
@@ -89,56 +113,175 @@ static struct dentry *lookup_one(struct dentry *parent, const char *name,
 	return found;
 }
 
-struct dentry *path_lookup(const char *path, uint32_t flags)
+static bool d_is_symlink(struct dentry *dentry)
 {
-	struct dentry *dentry;
+	return dentry && dentry->d_inode && S_ISLNK(dentry->d_inode->i_mode);
+}
 
-	(void)flags;
+int vfs_readlink(struct dentry *dentry, char *buf, size_t size)
+{
+	struct inode *inode;
 
-	if (!path || !*path)
-		return NULL;
+	if (!dentry || !dentry->d_inode || !buf || size == 0)
+		return -EINVAL;
 
-	if (*path == '/')
-		dentry = root_dentry;
-	else
-		dentry = current ? current->cwd : NULL;
+	inode = dentry->d_inode;
+	if (!S_ISLNK(inode->i_mode) || !inode->i_op || !inode->i_op->readlink)
+		return -EINVAL;
 
-	if (!dentry)
-		return NULL;
+	return inode->i_op->readlink(inode, buf, size);
+}
 
-	dget(dentry);
+static int walk_path(struct dentry *base, const char *path, uint32_t flags,
+		     int depth, struct dentry **res);
+
+/*
+ * 跟随符号链接：读取 link 指向的目标路径，并从合适的起点解析出目标
+ * dentry。dir 是 link 所在的目录（用于解析相对目标），调用者保留其
+ * 引用；link 的引用由本函数释放。成功时通过 res 返回目标 dentry（已
+ * dget），失败返回负错误码。
+ */
+static int follow_symlink(struct dentry *dir, struct dentry *link,
+			  uint32_t flags, int depth, struct dentry **res)
+{
+	char *target;
+	struct dentry *base;
+	int len;
+	int ret;
+
+	if (depth >= MAXSYMLINKS) {
+		dput(link);
+		return -ELOOP;
+	}
+
+	target = get_free_page(0);
+	if (!target) {
+		dput(link);
+		return -ENOMEM;
+	}
+
+	len = vfs_readlink(link, target, VFS_PATH_MAX - 1);
+	dput(link);
+	if (len < 0) {
+		free_page(target, 0);
+		return len;
+	}
+	if (len == 0 || len >= VFS_PATH_MAX - 1) {
+		free_page(target, 0);
+		return len == 0 ? -ENOENT : -ENAMETOOLONG;
+	}
+	target[len] = '\0';
+
+	base = target[0] == '/' ? root_dentry : dir;
+	if (!base) {
+		free_page(target, 0);
+		return -ENOENT;
+	}
+
+	dget(base);
+	ret = walk_path(base, target, flags, depth + 1, res);
+	free_page(target, 0);
+	return ret;
+}
+
+/*
+ * 从 base 起逐分量解析 path。消费 base 的引用：成功时返回最终 dentry
+ * （持有引用），失败时释放 base 并返回负错误码。中间分量总是跟随
+ * 符号链接；末端分量在未设置 LOOKUP_NOFOLLOW 时也跟随。
+ */
+static int walk_path(struct dentry *base, const char *path, uint32_t flags,
+		     int depth, struct dentry **res)
+{
+	struct dentry *dentry = base;
+
+	*res = NULL;
 	path = skip_slashes(path);
 
 	while (*path) {
 		const char *name = path;
 		size_t len;
+		bool is_last;
+		struct dentry *next;
 
 		while (*path && *path != '/')
 			path++;
 
 		len = (size_t)(path - name);
 		path = skip_slashes(path);
+		is_last = *path == '\0';
 
 		if (len == 0 || is_dot(name, len))
 			continue;
+		if (len > VFS_NAME_MAX) {
+			dput(dentry);
+			return -ENAMETOOLONG;
+		}
 
 		if (is_dotdot(name, len)) {
 			struct dentry *parent = follow_dotdot(dentry);
 			dput(dentry);
 			dentry = parent;
 			if (!dentry)
-				return NULL;
+				return -ENOENT;
 			continue;
 		}
 
-		struct dentry *next = lookup_one(dentry, name, len);
-		dput(dentry);
-		if (!next)
-			return NULL;
+		next = lookup_one(dentry, name, len);
+		if (!next) {
+			dput(dentry);
+			return -ENOENT;
+		}
 
+		if (d_is_symlink(next) &&
+		    !(is_last && (flags & LOOKUP_NOFOLLOW))) {
+			struct dentry *target;
+			int ret = follow_symlink(dentry, next, flags, depth,
+						 &target);
+
+			dput(dentry);
+			if (ret < 0)
+				return ret;
+			dentry = target;
+			continue;
+		}
+
+		dput(dentry);
 		dentry = next;
 	}
 
+	*res = dentry;
+	return 0;
+}
+
+int path_lookup_err(const char *path, uint32_t flags, struct dentry **res)
+{
+	struct dentry *base;
+
+	if (res)
+		*res = NULL;
+	if (!res)
+		return -EINVAL;
+	if (!path || !*path)
+		return -ENOENT;
+
+	if (*path == '/')
+		base = root_dentry;
+	else
+		base = current ? current->cwd : NULL;
+
+	if (!base)
+		return -ENOENT;
+
+	dget(base);
+	return walk_path(base, path, flags, 0, res);
+}
+
+struct dentry *path_lookup(const char *path, uint32_t flags)
+{
+	struct dentry *dentry;
+
+	if (path_lookup_err(path, flags, &dentry) < 0)
+		return NULL;
 	return dentry;
 }
 
@@ -198,9 +341,24 @@ struct dentry *path_parent_lookup(const char *path, char *name,
 		}
 
 		struct dentry *next = lookup_one(parent, component, len);
-		dput(parent);
-		if (!next)
+		if (!next) {
+			dput(parent);
 			return NULL;
+		}
+
+		if (d_is_symlink(next)) {
+			struct dentry *target;
+			int ret = follow_symlink(parent, next, 0, 0,
+						 &target);
+
+			dput(parent);
+			if (ret < 0)
+				return NULL;
+			parent = target;
+			continue;
+		}
+
+		dput(parent);
 		parent = next;
 	}
 
@@ -257,6 +415,7 @@ int vfs_create(const char *path, uint32_t mode, struct dentry **res)
 
 	ret = parent->d_inode->i_op->create(parent->d_inode, dentry, mode);
 	if (ret == 0) {
+		init_new_inode_owner(dentry->d_inode);
 		if (new_dentry)
 			dcache_insert(dentry);
 		if (res)
@@ -305,8 +464,11 @@ int vfs_mkdir(const char *path, uint32_t mode)
 	}
 
 	ret = parent->d_inode->i_op->mkdir(parent->d_inode, dentry, mode);
-	if (ret == 0 && new_dentry)
-		dcache_insert(dentry);
+	if (ret == 0) {
+		init_new_inode_owner(dentry->d_inode);
+		if (new_dentry)
+			dcache_insert(dentry);
+	}
 	dput(dentry);
 	dput(parent);
 	return ret;

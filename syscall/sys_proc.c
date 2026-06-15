@@ -36,25 +36,25 @@ ssize_t sys_getppid(struct trap_frame *tf)
 ssize_t sys_getuid(struct trap_frame *tf)
 {
 	(void)tf;
-	return 0;
+	return current->uid;
 }
 
 ssize_t sys_geteuid(struct trap_frame *tf)
 {
 	(void)tf;
-	return 0;
+	return current->uid;
 }
 
 ssize_t sys_getgid(struct trap_frame *tf)
 {
 	(void)tf;
-	return 0;
+	return current->gid;
 }
 
 ssize_t sys_getegid(struct trap_frame *tf)
 {
 	(void)tf;
-	return 0;
+	return current->gid;
 }
 
 ssize_t sys_gettid(struct trap_frame *tf)

@@ -532,10 +532,13 @@ void exec_user_path(const char *path)
 {
 	struct exec_args_envp args;
 	memset(&args, 0, sizeof(args));
-	/* args.argc = 1; */
-	/* strcpy(args.argv[0], path); */
-	/* args.envc = 1; */
-	/* strcpy(args.envp[0], "envp test" ); */
+	/*
+	 * BusyBox 通过 argv[0] 的 basename 派发 applet，必须传入路径作为
+	 * argv[0]，否则 applet 派发会解引用空 argv[0] 而崩溃。
+	 */
+	args.argc = 1;
+	strncpy(args.argv[0], path, EXEC_MAX_ARG_LEN - 1);
+	args.argv[0][EXEC_MAX_ARG_LEN - 1] = '\0';
 
 	struct exec_image image;
 	int ret = open_exec_image(path, &image);

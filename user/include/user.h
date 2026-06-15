@@ -29,6 +29,7 @@ typedef unsigned long size_t;
 #define SYS_writev  66
 #define SYS_pread64 67
 #define SYS_pwrite64 68
+#define SYS_readlinkat 78
 #define SYS_newfstatat 79
 #define SYS_lseek   62
 #define SYS_exit    93
@@ -70,6 +71,7 @@ typedef unsigned long size_t;
 
 #define AT_FDCWD    -100
 #define AT_EMPTY_PATH 0x1000
+#define AT_SYMLINK_NOFOLLOW 0x100
 
 #define O_RDONLY    00000000
 #define O_WRONLY    00000001
@@ -89,6 +91,14 @@ typedef unsigned long size_t;
 #define SEEK_END    2
 
 #define FALLOC_FL_KEEP_SIZE 0x01
+
+#define S_IFMT	    00170000
+#define S_IFLNK	    0120000
+#define S_IFREG	    0100000
+#define S_IFDIR	    0040000
+
+#define EACCES	    13
+#define ELOOP	    40
 
 #define PROT_READ   0x1
 #define PROT_WRITE  0x2
@@ -386,6 +396,13 @@ static inline long fstatat(int dfd, const char *path, struct stat *st,
 			   int flags)
 {
 	return syscall(SYS_newfstatat, dfd, (long)path, (long)st, flags);
+}
+
+static inline long readlinkat(int dfd, const char *path, char *buf,
+			      size_t bufsiz)
+{
+	return syscall(SYS_readlinkat, dfd, (long)path, (long)buf,
+		       (long)bufsiz);
 }
 
 static inline long fsync(int fd)

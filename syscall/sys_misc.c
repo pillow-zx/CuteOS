@@ -83,16 +83,22 @@ ssize_t sys_setuid(struct trap_frame *tf)
 {
 	uint32_t uid = (uint32_t)tf->a0;
 
-	/* TODO(cred): 当前所有进程固定 root 身份，暂不保存 uid。 */
-	return uid == 0 ? 0 : -EPERM;
+	if (current->uid != 0 && current->uid != uid)
+		return -EPERM;
+
+	current->uid = uid;
+	return 0;
 }
 
 ssize_t sys_setgid(struct trap_frame *tf)
 {
 	uint32_t gid = (uint32_t)tf->a0;
 
-	/* TODO(cred): 当前所有进程固定 root 组，暂不保存 gid。 */
-	return gid == 0 ? 0 : -EPERM;
+	if (current->gid != 0 && current->gid != gid)
+		return -EPERM;
+
+	current->gid = gid;
+	return 0;
 }
 
 ssize_t sys_getgroups(struct trap_frame *tf)

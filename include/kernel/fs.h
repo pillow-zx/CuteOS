@@ -40,6 +40,7 @@ struct dentry;
 struct super_block;
 
 #define VFS_NAME_MAX 255
+#define VFS_PATH_MAX 4096
 
 #define KERN_STDIN  0
 #define KERN_STDOUT 1
@@ -91,6 +92,7 @@ struct inode_operations {
 	int (*unlink)(struct inode *dir, struct dentry *dentry);
 	int (*mkdir)(struct inode *dir, struct dentry *dentry, uint32_t mode);
 	int (*rmdir)(struct inode *dir, struct dentry *dentry);
+	int (*readlink)(struct inode *inode, char *buf, size_t size);
 };
 
 struct file_operations {

@@ -63,12 +63,58 @@ static void ext2_fill_vfs_inode(struct inode *inode)
 		inode->i_op = &ext2_dir_inode_operations;
 		inode->i_fop = &ext2_dir_operations;
 		break;
+	case EXT2_S_IFLNK:
+		inode->i_op = &ext2_symlink_inode_operations;
+		break;
 	case EXT2_S_IFREG:
 	default:
 		inode->i_fop = &ext2_file_operations;
 		break;
 	}
 }
+
+/*
+ * 读取符号链接目标。EXT2 有两种存储方式：
+ *   快速符号链接 (i_blocks == 0)：目标内联存放在 i_block[] 数组（最多
+ *                                 60 字节），不占用数据块；
+ *   慢速符号链接：目标存放在第一个数据块中。
+ * 最多写入 size 字节（不追加结尾 '\0'），返回写入的字节数。
+ */
+static int ext2_readlink(struct inode *inode, char *buf, size_t size)
+{
+	struct ext2_inode *raw = &EXT2_I(inode)->raw_inode;
+	uint64_t len = inode->i_size;
+
+	if (!buf || size == 0)
+		return -EINVAL;
+	if (len > size)
+		len = size;
+
+	if (raw->i_blocks == 0) {
+		if (inode->i_size > sizeof(raw->i_block))
+			return -EIO;
+		memcpy(buf, raw->i_block, (size_t)len);
+	} else {
+		uint32_t pblock = ext2_bmap(inode, 0, false);
+		struct buffer_head *bh;
+
+		if (!pblock)
+			return -EIO;
+		bh = bread(inode->i_sb->s_dev, pblock);
+		if (!bh)
+			return -EIO;
+		if (len > BLOCK_SIZE)
+			len = BLOCK_SIZE;
+		memcpy(buf, bh->b_data, (size_t)len);
+		brelse(bh);
+	}
+
+	return (int)len;
+}
+
+const struct inode_operations ext2_symlink_inode_operations = {
+	.readlink = ext2_readlink,
+};
 
 int ext2_read_inode(struct inode *inode)
 {

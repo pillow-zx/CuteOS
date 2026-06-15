@@ -91,3 +91,31 @@ void test_buffer_cache_errors(void)
 fail:
 	TEST_FAIL("buffer cache: error paths", "see above");
 }
+
+void test_buffer_cache_eviction(void)
+{
+	struct block_device *bdev;
+	uint64_t blocks;
+	uint64_t start;
+
+	TEST_BEGIN("buffer cache: eviction");
+	{
+		bdev = lookup_block_device(ROOT_DEV);
+		TEST_ASSERT_NOT_NULL(bdev);
+
+		blocks = bdev->bd_sectors / BLOCK_SECTORS;
+		TEST_ASSERT(blocks > 700);
+		start = blocks - 700;
+
+		for (uint32_t i = 0; i < 600; i++) {
+			struct buffer_head *bh = bread(ROOT_DEV, start + i);
+
+			TEST_ASSERT_NOT_NULL(bh);
+			brelse(bh);
+		}
+	}
+	TEST_END("buffer cache: eviction");
+	return;
+fail:
+	TEST_FAIL("buffer cache: eviction", "see above");
+}

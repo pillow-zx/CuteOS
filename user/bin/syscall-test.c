@@ -292,6 +292,148 @@ static int test_file_extra_syscalls(void)
 	return failures;
 }
 
+static int test_open_permissions(void)
+{
+	const char *path = "/root-only";
+	long fd;
+	long child;
+	int status = -1;
+
+	fd = openat(AT_FDCWD, path, O_CREAT | O_TRUNC | O_RDWR, 0600);
+	if (fd < 0)
+		return 1;
+	close((int)fd);
+
+	child = fork();
+	if (child == 0) {
+		if (setgid(1000) != 0 || setuid(1000) != 0)
+			exit(1);
+		if (open(path, O_RDONLY) != -EACCES)
+			exit(2);
+		if (faccessat(AT_FDCWD, path, R_OK, 0) != -EACCES)
+			exit(3);
+		exit(0);
+	}
+	if (child < 0) {
+		syscall(SYS_unlinkat, AT_FDCWD, (long)path, 0);
+		return 1;
+	}
+
+	if (wait4(child, &status, 0, 0) != child)
+		status = -1;
+	syscall(SYS_unlinkat, AT_FDCWD, (long)path, 0);
+
+	print("[TEST] permission child status = ");
+	print_hex((unsigned long)status);
+	print("\n");
+
+	return status == 0 ? 0 : 1;
+}
+
+static int expect_readlink(const char *path, const char *target)
+{
+	char buf[128];
+	long n;
+
+	n = readlinkat(AT_FDCWD, path, buf, sizeof(buf) - 1);
+	if (n != (long)strlen(target)) {
+		print("[TEST] readlink length failed: ");
+		print(path);
+		print(" ret=");
+		print_long(n);
+		print("\n");
+		return 1;
+	}
+	buf[n] = '\0';
+	if (!streq(buf, target)) {
+		print("[TEST] readlink target failed: ");
+		print(path);
+		print(" target=");
+		print(buf);
+		print("\n");
+		return 1;
+	}
+	return 0;
+}
+
+static int test_symlink_syscalls(void)
+{
+	int failures = 0;
+	const char *fast = "/fast-syscall-test";
+	const char *fast_target = "/bin/syscall-test";
+	const char *slow = "/slow-syscall-test";
+	const char *slow_target =
+		"/slow-target-abcdefghijklmnopqrstuvwxyz"
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-bin";
+	char tiny[4];
+	struct stat st;
+	long fd;
+	long n;
+
+	if (expect_readlink(fast, fast_target) != 0)
+		failures++;
+	if (expect_readlink(slow, slow_target) != 0)
+		failures++;
+
+	n = readlinkat(AT_FDCWD, fast, tiny, sizeof(tiny));
+	if (n != (long)sizeof(tiny) || tiny[0] != '/' || tiny[1] != 'b' ||
+	    tiny[2] != 'i' || tiny[3] != 'n') {
+		print("[TEST] readlink truncate failed ret=");
+		print_long(n);
+		print("\n");
+		failures++;
+	}
+
+	if (fstatat(AT_FDCWD, fast, &st, 0) != 0 ||
+	    (st.st_mode & S_IFMT) != S_IFREG) {
+		print("[TEST] fstat follow symlink failed mode=");
+		print_long(st.st_mode);
+		print("\n");
+		failures++;
+	}
+	if (fstatat(AT_FDCWD, fast, &st, AT_SYMLINK_NOFOLLOW) != 0 ||
+	    (st.st_mode & S_IFMT) != S_IFLNK) {
+		print("[TEST] fstat nofollow symlink failed mode=");
+		print_long(st.st_mode);
+		print("\n");
+		failures++;
+	}
+
+	fd = open(fast, O_RDONLY);
+	if (fd >= 0)
+		close((int)fd);
+	else {
+		print("[TEST] open symlink read failed ret=");
+		print_long(fd);
+		print("\n");
+		failures++;
+	}
+
+	fd = open(fast, O_WRONLY);
+	if (fd >= 0)
+		close((int)fd);
+	else {
+		print("[TEST] open symlink write failed ret=");
+		print_long(fd);
+		print("\n");
+		failures++;
+	}
+
+	fd = open("/loop-symlink", O_RDONLY);
+	if (fd != -ELOOP) {
+		print("[TEST] open loop symlink failed ret=");
+		print_long(fd);
+		print("\n");
+		if (fd >= 0)
+			close((int)fd);
+		failures++;
+	}
+	if (expect_readlink("/loop-symlink", "/loop-symlink") != 0)
+		failures++;
+
+	return failures;
+}
+
 static int test_dev_null(void)
 {
 	long fd = open("/dev/null", O_WRONLY);
@@ -405,6 +547,8 @@ int main(int argc, char **argv, char **envp)
 	failures += test_time_syscalls();
 	failures += test_misc_syscalls();
 	failures += test_file_extra_syscalls();
+	failures += test_open_permissions();
+	failures += test_symlink_syscalls();
 	failures += test_dev_null();
 	failures += test_pipe();
 	failures += test_fork_exec_wait();

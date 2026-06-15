@@ -65,13 +65,6 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 	return -ENOSYS;
 }
 
-ssize_t sys_readlinkat(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(vfs): 当前 VFS/EXT2 不支持符号链接 inode 语义。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_futex(struct trap_frame *tf)
 {
 	(void)tf;

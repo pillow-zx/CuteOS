@@ -122,6 +122,7 @@ void kernel_test(void)
 	TEST_SECTION("Buffer Cache");
 	test_buffer_cache_basic();
 	test_buffer_cache_errors();
+	test_buffer_cache_eviction();
 
 	/* ---- 汇总 ---- */
 	printk("\n========================================\n");

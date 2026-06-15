@@ -4,7 +4,8 @@
  * 功能：
  *   实现内核的 Buffer Cache，是块设备 I/O 的核心抽象层。每个 buffer_head
  *   代表一个磁盘块的缓存，包含 dev、blocknr、data、refcount、hash 字段。
- *   使用 128 桶哈希表快速查找。最多缓存 512 个 buffer_head，无淘汰机制。
+ *   使用 128 桶哈希表快速查找。最多缓存 512 个 buffer_head；缓存满时
+ *   回收一个未被引用（refcnt==0）的缓冲区，写穿透保证回收不丢数据。
  *
  * 数据结构：
  *   buffer_head {dev, blocknr, data, refcount, hash}
@@ -76,6 +77,31 @@ static void free_buffer(struct buffer_head *bh)
 	kfree(bh);
 }
 
+/*
+ * 缓存满时回收一个未被引用且不脏的缓冲区。写策略为写穿透，brelse 后的
+ * 缓冲区 b_dirty 始终为 false，因此回收不会丢失未落盘的数据。命中即移除
+ * 并返回 true；找不到可回收项返回 false。
+ */
+static bool evict_one_buffer(void)
+{
+	uint32_t i;
+
+	for (i = 0; i < BUFFER_HASH_SIZE; i++) {
+		struct buffer_head *bh;
+
+		list_for_each_entry(bh, &buffer_hashtable[i], b_hash) {
+			if (bh->b_refcnt == 0 && !bh->b_dirty) {
+				list_del(&bh->b_hash);
+				free_buffer(bh);
+				nr_buffers--;
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
 static int read_buffer(struct buffer_head *bh)
 {
 	struct block_device *bdev;
@@ -94,7 +120,7 @@ static struct buffer_head *alloc_buffer(dev_t dev, uint64_t block)
 {
 	struct buffer_head *bh;
 
-	if (nr_buffers >= NR_BUFFERS)
+	if (nr_buffers >= NR_BUFFERS && !evict_one_buffer())
 		return NULL;
 
 	bh = kmalloc(sizeof(*bh));

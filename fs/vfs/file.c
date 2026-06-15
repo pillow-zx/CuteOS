@@ -27,6 +27,40 @@ static const struct file_operations null_fops = {
 	.write = null_write,
 };
 
+int vfs_inode_permission(struct inode *inode, uint32_t mask)
+{
+	uint32_t perm;
+	uint32_t want = 0;
+
+	if (!inode)
+		return -ENOENT;
+	if (!mask)
+		return 0;
+
+	/*
+	 * 当前没有 capability 模型。root 简单放行，非 root 按
+	 * owner/group/other 三组选一组权限位检查。
+	 */
+	if (current->uid == 0)
+		return 0;
+
+	if (current->uid == inode->i_uid)
+		perm = (inode->i_mode >> 6) & 7;
+	else if (current->gid == inode->i_gid)
+		perm = (inode->i_mode >> 3) & 7;
+	else
+		perm = inode->i_mode & 7;
+
+	if (mask & VFS_MAY_READ)
+		want |= 4;
+	if (mask & VFS_MAY_WRITE)
+		want |= 2;
+	if (mask & VFS_MAY_EXEC)
+		want |= 1;
+
+	return (perm & want) == want ? 0 : -EACCES;
+}
+
 static struct file console_stdin = {
 	.f_op = &console_fops,
 	.f_mode = FMODE_READ,
@@ -115,14 +149,15 @@ int vfs_open(const char *path, uint32_t flags, uint32_t mode)
 	struct dentry *dentry;
 	struct file *file;
 	int fd;
+	int ret;
 	uint32_t fmode;
 
-	dentry = path_lookup(path, flags);
-	if (!dentry) {
-		if (!(flags & O_CREAT))
-			return -ENOENT;
+	ret = path_lookup_err(path, 0, &dentry);
+	if (ret < 0) {
+		if (!(flags & O_CREAT) || ret != -ENOENT)
+			return ret;
 
-		int ret = vfs_create(path, mode, &dentry);
+		ret = vfs_create(path, mode, &dentry);
 		if (ret < 0)
 			return ret;
 	} else if ((flags & O_CREAT) && (flags & O_EXCL)) {
@@ -149,6 +184,16 @@ int vfs_open(const char *path, uint32_t flags, uint32_t mode)
 	default:
 		dput(dentry);
 		return -EINVAL;
+	}
+
+	ret = 0;
+	if (fmode & FMODE_READ)
+		ret = vfs_inode_permission(dentry->d_inode, VFS_MAY_READ);
+	if (ret == 0 && (fmode & FMODE_WRITE))
+		ret = vfs_inode_permission(dentry->d_inode, VFS_MAY_WRITE);
+	if (ret < 0) {
+		dput(dentry);
+		return ret;
 	}
 
 	file = file_alloc_dentry(dentry, flags, fmode);

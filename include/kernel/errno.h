@@ -37,5 +37,6 @@
 #define EROFS	  30
 #define ENOSYS	  38
 #define ENOTEMPTY 39
+#define ELOOP	  40
 
 #endif

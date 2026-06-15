@@ -101,5 +101,6 @@ void test_virtio_blk_errors(void);
 
 void test_buffer_cache_basic(void);
 void test_buffer_cache_errors(void);
+void test_buffer_cache_eviction(void);
 
 #endif

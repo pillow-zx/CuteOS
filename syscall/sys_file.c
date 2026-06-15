@@ -31,14 +31,15 @@
 #include <kernel/errno.h>
 #include <kernel/syscall.h>
 #include <kernel/mm.h>
+#include <kernel/buddy.h>
 #include <kernel/string.h>
 #include <kernel/task.h>
 #include <kernel/vfs.h>
+#include <asm/page.h>
 #include <asm/trap.h>
 
 /* 内核临时缓冲区大小，sys_write 分块拷贝使用 */
 #define WRITE_BUF_SIZE 256
-#define PATH_BUF_SIZE  256
 
 #define SEEK_SET 0
 #define SEEK_CUR 1
@@ -52,8 +53,12 @@
 #define X_OK 1
 
 #define AT_EMPTY_PATH 0x1000
+#define AT_SYMLINK_NOFOLLOW 0x100
 
 #define FALLOC_FL_KEEP_SIZE 0x01
+
+static_assert(VFS_PATH_MAX <= PAGE_SIZE,
+	      "syscall path buffers are allocated as one page");
 
 /*
  * ftruncate/fallocate 允许设置的最大 i_size。真实上界取决于具体文件系统；
@@ -141,25 +146,47 @@ static uint8_t vfs_type_to_dirent(uint8_t type)
 	}
 }
 
-static int copy_user_path(char *dst, const char *user)
+static int copy_user_path(char **pathp, const char *user)
 {
+	char *dst;
+	bool had_sum;
+	size_t i;
+
+	if (pathp)
+		*pathp = NULL;
+	if (!pathp)
+		return -EINVAL;
 	if (!user)
 		return -EFAULT;
-	if (!access_ok(user, PATH_BUF_SIZE))
-		return -EFAULT;
 
-	bool had_sum = user_access_begin();
-	for (size_t i = 0; i < PATH_BUF_SIZE; i++) {
-		char c = user[i];
+	dst = get_free_page(0);
+	if (!dst)
+		return -ENOMEM;
+
+	had_sum = user_access_begin();
+	for (i = 0; i < VFS_PATH_MAX; i++) {
+		char c;
+
+		if (!access_ok(user + i, 1)) {
+			user_access_end(had_sum);
+			free_page(dst, 0);
+			return -EFAULT;
+		}
+		c = user[i];
 		dst[i] = c;
 		if (c == '\0') {
 			user_access_end(had_sum);
-			return i == 0 ? -ENOENT : 0;
+			if (i == 0) {
+				free_page(dst, 0);
+				return -ENOENT;
+			}
+			*pathp = dst;
+			return 0;
 		}
 	}
 	user_access_end(had_sum);
 
-	dst[PATH_BUF_SIZE - 1] = '\0';
+	free_page(dst, 0);
 	return -ENAMETOOLONG;
 }
 
@@ -346,17 +373,19 @@ ssize_t sys_openat(struct trap_frame *tf)
 	const char *upath = (const char *)tf->a1;
 	uint32_t flags = (uint32_t)tf->a2;
 	uint32_t mode = (uint32_t)tf->a3;
-	char path[PATH_BUF_SIZE];
+	char *path;
 	int ret;
 
 	if (dfd != AT_FDCWD)
 		return -EINVAL;
 
-	ret = copy_user_path(path, upath);
+	ret = copy_user_path(&path, upath);
 	if (ret < 0)
 		return ret;
 
-	return vfs_open(path, flags, apply_umask(mode));
+	ret = vfs_open(path, flags, apply_umask(mode));
+	free_page(path, 0);
+	return ret;
 }
 
 ssize_t sys_write(struct trap_frame *tf)
@@ -478,17 +507,19 @@ ssize_t sys_mkdirat(struct trap_frame *tf)
 	int dfd = (int)tf->a0;
 	const char *upath = (const char *)tf->a1;
 	uint32_t mode = (uint32_t)tf->a2;
-	char path[PATH_BUF_SIZE];
+	char *path;
 	int ret;
 
 	if (dfd != AT_FDCWD)
 		return -EINVAL;
 
-	ret = copy_user_path(path, upath);
+	ret = copy_user_path(&path, upath);
 	if (ret < 0)
 		return ret;
 
-	return vfs_mkdir(path, apply_umask(mode));
+	ret = vfs_mkdir(path, apply_umask(mode));
+	free_page(path, 0);
+	return ret;
 }
 
 ssize_t sys_unlinkat(struct trap_frame *tf)
@@ -496,7 +527,7 @@ ssize_t sys_unlinkat(struct trap_frame *tf)
 	int dfd = (int)tf->a0;
 	const char *upath = (const char *)tf->a1;
 	int flags = (int)tf->a2;
-	char path[PATH_BUF_SIZE];
+	char *path;
 	int ret;
 
 	if (dfd != AT_FDCWD)
@@ -504,28 +535,31 @@ ssize_t sys_unlinkat(struct trap_frame *tf)
 	if (flags & ~AT_REMOVEDIR)
 		return -EINVAL;
 
-	ret = copy_user_path(path, upath);
+	ret = copy_user_path(&path, upath);
 	if (ret < 0)
 		return ret;
 
-	return vfs_unlink(path, flags);
+	ret = vfs_unlink(path, flags);
+	free_page(path, 0);
+	return ret;
 }
 
 ssize_t sys_chdir(struct trap_frame *tf)
 {
 	const char *upath = (const char *)tf->a0;
-	char path[PATH_BUF_SIZE];
+	char *path;
 	struct dentry *dentry;
 	int ret;
 
-	ret = copy_user_path(path, upath);
+	ret = copy_user_path(&path, upath);
 	if (ret < 0)
 		return ret;
 
-	dentry = path_lookup(path, 0);
-	if (!dentry)
-		return -ENOENT;
-	if (!dentry->d_inode || (dentry->d_inode->i_mode & S_IFMT) != S_IFDIR) {
+	ret = path_lookup_err(path, 0, &dentry);
+	free_page(path, 0);
+	if (ret < 0)
+		return ret;
+	if (!dentry->d_inode || !S_ISDIR(dentry->d_inode->i_mode)) {
 		dput(dentry);
 		return -ENOTDIR;
 	}
@@ -541,7 +575,7 @@ ssize_t sys_faccessat(struct trap_frame *tf)
 	int dfd = (int)tf->a0;
 	const char *upath = (const char *)tf->a1;
 	int mode = (int)tf->a2;
-	char path[PATH_BUF_SIZE];
+	char *path;
 	struct dentry *dentry;
 	int ret;
 
@@ -550,43 +584,54 @@ ssize_t sys_faccessat(struct trap_frame *tf)
 	if (mode & ~(R_OK | W_OK | X_OK))
 		return -EINVAL;
 
-	/*
-	 * TODO(perm): 当前没有权限模型，access 只能校验路径存在性。
-	 * 接入 inode 权限后需要按 mode 检查 R_OK/W_OK/X_OK。
-	 */
-	ret = copy_user_path(path, upath);
+	ret = copy_user_path(&path, upath);
 	if (ret < 0)
 		return ret;
 
-	dentry = path_lookup(path, 0);
-	if (!dentry)
-		return -ENOENT;
+	ret = path_lookup_err(path, 0, &dentry);
+	free_page(path, 0);
+	if (ret < 0)
+		return ret;
+	ret = vfs_inode_permission(dentry->d_inode, (uint32_t)mode);
 	dput(dentry);
 
-	return 0;
+	return ret;
 }
 
 ssize_t sys_getcwd(struct trap_frame *tf)
 {
 	char *ubuf = (char *)tf->a0;
 	size_t size = tf->a1;
-	char path[PATH_BUF_SIZE];
+	char *path;
 	int ret;
 
 	if (!ubuf || size == 0)
 		return -EINVAL;
 
-	ret = getcwd_build(path, sizeof(path));
-	if (ret < 0)
-		return ret;
-	if ((size_t)ret > size)
-		return -ERANGE;
-	if (!access_ok(ubuf, (size_t)ret))
-		return -EFAULT;
-	if (copy_to_user(ubuf, path, (size_t)ret) != 0)
-		return -EFAULT;
+	path = get_free_page(0);
+	if (!path)
+		return -ENOMEM;
 
-	return (ssize_t)(uintptr_t)ubuf;
+	ret = getcwd_build(path, VFS_PATH_MAX);
+	if (ret < 0)
+		goto out;
+	if ((size_t)ret > size) {
+		ret = -ERANGE;
+		goto out;
+	}
+	if (!access_ok(ubuf, (size_t)ret)) {
+		ret = -EFAULT;
+		goto out;
+	}
+	if (copy_to_user(ubuf, path, (size_t)ret) != 0) {
+		ret = -EFAULT;
+		goto out;
+	}
+	ret = (ssize_t)(uintptr_t)ubuf;
+
+out:
+	free_page(path, 0);
+	return ret;
 }
 
 ssize_t sys_getdents64(struct trap_frame *tf)
@@ -669,14 +714,14 @@ ssize_t sys_newfstatat(struct trap_frame *tf)
 	const char *upath = (const char *)tf->a1;
 	struct kstat *ustat = (struct kstat *)tf->a2;
 	int flags = (int)tf->a3;
-	char path[PATH_BUF_SIZE];
+	char *path;
 	struct dentry *dentry;
 	struct kstat st;
 	int ret;
 
 	if (!ustat || !access_ok(ustat, sizeof(*ustat)))
 		return -EFAULT;
-	if (flags & ~AT_EMPTY_PATH)
+	if (flags & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW))
 		return -EINVAL;
 
 	if ((flags & AT_EMPTY_PATH) && upath) {
@@ -700,13 +745,16 @@ ssize_t sys_newfstatat(struct trap_frame *tf)
 	if (dfd != AT_FDCWD)
 		return -EINVAL;
 
-	ret = copy_user_path(path, upath);
+	ret = copy_user_path(&path, upath);
 	if (ret < 0)
 		return ret;
 
-	dentry = path_lookup(path, 0);
-	if (!dentry)
-		return -ENOENT;
+	ret = path_lookup_err(path, (flags & AT_SYMLINK_NOFOLLOW) ?
+					    LOOKUP_NOFOLLOW : 0,
+			      &dentry);
+	free_page(path, 0);
+	if (ret < 0)
+		return ret;
 
 	fill_kstat(&st, dentry->d_inode);
 	dput(dentry);
@@ -716,23 +764,80 @@ ssize_t sys_newfstatat(struct trap_frame *tf)
 	return 0;
 }
 
+ssize_t sys_readlinkat(struct trap_frame *tf)
+{
+	int dfd = (int)tf->a0;
+	const char *upath = (const char *)tf->a1;
+	char *ubuf = (char *)tf->a2;
+	size_t bufsiz = (size_t)tf->a3;
+	char *path;
+	char *link;
+	size_t link_size;
+	struct dentry *dentry;
+	int len;
+	int ret;
+
+	if (dfd != AT_FDCWD)
+		return -EINVAL;
+	if (bufsiz == 0)
+		return -EINVAL;
+	if (!ubuf || !access_ok(ubuf, bufsiz))
+		return -EFAULT;
+
+	ret = copy_user_path(&path, upath);
+	if (ret < 0)
+		return ret;
+
+	/* readlink 操作链接本身，绝不跟随末端符号链接。 */
+	ret = path_lookup_err(path, LOOKUP_NOFOLLOW, &dentry);
+	free_page(path, 0);
+	if (ret < 0)
+		return ret;
+
+	link_size = bufsiz < VFS_PATH_MAX ? bufsiz : VFS_PATH_MAX;
+	link = get_free_page(0);
+	if (!link) {
+		dput(dentry);
+		return -ENOMEM;
+	}
+
+	len = vfs_readlink(dentry, link, link_size);
+	dput(dentry);
+	if (len < 0) {
+		free_page(link, 0);
+		return len;
+	}
+
+	if ((size_t)len > bufsiz)
+		len = (int)bufsiz;
+	if (copy_to_user(ubuf, link, (size_t)len) != 0) {
+		free_page(link, 0);
+		return -EFAULT;
+	}
+
+	free_page(link, 0);
+	return len;
+}
+
 ssize_t sys_mknod(struct trap_frame *tf)
 {
 	int dfd = (int)tf->a0;
 	const char *upath = (const char *)tf->a1;
 	uint32_t mode = (uint32_t)tf->a2;
 	dev_t dev = (dev_t)tf->a3;
-	char path[PATH_BUF_SIZE];
+	char *path;
 	int ret;
 
 	if (dfd != AT_FDCWD)
 		return -EINVAL;
 
-	ret = copy_user_path(path, upath);
+	ret = copy_user_path(&path, upath);
 	if (ret < 0)
 		return ret;
 
-	return vfs_mknod(path, apply_umask(mode), dev);
+	ret = vfs_mknod(path, apply_umask(mode), dev);
+	free_page(path, 0);
+	return ret;
 }
 
 ssize_t sys_dup(struct trap_frame *tf)
