@@ -18,3 +18,15 @@ int printf(const char *fmt, ...)
 	write(1, buf, len);
 	return len;
 }
+
+int snprintf(char *buf, size_t size, const char *fmt, ...)
+{
+	va_list ap;
+	int len;
+
+	va_start(ap, fmt);
+	len = vsnprintf(buf, size, fmt, ap);
+	va_end(ap);
+
+	return len;
+}

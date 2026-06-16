@@ -28,6 +28,11 @@ int main(int argc, char **argv)
 		return cat_fd(0, NULL);
 
 	for (int i = 1; i < argc; i++) {
+		if (streq(argv[i], "-")) {
+			if (cat_fd(0, "-") != 0)
+				failed = 1;
+			continue;
+		}
 		long fd = open(argv[i], O_RDONLY);
 
 		if (fd < 0) {

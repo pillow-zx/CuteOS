@@ -106,6 +106,15 @@ typedef unsigned long size_t;
 #define S_IFDIR	    0040000
 #define S_IFCHR	    0020000
 #define S_IFIFO	    0010000
+#define S_IRUSR	    00400
+#define S_IWUSR	    00200
+#define S_IXUSR	    00100
+#define S_IRGRP	    00040
+#define S_IWGRP	    00020
+#define S_IXGRP	    00010
+#define S_IROTH	    00004
+#define S_IWOTH	    00002
+#define S_IXOTH	    00001
 
 #define S_ISREG(m)  (((m) & S_IFMT) == S_IFREG)
 #define S_ISDIR(m)  (((m) & S_IFMT) == S_IFDIR)
@@ -123,7 +132,12 @@ typedef unsigned long size_t;
 #define DT_LNK	   10
 #define DT_SOCK	   12
 
+#define ENOENT	    2
 #define EACCES	    13
+#define EEXIST	    17
+#define ENOTDIR	    20
+#define EISDIR	    21
+#define EINVAL	    22
 #define ELOOP	    40
 
 #define PROT_READ   0x1

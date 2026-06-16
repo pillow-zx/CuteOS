@@ -5,7 +5,10 @@ int main(int argc, char **argv)
 	char buf[512];
 	long ret;
 
-	(void)argc;
+	if (argc > 2 || (argc == 2 && !streq(argv[1], "--"))) {
+		printf("usage: pwd\n");
+		return 1;
+	}
 	(void)argv;
 
 	ret = getcwd(buf, sizeof(buf));
