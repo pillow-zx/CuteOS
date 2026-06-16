@@ -5,10 +5,7 @@ int main(int argc, char **argv)
 	(void)argc;
 	(void)argv;
 
-	print("uid=");
-	print_dec((unsigned long)getuid());
-	print(" gid=");
-	print_dec((unsigned long)getgid());
-	print("\n");
+	printf("uid=%lu gid=%lu\n",
+	       (unsigned long)getuid(), (unsigned long)getgid());
 	return 0;
 }

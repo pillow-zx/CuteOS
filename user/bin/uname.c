@@ -10,15 +10,10 @@ int main(int argc, char **argv)
 
 	ret = uname(&uts);
 	if (ret < 0) {
-		print_error("uname", NULL, ret);
+		printf("uname: error %ld\n", ret);
 		return 1;
 	}
 
-	print(uts.sysname);
-	print(" ");
-	print(uts.release);
-	print(" ");
-	print(uts.machine);
-	print("\n");
+	printf("%s %s %s\n", uts.sysname, uts.release, uts.machine);
 	return 0;
 }

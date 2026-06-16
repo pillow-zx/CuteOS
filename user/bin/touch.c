@@ -5,7 +5,7 @@ int main(int argc, char **argv)
 	int failed = 0;
 
 	if (argc < 2) {
-		print("usage: touch FILE...\n");
+		printf("usage: touch FILE...\n");
 		return 1;
 	}
 
@@ -14,7 +14,7 @@ int main(int argc, char **argv)
 				 O_CREAT | O_WRONLY, 0666);
 
 		if (fd < 0) {
-			print_error("touch", argv[i], fd);
+			printf("touch: %s: error %ld\n", argv[i], fd);
 			failed = 1;
 			continue;
 		}

@@ -1,6 +1,7 @@
 #ifndef _ULIB_H
 #define _ULIB_H
 
+#include <stdarg.h>
 #include <user.h>
 
 #define NULL ((void *)0)
@@ -12,10 +13,8 @@ void strcpy(char *dst, const char *src);
 void *memcpy(void *dst, const void *src, size_t n);
 void *memset(void *dst, int c, size_t n);
 long atoi(const char *s);
-void print(const char *s);
-void print_hex(unsigned long val);
-void print_dec(unsigned long val);
-void print_long(long val);
-void print_error(const char *cmd, const char *arg, long err);
+int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap);
+int vsprintf(char *buf, const char *fmt, va_list ap);
+int printf(const char *fmt, ...);
 
 #endif

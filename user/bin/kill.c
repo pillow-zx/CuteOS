@@ -12,13 +12,13 @@ int main(int argc, char **argv)
 	} else if (argc == 2) {
 		pid = atoi(argv[1]);
 	} else {
-		print("usage: kill [-SIGNAL] PID\n");
+		printf("usage: kill [-SIGNAL] PID\n");
 		return 1;
 	}
 
 	ret = kill(pid, sig);
 	if (ret < 0) {
-		print_error("kill", argv[argc - 1], ret);
+		printf("kill: %s: error %ld\n", argv[argc - 1], ret);
 		return 1;
 	}
 	return 0;

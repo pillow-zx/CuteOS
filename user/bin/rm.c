@@ -5,7 +5,7 @@ int main(int argc, char **argv)
 	int failed = 0;
 
 	if (argc < 2) {
-		print("usage: rm FILE...\n");
+		printf("usage: rm FILE...\n");
 		return 1;
 	}
 
@@ -13,7 +13,7 @@ int main(int argc, char **argv)
 		long ret = unlinkat(AT_FDCWD, argv[i], 0);
 
 		if (ret < 0) {
-			print_error("rm", argv[i], ret);
+			printf("rm: %s: error %ld\n", argv[i], ret);
 			failed = 1;
 		}
 	}

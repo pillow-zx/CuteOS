@@ -8,13 +8,13 @@ static int cat_fd(int fd, const char *name)
 		long n = read(fd, buf, sizeof(buf));
 
 		if (n < 0) {
-			print_error("cat", name, n);
+			printf("cat: %s: error %ld\n", name, (long)n);
 			return 1;
 		}
 		if (n == 0)
 			return 0;
 		if (write(1, buf, (size_t)n) != n) {
-			print_error("cat", name, -1);
+			printf("cat: %s: error %ld\n", name, -1L);
 			return 1;
 		}
 	}
@@ -31,7 +31,7 @@ int main(int argc, char **argv)
 		long fd = open(argv[i], O_RDONLY);
 
 		if (fd < 0) {
-			print_error("cat", argv[i], fd);
+			printf("cat: %s: error %ld\n", argv[i], fd);
 			failed = 1;
 			continue;
 		}

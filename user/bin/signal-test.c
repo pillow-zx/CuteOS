@@ -18,8 +18,8 @@ static int run(const char *name, int (*test)(void))
 {
 	int result = test();
 
-	print(name);
-	print(result == 0 ? ": OK\n" : ": FAIL\n");
+	printf("%s", name);
+	printf("%s", result == 0 ? ": OK\n" : ": FAIL\n");
 	return result;
 }
 
@@ -33,17 +33,17 @@ static int test_handler_return(void)
 	act.sa_mask = 0;
 
 	if (sigaction(SIGUSR1, &act, 0) != 0) {
-		print("  sigaction failed\n");
+		printf("%s", "  sigaction failed\n");
 		return 1;
 	}
 	if (kill(getpid(), SIGUSR1) != 0) {
-		print("  kill failed\n");
+		printf("%s", "  kill failed\n");
 		return 1;
 	}
 	if (got_usr1 != SIGUSR1) {
-		print("  handler did not run (expected SIGUSR1, got ");
-		print_long(got_usr1);
-		print(")\n");
+		printf("%s", "  handler did not run (expected SIGUSR1, got ");
+		printf("%ld", (long)(got_usr1));
+		printf("%s", ")\n");
 		return 1;
 	}
 	return 0;
@@ -60,27 +60,27 @@ static int test_block_unblock(void)
 	act.sa_mask = 0;
 
 	if (sigaction(SIGUSR2, &act, 0) != 0) {
-		print("  sigaction failed\n");
+		printf("%s", "  sigaction failed\n");
 		return 1;
 	}
 	if (sigprocmask(SIG_BLOCK, &mask, 0) != 0) {
-		print("  sigprocmask BLOCK failed\n");
+		printf("%s", "  sigprocmask BLOCK failed\n");
 		return 1;
 	}
 	if (kill(getpid(), SIGUSR2) != 0) {
-		print("  kill failed\n");
+		printf("%s", "  kill failed\n");
 		return 1;
 	}
 	if (got_usr2 != 0) {
-		print("  handler ran while blocked\n");
+		printf("%s", "  handler ran while blocked\n");
 		return 1;
 	}
 	if (sigprocmask(SIG_UNBLOCK, &mask, 0) != 0) {
-		print("  sigprocmask UNBLOCK failed\n");
+		printf("%s", "  sigprocmask UNBLOCK failed\n");
 		return 1;
 	}
 	if (got_usr2 != SIGUSR2) {
-		print("  handler did not run after unblock\n");
+		printf("%s", "  handler did not run after unblock\n");
 		return 1;
 	}
 	return 0;
@@ -97,15 +97,15 @@ static int test_ignore(void)
 	act.sa_mask = 0;
 
 	if (sigaction(SIGUSR1, &act, 0) != 0) {
-		print("  sigaction failed\n");
+		printf("%s", "  sigaction failed\n");
 		return 1;
 	}
 	if (kill(getpid(), SIGUSR1) != 0) {
-		print("  kill failed\n");
+		printf("%s", "  kill failed\n");
 		return 1;
 	}
 	if (got_usr1 != 0) {
-		print("  handler ran despite SIG_IGN\n");
+		printf("%s", "  handler ran despite SIG_IGN\n");
 		return 1;
 	}
 	return 0;
@@ -121,7 +121,7 @@ static int test_uncatchable(void)
 	act.sa_mask = 0;
 
 	if (sigaction(SIGKILL, &act, 0) >= 0) {
-		print("  SIGKILL was incorrectly catchable\n");
+		printf("%s", "  SIGKILL was incorrectly catchable\n");
 		return 1;
 	}
 	return 0;
@@ -132,7 +132,7 @@ static int test_default_terminate(void)
 	long child = fork();
 
 	if (child < 0) {
-		print("  fork failed\n");
+		printf("%s", "  fork failed\n");
 		return 1;
 	}
 	if (child == 0) {
@@ -141,22 +141,22 @@ static int test_default_terminate(void)
 	}
 
 	if (kill(child, SIGTERM) != 0) {
-		print("  kill failed\n");
+		printf("%s", "  kill failed\n");
 		return 1;
 	}
 
 	int status = -1;
 	long waited = wait4(child, &status, 0, 0);
 	if (waited != child) {
-		print("  wait4 returned wrong pid\n");
+		printf("%s", "  wait4 returned wrong pid\n");
 		return 1;
 	}
 	if (status != (SIGNAL_EXIT_CODE(SIGTERM) << 8)) {
-		print("  unexpected status: expected ");
-		print_hex(SIGNAL_EXIT_CODE(SIGTERM) << 8);
-		print(" got ");
-		print_hex((unsigned long)status);
-		print("\n");
+		printf("%s", "  unexpected status: expected ");
+		printf("0x%lx", (unsigned long)(SIGNAL_EXIT_CODE(SIGTERM) << 8));
+		printf("%s", " got ");
+		printf("0x%lx", (unsigned long)((unsigned long)status));
+		printf("%s", "\n");
 		return 1;
 	}
 	return 0;
@@ -167,7 +167,7 @@ static int test_page_fault_sigsegv(void)
 	long child = fork();
 
 	if (child < 0) {
-		print("  fork failed\n");
+		printf("%s", "  fork failed\n");
 		return 1;
 	}
 	if (child == 0) {
@@ -180,15 +180,15 @@ static int test_page_fault_sigsegv(void)
 	int status = -1;
 	long waited = wait4(child, &status, 0, 0);
 	if (waited != child) {
-		print("  wait4 returned wrong pid\n");
+		printf("%s", "  wait4 returned wrong pid\n");
 		return 1;
 	}
 	if (status != (SIGNAL_EXIT_CODE(SIGSEGV) << 8)) {
-		print("  unexpected status: expected ");
-		print_hex(SIGNAL_EXIT_CODE(SIGSEGV) << 8);
-		print(" got ");
-		print_hex((unsigned long)status);
-		print("\n");
+		printf("%s", "  unexpected status: expected ");
+		printf("0x%lx", (unsigned long)(SIGNAL_EXIT_CODE(SIGSEGV) << 8));
+		printf("%s", " got ");
+		printf("0x%lx", (unsigned long)((unsigned long)status));
+		printf("%s", "\n");
 		return 1;
 	}
 	return 0;
@@ -202,7 +202,7 @@ int main(int argc, char **argv, char **envp)
 
 	int failures = 0;
 
-	print("=== CuteOS Signal Test ===\n");
+	printf("%s", "=== CuteOS Signal Test ===\n");
 
 	failures += run("handler_return", test_handler_return);
 	failures += run("block_unblock", test_block_unblock);
@@ -212,11 +212,11 @@ int main(int argc, char **argv, char **envp)
 	failures += run("page_fault_sigsegv", test_page_fault_sigsegv);
 
 	if (failures == 0)
-		print("=== Signal tests passed ===\n");
+		printf("%s", "=== Signal tests passed ===\n");
 	else {
-		print("=== Signal tests failed: ");
-		print_long(failures);
-		print(" ===\n");
+		printf("%s", "=== Signal tests failed: ");
+		printf("%ld", (long)(failures));
+		printf("%s", " ===\n");
 	}
 
 	return failures == 0 ? 0 : 1;

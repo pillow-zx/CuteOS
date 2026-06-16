@@ -5,7 +5,7 @@
 
 static void print_prompt(void)
 {
-	print("cuteos$ ");
+	printf("cuteos$ ");
 }
 
 static int is_space(char ch)
@@ -32,7 +32,7 @@ static int read_line(char *line, int size)
 			continue;
 
 		if (ch == '\r' || ch == '\n') {
-			print("\n");
+			printf("\n");
 			line[len] = '\0';
 			return len;
 		}
@@ -40,7 +40,7 @@ static int read_line(char *line, int size)
 		if (ch == '\b' || ch == 0x7f) {
 			if (len > 0) {
 				len--;
-				print("\b \b");
+				printf("\b \b");
 			}
 			continue;
 		}
@@ -107,9 +107,9 @@ static int build_path(char *dst, size_t size, const char *cmd)
 
 static void print_help(void)
 {
-	print("commands: cd help exit ls cat echo touch mkdir rmdir rm ");
-	print("pwd cp stat uname id kill true false\n");
-	print("pipe: cmd | cmd\n");
+	printf("commands: cd help exit ls cat echo touch mkdir rmdir rm ");
+	printf("pwd cp stat uname id kill true false\n");
+	printf("pipe: cmd | cmd\n");
 }
 
 static void exec_child(char **argv)
@@ -118,17 +118,13 @@ static void exec_child(char **argv)
 	char *envp[] = { "PATH=/bin", 0 };
 
 	if (build_path(path, sizeof(path), argv[0]) < 0) {
-		print("command path too long\n");
+		printf("command path too long\n");
 		exit(127);
 	}
 
 	long ret = execve(path, argv, envp);
 
-	print("exec failed: ");
-	print(path);
-	print(", ret=");
-	print_long(ret);
-	print("\n");
+	printf("exec failed: %s, ret=%ld\n", path, ret);
 	exit(127);
 }
 
@@ -138,15 +134,11 @@ static int wait_and_report(long pid)
 	long waited = wait4(pid, &status, 0, 0);
 
 	if (waited < 0) {
-		print("wait failed, ret=");
-		print_long(waited);
-		print("\n");
+		printf("wait failed, ret=%ld\n", waited);
 		return 1;
 	}
 
-	print("[exit ");
-	print_long(status);
-	print("]\n");
+	printf("[exit %ld]\n", (long)status);
 	return status == 0 ? 0 : 1;
 }
 
@@ -158,9 +150,7 @@ static void run_external(char **argv)
 		exec_child(argv);
 
 	if (pid < 0) {
-		print("fork failed, ret=");
-		print_long(pid);
-		print("\n");
+		printf("fork failed, ret=%ld\n", pid);
 		return;
 	}
 
@@ -183,13 +173,13 @@ static void run_pipeline(char **argv, int pipe_index)
 	long right;
 
 	if (pipe_index == 0 || !argv[pipe_index + 1]) {
-		print("invalid pipeline\n");
+		printf("invalid pipeline\n");
 		return;
 	}
 
 	argv[pipe_index] = NULL;
 	if (pipe(pipefd) != 0) {
-		print("pipe failed\n");
+		printf("pipe failed\n");
 		return;
 	}
 
@@ -202,7 +192,7 @@ static void run_pipeline(char **argv, int pipe_index)
 		exec_child(argv);
 	}
 	if (left < 0) {
-		print("fork failed\n");
+		printf("fork failed\n");
 		close(pipefd[0]);
 		close(pipefd[1]);
 		return;
@@ -220,7 +210,7 @@ static void run_pipeline(char **argv, int pipe_index)
 	close(pipefd[1]);
 
 	if (right < 0) {
-		print("fork failed\n");
+		printf("fork failed\n");
 		wait_and_report(left);
 		return;
 	}
@@ -247,11 +237,7 @@ static void run_command(int argc, char **argv)
 		long ret = chdir(path);
 
 		if (ret < 0) {
-			print("cd: ");
-			print(path);
-			print(": ");
-			print_long(ret);
-			print("\n");
+			printf("cd: %s: %ld\n", path, ret);
 		}
 		return;
 	}
@@ -272,7 +258,7 @@ int main(int argc, char **argv, char **envp)
 	(void)argv;
 	(void)envp;
 
-	print("CuteOS shell\n");
+	printf("CuteOS shell\n");
 
 	while (1) {
 		char line[LINE_MAX];
@@ -283,9 +269,7 @@ int main(int argc, char **argv, char **envp)
 		print_prompt();
 		n = read_line(line, sizeof(line));
 		if (n < 0) {
-			print("read failed, ret=");
-			print_long(n);
-			print("\n");
+			printf("read failed, ret=%ld\n", (long)n);
 			continue;
 		}
 

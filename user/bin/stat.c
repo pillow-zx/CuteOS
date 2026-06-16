@@ -23,24 +23,14 @@ static int stat_one(const char *path)
 	long ret = fstatat(AT_FDCWD, path, &st, AT_SYMLINK_NOFOLLOW);
 
 	if (ret < 0) {
-		print_error("stat", path, ret);
+		printf("stat: %s: error %ld\n", path, ret);
 		return 1;
 	}
 
-	print(path);
-	print(": type=");
-	print(type_name(st.st_mode));
-	print(" size=");
-	print_dec((unsigned long)st.st_size);
-	print(" mode=");
-	print_hex(st.st_mode);
-	print(" uid=");
-	print_dec(st.st_uid);
-	print(" gid=");
-	print_dec(st.st_gid);
-	print(" links=");
-	print_dec(st.st_nlink);
-	print("\n");
+	printf("%s: type=%s size=%lu mode=0x%lx uid=%lu gid=%lu links=%lu\n",
+	       path, type_name(st.st_mode), (unsigned long)st.st_size,
+	       (unsigned long)st.st_mode, (unsigned long)st.st_uid,
+	       (unsigned long)st.st_gid, (unsigned long)st.st_nlink);
 	return 0;
 }
 
@@ -49,7 +39,7 @@ int main(int argc, char **argv)
 	int failed = 0;
 
 	if (argc < 2) {
-		print("usage: stat FILE...\n");
+		printf("usage: stat FILE...\n");
 		return 1;
 	}
 

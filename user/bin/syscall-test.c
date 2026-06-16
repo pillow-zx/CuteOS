@@ -2,24 +2,24 @@
 
 static void print_argv_envp(int argc, char **argv, char **envp)
 {
-	print("[TEST] argc = ");
-	print_hex((unsigned long)argc);
-	print("\n");
+	printf("%s", "[TEST] argc = ");
+	printf("0x%lx", (unsigned long)((unsigned long)argc));
+	printf("%s", "\n");
 
 	for (int i = 0; i < argc; i++) {
-		print("[TEST] argv[");
-		print_hex((unsigned long)i);
-		print("] = ");
-		print(argv[i]);
-		print("\n");
+		printf("%s", "[TEST] argv[");
+		printf("0x%lx", (unsigned long)((unsigned long)i));
+		printf("%s", "] = ");
+		printf("%s", argv[i]);
+		printf("%s", "\n");
 	}
 
 	for (int i = 0; envp && envp[i] != NULL; i++) {
-		print("[TEST] envp[");
-		print_hex((unsigned long)i);
-		print("] = ");
-		print(envp[i]);
-		print("\n");
+		printf("%s", "[TEST] envp[");
+		printf("0x%lx", (unsigned long)((unsigned long)i));
+		printf("%s", "] = ");
+		printf("%s", envp[i]);
+		printf("%s", "\n");
 	}
 }
 
@@ -28,40 +28,40 @@ static int test_basic_syscalls(void)
 	int failures = 0;
 	long pid = getpid();
 
-	print("[TEST] getpid = ");
-	print_hex((unsigned long)pid);
-	print("\n");
+	printf("%s", "[TEST] getpid = ");
+	printf("0x%lx", (unsigned long)((unsigned long)pid));
+	printf("%s", "\n");
 	if (pid <= 1)
 		failures++;
 
-	print("[TEST] getppid = ");
-	print_hex((unsigned long)getppid());
-	print(", uid = ");
-	print_hex((unsigned long)getuid());
-	print(", euid = ");
-	print_hex((unsigned long)geteuid());
-	print(", gid = ");
-	print_hex((unsigned long)getgid());
-	print(", egid = ");
-	print_hex((unsigned long)getegid());
-	print(", tid = ");
-	print_hex((unsigned long)gettid());
-	print("\n");
+	printf("%s", "[TEST] getppid = ");
+	printf("0x%lx", (unsigned long)((unsigned long)getppid()));
+	printf("%s", ", uid = ");
+	printf("0x%lx", (unsigned long)((unsigned long)getuid()));
+	printf("%s", ", euid = ");
+	printf("0x%lx", (unsigned long)((unsigned long)geteuid()));
+	printf("%s", ", gid = ");
+	printf("0x%lx", (unsigned long)((unsigned long)getgid()));
+	printf("%s", ", egid = ");
+	printf("0x%lx", (unsigned long)((unsigned long)getegid()));
+	printf("%s", ", tid = ");
+	printf("0x%lx", (unsigned long)((unsigned long)gettid()));
+	printf("%s", "\n");
 	if (getuid() != 0 || geteuid() != 0 || getgid() != 0 ||
 	    getegid() != 0 || gettid() != pid)
 		failures++;
 
-	print("[TEST] write: OK\n");
-	print("[TEST] yield...\n");
+	printf("%s", "[TEST] write: OK\n");
+	printf("%s", "[TEST] yield...\n");
 	yield();
-	print("[TEST] yield: returned OK\n");
+	printf("%s", "[TEST] yield: returned OK\n");
 
 	long initial_brk = brk(0);
 	long new_brk = brk(initial_brk + 4096);
 
-	print("[TEST] brk extend = ");
-	print_hex((unsigned long)new_brk);
-	print("\n");
+	printf("%s", "[TEST] brk extend = ");
+	printf("0x%lx", (unsigned long)((unsigned long)new_brk));
+	printf("%s", "\n");
 	if (new_brk == initial_brk + 4096) {
 		volatile char *heap = (volatile char *)initial_brk;
 
@@ -76,9 +76,9 @@ static int test_basic_syscalls(void)
 	char *map = mmap(0, 8192, PROT_READ | PROT_WRITE,
 			 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
-	print("[TEST] mmap anonymous = ");
-	print_hex((unsigned long)map);
-	print("\n");
+	printf("%s", "[TEST] mmap anonymous = ");
+	printf("0x%lx", (unsigned long)((unsigned long)map));
+	printf("%s", "\n");
 	if ((long)map < 0) {
 		failures++;
 	} else {
@@ -126,24 +126,24 @@ static int test_time_syscalls(void)
 	long ticks;
 
 	ticks = times(&tms_buf);
-	print("[TEST] times = ");
-	print_long(ticks);
-	print("\n");
+	printf("%s", "[TEST] times = ");
+	printf("%ld", (long)(ticks));
+	printf("%s", "\n");
 	if (ticks < 0)
 		failures++;
 
 	if (gettimeofday(&tv, 0) == 0) {
-		print("[TEST] gettimeofday sec = ");
-		print_long(tv.tv_sec);
-		print("\n");
+		printf("%s", "[TEST] gettimeofday sec = ");
+		printf("%ld", (long)(tv.tv_sec));
+		printf("%s", "\n");
 	} else {
 		failures++;
 	}
 
 	if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
-		print("[TEST] clock_gettime nsec = ");
-		print_long(ts.tv_nsec);
-		print("\n");
+		printf("%s", "[TEST] clock_gettime nsec = ");
+		printf("%ld", (long)(ts.tv_nsec));
+		printf("%s", "\n");
 	} else {
 		failures++;
 	}
@@ -164,9 +164,9 @@ static int test_misc_syscalls(void)
 	unsigned int old_mask;
 
 	if (uname(&uts) == 0) {
-		print("[TEST] uname sysname = ");
-		print(uts.sysname);
-		print("\n");
+		printf("%s", "[TEST] uname sysname = ");
+		printf("%s", uts.sysname);
+		printf("%s", "\n");
 		if (!streq(uts.sysname, "CuteOS") ||
 		    !streq(uts.machine, "riscv64"))
 			failures++;
@@ -175,9 +175,9 @@ static int test_misc_syscalls(void)
 	}
 
 	if (sysinfo(&info) == 0) {
-		print("[TEST] sysinfo totalram = ");
-		print_long((long)info.totalram);
-		print("\n");
+		printf("%s", "[TEST] sysinfo totalram = ");
+		printf("%ld", (long)((long)info.totalram));
+		printf("%s", "\n");
 		if (info.totalram == 0 || info.mem_unit != 1)
 			failures++;
 	} else {
@@ -216,9 +216,9 @@ static int test_file_extra_syscalls(void)
 	long n;
 
 	fd = openat(AT_FDCWD, path, O_CREAT | O_TRUNC | O_RDWR, 0666);
-	print("[TEST] open extra file = ");
-	print_long(fd);
-	print("\n");
+	printf("%s", "[TEST] open extra file = ");
+	printf("%ld", (long)(fd));
+	printf("%s", "\n");
 	if (fd < 0)
 		return 1;
 
@@ -234,9 +234,9 @@ static int test_file_extra_syscalls(void)
 	if (pread64((int)fd, buf, 4, 0) != 4)
 		failures++;
 	buf[4] = '\0';
-	print("[TEST] pread content = ");
-	print(buf);
-	print("\n");
+	printf("%s", "[TEST] pread content = ");
+	printf("%s", buf);
+	printf("%s", "\n");
 	if (!streq(buf, "aXYd"))
 		failures++;
 
@@ -323,9 +323,9 @@ static int test_open_permissions(void)
 		status = -1;
 	syscall(SYS_unlinkat, AT_FDCWD, (long)path, 0);
 
-	print("[TEST] permission child status = ");
-	print_hex((unsigned long)status);
-	print("\n");
+	printf("%s", "[TEST] permission child status = ");
+	printf("0x%lx", (unsigned long)((unsigned long)status));
+	printf("%s", "\n");
 
 	return status == 0 ? 0 : 1;
 }
@@ -337,20 +337,20 @@ static int expect_readlink(const char *path, const char *target)
 
 	n = readlinkat(AT_FDCWD, path, buf, sizeof(buf) - 1);
 	if (n != (long)strlen(target)) {
-		print("[TEST] readlink length failed: ");
-		print(path);
-		print(" ret=");
-		print_long(n);
-		print("\n");
+		printf("%s", "[TEST] readlink length failed: ");
+		printf("%s", path);
+		printf("%s", " ret=");
+		printf("%ld", (long)(n));
+		printf("%s", "\n");
 		return 1;
 	}
 	buf[n] = '\0';
 	if (!streq(buf, target)) {
-		print("[TEST] readlink target failed: ");
-		print(path);
-		print(" target=");
-		print(buf);
-		print("\n");
+		printf("%s", "[TEST] readlink target failed: ");
+		printf("%s", path);
+		printf("%s", " target=");
+		printf("%s", buf);
+		printf("%s", "\n");
 		return 1;
 	}
 	return 0;
@@ -378,24 +378,24 @@ static int test_symlink_syscalls(void)
 	n = readlinkat(AT_FDCWD, fast, tiny, sizeof(tiny));
 	if (n != (long)sizeof(tiny) || tiny[0] != '/' || tiny[1] != 'b' ||
 	    tiny[2] != 'i' || tiny[3] != 'n') {
-		print("[TEST] readlink truncate failed ret=");
-		print_long(n);
-		print("\n");
+		printf("%s", "[TEST] readlink truncate failed ret=");
+		printf("%ld", (long)(n));
+		printf("%s", "\n");
 		failures++;
 	}
 
 	if (fstatat(AT_FDCWD, fast, &st, 0) != 0 ||
 	    (st.st_mode & S_IFMT) != S_IFREG) {
-		print("[TEST] fstat follow symlink failed mode=");
-		print_long(st.st_mode);
-		print("\n");
+		printf("%s", "[TEST] fstat follow symlink failed mode=");
+		printf("%ld", (long)(st.st_mode));
+		printf("%s", "\n");
 		failures++;
 	}
 	if (fstatat(AT_FDCWD, fast, &st, AT_SYMLINK_NOFOLLOW) != 0 ||
 	    (st.st_mode & S_IFMT) != S_IFLNK) {
-		print("[TEST] fstat nofollow symlink failed mode=");
-		print_long(st.st_mode);
-		print("\n");
+		printf("%s", "[TEST] fstat nofollow symlink failed mode=");
+		printf("%ld", (long)(st.st_mode));
+		printf("%s", "\n");
 		failures++;
 	}
 
@@ -403,9 +403,9 @@ static int test_symlink_syscalls(void)
 	if (fd >= 0)
 		close((int)fd);
 	else {
-		print("[TEST] open symlink read failed ret=");
-		print_long(fd);
-		print("\n");
+		printf("%s", "[TEST] open symlink read failed ret=");
+		printf("%ld", (long)(fd));
+		printf("%s", "\n");
 		failures++;
 	}
 
@@ -413,17 +413,17 @@ static int test_symlink_syscalls(void)
 	if (fd >= 0)
 		close((int)fd);
 	else {
-		print("[TEST] open symlink write failed ret=");
-		print_long(fd);
-		print("\n");
+		printf("%s", "[TEST] open symlink write failed ret=");
+		printf("%ld", (long)(fd));
+		printf("%s", "\n");
 		failures++;
 	}
 
 	fd = open("/loop-symlink", O_RDONLY);
 	if (fd != -ELOOP) {
-		print("[TEST] open loop symlink failed ret=");
-		print_long(fd);
-		print("\n");
+		printf("%s", "[TEST] open loop symlink failed ret=");
+		printf("%ld", (long)(fd));
+		printf("%s", "\n");
 		if (fd >= 0)
 			close((int)fd);
 		failures++;
@@ -439,9 +439,9 @@ static int test_dev_null(void)
 	long fd = open("/dev/null", O_WRONLY);
 	long n;
 
-	print("[TEST] open /dev/null = ");
-	print_long(fd);
-	print("\n");
+	printf("%s", "[TEST] open /dev/null = ");
+	printf("%ld", (long)(fd));
+	printf("%s", "\n");
 	if (fd < 0)
 		return 1;
 
@@ -454,7 +454,7 @@ static int test_pipe(void)
 {
 	int pipefd[2];
 
-	print("[TEST] pipe parent->child...\n");
+	printf("%s", "[TEST] pipe parent->child...\n");
 	if (pipe(pipefd) != 0)
 		return 1;
 
@@ -485,16 +485,16 @@ static int test_pipe(void)
 	int status = -1;
 	long waited = wait4(child, &status, 0, 0);
 
-	print("[TEST] pipe child status = ");
-	print_hex((unsigned long)status);
-	print("\n");
+	printf("%s", "[TEST] pipe child status = ");
+	printf("0x%lx", (unsigned long)((unsigned long)status));
+	printf("%s", "\n");
 
 	return waited == child && status == 0xb00 ? 0 : 1;
 }
 
 static int test_fork_exec_wait(void)
 {
-	print("[TEST] fork/exec/wait...\n");
+	printf("%s", "[TEST] fork/exec/wait...\n");
 
 	long child = fork();
 	if (child == 0) {
@@ -510,9 +510,9 @@ static int test_fork_exec_wait(void)
 		};
 		long ret = execve("/bin/syscall-test", child_argv, child_envp);
 
-		print("[CHILD] execve FAILED, ret=");
-		print_long(ret);
-		print("\n");
+		printf("%s", "[CHILD] execve FAILED, ret=");
+		printf("%ld", (long)(ret));
+		printf("%s", "\n");
 		exit(2);
 	}
 	if (child < 0)
@@ -521,9 +521,9 @@ static int test_fork_exec_wait(void)
 	int status = -1;
 	long waited = wait4(child, &status, 0, 0);
 
-	print("[TEST] exec child status = ");
-	print_hex((unsigned long)status);
-	print("\n");
+	printf("%s", "[TEST] exec child status = ");
+	printf("0x%lx", (unsigned long)((unsigned long)status));
+	printf("%s", "\n");
 	return waited == child && status == 0x700 ? 0 : 1;
 }
 
@@ -532,14 +532,14 @@ int main(int argc, char **argv, char **envp)
 	int failures = 0;
 
 	if (argc > 1 && streq(argv[1], "exec-child")) {
-		print("[EXEC-CHILD] execve replaced the fork child\n");
+		printf("%s", "[EXEC-CHILD] execve replaced the fork child\n");
 		if (argc > 2 && streq(argv[2], "argv-ok") && envp && envp[0] &&
 		    streq(envp[0], "CUTEOS_ENV=ok"))
 			return 7;
 		return 8;
 	}
 
-	print("=== CuteOS Syscall Test ===\n");
+	printf("%s", "=== CuteOS Syscall Test ===\n");
 	print_argv_envp(argc, argv, envp);
 
 	failures += test_basic_syscalls();
@@ -554,11 +554,11 @@ int main(int argc, char **argv, char **envp)
 	failures += test_fork_exec_wait();
 
 	if (failures == 0) {
-		print("=== All tests passed ===\n");
+		printf("%s", "=== All tests passed ===\n");
 	} else {
-		print("=== Tests failed: ");
-		print_long(failures);
-		print(" ===\n");
+		printf("%s", "=== Tests failed: ");
+		printf("%ld", (long)(failures));
+		printf("%s", " ===\n");
 	}
 
 	return failures == 0 ? 0 : 1;

@@ -5,7 +5,7 @@ int main(int argc, char **argv)
 	int failed = 0;
 
 	if (argc < 2) {
-		print("usage: mkdir DIR...\n");
+		printf("usage: mkdir DIR...\n");
 		return 1;
 	}
 
@@ -13,7 +13,7 @@ int main(int argc, char **argv)
 		long ret = mkdirat(AT_FDCWD, argv[i], 0777);
 
 		if (ret < 0) {
-			print_error("mkdir", argv[i], ret);
+			printf("mkdir: %s: error %ld\n", argv[i], ret);
 			failed = 1;
 		}
 	}

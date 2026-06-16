@@ -10,10 +10,9 @@ int main(int argc, char **argv)
 
 	ret = getcwd(buf, sizeof(buf));
 	if (ret < 0) {
-		print_error("pwd", NULL, ret);
+		printf("pwd: error %ld\n", ret);
 		return 1;
 	}
-	print(buf);
-	print("\n");
+	printf("%s\n", buf);
 	return 0;
 }

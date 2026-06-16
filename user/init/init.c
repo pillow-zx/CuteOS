@@ -9,22 +9,16 @@ static long spawn_shell(void)
 	if (pid == 0) {
 		long ret = execve("/bin/sh", sh_argv, sh_envp);
 
-		print("init: exec /bin/sh failed, ret=");
-		print_long(ret);
-		print("\n");
+		printf("init: exec /bin/sh failed, ret=%ld\n", ret);
 		exit(127);
 	}
 
 	if (pid < 0) {
-		print("init: fork /bin/sh failed, ret=");
-		print_long(pid);
-		print("\n");
+		printf("init: fork /bin/sh failed, ret=%ld\n", pid);
 		return pid;
 	}
 
-	print("init: started /bin/sh pid=");
-	print_long(pid);
-	print("\n");
+	printf("init: started /bin/sh pid=%ld\n", pid);
 	return pid;
 }
 
@@ -50,18 +44,13 @@ int main(int argc, char **argv, char **envp)
 
 		waited = wait(&status);
 		if (waited < 0) {
-			print("init: wait failed, ret=");
-			print_long(waited);
-			print("\n");
+			printf("init: wait failed, ret=%ld\n", waited);
 			yield();
 			continue;
 		}
 
-		print("init: reaped pid=");
-		print_long(waited);
-		print(" status=");
-		print_long(status);
-		print("\n");
+		printf("init: reaped pid=%ld status=%ld\n",
+		       waited, (long)status);
 
 		if (waited == shell_pid)
 			shell_pid = -1;

@@ -2,12 +2,12 @@
 
 static void print_name(const char *name, unsigned char type)
 {
-	print(name);
+	printf("%s", name);
 	if (type == DT_DIR)
-		print("/");
+		printf("/");
 	else if (type == DT_LNK)
-		print("@");
-	print("\n");
+		printf("@");
+	printf("\n");
 }
 
 static int list_dir(const char *path)
@@ -16,7 +16,7 @@ static int list_dir(const char *path)
 	long fd = open(path, O_RDONLY);
 
 	if (fd < 0) {
-		print_error("ls", path, fd);
+		printf("ls: %s: error %ld\n", path, fd);
 		return 1;
 	}
 
@@ -25,7 +25,7 @@ static int list_dir(const char *path)
 		long off = 0;
 
 		if (n < 0) {
-			print_error("ls", path, n);
+			printf("ls: %s: error %ld\n", path, n);
 			close((int)fd);
 			return 1;
 		}
@@ -52,12 +52,11 @@ static int list_path(const char *path)
 	long ret = fstatat(AT_FDCWD, path, &st, 0);
 
 	if (ret < 0) {
-		print_error("ls", path, ret);
+		printf("ls: %s: error %ld\n", path, ret);
 		return 1;
 	}
 	if (!S_ISDIR(st.st_mode)) {
-		print(path);
-		print("\n");
+		printf("%s\n", path);
 		return 0;
 	}
 	return list_dir(path);
@@ -72,8 +71,7 @@ int main(int argc, char **argv)
 
 	for (int i = 1; i < argc; i++) {
 		if (argc > 2) {
-			print(argv[i]);
-			print(":\n");
+			printf("%s:\n", argv[i]);
 		}
 		if (list_path(argv[i]) != 0)
 			failed = 1;

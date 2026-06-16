@@ -5,7 +5,7 @@ int main(int argc, char **argv)
 	int failed = 0;
 
 	if (argc < 2) {
-		print("usage: rmdir DIR...\n");
+		printf("usage: rmdir DIR...\n");
 		return 1;
 	}
 
@@ -13,7 +13,7 @@ int main(int argc, char **argv)
 		long ret = unlinkat(AT_FDCWD, argv[i], AT_REMOVEDIR);
 
 		if (ret < 0) {
-			print_error("rmdir", argv[i], ret);
+			printf("rmdir: %s: error %ld\n", argv[i], ret);
 			failed = 1;
 		}
 	}
