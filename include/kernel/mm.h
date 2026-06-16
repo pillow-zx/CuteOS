@@ -165,6 +165,16 @@ size_t copy_to_user(void *to, const void *from, size_t n);
  */
 size_t copy_from_user(void *to, const void *from, size_t n);
 
+/*
+ * strncpy_from_user - 复制 NUL 结尾的用户字符串到内核缓冲区
+ * @dst:    内核空间目标缓冲区
+ * @src:    用户空间源字符串
+ * @maxlen: 目标缓冲区大小，包含结尾 NUL
+ *
+ * 成功时返回不含 NUL 的字符串长度；失败返回负 errno。
+ */
+ssize_t strncpy_from_user(char *dst, const char *src, size_t maxlen);
+
 /* ---- 缺页处理 ---- */
 
 struct trap_frame;

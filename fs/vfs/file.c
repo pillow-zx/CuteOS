@@ -61,6 +61,36 @@ int vfs_inode_permission(struct inode *inode, uint32_t mask)
 	return (perm & want) == want ? 0 : -EACCES;
 }
 
+int vfs_sync_file(struct file *file)
+{
+	struct super_block *sb;
+
+	if (!file || !file->f_inode)
+		return -EINVAL;
+
+	sb = file->f_inode->i_sb;
+	if (!sb || !sb->s_op || !sb->s_op->sync_fs)
+		return vfs_inode_writeback(file->f_inode);
+
+	return sb->s_op->sync_fs(sb);
+}
+
+int vfs_truncate_file(struct file *file, uint64_t size)
+{
+	if (!file || !file->f_inode)
+		return -EINVAL;
+
+	return vfs_inode_truncate(file->f_inode, size);
+}
+
+int vfs_stat_file(struct file *file, struct kstat *st)
+{
+	if (!file)
+		return -EINVAL;
+
+	return vfs_stat_inode(file->f_inode, st);
+}
+
 struct file *fd_get_checked(int fd)
 {
 	if (fd < 0 || fd >= NR_OPEN)

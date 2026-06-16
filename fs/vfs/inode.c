@@ -22,6 +22,7 @@
 #include <kernel/errno.h>
 #include <kernel/fs.h>
 #include <kernel/slab.h>
+#include <kernel/stat.h>
 #include <kernel/string.h>
 #include <kernel/vfs.h>
 
@@ -117,6 +118,88 @@ void iput(struct inode *inode)
 		return;
 
 	inode->i_refcount--;
+}
+
+int vfs_inode_writeback(struct inode *inode)
+{
+	if (!inode || !inode->i_sb || !inode->i_sb->s_op ||
+	    !inode->i_sb->s_op->write_inode)
+		return -EINVAL;
+
+	return inode->i_sb->s_op->write_inode(inode);
+}
+
+int vfs_inode_truncate(struct inode *inode, uint64_t size)
+{
+	if (!inode || !inode->i_op || !inode->i_op->truncate)
+		return -EINVAL;
+
+	return inode->i_op->truncate(inode, size);
+}
+
+int vfs_stat_inode(const struct inode *inode, struct kstat *st)
+{
+	uint64_t size;
+
+	if (!st)
+		return -EINVAL;
+
+	memset(st, 0, sizeof(*st));
+	if (!inode)
+		return 0;
+
+	size = vfs_inode_size(inode);
+	st->st_dev = vfs_inode_dev(inode);
+	st->st_ino = vfs_inode_number(inode);
+	st->st_mode = vfs_inode_mode(inode);
+	st->st_nlink = vfs_inode_nlink(inode);
+	st->st_uid = vfs_inode_uid(inode);
+	st->st_gid = vfs_inode_gid(inode);
+	st->st_rdev = vfs_inode_rdev(inode);
+	st->st_size = (int64_t)size;
+	st->st_blksize = 1024;
+	st->st_blocks = size / 512 + (size % 512 ? 1 : 0);
+	return 0;
+}
+
+uint64_t vfs_inode_size(const struct inode *inode)
+{
+	return inode ? inode->i_size : 0;
+}
+
+uint64_t vfs_inode_number(const struct inode *inode)
+{
+	return inode ? inode->i_ino : 0;
+}
+
+uint32_t vfs_inode_mode(const struct inode *inode)
+{
+	return inode ? inode->i_mode : 0;
+}
+
+dev_t vfs_inode_rdev(const struct inode *inode)
+{
+	return inode ? inode->i_rdev : 0;
+}
+
+uint32_t vfs_inode_uid(const struct inode *inode)
+{
+	return inode ? inode->i_uid : 0;
+}
+
+uint32_t vfs_inode_gid(const struct inode *inode)
+{
+	return inode ? inode->i_gid : 0;
+}
+
+uint32_t vfs_inode_nlink(const struct inode *inode)
+{
+	return inode ? inode->i_nlink : 0;
+}
+
+dev_t vfs_inode_dev(const struct inode *inode)
+{
+	return inode && inode->i_sb ? inode->i_sb->s_dev : 0;
 }
 
 void inode_forget(struct inode *inode)

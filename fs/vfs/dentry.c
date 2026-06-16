@@ -124,3 +124,31 @@ void dput(struct dentry *dentry)
 	if (dentry->d_refcount > 0)
 		dentry->d_refcount--;
 }
+
+struct inode *vfs_dentry_inode(struct dentry *dentry)
+{
+	return dentry ? dentry->d_inode : NULL;
+}
+
+struct dentry *vfs_dentry_parent(struct dentry *dentry)
+{
+	return dentry ? dentry->d_parent : NULL;
+}
+
+const char *vfs_dentry_name(struct dentry *dentry)
+{
+	return dentry ? dentry->d_name : NULL;
+}
+
+size_t vfs_dentry_namelen(struct dentry *dentry)
+{
+	return dentry ? dentry->d_namelen : 0;
+}
+
+int vfs_stat_dentry(struct dentry *dentry, struct kstat *st)
+{
+	if (!dentry || !st)
+		return -EINVAL;
+
+	return vfs_stat_inode(vfs_dentry_inode(dentry), st);
+}

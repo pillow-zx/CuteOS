@@ -406,14 +406,6 @@ struct dentry *path_parent_lookup(const char *path, char *name, size_t *namelen)
 	return parent;
 }
 
-int vfs_stat_dentry(struct dentry *dentry, struct kstat *st)
-{
-	if (!dentry || !st)
-		return -EINVAL;
-
-	return vfs_stat_inode(vfs_dentry_inode(dentry), st);
-}
-
 int vfs_chdir_dentry(struct dentry *dentry)
 {
 	struct inode *inode = vfs_dentry_inode(dentry);

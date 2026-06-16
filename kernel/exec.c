@@ -22,11 +22,10 @@
 #include <asm/pte.h>
 #include <asm/trap.h>
 
-#define EXEC_MAX_ARGS	  16
-#define EXEC_MAX_ARG_LEN  128
-#define EXEC_MAX_PATH_LEN 64
-#define EXEC_MAX_ENVS	  16
-#define EXEC_MAX_ENV_LEN  128
+#define EXEC_MAX_ARGS	 16
+#define EXEC_MAX_ARG_LEN 128
+#define EXEC_MAX_ENVS	 16
+#define EXEC_MAX_ENV_LEN 128
 
 struct exec_args_envp {
 	int argc;
@@ -71,20 +70,11 @@ static uint32_t elf_flags_to_vma(uint32_t p_flags)
 
 static int copy_user_string(char *dst, const char *user, size_t max_len)
 {
-	if (!user || max_len == 0)
-		return -EFAULT;
-	for (size_t i = 0; i < max_len; i++) {
-		char c;
+	ssize_t len = strncpy_from_user(dst, user, max_len);
 
-		if (copy_from_user(&c, user + i, sizeof(c)) != 0)
-			return -EFAULT;
-		dst[i] = c;
-		if (c == '\0')
-			return 0;
-	}
-
-	dst[max_len - 1] = '\0';
-	return -E2BIG;
+	if (len == -ENAMETOOLONG)
+		return -E2BIG;
+	return len < 0 ? (int)len : 0;
 }
 
 static int copy_arg_array(const char *const *user_array,
@@ -556,19 +546,34 @@ ssize_t sys_execve(struct trap_frame *tf)
 	const char *upath = (const char *)tf->a0;
 	const char *const *uargv = (const char *const *)tf->a1;
 	const char *const *uenvp = (const char *const *)tf->a2;
+	char *path;
+	ssize_t path_len;
+	int ret;
 
-	char path[EXEC_MAX_PATH_LEN];
-	int ret = copy_user_string(path, upath, sizeof(path));
-	if (ret < 0)
-		return ret;
+	path = get_free_page(0);
+	if (!path)
+		return -ENOMEM;
+
+	path_len = strncpy_from_user(path, upath, VFS_PATH_MAX);
+	if (path_len < 0) {
+		free_page(path, 0);
+		return (int)path_len;
+	}
+	if (path_len == 0) {
+		free_page(path, 0);
+		return -ENOENT;
+	}
 
 	struct exec_args_envp args;
 	ret = copy_exec_args(uargv, uenvp, &args);
-	if (ret < 0)
+	if (ret < 0) {
+		free_page(path, 0);
 		return ret;
+	}
 
 	struct exec_image image;
 	ret = open_exec_image(path, &image);
+	free_page(path, 0);
 	if (ret < 0)
 		return ret;
 

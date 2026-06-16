@@ -138,6 +138,7 @@ typedef unsigned long size_t;
 #define ENOTDIR 20
 #define EISDIR	21
 #define EINVAL	22
+#define ENOSYS	38
 #define ELOOP	40
 
 #define PROT_READ  0x1

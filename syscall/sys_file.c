@@ -142,7 +142,7 @@ static uint8_t vfs_type_to_dirent(uint8_t type)
 static int copy_user_path(char **pathp, const char *user)
 {
 	char *dst;
-	size_t i;
+	ssize_t len;
 
 	if (pathp)
 		*pathp = NULL;
@@ -155,26 +155,18 @@ static int copy_user_path(char **pathp, const char *user)
 	if (!dst)
 		return -ENOMEM;
 
-	for (i = 0; i < VFS_PATH_MAX; i++) {
-		char c;
-
-		if (copy_from_user(&c, user + i, sizeof(c)) != 0) {
-			free_page(dst, 0);
-			return -EFAULT;
-		}
-		dst[i] = c;
-		if (c == '\0') {
-			if (i == 0) {
-				free_page(dst, 0);
-				return -ENOENT;
-			}
-			*pathp = dst;
-			return 0;
-		}
+	len = strncpy_from_user(dst, user, VFS_PATH_MAX);
+	if (len < 0) {
+		free_page(dst, 0);
+		return (int)len;
+	}
+	if (len == 0) {
+		free_page(dst, 0);
+		return -ENOENT;
 	}
 
-	free_page(dst, 0);
-	return -ENAMETOOLONG;
+	*pathp = dst;
+	return 0;
 }
 
 static ssize_t rw_user_buffer(struct file *file, void *buf, size_t len,
@@ -201,13 +193,14 @@ static ssize_t rw_user_buffer(struct file *file, void *buf, size_t len,
 		} else {
 			ret = vfs_read(file, kbuf, chunk);
 			if (ret > 0) {
-				size_t left = copy_to_user(
-					(char *)buf + done, kbuf, (size_t)ret);
+				size_t left = copy_to_user((char *)buf + done,
+							   kbuf, (size_t)ret);
 
 				if (left != 0) {
 					/*
 					 * vfs_read 已推进 f_pos 整个 ret，但只
-					 * 有 (ret - left) 字节真正送达用户。回退
+					 * 有 (ret - left)
+					 * 字节真正送达用户。回退
 					 * 未送达的尾部，避免下次读静默跳过这些
 					 * 字节。
 					 */
@@ -825,28 +818,7 @@ ssize_t sys_ftruncate64(struct trap_frame *tf)
 
 ssize_t sys_fallocate(struct trap_frame *tf)
 {
-	struct file *file = fd_get((int)tf->a0);
-	int mode = (int)tf->a1;
-	loff_t offset = (loff_t)tf->a2;
-	loff_t len = (loff_t)tf->a3;
-	uint64_t end;
-
-	if (!file || !(file->f_mode & FMODE_WRITE))
-		return -EBADF;
-	if ((mode & ~FALLOC_FL_KEEP_SIZE) || offset < 0 || len <= 0)
-		return -EINVAL;
-	/* 防止 offset+len 溢出及无界膨胀 i_size */
-	if (offset > MAX_FILE_SIZE || len > MAX_FILE_SIZE ||
-	    (uint64_t)len > MAX_FILE_SIZE - (uint64_t)offset)
-		return -EINVAL;
-	if (!file->f_inode)
-		return -EINVAL;
-	if (mode & FALLOC_FL_KEEP_SIZE)
-		return 0;
-
-	end = (uint64_t)offset + (uint64_t)len;
-	if (end > vfs_inode_size(file->f_inode))
-		return vfs_truncate_file(file, end);
-
-	return 0;
+	(void)tf;
+	/* TODO(ext2): 需要真正分配/预留数据块后才能实现 fallocate 语义。 */
+	return -ENOSYS;
 }

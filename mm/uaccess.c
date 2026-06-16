@@ -8,7 +8,7 @@
  *
  * 当前实现：
  *   copy_to_user / copy_from_user 先经 user_range_probe 预探整个范围：
- *   逐页校验 VMA 权限，合法但未映射的页通过 do_page_fault 按需 fault-in；
+ *   按 VMA 分段逐页校验权限，合法但未映射的页通过 do_page_fault 按需 fault-in；
  *   范围非法（无 VMA / 权限不符 / 无法映射）时返回未拷贝字节数 n，
  *   调用方据此返回 -EFAULT，而非触发内核崩溃。
  *
@@ -21,6 +21,7 @@
  *   user_range_probe(addr, n, w) - 预探范围：校验 VMA 权限并 fault-in
  *   copy_to_user(to, from, n)    - 从内核空间复制数据到用户空间
  *   copy_from_user(to, from, n)  - 从用户空间复制数据到内核空间
+ *   strncpy_from_user(dst, src, n) - 复制 NUL 结尾用户字符串
  */
 
 #include <kernel/mm.h>
@@ -48,10 +49,24 @@ bool access_ok(const void *addr, size_t size)
 	return true;
 }
 
+static size_t min_size(size_t a, size_t b)
+{
+	return a < b ? a : b;
+}
+
+static bool pte_allows_user_access(pte_t pte, bool write)
+{
+	if (!pte_present(pte) || !(pte & PTE_U))
+		return false;
+	if (write)
+		return (pte & PTE_W) != 0;
+	return (pte & PTE_R) != 0;
+}
+
 int user_range_probe(const void *addr, size_t size, bool write)
 {
-	uintptr_t start;
-	uintptr_t end;
+	uintptr_t range_start;
+	uintptr_t range_end;
 	uint64_t scause;
 
 	if (size == 0)
@@ -61,13 +76,15 @@ int user_range_probe(const void *addr, size_t size, bool write)
 	if (!current || !current->mm)
 		return -EFAULT;
 
-	start = (uintptr_t)addr & PAGE_MASK;
-	end = ((uintptr_t)addr + size + PAGE_SIZE - 1) & PAGE_MASK;
+	range_start = (uintptr_t)addr;
+	range_end = range_start + size;
 	scause = write ? EXC_STORE_PAGE_FAULT : EXC_LOAD_PAGE_FAULT;
 
-	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-		struct vm_area_struct *vma = find_vma(current->mm, va);
-		pte_t *pte;
+	for (uintptr_t cursor = range_start; cursor < range_end;) {
+		struct vm_area_struct *vma = find_vma(current->mm, cursor);
+		uintptr_t segment_end;
+		uintptr_t va;
+		uintptr_t page_end;
 
 		if (!vma)
 			return -EFAULT;
@@ -78,20 +95,38 @@ int user_range_probe(const void *addr, size_t size, bool write)
 			return -EFAULT;
 		}
 
-		pte = walk_page_table(current->mm->pgd, va, false);
-		if (pte && pte_present(*pte))
-			continue;
-
-		struct trap_frame probe = {
-			.scause = scause,
-			.stval = va,
-			.sstatus = SSTATUS_SPIE,
-		};
-		do_page_fault(&probe);
-
-		pte = walk_page_table(current->mm->pgd, va, false);
-		if (!pte || !pte_present(*pte))
+		segment_end = vma->vm_end < range_end ? vma->vm_end : range_end;
+		if (segment_end <= cursor)
 			return -EFAULT;
+
+		va = cursor & PAGE_MASK;
+		page_end = (segment_end + PAGE_SIZE - 1) & PAGE_MASK;
+		while (va < page_end) {
+			pte_t *pte =
+				walk_page_table(current->mm->pgd, va, false);
+
+			if (pte && pte_allows_user_access(*pte, write)) {
+				va += PAGE_SIZE;
+				continue;
+			}
+			if (pte && pte_present(*pte))
+				return -EFAULT;
+
+			uintptr_t fault_addr = va < cursor ? cursor : va;
+			struct trap_frame probe = {
+				.scause = scause,
+				.stval = fault_addr,
+				.sstatus = SSTATUS_SPIE,
+			};
+			do_page_fault(&probe);
+
+			pte = walk_page_table(current->mm->pgd, va, false);
+			if (!pte || !pte_allows_user_access(*pte, write))
+				return -EFAULT;
+			va += PAGE_SIZE;
+		}
+
+		cursor = segment_end;
 	}
 
 	return 0;
@@ -119,4 +154,53 @@ size_t copy_from_user(void *to, const void *from, size_t n)
 	user_access_end(had_sum);
 
 	return 0;
+}
+
+ssize_t strncpy_from_user(char *dst, const char *src, size_t maxlen)
+{
+	size_t done = 0;
+
+	if (!dst)
+		return -EINVAL;
+	if (!src)
+		return -EFAULT;
+	if (maxlen == 0)
+		return -ENAMETOOLONG;
+
+	while (done < maxlen) {
+		uintptr_t addr = (uintptr_t)src + done;
+		struct vm_area_struct *vma;
+		size_t chunk = min_size(maxlen - done,
+					PAGE_SIZE - (addr & (PAGE_SIZE - 1)));
+
+		if (!access_ok((const void *)addr, 1))
+			return -EFAULT;
+		if (!current || !current->mm)
+			return -EFAULT;
+		vma = find_vma(current->mm, addr);
+		if (!vma || !(vma->vm_flags & VM_READ))
+			return -EFAULT;
+		chunk = min_size(chunk, vma->vm_end - addr);
+		if (chunk == 0)
+			return -EFAULT;
+
+		if (user_range_probe((const void *)addr, chunk, false) < 0)
+			return -EFAULT;
+
+		bool had_sum = user_access_begin();
+		for (size_t i = 0; i < chunk; i++) {
+			char c = ((const char *)addr)[i];
+
+			dst[done + i] = c;
+			if (c == '\0') {
+				user_access_end(had_sum);
+				return (ssize_t)(done + i);
+			}
+		}
+		user_access_end(had_sum);
+		done += chunk;
+	}
+
+	dst[maxlen - 1] = '\0';
+	return -ENAMETOOLONG;
 }
