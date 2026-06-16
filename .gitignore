@@ -12,6 +12,7 @@
 !init/
 !test/
 !docs/
+!scripts/
 !fs/
 !fs/ext2/
 !fs/vfs/

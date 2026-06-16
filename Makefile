@@ -11,82 +11,9 @@
 
 .DEFAULT_GOAL := all
 
-# =============================================================================
-# Toolchain Detection
-# =============================================================================
-
-ifndef TOOLPREFIX
-TOOLPREFIX := $(shell if riscv64-linux-gnu-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
-	then echo 'riscv64-linux-gnu-'; \
-	elif riscv64-unknown-elf-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
-	then echo 'riscv64-unknown-elf-'; \
-	elif riscv64-elf-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
-	then echo 'riscv64-elf-'; \
-	elif riscv64-none-elf-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
-	then echo 'riscv64-none-elf-'; \
-	elif riscv64-unknown-linux-gnu-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
-	then echo 'riscv64-unknown-linux-gnu-'; \
-	else echo "***" 1>&2; \
-	echo "*** Error: Couldn't find a riscv64 version of GCC/binutils." 1>&2; \
-	echo "*** To turn off this error, run 'make TOOLPREFIX= ...'." 1>&2; \
-	echo "***" 1>&2; exit 1; fi)
-endif
-
-# =============================================================================
-# Tools
-# =============================================================================
-
-CC       = $(TOOLPREFIX)gcc
-LD       = $(TOOLPREFIX)ld
-OBJCOPY  = $(TOOLPREFIX)objcopy
-OBJDUMP  = $(TOOLPREFIX)objdump
-AR       = $(TOOLPREFIX)ar
-QEMU     = qemu-system-riscv64
-MKIMG    = ./mkimg.sh
-
-# Minimum QEMU version required
-MIN_QEMU_VERSION = 7.2
-
-# Build profile and artifact layout
-BUILD    ?= debug
-SANITIZE ?= none
-OUTROOT  ?= build
-OUTDIR   = $(OUTROOT)/$(BUILD)/sanitize-$(SANITIZE)
-
-ifeq ($(BUILD),debug)
-KERNEL_TEST_ENABLE := 1
-else ifeq ($(BUILD),release)
-KERNEL_TEST_ENABLE := 0
-else
-$(error Unsupported BUILD='$(BUILD)'; expected 'debug' or 'release')
-endif
-
-# =============================================================================
-# Verbosity Control (Linux kernel style)
-#   make        — short messages (default): "  CC      init/main.o"
-#   make V=1    — full command output
-# =============================================================================
-
-V ?= 0
-
-ifeq ($(V),1)
-  Q :=
-else
-  Q := @
-endif
-
-# Quiet command name table
-quiet_cmd_CC = CC
-quiet_cmd_AS = AS
-quiet_cmd_LD = LD
-quiet_cmd_OBJDUMP_S = OBJDUMP
-quiet_cmd_OBJDUMP_T = OBJDUMP
-quiet_cmd_FSIMG = FSIMG
-
-# Execute a command with optional quiet output
-#   V=0: print "  CC      xxx.o" then run command silently
-#   V=1: make echoes the full command line as-is
-cmd = $(if $(filter 1,$(V)),$(cmd_$(1)),$(Q)printf '  %-7s %s\n' '$(quiet_cmd_$(1))' '$@' && $(cmd_$(1)))
+include scripts/toolchain.mk
+include scripts/build.mk
+include scripts/flags.mk
 
 # =============================================================================
 # Include Per-Directory Object Lists
@@ -131,96 +58,12 @@ KERNEL_IMG  = $(KERNEL).img
 OBJS        = $(addprefix $(OUTDIR)/,$(OBJ_REL))
 
 # =============================================================================
-# Compilation Flags
-# =============================================================================
-
-# Architecture and ABI
-CFLAGS  = -march=rv64gc -mabi=lp64 -mcmodel=medany
-ASFLAGS = -march=rv64gc -mabi=lp64
-
-# Warning and error control
-CFLAGS += -Wall -Werror
-CFLAGS += -Wno-unknown-attributes
-CFLAGS += -Wno-main
-
-CFLAGS += -fno-omit-frame-pointer
-
-# Language standard
-CFLAGS += -std=gnu17
-
-# Include paths
-CFLAGS += -I include
-ASFLAGS += -I include
-
-# Freestanding environment (no libc)
-CFLAGS += -ffreestanding -fno-common -nostdlib -fno-builtin -nostdinc
-
-# Disable stack protector (not needed in kernel)
-CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 \
-           && echo -fno-stack-protector)
-
-# Disable PIE (for Ubuntu >= 16.10 toolchains)
-ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]no-pie'),)
-CFLAGS += -fno-pie -no-pie
-endif
-ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]nopie'),)
-CFLAGS += -fno-pie -nopie
-endif
-
-# Suppress "varargs function has no named parameter" etc.
-CFLAGS += -Wno-maybe-uninitialized
-
-# Linker flags
-LDFLAGS  = -z max-page-size=4096
-
-DEBUG_CFLAGS   = -O0 -g3 -ggdb -gdwarf-4 -DDEBUG
-DEBUG_CFLAGS  += -fno-inline -fno-optimize-sibling-calls
-DEBUG_ASFLAGS  = -g
-DEBUG_LDFLAGS  =
-
-RELEASE_CFLAGS  = -O3 -DNDEBUG
-RELEASE_CFLAGS += -ffunction-sections -fdata-sections
-RELEASE_ASFLAGS =
-RELEASE_LDFLAGS = --gc-sections
-
-ifeq ($(BUILD),debug)
-	CFLAGS  += $(DEBUG_CFLAGS)
-	ASFLAGS += $(DEBUG_ASFLAGS)
-	LDFLAGS += $(DEBUG_LDFLAGS)
-	CFLAGS  += -DCONFIG_KERNEL_TEST
-else ifeq ($(BUILD),release)
-	CFLAGS  += $(RELEASE_CFLAGS)
-	ASFLAGS += $(RELEASE_ASFLAGS)
-	LDFLAGS += $(RELEASE_LDFLAGS)
-endif
-
-SANITIZE_CFLAGS =
-SANITIZE_ASFLAGS =
-SANITIZE_LDFLAGS =
-
-ifeq ($(SANITIZE),none)
-else ifeq ($(SANITIZE),undefined)
-	SANITIZE_CFLAGS += -fsanitize=undefined
-	SANITIZE_CFLAGS += -fsanitize-undefined-trap-on-error
-	SANITIZE_CFLAGS += -fno-sanitize-recover=all
-else
-$(error Unsupported SANITIZE='$(SANITIZE)'; expected 'none' or 'undefined')
-endif
-
-CFLAGS  += $(SANITIZE_CFLAGS)
-ASFLAGS += $(SANITIZE_ASFLAGS)
-LDFLAGS += $(SANITIZE_LDFLAGS)
-
-# Dependencies (.d files)
-CFLAGS += -MD
-
-# =============================================================================
 # Build Commands (verbose variants, used when V=1)
 # =============================================================================
 
 cmd_CC = $(CC) $(CFLAGS) -c -o $@ $<
 cmd_AS = $(CC) $(ASFLAGS) -c -o $@ $<
-cmd_LD = $(LD) $(LDFLAGS) -T kernel.ld -o $@ $(OBJS)
+cmd_LD = $(KERNEL_LD) $(KERNEL_LDFLAGS) $(KERNEL_LD_SCRIPT) -o $@ $(OBJS)
 cmd_OBJDUMP_S = $(OBJDUMP) -S $@ > $@.asm
 cmd_OBJDUMP_T = $(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $@.sym
 
@@ -232,6 +75,28 @@ cmd_FSIMG = $(MKIMG) $@ $(USER_INIT_ELF) $(USER_SH_ELF) $(filter-out $(USER_INIT
 
 # Default target
 all: $(KERNEL)
+
+help:
+	@printf 'CuteOS build usage:\n'
+	@printf '  make                         Build kernel ELF (debug, tests enabled)\n'
+	@printf '  make qemu                    Build image and boot QEMU\n'
+	@printf '  make qemu-gdb                Boot QEMU paused with GDB stub\n'
+	@printf '  make user                    Build user-space ELFs only\n'
+	@printf '  make cuteos.img              Build filesystem image\n'
+	@printf '  make asm | make sym          Generate disassembly or symbol table\n'
+	@printf '  make clean | make clean-user  Remove build artifacts\n'
+	@printf '\n'
+	@printf 'Common variables:\n'
+	@printf '  BUILD=debug|release          Select profile (default: debug)\n'
+	@printf '  SANITIZE=none|undefined      Enable UBSan trap instrumentation\n'
+	@printf '  RELEASE_LTO=0|1              Toggle release LTO (default: 1)\n'
+	@printf '  TOOLPREFIX=<prefix>          Override RISC-V toolchain prefix\n'
+	@printf '  V=1                          Print full command lines\n'
+	@printf '\n'
+	@printf 'Examples:\n'
+	@printf '  BUILD=release make\n'
+	@printf '  BUILD=release SANITIZE=undefined make\n'
+	@printf '  TOOLPREFIX=riscv64-linux-gnu- make qemu\n'
 
 # Backward-compatible aliases
 $(KERNEL_NAME): $(KERNEL)
@@ -249,6 +114,8 @@ $(KERNEL): $(OBJS) kernel.ld
 $(OUTDIR)/%.o: %.c
 	$(Q)mkdir -p $(dir $@)
 	$(call cmd,CC)
+
+$(addprefix $(OUTDIR)/,$(KERNEL_NO_LTO_OBJS)): CFLAGS := $(filter-out -flto%,$(CFLAGS)) $(call cc-option,-fno-lto)
 
 # Assemble .S sources
 $(OUTDIR)/%.o: %.S
@@ -339,7 +206,7 @@ sym: $(KERNEL)
 user: $(USER_ELFS)
 
 clean-user:
-	$(Q)rm -rf $(USER_OUT)
+	$(Q)rm -rf $(USER_OUTROOT)
 
 clean: clean-user
 	$(Q)rm -rf $(OUTROOT)
@@ -349,7 +216,7 @@ clean: clean-user
 .PRECIOUS: $(OUTDIR)/%.o
 
 # Declare phony targets
-.PHONY: all qemu qemu-gdb check-qemu-version clean clean-user
+.PHONY: all help qemu qemu-gdb check-qemu-version clean clean-user
 .PHONY: user format asm sym
 .PHONY: $(KERNEL_NAME) $(KERNEL_NAME).img
 .PHONY: print-gdbport print-toolprefix

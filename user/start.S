@@ -12,6 +12,13 @@
 	.globl _start
 	.section .text.entry
 _start:
+	/* 初始化 gp，支持链接器未来对 .sdata/.sbss 做 GP-relative relaxation。 */
+	.option push
+	.option norelax
+1:	auipc	gp, %pcrel_hi(__global_pointer$)
+	addi	gp, gp, %pcrel_lo(1b)
+	.option pop
+
 	/* 清零 fp (s0)，标记栈回溯终点 */
 	li	s0, 0
 

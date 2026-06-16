@@ -410,10 +410,14 @@ int vfs_chdir_dentry(struct dentry *dentry)
 {
 	struct inode *inode = vfs_dentry_inode(dentry);
 
-	if (!dentry || !inode)
+	if (!dentry || !inode) {
+		dput(dentry);
 		return -ENOENT;
-	if (!S_ISDIR(vfs_inode_mode(inode)))
+	}
+	if (!S_ISDIR(vfs_inode_mode(inode))) {
+		dput(dentry);
 		return -ENOTDIR;
+	}
 
 	if (current->cwd)
 		dput(current->cwd);
