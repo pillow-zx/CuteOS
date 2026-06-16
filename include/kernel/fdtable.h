@@ -18,6 +18,7 @@ void file_put(struct file *file);
 
 int fd_alloc(struct file *file);
 struct file *fd_get(int fd);
+struct file *fd_get_checked(int fd);
 int fd_close(int fd);
 int fd_dup(int oldfd);
 int fd_dup2(int oldfd, int newfd);

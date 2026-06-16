@@ -1,28 +1,9 @@
 #include <ulib.h>
 
-#define PATH_MAX 512
-
 struct rm_options {
 	int force;
 	int recursive;
 };
-
-static int is_dot_or_dotdot(const char *name)
-{
-	return streq(name, ".") || streq(name, "..");
-}
-
-static int path_join(char *buf, size_t size, const char *dir, const char *name)
-{
-	int len;
-
-	if (streq(dir, "/"))
-		len = snprintf(buf, size, "/%s", name);
-	else
-		len = snprintf(buf, size, "%s/%s", dir, name);
-
-	return len >= 0 && (size_t)len < size ? 0 : -1;
-}
 
 static int rm_path(const char *path, const struct rm_options *opts);
 
@@ -35,7 +16,7 @@ static int rm_dir_recursive(const char *path, const struct rm_options *opts)
 
 	if (fd < 0) {
 		if (!opts->force || fd != -ENOENT)
-			printf("rm: %s: error %ld\n", path, fd);
+			printf("rm: %s: %s\n", path, strerror(fd));
 		return opts->force && fd == -ENOENT ? 0 : 1;
 	}
 
@@ -44,7 +25,7 @@ static int rm_dir_recursive(const char *path, const struct rm_options *opts)
 		long off = 0;
 
 		if (n < 0) {
-			printf("rm: %s: error %ld\n", path, n);
+			printf("rm: %s: %s\n", path, strerror(n));
 			failed = 1;
 			break;
 		}
@@ -59,8 +40,8 @@ static int rm_dir_recursive(const char *path, const struct rm_options *opts)
 			    !is_dot_or_dotdot(de->d_name)) {
 				if (path_join(child, sizeof(child), path,
 					      de->d_name) < 0) {
-					printf("rm: %s/%s: path too long\n", path,
-					       de->d_name);
+					printf("rm: %s/%s: path too long\n",
+					       path, de->d_name);
 					failed = 1;
 				} else if (rm_path(child, opts) != 0) {
 					failed = 1;
@@ -76,7 +57,7 @@ static int rm_dir_recursive(const char *path, const struct rm_options *opts)
 
 	if (ret < 0) {
 		if (!opts->force || ret != -ENOENT)
-			printf("rm: %s: error %ld\n", path, ret);
+			printf("rm: %s: %s\n", path, strerror(ret));
 		return opts->force && ret == -ENOENT ? failed : 1;
 	}
 
@@ -90,7 +71,7 @@ static int rm_path(const char *path, const struct rm_options *opts)
 
 	if (ret < 0) {
 		if (!opts->force || ret != -ENOENT)
-			printf("rm: %s: error %ld\n", path, ret);
+			printf("rm: %s: %s\n", path, strerror(ret));
 		return opts->force && ret == -ENOENT ? 0 : 1;
 	}
 
@@ -105,7 +86,7 @@ static int rm_path(const char *path, const struct rm_options *opts)
 	ret = unlinkat(AT_FDCWD, path, 0);
 	if (ret < 0) {
 		if (!opts->force || ret != -ENOENT)
-			printf("rm: %s: error %ld\n", path, ret);
+			printf("rm: %s: %s\n", path, strerror(ret));
 		return opts->force && ret == -ENOENT ? 0 : 1;
 	}
 	return 0;
@@ -113,7 +94,7 @@ static int rm_path(const char *path, const struct rm_options *opts)
 
 int main(int argc, char **argv)
 {
-	struct rm_options opts = { 0, 0 };
+	struct rm_options opts = {0, 0};
 	int failed = 0;
 	int first_path = 1;
 

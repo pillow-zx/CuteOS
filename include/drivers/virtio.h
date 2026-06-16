@@ -29,9 +29,9 @@
  * QEMU virt 机器将 virtio-mmio 设备从 0x10001000 开始、按 0x1000 间隔排列。
  * Makefile 中 -device virtio-blk-device,bus=virtio-mmio-bus.0 挂在总线 0。
  */
-#define VIRTIO_MMIO_BASE                0x10001000UL
+#define VIRTIO_MMIO_BASE 0x10001000UL
 
-#define VIRTIO_MMIO_MAGIC               0x74726976u
+#define VIRTIO_MMIO_MAGIC 0x74726976u
 
 #define VIRTIO_MMIO_MAGIC_VALUE		0x000
 #define VIRTIO_MMIO_VERSION		0x004
@@ -58,22 +58,22 @@
 #define VIRTIO_MMIO_CONFIG_GENERATION	0x0fc
 #define VIRTIO_MMIO_CONFIG		0x100
 
-#define VIRTIO_CONFIG_S_ACKNOWLEDGE     0x01
-#define VIRTIO_CONFIG_S_DRIVER	        0x02
-#define VIRTIO_CONFIG_S_DRIVER_OK       0x04
-#define VIRTIO_CONFIG_S_FEATURES_OK     0x08
-#define VIRTIO_CONFIG_S_NEEDS_RESET     0x40
-#define VIRTIO_CONFIG_S_FAILED	        0x80
+#define VIRTIO_CONFIG_S_ACKNOWLEDGE 0x01
+#define VIRTIO_CONFIG_S_DRIVER	    0x02
+#define VIRTIO_CONFIG_S_DRIVER_OK   0x04
+#define VIRTIO_CONFIG_S_FEATURES_OK 0x08
+#define VIRTIO_CONFIG_S_NEEDS_RESET 0x40
+#define VIRTIO_CONFIG_S_FAILED	    0x80
 
-#define VIRTIO_F_VERSION_1              32u
+#define VIRTIO_F_VERSION_1 32u
 
-#define VRING_DESC_F_NEXT               0x01
-#define VRING_DESC_F_WRITE              0x02
-#define VRING_DESC_F_INDIRECT           0x04
+#define VRING_DESC_F_NEXT     0x01
+#define VRING_DESC_F_WRITE    0x02
+#define VRING_DESC_F_INDIRECT 0x04
 
-#define VRING_DESC_ALIGN_SIZE           16
-#define VRING_AVAIL_ALIGN_SIZE          2
-#define VRING_USED_ALIGN_SIZE           4
+#define VRING_DESC_ALIGN_SIZE  16
+#define VRING_AVAIL_ALIGN_SIZE 2
+#define VRING_USED_ALIGN_SIZE  4
 
 struct vring_desc {
 	paddr_t addr;

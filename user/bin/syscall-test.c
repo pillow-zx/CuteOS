@@ -259,28 +259,24 @@ static int test_file_extra_syscalls(void)
 		failures++;
 	if (fstatat(AT_FDCWD, path, &st, 0) != 0 || st.st_size != 4)
 		failures++;
-	if (fstatat((int)fd, "", &st, AT_EMPTY_PATH) != 0 ||
-	    st.st_size != 4)
+	if (fstatat((int)fd, "", &st, AT_EMPTY_PATH) != 0 || st.st_size != 4)
 		failures++;
 	if (fsync((int)fd) != 0 || fdatasync((int)fd) != 0)
 		failures++;
 
 	if (ftruncate((int)fd, 2) != 0)
 		failures++;
-	if (fstatat((int)fd, "", &st, AT_EMPTY_PATH) != 0 ||
-	    st.st_size != 2)
+	if (fstatat((int)fd, "", &st, AT_EMPTY_PATH) != 0 || st.st_size != 2)
 		failures++;
 
 	if (fallocate((int)fd, FALLOC_FL_KEEP_SIZE, 0, 8) != 0)
 		failures++;
-	if (fstatat((int)fd, "", &st, AT_EMPTY_PATH) != 0 ||
-	    st.st_size != 2)
+	if (fstatat((int)fd, "", &st, AT_EMPTY_PATH) != 0 || st.st_size != 2)
 		failures++;
 
 	if (fallocate((int)fd, 0, 0, 8) != 0)
 		failures++;
-	if (fstatat((int)fd, "", &st, AT_EMPTY_PATH) != 0 ||
-	    st.st_size != 8)
+	if (fstatat((int)fd, "", &st, AT_EMPTY_PATH) != 0 || st.st_size != 8)
 		failures++;
 
 	n = pwrite64((int)fd, "z", 1, -1);
@@ -362,9 +358,8 @@ static int test_symlink_syscalls(void)
 	const char *fast = "/fast-syscall-test";
 	const char *fast_target = "/bin/syscall-test";
 	const char *slow = "/slow-syscall-test";
-	const char *slow_target =
-		"/slow-target-abcdefghijklmnopqrstuvwxyz"
-		"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-bin";
+	const char *slow_target = "/slow-target-abcdefghijklmnopqrstuvwxyz"
+				  "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-bin";
 	char tiny[4];
 	struct stat st;
 	long fd;

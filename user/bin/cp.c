@@ -1,7 +1,5 @@
 #include <ulib.h>
 
-#define PATH_MAX 512
-
 struct cp_options {
 	int recursive;
 };
@@ -17,18 +15,6 @@ static const char *base_name(const char *path)
 	return end;
 }
 
-static int path_join(char *buf, size_t size, const char *dir, const char *name)
-{
-	int len;
-
-	if (streq(dir, "/"))
-		len = snprintf(buf, size, "/%s", name);
-	else
-		len = snprintf(buf, size, "%s/%s", dir, name);
-
-	return len >= 0 && (size_t)len < size ? 0 : -1;
-}
-
 static int copy_file_to(const char *src, const char *dst)
 {
 	char buf[256];
@@ -37,13 +23,13 @@ static int copy_file_to(const char *src, const char *dst)
 	long out;
 
 	if (in < 0) {
-		printf("cp: %s: error %ld\n", src, in);
+		printf("cp: %s: %s\n", src, strerror(in));
 		return 1;
 	}
 
 	out = openat(AT_FDCWD, dst, O_CREAT | O_TRUNC | O_WRONLY, 0666);
 	if (out < 0) {
-		printf("cp: %s: error %ld\n", dst, out);
+		printf("cp: %s: %s\n", dst, strerror(out));
 		close((int)in);
 		return 1;
 	}
@@ -52,7 +38,7 @@ static int copy_file_to(const char *src, const char *dst)
 		long n = read((int)in, buf, sizeof(buf));
 
 		if (n < 0) {
-			printf("cp: %s: error %ld\n", src, n);
+			printf("cp: %s: %s\n", src, strerror(n));
 			failed = 1;
 			break;
 		}
@@ -83,7 +69,7 @@ static int copy_dir_contents(const char *src, const char *dst,
 	long fd = open(src, O_RDONLY | O_DIRECTORY);
 
 	if (fd < 0) {
-		printf("cp: %s: error %ld\n", src, fd);
+		printf("cp: %s: %s\n", src, strerror(fd));
 		return 1;
 	}
 
@@ -92,7 +78,7 @@ static int copy_dir_contents(const char *src, const char *dst,
 		long off = 0;
 
 		if (n < 0) {
-			printf("cp: %s: error %ld\n", src, n);
+			printf("cp: %s: %s\n", src, strerror(n));
 			failed = 1;
 			break;
 		}
@@ -103,15 +89,14 @@ static int copy_dir_contents(const char *src, const char *dst,
 			struct linux_dirent64 *de =
 				(struct linux_dirent64 *)(buf + off);
 
-			if (de->d_name[0] != '\0' &&
-			    !streq(de->d_name, ".") &&
+			if (de->d_name[0] != '\0' && !streq(de->d_name, ".") &&
 			    !streq(de->d_name, "..")) {
 				if (path_join(src_child, sizeof(src_child), src,
 					      de->d_name) < 0 ||
 				    path_join(dst_child, sizeof(dst_child), dst,
 					      de->d_name) < 0) {
-					printf("cp: %s/%s: path too long\n", src,
-					       de->d_name);
+					printf("cp: %s/%s: path too long\n",
+					       src, de->d_name);
 					failed = 1;
 				} else if (copy_exact(src_child, dst_child,
 						      opts) != 0) {
@@ -134,12 +119,12 @@ static int copy_dir_to(const char *src, const char *dst,
 
 	if (ret < 0) {
 		if (ret != -ENOENT) {
-			printf("cp: %s: error %ld\n", dst, ret);
+			printf("cp: %s: %s\n", dst, strerror(ret));
 			return 1;
 		}
 		ret = mkdirat(AT_FDCWD, dst, 0777);
 		if (ret < 0) {
-			printf("cp: %s: error %ld\n", dst, ret);
+			printf("cp: %s: %s\n", dst, strerror(ret));
 			return 1;
 		}
 	} else if (!S_ISDIR(st.st_mode)) {
@@ -157,7 +142,7 @@ static int copy_exact(const char *src, const char *dst,
 	long ret = fstatat(AT_FDCWD, src, &src_st, AT_SYMLINK_NOFOLLOW);
 
 	if (ret < 0) {
-		printf("cp: %s: error %ld\n", src, ret);
+		printf("cp: %s: %s\n", src, strerror(ret));
 		return 1;
 	}
 
@@ -182,19 +167,21 @@ static int copy_path(const char *src, const char *dst,
 
 	ret = fstatat(AT_FDCWD, src, &src_st, AT_SYMLINK_NOFOLLOW);
 	if (ret < 0) {
-		printf("cp: %s: error %ld\n", src, ret);
+		printf("cp: %s: %s\n", src, strerror(ret));
 		return 1;
 	}
 
 	ret = fstatat(AT_FDCWD, dst, &dst_st, AT_SYMLINK_NOFOLLOW);
 	if (ret == 0 && S_ISDIR(dst_st.st_mode)) {
-		if (path_join(target, sizeof(target), dst, base_name(src)) < 0) {
-			printf("cp: %s/%s: path too long\n", dst, base_name(src));
+		if (path_join(target, sizeof(target), dst, base_name(src)) <
+		    0) {
+			printf("cp: %s/%s: path too long\n", dst,
+			       base_name(src));
 			return 1;
 		}
 		dst = target;
 	} else if (ret < 0 && ret != -ENOENT) {
-		printf("cp: %s: error %ld\n", dst, ret);
+		printf("cp: %s: %s\n", dst, strerror(ret));
 		return 1;
 	}
 
@@ -203,7 +190,7 @@ static int copy_path(const char *src, const char *dst,
 
 int main(int argc, char **argv)
 {
-	struct cp_options opts = { 0 };
+	struct cp_options opts = {0};
 	int first_arg = 1;
 
 	while (first_arg < argc && argv[first_arg][0] == '-' &&

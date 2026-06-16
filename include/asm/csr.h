@@ -19,11 +19,10 @@
  *
  * Bit definitions:
  *   SSTATUS_SPP  - Supervisor Previous Privilege (1 = S-mode, 0 = U-mode)
- *   SSTATUS_SPIE - Supervisor Previous Interrupt Enable (sret restores SIE=SPIE)
- *   SSTATUS_SIE  - Supervisor Interrupt Enable
- *   SIE_STIE     - Supervisor Timer Interrupt Enable
- *   SIE_SEIE     - Supervisor External Interrupt Enable
- *   SATP_MODE_SV39 - SATP mode field for Sv39 paging (8 << 60)
+ *   SSTATUS_SPIE - Supervisor Previous Interrupt Enable (sret restores
+ * SIE=SPIE) SSTATUS_SIE  - Supervisor Interrupt Enable SIE_STIE     -
+ * Supervisor Timer Interrupt Enable SIE_SEIE     - Supervisor External
+ * Interrupt Enable SATP_MODE_SV39 - SATP mode field for Sv39 paging (8 << 60)
  *
  * Inline asm macros:
  *   csr_read(csr)       - Read a CSR into a variable
@@ -44,8 +43,8 @@
 #define SIE_SEIE BIT(9)
 
 #define SATP_MODE_SV39 (8UL << 60)
-#define SATP_PPN_BITS 44
-#define SATP_PPN_MASK MASK(SATP_PPN_BITS)
+#define SATP_PPN_BITS  44
+#define SATP_PPN_MASK  MASK(SATP_PPN_BITS)
 
 #define csr_read(csr)                                                          \
 	({                                                                     \

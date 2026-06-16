@@ -24,10 +24,10 @@
 #include <kernel/compiler.h>
 
 /* va_list — GCC 内建可变参数支持，不依赖 libc */
-typedef __builtin_va_list	va_list;
-#define va_start(ap, last)	__builtin_va_start(ap, last)
-#define va_end(ap)		__builtin_va_end(ap)
-#define va_arg(ap, type)	__builtin_va_arg(ap, type)
+typedef __builtin_va_list va_list;
+#define va_start(ap, last) __builtin_va_start(ap, last)
+#define va_end(ap)	   __builtin_va_end(ap)
+#define va_arg(ap, type)   __builtin_va_arg(ap, type)
 
 /* Console initialization */
 void console_init_sbi(void);

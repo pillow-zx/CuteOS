@@ -23,7 +23,7 @@ static int stat_one(const char *path)
 	long ret = fstatat(AT_FDCWD, path, &st, AT_SYMLINK_NOFOLLOW);
 
 	if (ret < 0) {
-		printf("stat: %s: error %ld\n", path, ret);
+		printf("stat: %s: %s\n", path, strerror(ret));
 		return 1;
 	}
 

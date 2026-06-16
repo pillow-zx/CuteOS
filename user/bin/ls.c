@@ -1,27 +1,8 @@
 #include <ulib.h>
 
-#define PATH_MAX 512
-
 struct ls_options {
 	int long_format;
 };
-
-static int is_dot_or_dotdot(const char *name)
-{
-	return streq(name, ".") || streq(name, "..");
-}
-
-static int path_join(char *buf, size_t size, const char *dir, const char *name)
-{
-	int len;
-
-	if (streq(dir, "/"))
-		len = snprintf(buf, size, "/%s", name);
-	else
-		len = snprintf(buf, size, "%s/%s", dir, name);
-
-	return len >= 0 && (size_t)len < size ? 0 : -1;
-}
 
 static char file_type_char(unsigned int mode)
 {
@@ -86,7 +67,7 @@ static int list_one(const char *path, const char *name,
 
 	ret = fstatat(AT_FDCWD, path, &st, AT_SYMLINK_NOFOLLOW);
 	if (ret < 0) {
-		printf("ls: %s: error %ld\n", path, ret);
+		printf("ls: %s: %s\n", path, strerror(ret));
 		return 1;
 	}
 
@@ -106,7 +87,7 @@ static int list_dir(const char *path, const struct ls_options *opts)
 	long fd = open(path, O_RDONLY | O_DIRECTORY);
 
 	if (fd < 0) {
-		printf("ls: %s: error %ld\n", path, fd);
+		printf("ls: %s: %s\n", path, strerror(fd));
 		return 1;
 	}
 
@@ -115,7 +96,7 @@ static int list_dir(const char *path, const struct ls_options *opts)
 		long off = 0;
 
 		if (n < 0) {
-			printf("ls: %s: error %ld\n", path, n);
+			printf("ls: %s: %s\n", path, strerror(n));
 			failed = 1;
 			break;
 		}
@@ -130,13 +111,13 @@ static int list_dir(const char *path, const struct ls_options *opts)
 			    !is_dot_or_dotdot(de->d_name)) {
 				if (path_join(full, sizeof(full), path,
 					      de->d_name) < 0) {
-					printf("ls: %s/%s: path too long\n", path,
-					       de->d_name);
+					printf("ls: %s/%s: path too long\n",
+					       path, de->d_name);
 					failed = 1;
-					} else if (list_one(full, de->d_name,
-							    opts) != 0) {
-						failed = 1;
-					}
+				} else if (list_one(full, de->d_name, opts) !=
+					   0) {
+					failed = 1;
+				}
 			}
 			off += de->d_reclen;
 		}
@@ -152,7 +133,7 @@ static int list_path(const char *path, const struct ls_options *opts)
 	long ret = fstatat(AT_FDCWD, path, &st, AT_SYMLINK_NOFOLLOW);
 
 	if (ret < 0) {
-		printf("ls: %s: error %ld\n", path, ret);
+		printf("ls: %s: %s\n", path, strerror(ret));
 		return 1;
 	}
 	if (S_ISDIR(st.st_mode))

@@ -2,8 +2,8 @@
 
 static long spawn_shell(void)
 {
-	char *sh_argv[] = { "sh", 0 };
-	char *sh_envp[] = { "PATH=/bin", 0 };
+	char *sh_argv[] = {"sh", 0};
+	char *sh_envp[] = {"PATH=/bin", 0};
 	long pid = fork();
 
 	if (pid == 0) {
@@ -49,8 +49,8 @@ int main(int argc, char **argv, char **envp)
 			continue;
 		}
 
-		printf("init: reaped pid=%ld status=%ld\n",
-		       waited, (long)status);
+		printf("init: reaped pid=%ld status=%ld\n", waited,
+		       (long)status);
 
 		if (waited == shell_pid)
 			shell_pid = -1;

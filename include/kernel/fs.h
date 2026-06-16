@@ -38,6 +38,7 @@ struct file;
 struct inode;
 struct dentry;
 struct super_block;
+struct kstat;
 
 #define VFS_NAME_MAX 255
 #define VFS_PATH_MAX 4096
@@ -51,18 +52,18 @@ struct super_block;
 #define FMODE_READ  0x1
 #define FMODE_WRITE 0x2
 
-#define O_RDONLY  00000000
-#define O_WRONLY  00000001
-#define O_RDWR	  00000002
-#define O_ACCMODE 00000003
-#define O_CREAT	  00000100
-#define O_EXCL	  00000200
-#define O_TRUNC	  00001000
-#define O_APPEND  00002000
+#define O_RDONLY    00000000
+#define O_WRONLY    00000001
+#define O_RDWR	    00000002
+#define O_ACCMODE   00000003
+#define O_CREAT	    00000100
+#define O_EXCL	    00000200
+#define O_TRUNC	    00001000
+#define O_APPEND    00002000
 #define O_DIRECTORY 00200000
 
-#define AT_FDCWD	-100
-#define AT_REMOVEDIR	0x200
+#define AT_FDCWD     -100
+#define AT_REMOVEDIR 0x200
 
 #define DT_UNKNOWN 0
 #define DT_FIFO	   1
@@ -85,14 +86,14 @@ struct super_operations {
 
 struct inode_operations {
 	struct dentry *(*lookup)(struct inode *dir, struct dentry *dentry);
-	int (*create)(struct inode *dir, struct dentry *dentry,
-		      uint32_t mode);
+	int (*create)(struct inode *dir, struct dentry *dentry, uint32_t mode);
 	int (*link)(struct dentry *old_dentry, struct inode *dir,
 		    struct dentry *new_dentry);
 	int (*unlink)(struct inode *dir, struct dentry *dentry);
 	int (*mkdir)(struct inode *dir, struct dentry *dentry, uint32_t mode);
 	int (*rmdir)(struct inode *dir, struct dentry *dentry);
 	int (*readlink)(struct inode *inode, char *buf, size_t size);
+	int (*truncate)(struct inode *inode, uint64_t size);
 };
 
 struct file_operations {
@@ -169,5 +170,24 @@ ssize_t vfs_read(struct file *file, char *buf, size_t count);
 ssize_t vfs_write(struct file *file, const char *buf, size_t count);
 loff_t vfs_llseek(struct file *file, loff_t offset, int whence);
 int vfs_readdir(struct file *file, void *ctx, filldir_t filldir);
+int vfs_truncate_file(struct file *file, uint64_t size);
+int vfs_inode_truncate(struct inode *inode, uint64_t size);
+int vfs_inode_writeback(struct inode *inode);
+int vfs_sync_file(struct file *file);
+int vfs_stat_inode(const struct inode *inode, struct kstat *st);
+int vfs_stat_file(struct file *file, struct kstat *st);
+uint64_t vfs_inode_size(const struct inode *inode);
+uint64_t vfs_inode_number(const struct inode *inode);
+uint32_t vfs_inode_mode(const struct inode *inode);
+dev_t vfs_inode_rdev(const struct inode *inode);
+uint32_t vfs_inode_uid(const struct inode *inode);
+uint32_t vfs_inode_gid(const struct inode *inode);
+uint32_t vfs_inode_nlink(const struct inode *inode);
+dev_t vfs_inode_dev(const struct inode *inode);
+struct inode *vfs_dentry_inode(struct dentry *dentry);
+struct dentry *vfs_dentry_parent(struct dentry *dentry);
+const char *vfs_dentry_name(struct dentry *dentry);
+size_t vfs_dentry_namelen(struct dentry *dentry);
+int vfs_getcwd_path(struct dentry *cwd, char *buf, size_t size);
 
 #endif

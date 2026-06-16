@@ -63,15 +63,15 @@
  */
 
 /* 中断码 (scause[63] = 1) */
-#define IRQ_S_SOFT	1UL  /* Supervisor Software Interrupt */
-#define IRQ_VS_SOFT	2UL  /* Virtual Supervisor Software Interrupt */
-#define IRQ_M_SOFT	3UL  /* Machine Software Interrupt */
-#define IRQ_S_TIMER	5UL  /* Supervisor Timer Interrupt */
-#define IRQ_VS_TIMER	6UL  /* Virtual Supervisor Timer Interrupt */
-#define IRQ_M_TIMER	7UL  /* Machine Timer Interrupt */
-#define IRQ_S_EXT	9UL  /* Supervisor External Interrupt */
-#define IRQ_VS_EXT	10UL /* Virtual Supervisor External Interrupt */
-#define IRQ_M_EXT	11UL /* Machine External Interrupt */
+#define IRQ_S_SOFT   1UL  /* Supervisor Software Interrupt */
+#define IRQ_VS_SOFT  2UL  /* Virtual Supervisor Software Interrupt */
+#define IRQ_M_SOFT   3UL  /* Machine Software Interrupt */
+#define IRQ_S_TIMER  5UL  /* Supervisor Timer Interrupt */
+#define IRQ_VS_TIMER 6UL  /* Virtual Supervisor Timer Interrupt */
+#define IRQ_M_TIMER  7UL  /* Machine Timer Interrupt */
+#define IRQ_S_EXT    9UL  /* Supervisor External Interrupt */
+#define IRQ_VS_EXT   10UL /* Virtual Supervisor External Interrupt */
+#define IRQ_M_EXT    11UL /* Machine External Interrupt */
 
 /* 异常码 (scause[63] = 0) */
 #define EXC_INST_MISALIGNED  0UL
@@ -104,9 +104,9 @@ struct trap_frame {
 	size_t sstatus;
 };
 
-#define CHECK_TF_OFFSET(member, offset)                                      \
-	static_assert(offsetof(struct trap_frame, member) == (offset),       \
-		       "trap_frame." #member " offset mismatch")
+#define CHECK_TF_OFFSET(member, offset)                                        \
+	static_assert(offsetof(struct trap_frame, member) == (offset),         \
+		      "trap_frame." #member " offset mismatch")
 
 CHECK_TF_OFFSET(sepc, TF_SEPC);
 CHECK_TF_OFFSET(ra, TF_RA);
@@ -144,7 +144,7 @@ CHECK_TF_OFFSET(scause, TF_SCAUSE);
 CHECK_TF_OFFSET(stval, TF_STVAL);
 CHECK_TF_OFFSET(sstatus, TF_SSTATUS);
 static_assert(sizeof(struct trap_frame) == TRAP_FRAME_SIZE,
-	       "trap_frame size mismatch");
+	      "trap_frame size mismatch");
 
 #undef CHECK_TF_OFFSET
 

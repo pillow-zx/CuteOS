@@ -16,67 +16,67 @@
 typedef unsigned long size_t;
 
 /* Linux riscv64 系统调用号 */
-#define SYS_getcwd  17
-#define SYS_dup	    23
-#define SYS_dup3    24
-#define SYS_mkdirat 34
-#define SYS_unlinkat 35
-#define SYS_chdir   49
-#define SYS_faccessat 48
-#define SYS_openat  56
-#define SYS_close   57
-#define SYS_pipe2   59
-#define SYS_getdents64 61
-#define SYS_read    63
-#define SYS_write   64
-#define SYS_readv   65
-#define SYS_writev  66
-#define SYS_pread64 67
-#define SYS_pwrite64 68
-#define SYS_readlinkat 78
-#define SYS_newfstatat 79
-#define SYS_fstat   80
-#define SYS_lseek   62
-#define SYS_exit    93
-#define SYS_fsync   82
-#define SYS_fdatasync 83
-#define SYS_ftruncate64 46
-#define SYS_fallocate 47
-#define SYS_set_tid_addr 96
-#define SYS_clock_gettime 113
-#define SYS_clock_getres  114
-#define SYS_yield   124
-#define SYS_kill    129
-#define SYS_tgkill  131
+#define SYS_getcwd	   17
+#define SYS_dup		   23
+#define SYS_dup3	   24
+#define SYS_mkdirat	   34
+#define SYS_unlinkat	   35
+#define SYS_chdir	   49
+#define SYS_faccessat	   48
+#define SYS_openat	   56
+#define SYS_close	   57
+#define SYS_pipe2	   59
+#define SYS_getdents64	   61
+#define SYS_read	   63
+#define SYS_write	   64
+#define SYS_readv	   65
+#define SYS_writev	   66
+#define SYS_pread64	   67
+#define SYS_pwrite64	   68
+#define SYS_readlinkat	   78
+#define SYS_newfstatat	   79
+#define SYS_fstat	   80
+#define SYS_lseek	   62
+#define SYS_exit	   93
+#define SYS_fsync	   82
+#define SYS_fdatasync	   83
+#define SYS_ftruncate64	   46
+#define SYS_fallocate	   47
+#define SYS_set_tid_addr   96
+#define SYS_clock_gettime  113
+#define SYS_clock_getres   114
+#define SYS_yield	   124
+#define SYS_kill	   129
+#define SYS_tgkill	   131
 #define SYS_rt_sigaction   134
 #define SYS_rt_sigprocmask 135
-#define SYS_sigreturn	    139
-#define SYS_setgid  144
-#define SYS_setuid  146
-#define SYS_times   153
-#define SYS_getgroups 158
-#define SYS_setgroups 159
-#define SYS_uname   160
-#define SYS_umask   166
-#define SYS_gettimeofday 169
-#define SYS_getpid  172
-#define SYS_getppid 173
-#define SYS_getuid  174
-#define SYS_geteuid 175
-#define SYS_getgid  176
-#define SYS_getegid 177
-#define SYS_gettid  178
-#define SYS_sysinfo 179
-#define SYS_brk	    214
-#define SYS_munmap  215
-#define SYS_fork    220
-#define SYS_execve  221
-#define SYS_mmap    222
-#define SYS_wait4   260
+#define SYS_sigreturn	   139
+#define SYS_setgid	   144
+#define SYS_setuid	   146
+#define SYS_times	   153
+#define SYS_getgroups	   158
+#define SYS_setgroups	   159
+#define SYS_uname	   160
+#define SYS_umask	   166
+#define SYS_gettimeofday   169
+#define SYS_getpid	   172
+#define SYS_getppid	   173
+#define SYS_getuid	   174
+#define SYS_geteuid	   175
+#define SYS_getgid	   176
+#define SYS_getegid	   177
+#define SYS_gettid	   178
+#define SYS_sysinfo	   179
+#define SYS_brk		   214
+#define SYS_munmap	   215
+#define SYS_fork	   220
+#define SYS_execve	   221
+#define SYS_mmap	   222
+#define SYS_wait4	   260
 
-#define AT_FDCWD    -100
-#define AT_REMOVEDIR 0x200
-#define AT_EMPTY_PATH 0x1000
+#define AT_FDCWD	    -100
+#define AT_REMOVEDIR	    0x200
+#define AT_EMPTY_PATH	    0x1000
 #define AT_SYMLINK_NOFOLLOW 0x100
 
 #define O_RDONLY    00000000
@@ -88,33 +88,33 @@ typedef unsigned long size_t;
 #define O_APPEND    00002000
 #define O_DIRECTORY 00200000
 
-#define R_OK	    4
-#define W_OK	    2
-#define X_OK	    1
-#define F_OK	    0
+#define R_OK 4
+#define W_OK 2
+#define X_OK 1
+#define F_OK 0
 
-#define SEEK_SET    0
-#define SEEK_CUR    1
-#define SEEK_END    2
+#define SEEK_SET 0
+#define SEEK_CUR 1
+#define SEEK_END 2
 
 #define FALLOC_FL_KEEP_SIZE 0x01
 
-#define S_IFMT	    00170000
-#define S_IFLNK	    0120000
-#define S_IFREG	    0100000
-#define S_IFBLK	    0060000
-#define S_IFDIR	    0040000
-#define S_IFCHR	    0020000
-#define S_IFIFO	    0010000
-#define S_IRUSR	    00400
-#define S_IWUSR	    00200
-#define S_IXUSR	    00100
-#define S_IRGRP	    00040
-#define S_IWGRP	    00020
-#define S_IXGRP	    00010
-#define S_IROTH	    00004
-#define S_IWOTH	    00002
-#define S_IXOTH	    00001
+#define S_IFMT	00170000
+#define S_IFLNK 0120000
+#define S_IFREG 0100000
+#define S_IFBLK 0060000
+#define S_IFDIR 0040000
+#define S_IFCHR 0020000
+#define S_IFIFO 0010000
+#define S_IRUSR 00400
+#define S_IWUSR 00200
+#define S_IXUSR 00100
+#define S_IRGRP 00040
+#define S_IWGRP 00020
+#define S_IXGRP 00010
+#define S_IROTH 00004
+#define S_IWOTH 00002
+#define S_IXOTH 00001
 
 #define S_ISREG(m)  (((m) & S_IFMT) == S_IFREG)
 #define S_ISDIR(m)  (((m) & S_IFMT) == S_IFDIR)
@@ -132,25 +132,25 @@ typedef unsigned long size_t;
 #define DT_LNK	   10
 #define DT_SOCK	   12
 
-#define ENOENT	    2
-#define EACCES	    13
-#define EEXIST	    17
-#define ENOTDIR	    20
-#define EISDIR	    21
-#define EINVAL	    22
-#define ELOOP	    40
+#define ENOENT	2
+#define EACCES	13
+#define EEXIST	17
+#define ENOTDIR 20
+#define EISDIR	21
+#define EINVAL	22
+#define ELOOP	40
 
-#define PROT_READ   0x1
-#define PROT_WRITE  0x2
-#define PROT_EXEC   0x4
+#define PROT_READ  0x1
+#define PROT_WRITE 0x2
+#define PROT_EXEC  0x4
 
 #define MAP_PRIVATE   0x02
 #define MAP_FIXED     0x10
 #define MAP_ANONYMOUS 0x20
 
-#define CLOCK_REALTIME  0
+#define CLOCK_REALTIME	0
 #define CLOCK_MONOTONIC 1
-#define CLOCK_BOOTTIME  7
+#define CLOCK_BOOTTIME	7
 
 struct tms {
 	long tms_utime;
@@ -241,38 +241,38 @@ struct sysinfo {
  * 是两个独立部分"这一设计的体现。修改任一编号或字段都必须同步另一处；
  * 这是有意的边界重复，而非可消除的重复。详见 include/kernel/signal.h。
  */
-#define SIGHUP		1
-#define SIGINT		2
-#define SIGQUIT		3
-#define SIGILL		4
-#define SIGTRAP		5
-#define SIGABRT		6
-#define SIGBUS		7
-#define SIGFPE		8
-#define SIGKILL		9
-#define SIGUSR1		10
-#define SIGSEGV		11
-#define SIGUSR2		12
-#define SIGPIPE		13
-#define SIGALRM		14
-#define SIGTERM		15
-#define SIGCHLD		17
-#define SIGCONT		18
-#define SIGSTOP		19
-#define SIGSYS		31
+#define SIGHUP	1
+#define SIGINT	2
+#define SIGQUIT 3
+#define SIGILL	4
+#define SIGTRAP 5
+#define SIGABRT 6
+#define SIGBUS	7
+#define SIGFPE	8
+#define SIGKILL 9
+#define SIGUSR1 10
+#define SIGSEGV 11
+#define SIGUSR2 12
+#define SIGPIPE 13
+#define SIGALRM 14
+#define SIGTERM 15
+#define SIGCHLD 17
+#define SIGCONT 18
+#define SIGSTOP 19
+#define SIGSYS	31
 
-#define NSIG		32
+#define NSIG 32
 
 typedef void (*__sighandler_t)(int);
 typedef void (*__sigrestorer_t)(void);
 
-#define SIG_DFL		((__sighandler_t)0)
-#define SIG_IGN		((__sighandler_t)1)
-#define SIG_ERR		((__sighandler_t)-1)
+#define SIG_DFL ((__sighandler_t)0)
+#define SIG_IGN ((__sighandler_t)1)
+#define SIG_ERR ((__sighandler_t) - 1)
 
-#define SIG_BLOCK	0
-#define SIG_UNBLOCK	1
-#define SIG_SETMASK	2
+#define SIG_BLOCK   0
+#define SIG_UNBLOCK 1
+#define SIG_SETMASK 2
 
 struct sigaction {
 	__sighandler_t sa_handler;
@@ -680,11 +680,11 @@ static inline long brk(long addr)
 	return syscall(SYS_brk, addr);
 }
 
-static inline void *mmap(void *addr, size_t length, int prot, int flags,
-			 int fd, long offset)
+static inline void *mmap(void *addr, size_t length, int prot, int flags, int fd,
+			 long offset)
 {
-	return (void *)syscall(SYS_mmap, (long)addr, (long)length, prot,
-			       flags, fd, offset);
+	return (void *)syscall(SYS_mmap, (long)addr, (long)length, prot, flags,
+			       fd, offset);
 }
 
 static inline long munmap(void *addr, size_t length)

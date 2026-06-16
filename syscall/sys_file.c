@@ -52,7 +52,7 @@
 #define W_OK 2
 #define X_OK 1
 
-#define AT_EMPTY_PATH 0x1000
+#define AT_EMPTY_PATH	    0x1000
 #define AT_SYMLINK_NOFOLLOW 0x100
 
 #define FALLOC_FL_KEEP_SIZE 0x01
@@ -109,13 +109,6 @@ static struct file *fd_get_writable(int fd)
 	return file;
 }
 
-static void inode_persist(struct inode *inode)
-{
-	if (inode && inode->i_sb && inode->i_sb->s_op &&
-	    inode->i_sb->s_op->write_inode)
-		inode->i_sb->s_op->write_inode(inode);
-}
-
 static uint32_t apply_umask(uint32_t mode)
 {
 	if (!current)
@@ -149,7 +142,6 @@ static uint8_t vfs_type_to_dirent(uint8_t type)
 static int copy_user_path(char **pathp, const char *user)
 {
 	char *dst;
-	bool had_sum;
 	size_t i;
 
 	if (pathp)
@@ -163,19 +155,15 @@ static int copy_user_path(char **pathp, const char *user)
 	if (!dst)
 		return -ENOMEM;
 
-	had_sum = user_access_begin();
 	for (i = 0; i < VFS_PATH_MAX; i++) {
 		char c;
 
-		if (!access_ok(user + i, 1)) {
-			user_access_end(had_sum);
+		if (copy_from_user(&c, user + i, sizeof(c)) != 0) {
 			free_page(dst, 0);
 			return -EFAULT;
 		}
-		c = user[i];
 		dst[i] = c;
 		if (c == '\0') {
-			user_access_end(had_sum);
 			if (i == 0) {
 				free_page(dst, 0);
 				return -ENOENT;
@@ -184,65 +172,9 @@ static int copy_user_path(char **pathp, const char *user)
 			return 0;
 		}
 	}
-	user_access_end(had_sum);
 
 	free_page(dst, 0);
 	return -ENAMETOOLONG;
-}
-
-static void fill_kstat(struct kstat *st, struct inode *inode)
-{
-	memset(st, 0, sizeof(*st));
-	if (!inode)
-		return;
-
-	st->st_dev = inode->i_sb ? inode->i_sb->s_dev : 0;
-	st->st_ino = inode->i_ino;
-	st->st_mode = inode->i_mode;
-	st->st_nlink = inode->i_nlink;
-	st->st_uid = inode->i_uid;
-	st->st_gid = inode->i_gid;
-	st->st_rdev = inode->i_rdev;
-	st->st_size = (int64_t)inode->i_size;
-	st->st_blksize = 1024;
-	/* 向上取整；逐项运算避免 i_size 极大时 (i_size + 511) 溢出 */
-	st->st_blocks = inode->i_size / 512 + (inode->i_size % 512 ? 1 : 0);
-}
-
-static int getcwd_build(char *buf, size_t size)
-{
-	struct dentry *stack[32];
-	struct dentry *dentry = current ? current->cwd : NULL;
-	size_t depth = 0;
-	size_t pos = 0;
-
-	if (!dentry || !root_dentry)
-		return -ENOENT;
-
-	while (dentry && dentry != root_dentry) {
-		if (depth >= 32)
-			return -ENAMETOOLONG;
-		stack[depth++] = dentry;
-		dentry = dentry->d_parent;
-	}
-
-	if (size < 2)
-		return -ERANGE;
-
-	buf[pos++] = '/';
-	for (size_t i = depth; i > 0; i--) {
-		struct dentry *entry = stack[i - 1];
-
-		if (pos != 1)
-			buf[pos++] = '/';
-		if (pos + entry->d_namelen + 1 > size)
-			return -ERANGE;
-		memcpy(buf + pos, entry->d_name, entry->d_namelen);
-		pos += entry->d_namelen;
-	}
-
-	buf[pos] = '\0';
-	return (int)pos + 1;
 }
 
 static ssize_t rw_user_buffer(struct file *file, void *buf, size_t len,
@@ -264,14 +196,26 @@ static ssize_t rw_user_buffer(struct file *file, void *buf, size_t len,
 		if (write) {
 			if (copy_from_user(kbuf, (char *)buf + done, chunk) !=
 			    0)
-				return -EFAULT;
+				return done ? (ssize_t)done : -EFAULT;
 			ret = vfs_write(file, kbuf, chunk);
 		} else {
 			ret = vfs_read(file, kbuf, chunk);
-			if (ret > 0 &&
-			    copy_to_user((char *)buf + done, kbuf,
-					 (size_t)ret) != 0)
-				return -EFAULT;
+			if (ret > 0) {
+				size_t left = copy_to_user(
+					(char *)buf + done, kbuf, (size_t)ret);
+
+				if (left != 0) {
+					/*
+					 * vfs_read 已推进 f_pos 整个 ret，但只
+					 * 有 (ret - left) 字节真正送达用户。回退
+					 * 未送达的尾部，避免下次读静默跳过这些
+					 * 字节。
+					 */
+					file->f_pos -= (loff_t)left;
+					done += (size_t)ret - left;
+					return done ? (ssize_t)done : -EFAULT;
+				}
+			}
 		}
 
 		if (ret < 0)
@@ -323,8 +267,7 @@ static ssize_t rw_iovec(struct file *file, const struct sys_iovec *uiov,
 
 		while (done < iov.iov_len) {
 			ssize_t ret = rw_user_buffer(
-				file,
-				(void *)(uintptr_t)(iov.iov_base + done),
+				file, (void *)(uintptr_t)(iov.iov_base + done),
 				(size_t)(iov.iov_len - done), write);
 
 			if (ret < 0)
@@ -340,8 +283,8 @@ static ssize_t rw_iovec(struct file *file, const struct sys_iovec *uiov,
 	return total;
 }
 
-static int filldir64(void *arg, const char *name, size_t namelen,
-		     uint64_t ino, uint8_t type)
+static int filldir64(void *arg, const char *name, size_t namelen, uint64_t ino,
+		     uint8_t type)
 {
 	struct getdents_ctx *ctx = arg;
 	size_t reclen;
@@ -559,15 +502,7 @@ ssize_t sys_chdir(struct trap_frame *tf)
 	free_page(path, 0);
 	if (ret < 0)
 		return ret;
-	if (!dentry->d_inode || !S_ISDIR(dentry->d_inode->i_mode)) {
-		dput(dentry);
-		return -ENOTDIR;
-	}
-
-	if (current->cwd)
-		dput(current->cwd);
-	current->cwd = dentry;
-	return 0;
+	return vfs_chdir_dentry(dentry);
 }
 
 ssize_t sys_faccessat(struct trap_frame *tf)
@@ -612,7 +547,8 @@ ssize_t sys_getcwd(struct trap_frame *tf)
 	if (!path)
 		return -ENOMEM;
 
-	ret = getcwd_build(path, VFS_PATH_MAX);
+	ret = vfs_getcwd_path(current ? current->cwd : NULL, path,
+			      VFS_PATH_MAX);
 	if (ret < 0)
 		goto out;
 	if ((size_t)ret > size) {
@@ -701,7 +637,7 @@ ssize_t sys_fstat(struct trap_frame *tf)
 	if (!access_ok(ustat, sizeof(*ustat)))
 		return -EFAULT;
 
-	fill_kstat(&st, file->f_inode);
+	vfs_stat_file(file, &st);
 	if (copy_to_user(ustat, &st, sizeof(st)) != 0)
 		return -EFAULT;
 
@@ -735,7 +671,7 @@ ssize_t sys_newfstatat(struct trap_frame *tf)
 
 			if (!file)
 				return -EBADF;
-			fill_kstat(&st, file->f_inode);
+			vfs_stat_file(file, &st);
 			if (copy_to_user(ustat, &st, sizeof(st)) != 0)
 				return -EFAULT;
 			return 0;
@@ -749,14 +685,14 @@ ssize_t sys_newfstatat(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	ret = path_lookup_err(path, (flags & AT_SYMLINK_NOFOLLOW) ?
-					    LOOKUP_NOFOLLOW : 0,
-			      &dentry);
+	ret = path_lookup_err(
+		path, (flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0,
+		&dentry);
 	free_page(path, 0);
 	if (ret < 0)
 		return ret;
 
-	fill_kstat(&st, dentry->d_inode);
+	vfs_stat_dentry(dentry, &st);
 	dput(dentry);
 	if (copy_to_user(ustat, &st, sizeof(st)) != 0)
 		return -EFAULT;
@@ -859,10 +795,12 @@ ssize_t sys_dup3(struct trap_frame *tf)
 
 ssize_t sys_fsync(struct trap_frame *tf)
 {
-	if (!fd_get((int)tf->a0))
+	struct file *file = fd_get((int)tf->a0);
+
+	if (!file)
 		return -EBADF;
 
-	return 0;
+	return vfs_sync_file(file);
 }
 
 ssize_t sys_fdatasync(struct trap_frame *tf)
@@ -882,10 +820,7 @@ ssize_t sys_ftruncate64(struct trap_frame *tf)
 	if (!file->f_inode)
 		return -EINVAL;
 
-	file->f_inode->i_size = (uint64_t)length;
-	inode_persist(file->f_inode);
-
-	return 0;
+	return vfs_truncate_file(file, (uint64_t)length);
 }
 
 ssize_t sys_fallocate(struct trap_frame *tf)
@@ -910,10 +845,8 @@ ssize_t sys_fallocate(struct trap_frame *tf)
 		return 0;
 
 	end = (uint64_t)offset + (uint64_t)len;
-	if (end > file->f_inode->i_size) {
-		file->f_inode->i_size = end;
-		inode_persist(file->f_inode);
-	}
+	if (end > vfs_inode_size(file->f_inode))
+		return vfs_truncate_file(file, end);
 
 	return 0;
 }

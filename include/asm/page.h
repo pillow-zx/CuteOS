@@ -11,19 +11,19 @@
 #include <kernel/types.h>
 
 /* 页大小 4 KiB，对应的位移量 */
-#define PAGE_SIZE	        4096
-#define PAGE_SHIFT	        12
-#define PAGE_MASK	        (~(PAGE_SIZE - 1))
+#define PAGE_SIZE  4096
+#define PAGE_SHIFT 12
+#define PAGE_MASK  (~(PAGE_SIZE - 1))
 
 /* 物理页号计算 */
-#define PFN_DOWN(x)             ((x) >> PAGE_SHIFT)
-#define PFN_UP(x)               (((x) + PAGE_SIZE - 1) >> PAGE_SHIFT)
-#define PFN_PHYS(pfn)           ((uint64_t)(pfn) << PAGE_SHIFT)
-#define PHYS_PFN(addr)          ((addr) >> PAGE_SHIFT)
+#define PFN_DOWN(x)    ((x) >> PAGE_SHIFT)
+#define PFN_UP(x)      (((x) + PAGE_SIZE - 1) >> PAGE_SHIFT)
+#define PFN_PHYS(pfn)  ((uint64_t)(pfn) << PAGE_SHIFT)
+#define PHYS_PFN(addr) ((addr) >> PAGE_SHIFT)
 
 /* 物理内存 (DRAM) 起始地址与大小 */
-#define DRAM_BASE               0x80000000
-#define DRAM_SIZE               0x10000000
+#define DRAM_BASE 0x80000000
+#define DRAM_SIZE 0x10000000
 
 /* 用户地址空间上限与栈布局
  *
@@ -31,12 +31,12 @@
  * USER_STACK_TOP   栈顶地址（初始 SP 值），等于 TASK_SIZE
  * USER_STACK_BASE  栈底地址（1 页栈），紧贴 TASK_SIZE 下方
  */
-#define TASK_SIZE               0x80000000UL
-#define USER_STACK_TOP          0x80000000UL
-#define USER_STACK_BASE         0x7FFFF000UL
+#define TASK_SIZE	0x80000000UL
+#define USER_STACK_TOP	0x80000000UL
+#define USER_STACK_BASE 0x7FFFF000UL
 
 /* 内核直接映射虚拟地址基址 (高地址区) */
-#define KERNEL_VBASE            0xFFFFFFC000000000
+#define KERNEL_VBASE 0xFFFFFFC000000000
 
 /*
  * __pa - 将内核虚拟地址转换为物理地址

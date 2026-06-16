@@ -193,6 +193,7 @@ int mount_root(void);
 int ext2_read_inode(struct inode *inode);
 int ext2_write_inode(struct inode *inode);
 uint32_t ext2_bmap(struct inode *inode, uint32_t block, bool create);
+int ext2_truncate_inode(struct inode *inode, uint64_t size);
 
 uint32_t ext2_alloc_block(struct inode *inode);
 void ext2_free_block(struct super_block *sb, uint32_t block);

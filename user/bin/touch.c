@@ -10,8 +10,7 @@ int main(int argc, char **argv)
 	}
 
 	for (int i = 1; i < argc; i++) {
-		long fd = openat(AT_FDCWD, argv[i],
-				 O_CREAT | O_WRONLY, 0666);
+		long fd = openat(AT_FDCWD, argv[i], O_CREAT | O_WRONLY, 0666);
 
 		if (fd < 0) {
 			printf("touch: %s: error %ld\n", argv[i], fd);

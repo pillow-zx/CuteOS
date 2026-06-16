@@ -12,7 +12,8 @@
  * 主要函数：
  *   register_filesystem(fs_type) - 将文件系统类型注册到 fs_types[8] 数组
  *   ext2_mount(dev, dir)         - 读取磁盘超级块，创建 VFS super_block
- *   super_operations             - {read_inode, write_inode, evict_inode} 操作向量
+ *   super_operations             - {read_inode, write_inode, evict_inode}
+ * 操作向量
  */
 
 #include <kernel/errno.h>
@@ -31,7 +32,8 @@ int register_filesystem(struct file_system_type *fs_type)
 		return -EINVAL;
 
 	for (uint32_t i = 0; i < NR_FILESYSTEMS; i++) {
-		if (fs_types[i] && strcmp(fs_types[i]->name, fs_type->name) == 0)
+		if (fs_types[i] &&
+		    strcmp(fs_types[i]->name, fs_type->name) == 0)
 			return -EINVAL;
 	}
 

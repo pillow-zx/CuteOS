@@ -76,7 +76,7 @@ struct inode *iget(struct super_block *sb, uint64_t ino)
 	uint32_t hash = inode_hash(sb->s_dev, ino);
 	struct list_head *pos;
 
-	list_for_each(pos, &inode_hashtable[hash]) {
+	list_for_each (pos, &inode_hashtable[hash]) {
 		struct inode *inode = list_entry(pos, struct inode, i_hash);
 
 		if (inode->i_sb == sb && inode->i_ino == ino) {

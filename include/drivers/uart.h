@@ -29,28 +29,28 @@
 #include <kernel/types.h>
 
 /* UART 基地址 — MMIO 恒等映射区域 (PGD[0]) */
-#define UART_BASE	0x10000000UL
+#define UART_BASE 0x10000000UL
 
 /* NS16550A 寄存器偏移 */
-#define UART_THR	0 /* Transmit Holding Register (write) */
-#define UART_RBR	0 /* Receive Buffer Register (read) */
-#define UART_IER	1 /* Interrupt Enable Register */
-#define UART_FCR	2 /* FIFO Control Register (write) */
-#define UART_LCR	3 /* Line Control Register */
-#define UART_MCR	4 /* Modem Control Register */
-#define UART_LSR	5 /* Line Status Register */
+#define UART_THR 0 /* Transmit Holding Register (write) */
+#define UART_RBR 0 /* Receive Buffer Register (read) */
+#define UART_IER 1 /* Interrupt Enable Register */
+#define UART_FCR 2 /* FIFO Control Register (write) */
+#define UART_LCR 3 /* Line Control Register */
+#define UART_MCR 4 /* Modem Control Register */
+#define UART_LSR 5 /* Line Status Register */
 
 /* LSR 状态位 */
-#define UART_LSR_DR	0x01 /* Data Ready */
-#define UART_LSR_THRE	0x20 /* THR Empty */
+#define UART_LSR_DR   0x01 /* Data Ready */
+#define UART_LSR_THRE 0x20 /* THR Empty */
 
 /* LCR 位 */
-#define UART_LCR_DLAB	0x80 /* Divisor Latch Access Bit */
-#define UART_LCR_8N1	0x03 /* 8 data bits, no parity, 1 stop bit */
+#define UART_LCR_DLAB 0x80 /* Divisor Latch Access Bit */
+#define UART_LCR_8N1  0x03 /* 8 data bits, no parity, 1 stop bit */
 
 /* FCR 位 */
-#define UART_FCR_EN	0x01 /* Enable FIFOs */
-#define UART_FCR_CLR	0x06 /* Clear both FIFOs */
+#define UART_FCR_EN  0x01 /* Enable FIFOs */
+#define UART_FCR_CLR 0x06 /* Clear both FIFOs */
 
 void uart_init(void);
 void uart_putc(int ch);

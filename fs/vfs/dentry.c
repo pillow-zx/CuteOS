@@ -84,7 +84,7 @@ struct dentry *dcache_lookup(struct dentry *parent, const char *name,
 	uint32_t hash = dentry_hash(parent, name, namelen);
 	struct list_head *pos;
 
-	list_for_each(pos, &dentry_hashtable[hash]) {
+	list_for_each (pos, &dentry_hashtable[hash]) {
 		struct dentry *dentry = list_entry(pos, struct dentry, d_hash);
 
 		if (dentry->d_parent != parent || dentry->d_namelen != namelen)

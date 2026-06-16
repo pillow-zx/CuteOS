@@ -43,17 +43,17 @@
 
 #define ALIGN_UP(x, a)                                                         \
 	statement_expr(auto _x = (x); auto _a = (a);                           \
-		       if (constexpr(a)) BUILD_BUG_ON(!IS_POWER_OF_2(a));   \
+		       if (constexpr(a)) BUILD_BUG_ON(!IS_POWER_OF_2(a));      \
 		       __ALIGN_MASK(_x, _a - 1);)
 
 #define ALIGN_DOWN(x, a)                                                       \
 	statement_expr(auto _x = (x); auto _a = (a);                           \
-		       if (constexpr(a)) BUILD_BUG_ON(!IS_POWER_OF_2(a));   \
+		       if (constexpr(a)) BUILD_BUG_ON(!IS_POWER_OF_2(a));      \
 		       _x & ~(_a - 1);)
 
 #define IS_ALIGNED(x, a)                                                       \
 	statement_expr(auto _x = (x); auto _a = (a);                           \
-		       if (constexpr(a)) BUILD_BUG_ON(!IS_POWER_OF_2(a));   \
+		       if (constexpr(a)) BUILD_BUG_ON(!IS_POWER_OF_2(a));      \
 		       ((_x & (_a - 1)) == 0);)
 
 static inline int32_t ffz(uint64_t x)

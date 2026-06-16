@@ -20,16 +20,16 @@ struct trap_frame; /* 前向声明，避免循环依赖 */
 
 /* ---- VMA 权限标志 ---- */
 
-#define VM_READ  0x01  /* 可读 */
-#define VM_WRITE 0x02  /* 可写 */
-#define VM_EXEC  0x04  /* 可执行 */
+#define VM_READ	 0x01 /* 可读 */
+#define VM_WRITE 0x02 /* 可写 */
+#define VM_EXEC	 0x04 /* 可执行 */
 
 /* ---- VMA 类型标志 ---- */
 
-#define VMA_CODE 0x01  /* 代码段 (ELF PT_LOAD) */
-#define VMA_HEAP 0x02  /* 堆 (brk 扩展) */
+#define VMA_CODE  0x01 /* 代码段 (ELF PT_LOAD) */
+#define VMA_HEAP  0x02 /* 堆 (brk 扩展) */
 #define VMA_STACK 0x04 /* 栈 */
-#define VMA_MMAP 0x08  /* mmap 匿名映射 */
+#define VMA_MMAP  0x08 /* mmap 匿名映射 */
 
 /* ---- VMA 数量上限 ---- */
 
@@ -42,17 +42,17 @@ struct vm_area_struct {
 	uintptr_t vm_end;   /* 区域结束虚拟地址（不含） */
 	uint32_t vm_flags;  /* VM_READ | VM_WRITE | VM_EXEC */
 	uint32_t vm_type;   /* VMA_CODE | VMA_HEAP | VMA_STACK */
-	bool used;          /* 该槽位是否在用 */
+	bool used;	    /* 该槽位是否在用 */
 };
 
 /* ---- mm_struct - 进程地址空间描述符 ---- */
 
 struct mm_struct {
-	pte_t *pgd;                          /* 用户页表根（PGD 页虚拟地址） */
-	uintptr_t brk;                       /* 当前堆顶 */
-	uintptr_t code_start;                /* 代码段起始 */
-	uintptr_t code_end;                  /* 代码段结束 */
-	struct vm_area_struct vma[NR_VMA];   /* VMA 固定数组 */
+	pte_t *pgd;			   /* 用户页表根（PGD 页虚拟地址） */
+	uintptr_t brk;			   /* 当前堆顶 */
+	uintptr_t code_start;		   /* 代码段起始 */
+	uintptr_t code_end;		   /* 代码段结束 */
+	struct vm_area_struct vma[NR_VMA]; /* VMA 固定数组 */
 };
 
 /* ---- 函数声明 ---- */
@@ -120,8 +120,8 @@ uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr);
  *
  * 返回映射起始地址，失败返回负 errno。
  */
-ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length,
-		int prot, int flags);
+ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot,
+		int flags);
 
 /*
  * mm_munmap - 解除用户映射
@@ -143,6 +143,7 @@ int mm_munmap(struct mm_struct *mm, uintptr_t addr, size_t length);
  * 返回 true 表示合法，false 表示非法。
  */
 bool access_ok(const void *addr, size_t size);
+int user_range_probe(const void *addr, size_t size, bool write);
 
 /*
  * copy_to_user - 从内核空间复制数据到用户空间

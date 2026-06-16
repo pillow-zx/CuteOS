@@ -45,6 +45,8 @@ int vfs_create(const char *path, uint32_t mode, struct dentry **res);
 int vfs_mkdir(const char *path, uint32_t mode);
 int vfs_unlink(const char *path, int flags);
 int vfs_mknod(const char *path, uint32_t mode, dev_t dev);
+int vfs_stat_dentry(struct dentry *dentry, struct kstat *st);
+int vfs_chdir_dentry(struct dentry *dentry);
 void vfs_set_root_dentry(struct dentry *dentry);
 
 int register_filesystem(struct file_system_type *fs_type);

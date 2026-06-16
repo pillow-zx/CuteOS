@@ -39,7 +39,7 @@ struct bitmap {
  *   static struct bitmap name = { .words = name_storage, ... };
  */
 #define BITMAP_DECLARE(name, n)                                                \
-	uintptr_t name##_storage[BITMAP_WORDS(n)];                         \
+	uintptr_t name##_storage[BITMAP_WORDS(n)];                             \
 	struct bitmap name = {                                                 \
 		.words = name##_storage,                                       \
 		.nbits = (n),                                                  \
@@ -47,7 +47,7 @@ struct bitmap {
 	}
 
 #define BITMAP_DECLARE_STATIC(name, n)                                         \
-	static uintptr_t name##_storage[BITMAP_WORDS(n)];                  \
+	static uintptr_t name##_storage[BITMAP_WORDS(n)];                      \
 	static struct bitmap name = {                                          \
 		.words = name##_storage,                                       \
 		.nbits = (n),                                                  \

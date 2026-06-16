@@ -73,23 +73,15 @@ static int copy_user_string(char *dst, const char *user, size_t max_len)
 {
 	if (!user || max_len == 0)
 		return -EFAULT;
-	if (!access_ok(user, max_len))
-		return -EFAULT;
-
-	/*
-	 * TODO: add fault recovery for unmapped but in-range user pointers.
-	 * access_ok() only validates the address range, not the page table.
-	 */
-	bool had_sum = user_access_begin();
 	for (size_t i = 0; i < max_len; i++) {
-		char c = user[i];
+		char c;
+
+		if (copy_from_user(&c, user + i, sizeof(c)) != 0)
+			return -EFAULT;
 		dst[i] = c;
-		if (c == '\0') {
-			user_access_end(had_sum);
+		if (c == '\0')
 			return 0;
-		}
 	}
-	user_access_end(had_sum);
 
 	dst[max_len - 1] = '\0';
 	return -E2BIG;
@@ -121,8 +113,8 @@ static int copy_arg_array(const char *const *user_array,
 	}
 
 	const char *extra;
-	if (copy_from_user(&extra, &user_array[EXEC_MAX_ARGS],
-			   sizeof(extra)) != 0)
+	if (copy_from_user(&extra, &user_array[EXEC_MAX_ARGS], sizeof(extra)) !=
+	    0)
 		return -EFAULT;
 	if (extra)
 		return -E2BIG;
@@ -156,8 +148,8 @@ static int copy_env_array(const char *const *user_array,
 	}
 
 	const char *extra;
-	if (copy_from_user(&extra, &user_array[EXEC_MAX_ENVS],
-			   sizeof(extra)) != 0)
+	if (copy_from_user(&extra, &user_array[EXEC_MAX_ENVS], sizeof(extra)) !=
+	    0)
 		return -EFAULT;
 	if (extra)
 		return -E2BIG;
@@ -201,7 +193,7 @@ static int open_exec_image(const char *path, struct exec_image *image)
 		return -ENOMEM;
 
 	image->file = file;
-	image->size = file->f_inode ? file->f_inode->i_size : 0;
+	image->size = vfs_inode_size(file->f_inode);
 	return 0;
 }
 
@@ -215,8 +207,8 @@ static void close_exec_image(struct exec_image *image)
 	image->size = 0;
 }
 
-static int read_exec_image(struct exec_image *image, uint64_t offset,
-			   void *buf, size_t len)
+static int read_exec_image(struct exec_image *image, uint64_t offset, void *buf,
+			   size_t len)
 {
 	if (!image || !image->file || !buf)
 		return -EINVAL;
@@ -238,11 +230,11 @@ static void *stack_sp_to_kernel(void *stack_page, vaddr_t sp)
 	return (uint8_t *)stack_page + (sp - USER_STACK_BASE);
 }
 
-static int setup_user_stack(struct mm_struct *mm, const struct exec_args_envp *args,
-			    vaddr_t *sp_out)
+static int setup_user_stack(struct mm_struct *mm,
+			    const struct exec_args_envp *args, vaddr_t *sp_out)
 {
 	static_assert(USER_STACK_TOP - USER_STACK_BASE == PAGE_SIZE,
-		       "setup_user_stack assumes a single mapped stack page");
+		      "setup_user_stack assumes a single mapped stack page");
 
 	void *stack_page = get_free_page(0);
 	if (!stack_page)
@@ -299,7 +291,8 @@ static int setup_user_stack(struct mm_struct *mm, const struct exec_args_envp *a
 	return 0;
 }
 
-static int load_elf_file(struct exec_image *image, const struct exec_args_envp *args,
+static int load_elf_file(struct exec_image *image,
+			 const struct exec_args_envp *args,
 			 struct mm_struct **mm_out, vaddr_t *entry_out,
 			 vaddr_t *sp_out)
 {
@@ -414,11 +407,11 @@ static int load_elf_file(struct exec_image *image, const struct exec_args_envp *
 			}
 			memset(page, 0, PAGE_SIZE);
 
-			uint64_t page_file_start = va < seg_start ? 0 :
-								   va - seg_start;
+			uint64_t page_file_start =
+				va < seg_start ? 0 : va - seg_start;
 			if (page_file_start < ph->p_filesz) {
-				uint64_t file_off = ph->p_offset +
-						    page_file_start;
+				uint64_t file_off =
+					ph->p_offset + page_file_start;
 				size_t copy_off =
 					va < seg_start ? seg_start - va : 0;
 				size_t copy_len = PAGE_SIZE - copy_off;
@@ -428,10 +421,9 @@ static int load_elf_file(struct exec_image *image, const struct exec_args_envp *
 				if (copy_len > remaining)
 					copy_len = (size_t)remaining;
 
-				ret = read_exec_image(image, file_off,
-						      (uint8_t *)page +
-							      copy_off,
-						      copy_len);
+				ret = read_exec_image(
+					image, file_off,
+					(uint8_t *)page + copy_off, copy_len);
 				if (ret < 0) {
 					free_page(page, 0);
 					goto fail;

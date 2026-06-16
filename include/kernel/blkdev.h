@@ -12,7 +12,8 @@
  *
  * Structs:
  *   struct block_device_operations - 扇区化操作向量（read/write_sectors）
- *   struct block_device            - 已注册块设备（设备号 + ops + 驱动私有数据）
+ *   struct block_device            - 已注册块设备（设备号 + ops +
+ * 驱动私有数据）
  *
  * Functions:
  *   register_block_device(bdev) - 以主设备号为索引注册到 dev_table[]
@@ -24,15 +25,15 @@
 /* 设备号编码：高 12 位主设备号，低 20 位次设备号（与 Linux 一致）。
  * 用宏实现，使 MKDEV(maj,min) 成为编译期常量，可用于静态初始化。
  * 目前仅用主设备号索引 dev_table；次设备号暂未启用（无分区/多设备）。 */
-#define MINORBITS	20u
+#define MINORBITS 20u
 
-#define MKDEV(major, minor) \
+#define MKDEV(major, minor)                                                    \
 	((dev_t)(((dev_t)(major) << MINORBITS) | (dev_t)(minor)))
-#define MAJOR(dev)	((unsigned int)((dev) >> MINORBITS))
+#define MAJOR(dev) ((unsigned int)((dev) >> MINORBITS))
 
 /* 块设备扇区大小：virtio-blk 与绝大多数块设备固定 512 字节/扇区 */
-#define SECTOR_SIZE	512u
-#define SECTOR_SHIFT	9
+#define SECTOR_SIZE  512u
+#define SECTOR_SHIFT 9
 
 struct block_device;
 

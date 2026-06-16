@@ -13,7 +13,7 @@ int main(int argc, char **argv)
 
 	ret = getcwd(buf, sizeof(buf));
 	if (ret < 0) {
-		printf("pwd: error %ld\n", ret);
+		printf("pwd: %s\n", strerror(ret));
 		return 1;
 	}
 	printf("%s\n", buf);

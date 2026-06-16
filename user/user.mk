@@ -30,7 +30,8 @@ USER_COMMON_OBJS = $(USER_OUT)/start.o			\
 		   $(USER_OUT)/lib/string.o		\
 		   $(USER_OUT)/lib/stdlib.o		\
 		   $(USER_OUT)/lib/vsprintf.o		\
-		   $(USER_OUT)/lib/printf.o
+		   $(USER_OUT)/lib/printf.o		\
+		   $(USER_OUT)/lib/coreutils.o
 USER_INIT_OBJS   = $(USER_COMMON_OBJS) $(USER_OUT)/init/init.o
 USER_SH_OBJS     = $(USER_COMMON_OBJS) $(USER_OUT)/init/shell.o
 

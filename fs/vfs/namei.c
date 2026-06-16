@@ -42,8 +42,7 @@ static void init_new_inode_owner(struct inode *inode)
 
 	inode->i_uid = current->uid;
 	inode->i_gid = current->gid;
-	if (inode->i_sb && inode->i_sb->s_op && inode->i_sb->s_op->write_inode)
-		inode->i_sb->s_op->write_inode(inode);
+	vfs_inode_writeback(inode);
 }
 
 static bool is_dot(const char *name, size_t len)
@@ -61,6 +60,41 @@ static const char *skip_slashes(const char *path)
 	while (*path == '/')
 		path++;
 	return path;
+}
+
+int vfs_getcwd_path(struct dentry *cwd, char *buf, size_t size)
+{
+	struct dentry *stack[32];
+	struct dentry *dentry = cwd;
+	size_t depth = 0;
+	size_t pos = 0;
+
+	if (!dentry || !root_dentry)
+		return -ENOENT;
+	while (dentry && dentry != root_dentry) {
+		if (depth >= 32)
+			return -ENAMETOOLONG;
+		stack[depth++] = dentry;
+		dentry = vfs_dentry_parent(dentry);
+	}
+	if (size < 2)
+		return -ERANGE;
+
+	buf[pos++] = '/';
+	for (size_t i = depth; i > 0; i--) {
+		struct dentry *entry = stack[i - 1];
+		size_t namelen = vfs_dentry_namelen(entry);
+
+		if (pos != 1)
+			buf[pos++] = '/';
+		if (pos + namelen + 1 > size)
+			return -ERANGE;
+		memcpy(buf + pos, vfs_dentry_name(entry), namelen);
+		pos += namelen;
+	}
+
+	buf[pos] = '\0';
+	return (int)pos + 1;
 }
 
 static struct dentry *follow_dotdot(struct dentry *dentry)
@@ -285,8 +319,7 @@ struct dentry *path_lookup(const char *path, uint32_t flags)
 	return dentry;
 }
 
-struct dentry *path_parent_lookup(const char *path, char *name,
-				  size_t *namelen)
+struct dentry *path_parent_lookup(const char *path, char *name, size_t *namelen)
 {
 	struct dentry *parent;
 	const char *last;
@@ -348,8 +381,7 @@ struct dentry *path_parent_lookup(const char *path, char *name,
 
 		if (d_is_symlink(next)) {
 			struct dentry *target;
-			int ret = follow_symlink(parent, next, 0, 0,
-						 &target);
+			int ret = follow_symlink(parent, next, 0, 0, &target);
 
 			dput(parent);
 			if (ret < 0)
@@ -372,6 +404,29 @@ struct dentry *path_parent_lookup(const char *path, char *name,
 	name[last_len] = '\0';
 	*namelen = last_len;
 	return parent;
+}
+
+int vfs_stat_dentry(struct dentry *dentry, struct kstat *st)
+{
+	if (!dentry || !st)
+		return -EINVAL;
+
+	return vfs_stat_inode(vfs_dentry_inode(dentry), st);
+}
+
+int vfs_chdir_dentry(struct dentry *dentry)
+{
+	struct inode *inode = vfs_dentry_inode(dentry);
+
+	if (!dentry || !inode)
+		return -ENOENT;
+	if (!S_ISDIR(vfs_inode_mode(inode)))
+		return -ENOTDIR;
+
+	if (current->cwd)
+		dput(current->cwd);
+	current->cwd = dentry;
+	return 0;
 }
 
 int vfs_create(const char *path, uint32_t mode, struct dentry **res)
@@ -501,13 +556,13 @@ int vfs_unlink(const char *path, int flags)
 			ret = -ENOTDIR;
 		else
 			ret = parent->d_inode->i_op->rmdir(parent->d_inode,
-							  dentry);
+							   dentry);
 	} else {
 		if (!parent->d_inode->i_op->unlink)
 			ret = -EINVAL;
 		else
 			ret = parent->d_inode->i_op->unlink(parent->d_inode,
-							   dentry);
+							    dentry);
 	}
 
 	dput(dentry);
@@ -527,10 +582,7 @@ int vfs_mknod(const char *path, uint32_t mode, dev_t dev)
 	if (dentry->d_inode) {
 		dentry->d_inode->i_mode = mode;
 		dentry->d_inode->i_rdev = dev;
-		if (dentry->d_inode->i_sb && dentry->d_inode->i_sb->s_op &&
-		    dentry->d_inode->i_sb->s_op->write_inode)
-			dentry->d_inode->i_sb->s_op->write_inode(
-				dentry->d_inode);
+		vfs_inode_writeback(dentry->d_inode);
 	}
 	dput(dentry);
 	return 0;

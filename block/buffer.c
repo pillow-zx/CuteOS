@@ -60,7 +60,7 @@ static struct buffer_head *find_buffer(dev_t dev, uint64_t block)
 	struct buffer_head *bh;
 
 	head = &buffer_hashtable[buffer_hash(dev, block)];
-	list_for_each_entry(bh, head, b_hash) {
+	list_for_each_entry (bh, head, b_hash) {
 		if (bh->b_dev == dev && bh->b_blocknr == block)
 			return bh;
 	}
@@ -89,7 +89,7 @@ static bool evict_one_buffer(void)
 	for (i = 0; i < BUFFER_HASH_SIZE; i++) {
 		struct buffer_head *bh;
 
-		list_for_each_entry(bh, &buffer_hashtable[i], b_hash) {
+		list_for_each_entry (bh, &buffer_hashtable[i], b_hash) {
 			if (bh->b_refcnt == 0 && !bh->b_dirty) {
 				list_del(&bh->b_hash);
 				free_buffer(bh);

@@ -6,13 +6,13 @@ struct signal_name {
 };
 
 static const struct signal_name signal_names[] = {
-	{ SIGHUP, "HUP" },   { SIGINT, "INT" },   { SIGQUIT, "QUIT" },
-	{ SIGILL, "ILL" },   { SIGTRAP, "TRAP" }, { SIGABRT, "ABRT" },
-	{ SIGBUS, "BUS" },   { SIGFPE, "FPE" },   { SIGKILL, "KILL" },
-	{ SIGUSR1, "USR1" }, { SIGSEGV, "SEGV" }, { SIGUSR2, "USR2" },
-	{ SIGPIPE, "PIPE" }, { SIGALRM, "ALRM" }, { SIGTERM, "TERM" },
-	{ SIGCHLD, "CHLD" }, { SIGCONT, "CONT" }, { SIGSTOP, "STOP" },
-	{ SIGSYS, "SYS" },
+	{SIGHUP, "HUP"},   {SIGINT, "INT"},   {SIGQUIT, "QUIT"},
+	{SIGILL, "ILL"},   {SIGTRAP, "TRAP"}, {SIGABRT, "ABRT"},
+	{SIGBUS, "BUS"},   {SIGFPE, "FPE"},   {SIGKILL, "KILL"},
+	{SIGUSR1, "USR1"}, {SIGSEGV, "SEGV"}, {SIGUSR2, "USR2"},
+	{SIGPIPE, "PIPE"}, {SIGALRM, "ALRM"}, {SIGTERM, "TERM"},
+	{SIGCHLD, "CHLD"}, {SIGCONT, "CONT"}, {SIGSTOP, "STOP"},
+	{SIGSYS, "SYS"},
 };
 
 static void print_signal_list(void)

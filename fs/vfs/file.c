@@ -61,6 +61,14 @@ int vfs_inode_permission(struct inode *inode, uint32_t mask)
 	return (perm & want) == want ? 0 : -EACCES;
 }
 
+struct file *fd_get_checked(int fd)
+{
+	if (fd < 0 || fd >= NR_OPEN)
+		return NULL;
+
+	return current->fd_array[fd];
+}
+
 static struct file console_stdin = {
 	.f_op = &console_fops,
 	.f_mode = FMODE_READ,
@@ -202,10 +210,11 @@ int vfs_open(const char *path, uint32_t flags, uint32_t mode)
 		return -ENOMEM;
 
 	if ((flags & O_TRUNC) && (fmode & FMODE_WRITE) && file->f_inode) {
-		file->f_inode->i_size = 0;
-		if (file->f_inode->i_sb && file->f_inode->i_sb->s_op &&
-		    file->f_inode->i_sb->s_op->write_inode)
-			file->f_inode->i_sb->s_op->write_inode(file->f_inode);
+		ret = vfs_truncate_file(file, 0);
+		if (ret < 0) {
+			file_put(file);
+			return ret;
+		}
 	}
 
 	fd = fd_alloc(file);
@@ -257,10 +266,7 @@ int fd_alloc(struct file *file)
 
 struct file *fd_get(int fd)
 {
-	if (fd < 0 || fd >= NR_OPEN)
-		return NULL;
-
-	return current->fd_array[fd];
+	return fd_get_checked(fd);
 }
 
 int fd_close(int fd)

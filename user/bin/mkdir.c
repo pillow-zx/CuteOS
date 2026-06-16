@@ -1,7 +1,5 @@
 #include <ulib.h>
 
-#define PATH_MAX 512
-
 static int ensure_directory(const char *path, int mode, int quiet_exists)
 {
 	struct stat st;
@@ -14,14 +12,14 @@ static int ensure_directory(const char *path, int mode, int quiet_exists)
 		return 1;
 	}
 	if (ret != -ENOENT) {
-		printf("mkdir: %s: error %ld\n", path, ret);
+		printf("mkdir: %s: %s\n", path, strerror(ret));
 		return 1;
 	}
 
 	ret = mkdirat(AT_FDCWD, path, mode);
 	if (ret < 0) {
 		if (!quiet_exists || ret != -EEXIST)
-			printf("mkdir: %s: error %ld\n", path, ret);
+			printf("mkdir: %s: %s\n", path, strerror(ret));
 		return ret == -EEXIST ? 0 : 1;
 	}
 	return 0;

@@ -28,11 +28,11 @@
 /* virtio-blk 主设备号：驱动注册于此（沿用传统块设备主设备号 8）。
  * 作为该设备号的唯一来源——ROOT_DEV 与驱动自身的 bd_dev 均由此派生，
  * 避免主设备号散落在抽象层与驱动两处。 */
-#define VIRTIO_BLK_MAJOR	8u
+#define VIRTIO_BLK_MAJOR 8u
 
 /* 根文件系统所在块设备：virtio-blk（主设备号 8，次设备号 0）。
  * 根设备的选择属于平台策略，故置于驱动头而非通用块设备抽象层。 */
-#define ROOT_DEV	MKDEV(VIRTIO_BLK_MAJOR, 0)
+#define ROOT_DEV MKDEV(VIRTIO_BLK_MAJOR, 0)
 
 void virtio_blk_init(void);
 

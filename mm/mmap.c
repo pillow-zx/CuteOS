@@ -136,10 +136,10 @@ static void unmap_user_pages(pte_t *pgd, uintptr_t start, uintptr_t end)
 	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
 		pte_t *pte = walk_page_table(pgd, va, false);
 
-		if (!pte || !(*pte & PTE_V))
+		if (!pte || !pte_present(*pte))
 			continue;
 
-		paddr_t pa = PTE_TO_PA(*pte);
+		paddr_t pa = pte_to_pa(*pte);
 		if (pa >= DRAM_BASE && pa < DRAM_BASE + DRAM_SIZE)
 			free_page(__va(pa), 0);
 
@@ -148,15 +148,13 @@ static void unmap_user_pages(pte_t *pgd, uintptr_t start, uintptr_t end)
 	}
 }
 
-static int unmap_vma_range(struct mm_struct *mm,
-			   struct vm_area_struct *vma,
+static int unmap_vma_range(struct mm_struct *mm, struct vm_area_struct *vma,
 			   uintptr_t start, uintptr_t end)
 {
 	if (!vma_overlaps(vma, start, end))
 		return 0;
 
-	uintptr_t unmap_start =
-		start > vma->vm_start ? start : vma->vm_start;
+	uintptr_t unmap_start = start > vma->vm_start ? start : vma->vm_start;
 	uintptr_t unmap_end = end < vma->vm_end ? end : vma->vm_end;
 	uintptr_t old_start = vma->vm_start;
 	uintptr_t old_end = vma->vm_end;
@@ -205,34 +203,35 @@ static int unmap_vma_range(struct mm_struct *mm,
 static void free_user_page_tables(pte_t *pgd)
 {
 	for (int i = 0; i < 256; i++) {
-		if (!(pgd[i] & PTE_V))
+		if (!pte_present(pgd[i]))
 			continue;
 
-		pte_t *pmd = (pte_t *)__va(PTE_TO_PA(pgd[i]));
+		pte_t *pmd = (pte_t *)__va(pte_to_pa(pgd[i]));
 		for (int j = 0; j < 512; j++) {
-			if (!(pmd[j] & PTE_V))
+			if (!pte_present(pmd[j]))
 				continue;
 
-			pte_t *pt = (pte_t *)__va(PTE_TO_PA(pmd[j]));
+			pte_t *pt = (pte_t *)__va(pte_to_pa(pmd[j]));
 			for (int k = 0; k < 512; k++) {
-				if (!(pt[k] & PTE_V))
+				if (!pte_present(pt[k]))
 					continue;
 
 				vaddr_t va = ((vaddr_t)i << 30) |
 					     ((vaddr_t)j << 21) |
 					     ((vaddr_t)k << 12);
-				paddr_t pa = PTE_TO_PA(pt[k]);
+				paddr_t pa = pte_to_pa(pt[k]);
 				if (signal_trampoline_contains(va))
 					continue;
 				/*
 				 * mm_create_user_pgd() currently injects a low
 				 * UART MMIO mapping so trap-time printk works
 				 * while still running on the user page table.
-				 * Only DRAM pages are owned by this mm; MMIO and
-				 * other shared mappings must not be returned to
-				 * the buddy allocator.
+				 * Only DRAM pages are owned by this mm; MMIO
+				 * and other shared mappings must not be
+				 * returned to the buddy allocator.
 				 */
-				if (pa >= DRAM_BASE && pa < DRAM_BASE + DRAM_SIZE)
+				if (pa >= DRAM_BASE &&
+				    pa < DRAM_BASE + DRAM_SIZE)
 					free_page(__va(pa), 0);
 			}
 			free_page(pt, 0);
@@ -283,10 +282,10 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 
 		for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
 			pte_t *pte = walk_page_table(oldmm->pgd, va, false);
-			if (!pte || !(*pte & PTE_V))
+			if (!pte || !pte_present(*pte))
 				continue;
 
-			uintptr_t old_pa = PTE_TO_PA(*pte);
+			uintptr_t old_pa = pte_to_pa(*pte);
 			void *new_page = get_free_page(0);
 			if (!new_page) {
 				mm_destroy(newmm);
@@ -345,8 +344,7 @@ pte_t *mm_create_user_pgd(void)
 struct vm_area_struct *find_vma(struct mm_struct *mm, uintptr_t addr)
 {
 	for (int i = 0; i < NR_VMA; i++) {
-		if (mm->vma[i].used &&
-		    addr >= mm->vma[i].vm_start &&
+		if (mm->vma[i].used && addr >= mm->vma[i].vm_start &&
 		    addr < mm->vma[i].vm_end)
 			return &mm->vma[i];
 	}
@@ -386,8 +384,7 @@ uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr)
 	uintptr_t old_brk = mm->brk;
 	struct vm_area_struct *heap_vma = NULL;
 	for (int i = 0; i < NR_VMA; i++) {
-		if (mm->vma[i].used &&
-		    mm->vma[i].vm_type == VMA_HEAP) {
+		if (mm->vma[i].used && mm->vma[i].vm_type == VMA_HEAP) {
 			heap_vma = &mm->vma[i];
 			break;
 		}
@@ -407,8 +404,8 @@ uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr)
 		heap_vma->vm_type = VMA_HEAP;
 		heap_vma->used = true;
 	} else {
-		if (range_overlaps_other_vma(mm, heap_vma,
-					     heap_vma->vm_start, addr))
+		if (range_overlaps_other_vma(mm, heap_vma, heap_vma->vm_start,
+					     addr))
 			return old_brk;
 
 		/* 扩展已有堆 VMA */
@@ -419,8 +416,8 @@ uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr)
 	return addr;
 }
 
-ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length,
-		int prot, int flags)
+ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot,
+		int flags)
 {
 	uintptr_t start;
 	uintptr_t end;

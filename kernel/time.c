@@ -20,9 +20,9 @@
 #include <kernel/types.h>
 #include <asm/trap.h>
 
-#define CLOCK_REALTIME  0
+#define CLOCK_REALTIME	0
 #define CLOCK_MONOTONIC 1
-#define CLOCK_BOOTTIME  7
+#define CLOCK_BOOTTIME	7
 
 struct sys_tms {
 	int64_t tms_utime;
@@ -90,9 +90,8 @@ ssize_t sys_gettimeofday(struct trap_frame *tf)
 
 	if (utv) {
 		ktv.tv_sec = (int64_t)(ticks / MTIME_FREQ);
-		ktv.tv_usec =
-			(int64_t)((ticks % MTIME_FREQ) * 1000000UL /
-				  MTIME_FREQ);
+		ktv.tv_usec = (int64_t)((ticks % MTIME_FREQ) * 1000000UL /
+					MTIME_FREQ);
 		if (copy_to_user(utv, &ktv, sizeof(ktv)) != 0)
 			return -EFAULT;
 	}

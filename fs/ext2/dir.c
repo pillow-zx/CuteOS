@@ -206,79 +206,12 @@ static int ext2_delete_entry(struct inode *dir, struct dentry *dentry)
 	return -ENOENT;
 }
 
-static void ext2_free_inode_blocks(struct inode *inode)
-{
-	struct ext2_inode *raw = &EXT2_I(inode)->raw_inode;
-	uint32_t ptrs = BLOCK_SIZE / sizeof(uint32_t);
-
-	for (uint32_t i = 0; i < EXT2_NDIR_BLOCKS; i++) {
-		if (raw->i_block[i])
-			ext2_free_block(inode->i_sb, raw->i_block[i]);
-		raw->i_block[i] = 0;
-	}
-
-	if (raw->i_block[EXT2_IND_BLOCK]) {
-		struct buffer_head *bh =
-			bread(inode->i_sb->s_dev, raw->i_block[EXT2_IND_BLOCK]);
-
-		if (bh) {
-			uint32_t *blocks = (uint32_t *)bh->b_data;
-
-			for (uint32_t i = 0; i < ptrs; i++) {
-				if (blocks[i])
-					ext2_free_block(inode->i_sb, blocks[i]);
-			}
-			brelse(bh);
-		}
-		ext2_free_block(inode->i_sb, raw->i_block[EXT2_IND_BLOCK]);
-		raw->i_block[EXT2_IND_BLOCK] = 0;
-	}
-
-	if (raw->i_block[EXT2_DIND_BLOCK]) {
-		struct buffer_head *bh = bread(inode->i_sb->s_dev,
-					       raw->i_block[EXT2_DIND_BLOCK]);
-
-		if (bh) {
-			uint32_t *blocks = (uint32_t *)bh->b_data;
-
-			for (uint32_t i = 0; i < ptrs; i++) {
-				struct buffer_head *ind_bh;
-
-				if (!blocks[i])
-					continue;
-
-				ind_bh = bread(inode->i_sb->s_dev, blocks[i]);
-				if (ind_bh) {
-					uint32_t *ind_blocks =
-						(uint32_t *)ind_bh->b_data;
-
-					for (uint32_t j = 0; j < ptrs; j++) {
-						if (ind_blocks[j])
-							ext2_free_block(
-								inode->i_sb,
-								ind_blocks[j]);
-					}
-					brelse(ind_bh);
-				}
-				ext2_free_block(inode->i_sb, blocks[i]);
-			}
-			brelse(bh);
-		}
-		ext2_free_block(inode->i_sb, raw->i_block[EXT2_DIND_BLOCK]);
-		raw->i_block[EXT2_DIND_BLOCK] = 0;
-	}
-
-	raw->i_blocks = 0;
-	raw->i_size = 0;
-	inode->i_size = 0;
-}
-
 static void ext2_rollback_new_inode(struct inode *inode)
 {
 	if (!inode)
 		return;
 
-	ext2_free_inode_blocks(inode);
+	ext2_truncate_inode(inode, 0);
 	ext2_write_inode(inode);
 	ext2_free_inode(inode->i_sb, (uint32_t)inode->i_ino);
 	inode_forget(inode);
@@ -495,7 +428,7 @@ static int ext2_unlink(struct inode *dir, struct dentry *dentry)
 	if (inode->i_nlink > 0)
 		inode->i_nlink--;
 	if (inode->i_nlink == 0) {
-		ext2_free_inode_blocks(inode);
+		ext2_truncate_inode(inode, 0);
 		ext2_free_inode(inode->i_sb, (uint32_t)inode->i_ino);
 	}
 	ext2_write_inode(inode);
@@ -519,7 +452,7 @@ static int ext2_rmdir(struct inode *dir, struct dentry *dentry)
 	if (ret < 0)
 		return ret;
 
-	ext2_free_inode_blocks(inode);
+	ext2_truncate_inode(inode, 0);
 	ext2_free_inode(inode->i_sb, (uint32_t)inode->i_ino);
 	if (dir->i_nlink > 0)
 		dir->i_nlink--;
@@ -577,6 +510,7 @@ const struct inode_operations ext2_dir_inode_operations = {
 	.unlink = ext2_unlink,
 	.mkdir = ext2_mkdir,
 	.rmdir = ext2_rmdir,
+	.truncate = ext2_truncate_inode,
 };
 
 const struct file_operations ext2_dir_operations = {

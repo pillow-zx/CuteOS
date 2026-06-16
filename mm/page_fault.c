@@ -81,8 +81,7 @@ static const char *fault_type_name(uint64_t scause)
  *
  * 返回 true 表示权限匹配，false 表示权限冲突。
  */
-static bool check_vma_permission(uint64_t scause,
-				 struct vm_area_struct *vma)
+static bool check_vma_permission(uint64_t scause, struct vm_area_struct *vma)
 {
 	switch (scause) {
 	case EXC_INST_PAGE_FAULT:
@@ -158,8 +157,7 @@ void do_page_fault(struct trap_frame *tf)
 		printk("page fault: illegal access (no VMA) "
 		       "type=%s addr=%p sepc=%p origin=%s pid=%d\n",
 		       fault_type_name(scause), (void *)fault_addr,
-		       (void *)tf->sepc,
-		       from_user_mode ? "user" : "kernel",
+		       (void *)tf->sepc, from_user_mode ? "user" : "kernel",
 		       current->pid);
 		signal_or_exit_segv(from_user_mode);
 		return;
@@ -172,8 +170,7 @@ void do_page_fault(struct trap_frame *tf)
 		       "origin=%s pid=%d\n",
 		       fault_type_name(scause), (void *)fault_addr,
 		       vma->vm_flags, (void *)tf->sepc,
-		       from_user_mode ? "user" : "kernel",
-		       current->pid);
+		       from_user_mode ? "user" : "kernel", current->pid);
 		signal_or_exit_segv(from_user_mode);
 		return;
 	}

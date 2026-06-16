@@ -153,7 +153,8 @@ static int test_default_terminate(void)
 	}
 	if (status != (SIGNAL_EXIT_CODE(SIGTERM) << 8)) {
 		printf("%s", "  unexpected status: expected ");
-		printf("0x%lx", (unsigned long)(SIGNAL_EXIT_CODE(SIGTERM) << 8));
+		printf("0x%lx",
+		       (unsigned long)(SIGNAL_EXIT_CODE(SIGTERM) << 8));
 		printf("%s", " got ");
 		printf("0x%lx", (unsigned long)((unsigned long)status));
 		printf("%s", "\n");
@@ -185,7 +186,8 @@ static int test_page_fault_sigsegv(void)
 	}
 	if (status != (SIGNAL_EXIT_CODE(SIGSEGV) << 8)) {
 		printf("%s", "  unexpected status: expected ");
-		printf("0x%lx", (unsigned long)(SIGNAL_EXIT_CODE(SIGSEGV) << 8));
+		printf("0x%lx",
+		       (unsigned long)(SIGNAL_EXIT_CODE(SIGSEGV) << 8));
 		printf("%s", " got ");
 		printf("0x%lx", (unsigned long)((unsigned long)status));
 		printf("%s", "\n");

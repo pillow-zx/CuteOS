@@ -31,8 +31,7 @@ void test_buffer_cache_basic(void)
 		TEST_ASSERT_NOT_NULL(bdev);
 		TEST_ASSERT(bdev->bd_sectors > BLOCK_SECTORS + 4);
 
-		block = (bdev->bd_sectors - BLOCK_SECTORS - 2) /
-			BLOCK_SECTORS;
+		block = (bdev->bd_sectors - BLOCK_SECTORS - 2) / BLOCK_SECTORS;
 		sector = block * BLOCK_SECTORS;
 
 		bh = bread(ROOT_DEV, block);
@@ -52,7 +51,7 @@ void test_buffer_cache_basic(void)
 
 		memset(disk_buf, 0, sizeof(disk_buf));
 		ret = bdev->bd_ops->read_sectors(bdev, disk_buf, sector,
-						  BLOCK_SECTORS);
+						 BLOCK_SECTORS);
 		TEST_ASSERT_EQ(ret, 0);
 		TEST_ASSERT_EQ(memcmp(bh->b_data, disk_buf, BLOCK_SIZE), 0);
 

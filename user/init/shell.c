@@ -149,7 +149,7 @@ static void print_help(void)
 static void exec_child(char **argv)
 {
 	char path[64];
-	char *envp[] = { "PATH=/bin", 0 };
+	char *envp[] = {"PATH=/bin", 0};
 
 	if (build_path(path, sizeof(path), argv[0]) < 0) {
 		printf("command path too long\n");
@@ -320,7 +320,7 @@ static void run_pipeline(char **argv)
 	}
 
 	for (int i = 0; i < ncmd; i++) {
-		int pipefd[2] = { -1, -1 };
+		int pipefd[2] = {-1, -1};
 		long pid;
 
 		if (i + 1 < ncmd && pipe(pipefd) != 0) {

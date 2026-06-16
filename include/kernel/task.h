@@ -75,22 +75,22 @@ struct task_struct {
 	void *kstack; /* 栈底（低地址） */
 
 	/* 内存管理 */
-	struct mm_struct *mm;   /* 指向 mm_struct，内核线程为 NULL */
-	uint64_t satp;     /* 预计算的 satp 值，避免 trapret 通过pgd临时计算 */
-	int exit_code;     /* zombie 状态下保留的退出码 */
+	struct mm_struct *mm; /* 指向 mm_struct，内核线程为 NULL */
+	uint64_t satp; /* 预计算的 satp 值，避免 trapret 通过pgd临时计算 */
+	int exit_code; /* zombie 状态下保留的退出码 */
 
 	/* 文件描述符 */
 	struct file *fd_array[32]; /* 打开的文件 */
-	struct dentry *cwd;	    /* 当前工作目录 */
-	uint32_t umask;	    /* 文件创建权限掩码 */
-	uid_t uid;		    /* 当前用户 ID */
-	gid_t gid;		    /* 当前组 ID */
+	struct dentry *cwd;	   /* 当前工作目录 */
+	uint32_t umask;		   /* 文件创建权限掩码 */
+	uid_t uid;		   /* 当前用户 ID */
+	gid_t gid;		   /* 当前组 ID */
 
 	/* 信号处理 */
 	struct sigaction sigactions[NSIG]; /* 每个信号的处理动作 */
-	uint64_t blocked;	/* 被屏蔽的信号掩码 */
-	uint64_t pending;	/* 待处理的信号掩码 */
-	uint64_t in_handler;	/* 当前正在运行其 handler 的信号掩码（防重入） */
+	uint64_t blocked;		   /* 被屏蔽的信号掩码 */
+	uint64_t pending;		   /* 待处理的信号掩码 */
+	uint64_t in_handler; /* 当前正在运行其 handler 的信号掩码（防重入） */
 
 	/* 进程树 */
 	struct task_struct *parent; /* 父进程 */
@@ -105,11 +105,11 @@ struct task_struct {
 };
 
 static_assert(offsetof(struct task_struct, kstack) == 128,
-	       "TASK_KSTACK offset in entry.S out of sync with task_struct");
+	      "TASK_KSTACK offset in entry.S out of sync with task_struct");
 static_assert(offsetof(struct task_struct, satp) == 144,
-	       "TASK_SATP offset in entry.S out of sync with task_struct");
-static_assert(KSTACK_SIZE == 8192,
-                "entry.S __trapret hardcodes kstack+8192; update both if KSTACK_ORDER changes");
+	      "TASK_SATP offset in entry.S out of sync with task_struct");
+static_assert(KSTACK_SIZE == 8192, "entry.S __trapret hardcodes kstack+8192; "
+				   "update both if KSTACK_ORDER changes");
 
 /* ---- 全局变量 ---- */
 
