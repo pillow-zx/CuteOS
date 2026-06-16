@@ -29,6 +29,43 @@ void strcpy(char *dst, const char *src)
 	}
 }
 
+void *memcpy(void *dst, const void *src, size_t n)
+{
+	unsigned char *d = dst;
+	const unsigned char *s = src;
+
+	for (size_t i = 0; i < n; i++)
+		d[i] = s[i];
+	return dst;
+}
+
+void *memset(void *dst, int c, size_t n)
+{
+	unsigned char *d = dst;
+
+	for (size_t i = 0; i < n; i++)
+		d[i] = (unsigned char)c;
+	return dst;
+}
+
+long atoi(const char *s)
+{
+	long val = 0;
+	long sign = 1;
+
+	while (*s == ' ' || *s == '\t')
+		s++;
+	if (*s == '-') {
+		sign = -1;
+		s++;
+	}
+	while (*s >= '0' && *s <= '9') {
+		val = val * 10 + (*s - '0');
+		s++;
+	}
+	return sign * val;
+}
+
 void print(const char *s)
 {
 	write(1, s, strlen(s));
@@ -49,11 +86,41 @@ void print_hex(unsigned long val)
 	print(buf);
 }
 
+void print_dec(unsigned long val)
+{
+	char buf[21];
+	int i = sizeof(buf) - 1;
+
+	buf[i] = '\0';
+	if (val == 0) {
+		print("0");
+		return;
+	}
+
+	while (val > 0 && i > 0) {
+		buf[--i] = '0' + val % 10;
+		val /= 10;
+	}
+	print(&buf[i]);
+}
+
 void print_long(long val)
 {
 	if (val < 0) {
 		print("-");
 		val = -val;
 	}
-	print_hex((unsigned long)val);
+	print_dec((unsigned long)val);
+}
+
+void print_error(const char *cmd, const char *arg, long err)
+{
+	print(cmd);
+	if (arg) {
+		print(": ");
+		print(arg);
+	}
+	print(": error ");
+	print_long(err);
+	print("\n");
 }

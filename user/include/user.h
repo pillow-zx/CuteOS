@@ -16,13 +16,17 @@
 typedef unsigned long size_t;
 
 /* Linux riscv64 系统调用号 */
+#define SYS_getcwd  17
 #define SYS_dup	    23
 #define SYS_dup3    24
-#define SYS_faccessat 48
+#define SYS_mkdirat 34
 #define SYS_unlinkat 35
+#define SYS_chdir   49
+#define SYS_faccessat 48
 #define SYS_openat  56
 #define SYS_close   57
 #define SYS_pipe2   59
+#define SYS_getdents64 61
 #define SYS_read    63
 #define SYS_write   64
 #define SYS_readv   65
@@ -31,6 +35,7 @@ typedef unsigned long size_t;
 #define SYS_pwrite64 68
 #define SYS_readlinkat 78
 #define SYS_newfstatat 79
+#define SYS_fstat   80
 #define SYS_lseek   62
 #define SYS_exit    93
 #define SYS_fsync   82
@@ -70,6 +75,7 @@ typedef unsigned long size_t;
 #define SYS_wait4   260
 
 #define AT_FDCWD    -100
+#define AT_REMOVEDIR 0x200
 #define AT_EMPTY_PATH 0x1000
 #define AT_SYMLINK_NOFOLLOW 0x100
 
@@ -80,6 +86,7 @@ typedef unsigned long size_t;
 #define O_EXCL	    00000200
 #define O_TRUNC	    00001000
 #define O_APPEND    00002000
+#define O_DIRECTORY 00200000
 
 #define R_OK	    4
 #define W_OK	    2
@@ -95,7 +102,26 @@ typedef unsigned long size_t;
 #define S_IFMT	    00170000
 #define S_IFLNK	    0120000
 #define S_IFREG	    0100000
+#define S_IFBLK	    0060000
 #define S_IFDIR	    0040000
+#define S_IFCHR	    0020000
+#define S_IFIFO	    0010000
+
+#define S_ISREG(m)  (((m) & S_IFMT) == S_IFREG)
+#define S_ISDIR(m)  (((m) & S_IFMT) == S_IFDIR)
+#define S_ISLNK(m)  (((m) & S_IFMT) == S_IFLNK)
+#define S_ISCHR(m)  (((m) & S_IFMT) == S_IFCHR)
+#define S_ISBLK(m)  (((m) & S_IFMT) == S_IFBLK)
+#define S_ISFIFO(m) (((m) & S_IFMT) == S_IFIFO)
+
+#define DT_UNKNOWN 0
+#define DT_FIFO	   1
+#define DT_CHR	   2
+#define DT_DIR	   4
+#define DT_BLK	   6
+#define DT_REG	   8
+#define DT_LNK	   10
+#define DT_SOCK	   12
 
 #define EACCES	    13
 #define ELOOP	    40
@@ -132,6 +158,14 @@ struct timespec {
 struct iovec {
 	void *iov_base;
 	size_t iov_len;
+};
+
+struct linux_dirent64 {
+	unsigned long d_ino;
+	long d_off;
+	unsigned short d_reclen;
+	unsigned char d_type;
+	char d_name[];
 };
 
 /*
@@ -398,11 +432,41 @@ static inline long fstatat(int dfd, const char *path, struct stat *st,
 	return syscall(SYS_newfstatat, dfd, (long)path, (long)st, flags);
 }
 
+static inline long fstat(int fd, struct stat *st)
+{
+	return syscall(SYS_fstat, fd, (long)st);
+}
+
 static inline long readlinkat(int dfd, const char *path, char *buf,
 			      size_t bufsiz)
 {
 	return syscall(SYS_readlinkat, dfd, (long)path, (long)buf,
 		       (long)bufsiz);
+}
+
+static inline long getdents64(int fd, void *dirp, size_t count)
+{
+	return syscall(SYS_getdents64, fd, (long)dirp, (long)count);
+}
+
+static inline long mkdirat(int dfd, const char *path, int mode)
+{
+	return syscall(SYS_mkdirat, dfd, (long)path, mode);
+}
+
+static inline long unlinkat(int dfd, const char *path, int flags)
+{
+	return syscall(SYS_unlinkat, dfd, (long)path, flags);
+}
+
+static inline long chdir(const char *path)
+{
+	return syscall(SYS_chdir, (long)path);
+}
+
+static inline long getcwd(char *buf, size_t size)
+{
+	return syscall(SYS_getcwd, (long)buf, (long)size);
 }
 
 static inline long fsync(int fd)

@@ -1,7 +1,7 @@
 #include <ulib.h>
 
-#define LINE_MAX 80
-#define ARGV_MAX 8
+#define LINE_MAX 128
+#define ARGV_MAX 16
 
 static void print_prompt(void)
 {
@@ -59,6 +59,7 @@ static int parse_line(char *line, char **argv)
 {
 	int argc = 0;
 	char *p = line;
+	static char pipe_tok[] = "|";
 
 	while (*p && argc < ARGV_MAX - 1) {
 		while (is_space(*p))
@@ -66,65 +67,95 @@ static int parse_line(char *line, char **argv)
 		if (!*p)
 			break;
 
-		argv[argc++] = p;
-		while (*p && !is_space(*p))
+		if (*p == '|') {
+			argv[argc++] = pipe_tok;
 			p++;
-		if (*p)
+			continue;
+		}
+
+		argv[argc++] = p;
+		while (*p && !is_space(*p) && *p != '|')
+			p++;
+		if (*p == '|') {
 			*p++ = '\0';
+			if (argc < ARGV_MAX - 1)
+				argv[argc++] = pipe_tok;
+		} else if (*p) {
+			*p++ = '\0';
+		}
 	}
 
 	argv[argc] = NULL;
 	return argc;
 }
 
-static void build_path(char *dst, const char *cmd)
+static int build_path(char *dst, size_t size, const char *cmd)
 {
 	if (cmd[0] == '/') {
+		if (strlen(cmd) >= size)
+			return -1;
 		strcpy(dst, cmd);
-		return;
+		return 0;
 	}
 
+	if (strlen(cmd) + 5 >= size)
+		return -1;
 	strcpy(dst, "/bin/");
 	strcpy(dst + 5, cmd);
+	return 0;
 }
 
-static void run_command(int argc, char **argv)
+static void print_help(void)
+{
+	print("commands: cd help exit ls cat echo touch mkdir rmdir rm ");
+	print("pwd cp stat uname id kill true false\n");
+	print("pipe: cmd | cmd\n");
+}
+
+static void exec_child(char **argv)
 {
 	char path[64];
 	char *envp[] = { "PATH=/bin", 0 };
-	long pid;
 
-	if (streq(argv[0], "help")) {
-		print("commands: help, syscall-test, signal-test, ");
-		print("/path/to/program\n");
-		return;
-	}
-
-	if (streq(argv[0], "exit")) {
-		exit(0);
-	}
-
-	if (argv[0][0] != '/' && strlen(argv[0]) + 5 >= sizeof(path)) {
-		print("command name too long\n");
-		return;
-	}
-	if (argv[0][0] == '/' && strlen(argv[0]) >= sizeof(path)) {
-		print("path too long\n");
-		return;
-	}
-
-	build_path(path, argv[0]);
-	pid = fork();
-	if (pid == 0) {
-		long ret = execve(path, argv, envp);
-
-		print("exec failed: ");
-		print(path);
-		print(", ret=");
-		print_long(ret);
-		print("\n");
+	if (build_path(path, sizeof(path), argv[0]) < 0) {
+		print("command path too long\n");
 		exit(127);
 	}
+
+	long ret = execve(path, argv, envp);
+
+	print("exec failed: ");
+	print(path);
+	print(", ret=");
+	print_long(ret);
+	print("\n");
+	exit(127);
+}
+
+static int wait_and_report(long pid)
+{
+	int status = -1;
+	long waited = wait4(pid, &status, 0, 0);
+
+	if (waited < 0) {
+		print("wait failed, ret=");
+		print_long(waited);
+		print("\n");
+		return 1;
+	}
+
+	print("[exit ");
+	print_long(status);
+	print("]\n");
+	return status == 0 ? 0 : 1;
+}
+
+static void run_external(char **argv)
+{
+	long pid = fork();
+
+	if (pid == 0)
+		exec_child(argv);
 
 	if (pid < 0) {
 		print("fork failed, ret=");
@@ -133,19 +164,105 @@ static void run_command(int argc, char **argv)
 		return;
 	}
 
-	int status = -1;
-	long waited = wait4(pid, &status, 0, 0);
+	wait_and_report(pid);
+}
 
-	if (waited < 0) {
-		print("wait failed, ret=");
-		print_long(waited);
-		print("\n");
+static int find_pipe(char **argv)
+{
+	for (int i = 0; argv[i]; i++) {
+		if (streq(argv[i], "|"))
+			return i;
+	}
+	return -1;
+}
+
+static void run_pipeline(char **argv, int pipe_index)
+{
+	int pipefd[2];
+	long left;
+	long right;
+
+	if (pipe_index == 0 || !argv[pipe_index + 1]) {
+		print("invalid pipeline\n");
 		return;
 	}
 
-	print("[exit ");
-	print_long(status);
-	print("]\n");
+	argv[pipe_index] = NULL;
+	if (pipe(pipefd) != 0) {
+		print("pipe failed\n");
+		return;
+	}
+
+	left = fork();
+	if (left == 0) {
+		close(pipefd[0]);
+		if (dup2(pipefd[1], 1) < 0)
+			exit(126);
+		close(pipefd[1]);
+		exec_child(argv);
+	}
+	if (left < 0) {
+		print("fork failed\n");
+		close(pipefd[0]);
+		close(pipefd[1]);
+		return;
+	}
+
+	right = fork();
+	if (right == 0) {
+		close(pipefd[1]);
+		if (dup2(pipefd[0], 0) < 0)
+			exit(126);
+		close(pipefd[0]);
+		exec_child(&argv[pipe_index + 1]);
+	}
+	close(pipefd[0]);
+	close(pipefd[1]);
+
+	if (right < 0) {
+		print("fork failed\n");
+		wait_and_report(left);
+		return;
+	}
+
+	wait_and_report(left);
+	wait_and_report(right);
+}
+
+static void run_command(int argc, char **argv)
+{
+	int pipe_index;
+
+	if (streq(argv[0], "help")) {
+		print_help();
+		return;
+	}
+
+	if (streq(argv[0], "exit")) {
+		exit(0);
+	}
+
+	if (streq(argv[0], "cd")) {
+		const char *path = argc > 1 ? argv[1] : "/";
+		long ret = chdir(path);
+
+		if (ret < 0) {
+			print("cd: ");
+			print(path);
+			print(": ");
+			print_long(ret);
+			print("\n");
+		}
+		return;
+	}
+
+	pipe_index = find_pipe(argv);
+	if (pipe_index >= 0) {
+		run_pipeline(argv, pipe_index);
+		return;
+	}
+
+	run_external(argv);
 	(void)argc;
 }
 
