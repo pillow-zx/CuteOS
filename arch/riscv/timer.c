@@ -16,9 +16,20 @@
  */
 
 #include <kernel/timer.h>
+#include <kernel/sched.h>
+#include <kernel/sync.h>
+#include <kernel/task.h>
 #include <asm/csr.h>
 
 volatile uint64_t jiffies = 0;
+
+static struct {
+	spinlock_t lock;
+	struct list_head entries;
+} timer_wait_queue = {
+	.lock = SPINLOCK_INIT,
+	.entries = LIST_HEAD_INIT(timer_wait_queue.entries),
+};
 
 /*
  * get_mtime - 通过 time CSR 读取当前时间计数器
@@ -34,6 +45,84 @@ uint64_t get_mtime(void)
 void set_mtimecmp(uint64_t value)
 {
 	csr_write(stimecmp, value);
+}
+
+void timer_wait_init(struct timer_wait *wait, struct task_struct *task,
+		     uint64_t expires)
+{
+	BUG_ON(!wait);
+
+	INIT_LIST_HEAD(&wait->node);
+	wait->task = task;
+	wait->expires = expires;
+	wait->active = false;
+	wait->fired = false;
+}
+
+void timer_wait_start(struct timer_wait *wait)
+{
+	irq_flags_t flags;
+
+	BUG_ON(!wait);
+	BUG_ON(!wait->task);
+
+	spin_lock_irqsave(&timer_wait_queue.lock, &flags);
+	BUG_ON(wait->active);
+	wait->active = true;
+	wait->fired = false;
+	list_add_tail(&wait->node, &timer_wait_queue.entries);
+	spin_unlock_irqrestore(&timer_wait_queue.lock, flags);
+}
+
+bool timer_wait_cancel(struct timer_wait *wait)
+{
+	irq_flags_t flags;
+	bool fired;
+
+	if (!wait)
+		return false;
+
+	spin_lock_irqsave(&timer_wait_queue.lock, &flags);
+	fired = wait->fired;
+	if (wait->active) {
+		list_del_init(&wait->node);
+		wait->active = false;
+	}
+	spin_unlock_irqrestore(&timer_wait_queue.lock, flags);
+
+	return !fired;
+}
+
+bool timer_wait_fired(const struct timer_wait *wait)
+{
+	return wait && wait->fired;
+}
+
+void timer_run_expired(uint64_t now)
+{
+	struct list_head *pos;
+	struct list_head *next;
+	irq_flags_t flags;
+
+	spin_lock_irqsave(&timer_wait_queue.lock, &flags);
+	list_for_each_safe (pos, next, &timer_wait_queue.entries) {
+		struct timer_wait *wait =
+			list_entry(pos, struct timer_wait, node);
+
+		if (wait->expires > now)
+			continue;
+
+		list_del_init(&wait->node);
+		wait->active = false;
+		wait->fired = true;
+
+		if (wait->task && wait->task->state == TASK_SLEEPING) {
+			wait->task->state = TASK_RUNNING;
+			if (wait->task != current)
+				sched_wakeup(wait->task);
+		}
+	}
+	spin_unlock_irqrestore(&timer_wait_queue.lock, flags);
 }
 
 /*

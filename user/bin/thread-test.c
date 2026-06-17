@@ -15,6 +15,24 @@ struct futex_wait_args {
 	long wait_ret;
 };
 
+struct robust_node {
+	struct robust_list list;
+	int futex_word;
+};
+
+struct timed_wait_args {
+	volatile int state;
+	int word;
+	long wait_ret;
+};
+
+struct robust_death_args {
+	volatile int state;
+	struct robust_list_head head;
+	struct robust_node node;
+	long setup_ret;
+};
+
 struct files_share_args {
 	volatile int state;
 	int fd;
@@ -92,6 +110,38 @@ static int futex_waiter_main(void *arg)
 	return 0;
 }
 
+static int timed_waiter_main(void *arg)
+{
+	struct timed_wait_args *args = arg;
+	struct timespec timeout = {
+		.tv_sec = 1,
+		.tv_nsec = 0,
+	};
+
+	args->state = 1;
+	args->wait_ret =
+		futex(&args->word, FUTEX_WAIT | FUTEX_PRIVATE_FLAG, 1,
+		      &timeout, 0, 0);
+	args->state = args->wait_ret == 0 ? 2 : -1;
+	return 0;
+}
+
+static int robust_owner_main(void *arg)
+{
+	struct robust_death_args *args = arg;
+	long tid = gettid();
+
+	args->head.list.next = &args->node.list;
+	args->head.futex_offset = (long)&args->node.futex_word -
+				  (long)&args->node.list;
+	args->head.list_op_pending = 0;
+	args->node.list.next = &args->head.list;
+	args->node.futex_word = (int)tid | FUTEX_WAITERS;
+	args->setup_ret = set_robust_list(&args->head, sizeof(args->head));
+	args->state = args->setup_ret == 0 ? 1 : -1;
+	return 0;
+}
+
 static int files_share_main(void *arg)
 {
 	struct files_share_args *args = arg;
@@ -141,6 +191,27 @@ int main(void)
 	memset(futex_args, 0, sizeof(*futex_args));
 	futex_args->word = 1;
 
+	struct timed_wait_args *timed_args =
+		mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)timed_args < 0) {
+		printf("thread-test: mmap timed args failed: %ld\n",
+		       (long)timed_args);
+		return 1;
+	}
+	memset(timed_args, 0, sizeof(*timed_args));
+	timed_args->word = 1;
+
+	struct robust_death_args *robust_args =
+		mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)robust_args < 0) {
+		printf("thread-test: mmap robust args failed: %ld\n",
+		       (long)robust_args);
+		return 1;
+	}
+	memset(robust_args, 0, sizeof(*robust_args));
+
 	char *stack = mmap(NULL, STACK_SIZE, PROT_READ | PROT_WRITE,
 			   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	if ((long)stack < 0) {
@@ -153,6 +224,22 @@ int main(void)
 	if ((long)wake_stack < 0) {
 		printf("thread-test: mmap wake stack failed: %ld\n",
 		       (long)wake_stack);
+		return 1;
+	}
+
+	char *timed_stack = mmap(NULL, STACK_SIZE, PROT_READ | PROT_WRITE,
+				 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)timed_stack < 0) {
+		printf("thread-test: mmap timed stack failed: %ld\n",
+		       (long)timed_stack);
+		return 1;
+	}
+
+	char *robust_stack = mmap(NULL, STACK_SIZE, PROT_READ | PROT_WRITE,
+				  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)robust_stack < 0) {
+		printf("thread-test: mmap robust stack failed: %ld\n",
+		       (long)robust_stack);
 		return 1;
 	}
 
@@ -224,9 +311,21 @@ int main(void)
 		printf("thread-test: bad futex address did not EFAULT\n");
 		return 1;
 	}
-	if (futex(&futex_word, FUTEX_WAIT, 7, &futex_word, 0, 0) != -ENOSYS) {
-		printf("thread-test: futex timeout accepted\n");
+	struct timespec short_timeout = {
+		.tv_sec = 0,
+		.tv_nsec = 1000000,
+	};
+	if (futex(&futex_word, FUTEX_WAIT, 7, &short_timeout, 0, 0) !=
+	    -ETIMEDOUT) {
+		printf("thread-test: futex timeout did not ETIMEDOUT\n");
 		return 1;
+	}
+	for (int i = 0; i < 3; i++) {
+		if (futex(&futex_word, FUTEX_WAIT, 7, &short_timeout, 0,
+			  0) != -ETIMEDOUT) {
+			printf("thread-test: repeated timeout %d failed\n", i);
+			return 1;
+		}
 	}
 
 	void *wake_child_stack = wake_stack + STACK_SIZE;
@@ -253,6 +352,93 @@ int main(void)
 	if (wait_for_state(&futex_args->state, 2) < 0) {
 		printf("thread-test: futex waiter state=%ld ret=%ld\n",
 		       (long)futex_args->state, futex_args->wait_ret);
+		return 1;
+	}
+
+	long saved_head = 0;
+	long saved_len = 0;
+	struct robust_list_head current_head;
+	memset(&current_head, 0, sizeof(current_head));
+	if (set_robust_list(&current_head, sizeof(current_head)) != 0) {
+		printf("thread-test: set_robust_list failed\n");
+		return 1;
+	}
+	if (get_robust_list(0, (struct robust_list_head **)&saved_head,
+			    &saved_len) != 0) {
+		printf("thread-test: get_robust_list failed\n");
+		return 1;
+	}
+	if (saved_head != (long)&current_head ||
+	    saved_len != (long)sizeof(current_head)) {
+		printf("thread-test: robust head=%lx len=%ld\n", saved_head,
+		       saved_len);
+		return 1;
+	}
+
+	timed_args->word = 1;
+	timed_args->state = 0;
+	void *timed_child_stack = timed_stack + STACK_SIZE;
+	timed_child_stack =
+		(void *)((unsigned long)timed_child_stack & ~15UL);
+	long timed_child = clone_thread(CLONE_VM | CLONE_SIGHAND |
+						CLONE_THREAD,
+					timed_child_stack, 0, 0, 0,
+					timed_waiter_main, timed_args);
+	if (timed_child < 0) {
+		printf("thread-test: timed waiter clone failed: %ld\n",
+		       timed_child);
+		return 1;
+	}
+	if (wait_for_state(&timed_args->state, 1) < 0) {
+		printf("thread-test: timed waiter did not start\n");
+		return 1;
+	}
+	if (futex(&timed_args->word, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1,
+		  NULL, 0, 0) != 1) {
+		printf("thread-test: timed wake did not wake waiter\n");
+		return 1;
+	}
+	if (wait_for_state(&timed_args->state, 2) < 0) {
+		printf("thread-test: timed waiter state=%ld ret=%ld\n",
+		       (long)timed_args->state, timed_args->wait_ret);
+		return 1;
+	}
+
+	void *robust_child_stack = robust_stack + STACK_SIZE;
+	robust_child_stack =
+		(void *)((unsigned long)robust_child_stack & ~15UL);
+	long robust_child = clone_thread(CLONE_VM | CLONE_SIGHAND |
+						 CLONE_THREAD,
+					 robust_child_stack, 0, 0, 0,
+					 robust_owner_main, robust_args);
+	if (robust_child < 0) {
+		printf("thread-test: robust owner clone failed: %ld\n",
+		       robust_child);
+		return 1;
+	}
+	if (wait_for_state(&robust_args->state, 1) < 0) {
+		printf("thread-test: robust owner state=%ld setup=%ld\n",
+		       (long)robust_args->state, robust_args->setup_ret);
+		return 1;
+	}
+	for (int i = 0; i < 1000 &&
+			(robust_args->node.futex_word & FUTEX_OWNER_DIED) == 0;
+	     i++) {
+		long futex_ret =
+			futex(&robust_args->node.futex_word,
+			      FUTEX_WAIT | FUTEX_PRIVATE_FLAG,
+			      (int)robust_child | FUTEX_WAITERS,
+			      NULL, 0, 0);
+		if (futex_ret == 0 || futex_ret == -EAGAIN)
+			continue;
+		printf("thread-test: robust futex wait failed: %ld\n",
+		       futex_ret);
+		return 1;
+	}
+	if ((robust_args->node.futex_word & FUTEX_OWNER_DIED) == 0 ||
+	    (robust_args->node.futex_word & FUTEX_TID_MASK) != 0) {
+		printf("thread-test: robust word=%x child=%ld\n",
+		       robust_args->node.futex_word, robust_child);
 		return 1;
 	}
 

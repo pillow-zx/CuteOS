@@ -65,20 +65,6 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 	return -ENOSYS;
 }
 
-ssize_t sys_set_robust_list(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(thread): 需要线程退出时的 robust futex 清理。 */
-	return -ENOSYS;
-}
-
-ssize_t sys_get_robust_list(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(thread): 需要在 task_struct 中保存 robust_list 指针。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 {
 	(void)tf;

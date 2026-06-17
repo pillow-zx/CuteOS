@@ -56,6 +56,11 @@ void sched_wakeup(struct task_struct *task)
 	mlfq_wakeup(task);
 }
 
+bool sched_has_runnable(void)
+{
+	return !mlfq_empty();
+}
+
 void sched_tick(void)
 {
 	mlfq_tick();
@@ -93,7 +98,11 @@ void schedule(void)
 	struct task_struct *next = mlfq_pick_next();
 	struct task_struct *prev = current;
 
-	if (prev != &idle_task && prev->state == TASK_RUNNING)
+	if (next == prev)
+		return;
+
+	if (prev != &idle_task && prev->state == TASK_RUNNING &&
+	    list_empty(&prev->run_list))
 		mlfq_enqueue(prev);
 
 	check_canary(prev);

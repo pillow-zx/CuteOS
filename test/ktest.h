@@ -58,6 +58,8 @@ void test_timer_mtime(void);
 void test_timer_mtimecmp(void);
 void test_timer_jiffies(void);
 void test_timer_constants(void);
+void test_timer_wait_expiry_wakes_task(void);
+void test_timer_wait_cancel_prevents_wake(void);
 
 /* ================================================================
  *  Sync 原语测试

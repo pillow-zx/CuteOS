@@ -1,4 +1,6 @@
 #include <kernel/test.h>
+#include <kernel/sched.h>
+#include <kernel/task.h>
 #include <kernel/timer.h>
 
 void test_timer_mtime(void)
@@ -75,4 +77,70 @@ void test_timer_constants(void)
 	return;
 fail:
 	TEST_FAIL("timer: constants", "see above");
+}
+
+void test_timer_wait_expiry_wakes_task(void)
+{
+	struct task_struct *task = NULL;
+	struct timer_wait wait;
+
+	TEST_BEGIN("timer: wait expiry wakes task");
+	{
+		task = task_alloc();
+		TEST_ASSERT_NOT_NULL(task);
+		task->state = TASK_SLEEPING;
+
+		timer_wait_init(&wait, task, 100);
+		timer_wait_start(&wait);
+		timer_run_expired(99);
+		TEST_ASSERT_EQ(task->state, (uint32_t)TASK_SLEEPING);
+		TEST_ASSERT(!timer_wait_fired(&wait));
+
+		timer_run_expired(100);
+		TEST_ASSERT_EQ(task->state, (uint32_t)TASK_RUNNING);
+		TEST_ASSERT(timer_wait_fired(&wait));
+		TEST_ASSERT(!timer_wait_cancel(&wait));
+		TEST_ASSERT(!list_empty(&task->run_list));
+	}
+	TEST_END("timer: wait expiry wakes task");
+	goto cleanup;
+fail:
+	TEST_FAIL("timer: wait expiry wakes task", "see above");
+cleanup:
+	if (task) {
+		if (!list_empty(&task->run_list))
+			sched_dequeue(task);
+		task_free(task);
+	}
+}
+
+void test_timer_wait_cancel_prevents_wake(void)
+{
+	struct task_struct *task = NULL;
+	struct timer_wait wait;
+
+	TEST_BEGIN("timer: wait cancel prevents wake");
+	{
+		task = task_alloc();
+		TEST_ASSERT_NOT_NULL(task);
+		task->state = TASK_SLEEPING;
+
+		timer_wait_init(&wait, task, 200);
+		timer_wait_start(&wait);
+		TEST_ASSERT(timer_wait_cancel(&wait));
+		timer_run_expired(200);
+		TEST_ASSERT_EQ(task->state, (uint32_t)TASK_SLEEPING);
+		TEST_ASSERT(!timer_wait_fired(&wait));
+		TEST_ASSERT(list_empty(&task->run_list));
+	}
+	TEST_END("timer: wait cancel prevents wake");
+	goto cleanup;
+fail:
+	TEST_FAIL("timer: wait cancel prevents wake", "see above");
+cleanup:
+	if (task) {
+		if (!list_empty(&task->run_list))
+			sched_dequeue(task);
+		task_free(task);
+	}
 }

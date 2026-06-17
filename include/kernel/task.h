@@ -50,6 +50,7 @@ struct files_struct;
 struct fs_struct;
 struct sighand_struct;
 struct signal_struct;
+struct robust_list_head;
 
 /* ---- 任务状态 ---- */
 
@@ -88,6 +89,8 @@ struct task_struct {
 	struct list_head thread_node;     /* 在线程组链表中的节点 */
 	int exit_signal;		   /* 线程组 leader 退出时发送给父进程的信号 */
 	int *clear_child_tid;		   /* CLONE_CHILD_CLEARTID 用户地址 */
+	struct robust_list_head *robust_list; /* per-thread robust futex 链表 */
+	size_t robust_list_len;	       /* robust_list_head ABI 大小 */
 
 	/* 可共享进程资源 */
 	struct files_struct *files;	  /* 文件描述符表 */

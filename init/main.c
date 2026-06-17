@@ -103,7 +103,7 @@ void kernel_main(void)
 
 	/* 进入 idle 循环 — idle 进程的执行体 */
 	while (true) {
-		wfi();
 		schedule();
+		wfi();
 	}
 }

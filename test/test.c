@@ -92,6 +92,8 @@ void kernel_test(void)
 	test_timer_mtimecmp();
 	test_timer_jiffies();
 	test_timer_constants();
+	test_timer_wait_expiry_wakes_task();
+	test_timer_wait_cancel_prevents_wake();
 
 	/* ---- Sync ---- */
 	TEST_SECTION("Sync");

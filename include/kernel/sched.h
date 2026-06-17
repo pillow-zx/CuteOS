@@ -81,6 +81,7 @@ void sched_enqueue(struct task_struct *task);
  * 保持当前 MLFQ 等级，刷新该等级完整时间片；若已在队列中则不重复入队。
  */
 void sched_wakeup(struct task_struct *task);
+bool sched_has_runnable(void);
 
 /**
  * sched_dequeue - 将进程从就绪队列中移除

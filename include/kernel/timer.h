@@ -23,6 +23,7 @@
 #define _CUTEOS_KERNEL_TIMER_H
 
 #include <kernel/types.h>
+#include <kernel/list.h>
 
 /* ---- 时钟常量 ---- */
 
@@ -33,6 +34,16 @@
 /* ---- 全局变量 ---- */
 
 extern volatile uint64_t jiffies;
+
+struct task_struct;
+
+struct timer_wait {
+	struct list_head node;
+	struct task_struct *task;
+	uint64_t expires;
+	bool active;
+	bool fired;
+};
 
 /* ---- 函数声明 ---- */
 
@@ -46,6 +57,13 @@ uint64_t get_mtime(void);
  * @value: mtime 目标值，当 mtime >= value 时触发中断
  */
 void set_mtimecmp(uint64_t value);
+
+void timer_wait_init(struct timer_wait *wait, struct task_struct *task,
+		     uint64_t expires);
+void timer_wait_start(struct timer_wait *wait);
+bool timer_wait_cancel(struct timer_wait *wait);
+bool timer_wait_fired(const struct timer_wait *wait);
+void timer_run_expired(uint64_t now);
 
 /**
  * timer_init - 设置首次时钟中断超时值

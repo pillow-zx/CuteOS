@@ -45,6 +45,8 @@ typedef unsigned long size_t;
 #define SYS_fallocate	   47
 #define SYS_set_tid_addr   96
 #define SYS_futex	   98
+#define SYS_set_robust_list 99
+#define SYS_get_robust_list 100
 #define SYS_clock_gettime  113
 #define SYS_clock_getres   114
 #define SYS_yield	   124
@@ -146,6 +148,7 @@ typedef unsigned long size_t;
 #define EBADF	9
 #define ENOSYS	38
 #define ELOOP	40
+#define ETIMEDOUT 110
 
 #define PROT_READ  0x1
 #define PROT_WRITE 0x2
@@ -168,6 +171,9 @@ typedef unsigned long size_t;
 #define FUTEX_WAIT	    0
 #define FUTEX_WAKE	    1
 #define FUTEX_PRIVATE_FLAG 128
+#define FUTEX_WAITERS	    0x80000000
+#define FUTEX_OWNER_DIED    0x40000000
+#define FUTEX_TID_MASK	    0x3fffffff
 
 #define CLOCK_REALTIME	0
 #define CLOCK_MONOTONIC 1
@@ -188,6 +194,16 @@ struct timeval {
 struct timespec {
 	long tv_sec;
 	long tv_nsec;
+};
+
+struct robust_list {
+	struct robust_list *next;
+};
+
+struct robust_list_head {
+	struct robust_list list;
+	long futex_offset;
+	struct robust_list *list_op_pending;
 };
 
 struct iovec {
@@ -596,6 +612,17 @@ static inline long futex(int *uaddr, int op, int val, const void *timeout,
 {
 	return syscall(SYS_futex, (long)uaddr, op, val, (long)timeout,
 		       (long)uaddr2, val3);
+}
+
+static inline long set_robust_list(struct robust_list_head *head, size_t len)
+{
+	return syscall(SYS_set_robust_list, (long)head, len);
+}
+
+static inline long get_robust_list(long pid, struct robust_list_head **head,
+				   long *len)
+{
+	return syscall(SYS_get_robust_list, pid, (long)head, (long)len);
 }
 
 static inline long setuid(unsigned int uid)

@@ -45,8 +45,11 @@ void trap_set_test_hook(trap_test_hook_t hook)
  */
 static void handle_timer_irq(void)
 {
+	uint64_t now = get_mtime();
+
 	jiffies++;
-	set_mtimecmp(get_mtime() + CLOCKS_PER_TICK);
+	set_mtimecmp(now + CLOCKS_PER_TICK);
+	timer_run_expired(now);
 
 	sched_tick();
 }

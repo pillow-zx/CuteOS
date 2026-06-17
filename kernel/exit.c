@@ -176,6 +176,7 @@ static void finish_task_exit(struct task_struct *task, int code,
 	detach_task_queues(task);
 
 	task->exit_code = code;
+	futex_exit_robust_list(task);
 	clear_child_tid(task);
 	close_files(task);
 	exit_fs(task);
