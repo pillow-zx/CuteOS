@@ -104,6 +104,7 @@ struct task_struct *task_alloc(void)
 	task->umask = 0022;
 	task->uid = 0;
 	task->gid = 0;
+	sched_task_init(task);
 
 	INIT_LIST_HEAD(&task->children);
 	INIT_LIST_HEAD(&task->sibling);
@@ -154,6 +155,7 @@ void task_init(void)
 	idle_task.umask = 0022;
 	idle_task.uid = 0;
 	idle_task.gid = 0;
+	sched_task_init(&idle_task);
 
 	INIT_LIST_HEAD(&idle_task.children);
 	INIT_LIST_HEAD(&idle_task.sibling);

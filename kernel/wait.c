@@ -39,8 +39,7 @@ void wake_up(struct wait_queue_head *wq)
 	list_del_init(&task->wait_list);
 	task->state = TASK_RUNNING;
 
-	if (list_empty(&task->run_list))
-		sched_enqueue(task);
+	sched_wakeup(task);
 }
 
 void wake_up_all(struct wait_queue_head *wq)

@@ -107,6 +107,8 @@ void kernel_test(void)
 	test_sched_init();
 	test_sched_enqueue_dequeue();
 	test_sched_need_resched();
+	test_sched_wakeup_refresh();
+	test_sched_boost();
 
 	/* ---- Kernel Thread ---- */
 	TEST_SECTION("Kernel Thread");

@@ -48,9 +48,7 @@ static void handle_timer_irq(void)
 	jiffies++;
 	set_mtimecmp(get_mtime() + CLOCKS_PER_TICK);
 
-	/* 非 idle 的 RUNNING 进程标记需要调度 */
-	if (current && current != &idle_task && current->state == TASK_RUNNING)
-		current->need_resched = 1;
+	sched_tick();
 }
 
 /*

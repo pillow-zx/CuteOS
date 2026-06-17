@@ -6,7 +6,6 @@ KERNEL_OBJS = \
 	kernel/fork.o           \
 	kernel/exec.o           \
 	kernel/exit.o           \
-	kernel/sched.o          \
 	kernel/pid.o            \
 	kernel/signal.o         \
 	kernel/wait.o           \

@@ -8,6 +8,7 @@
 !drivers/
 !syscall/
 !kernel/
+!sched/
 !block/
 !init/
 !test/
@@ -46,6 +47,8 @@
 !test/**/*.S
 !drivers/*.c
 !syscall/*.c
+!sched/*.c
+!sched/*.h
 !user/**/*.c
 !user/**/*.h
 !user/Makefile

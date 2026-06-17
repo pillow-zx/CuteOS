@@ -22,6 +22,7 @@ include scripts/flags.mk
 include arch/riscv/arch.mk
 include init/init.mk
 include kernel/kernel.mk
+include sched/sched.mk
 include mm/mm.mk
 include fs/fs.mk
 include block/block.mk
@@ -47,6 +48,7 @@ OBJ_REL = \
 	$(FS_OBJS)          \
 	$(BLOCK_OBJS)       \
 	$(DRIVER_OBJS)      \
+	$(SCHED_OBJS)       \
 	$(SYSCALL_OBJS)     \
 	$(KERNEL_TEST_OBJS) \
 	$(LIB_OBJS)

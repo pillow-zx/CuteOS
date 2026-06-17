@@ -130,8 +130,8 @@ int send_signal(int sig, struct task_struct *task)
 		if (task->state == TASK_STOPPED ||
 		    task->state == TASK_SLEEPING) {
 			task->state = TASK_RUNNING;
-			if (list_empty(&task->run_list) && task != current)
-				sched_enqueue(task);
+			if (task != current)
+				sched_wakeup(task);
 		}
 	}
 

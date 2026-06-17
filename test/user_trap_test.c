@@ -209,7 +209,7 @@ void test_trap_user_return_task_setup(void)
 
 	TEST_BEGIN("trap: runtime user entry and return");
 	{
-		TEST_ASSERT(list_empty(&runqueue));
+		TEST_ASSERT(sched_test_runqueue_empty());
 
 		code_page = get_free_page(0);
 		TEST_ASSERT_NOT_NULL(code_page);
@@ -279,7 +279,7 @@ void test_trap_user_return_task_setup(void)
 		TEST_ASSERT(user_trap_test_trapped == true);
 		TEST_ASSERT(user_trap_test_resumed == true);
 		TEST_ASSERT_NULL((void *)user_trap_test_fail_msg);
-		TEST_ASSERT(list_empty(&runqueue));
+		TEST_ASSERT(sched_test_runqueue_empty());
 	}
 
 	TEST_END("trap: runtime user entry and return");

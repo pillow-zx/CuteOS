@@ -102,6 +102,10 @@ struct task_struct {
 	struct list_head run_list;     /* 就绪队列节点 */
 	struct list_head wait_list;    /* 等待队列节点 */
 	volatile uint8_t need_resched; /* 时钟 tick 置位，trap 返回前触发调度 */
+	uint8_t sched_level;	       /* MLFQ 当前队列等级 */
+	uint8_t time_slice;	       /* 当前等级剩余 tick */
+	uint8_t sched_ticks;	       /* 当前等级已消耗 tick */
+	uint64_t enqueue_jiffies;      /* 最近一次入队时间 */
 };
 
 static_assert(offsetof(struct task_struct, kstack) == 128,

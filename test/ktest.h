@@ -79,6 +79,8 @@ void test_task_free_null(void);
 void test_sched_init(void);
 void test_sched_enqueue_dequeue(void);
 void test_sched_need_resched(void);
+void test_sched_wakeup_refresh(void);
+void test_sched_boost(void);
 
 /* ================================================================
  *  Kernel Thread 测试

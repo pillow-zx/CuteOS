@@ -15,7 +15,7 @@ void test_kernel_thread_basic(void)
 	TEST_BEGIN("kthread: basic create");
 	{
 		/* 先记录队列状态 */
-		int was_empty = list_empty(&runqueue);
+		int was_empty = sched_test_runqueue_empty();
 
 		struct task_struct *t = kernel_thread(dummy_thread_fn, NULL);
 		TEST_ASSERT_NOT_NULL(t);
@@ -24,7 +24,7 @@ void test_kernel_thread_basic(void)
 		TEST_ASSERT(t->kstack != NULL);
 
 		/* kernel_thread 应已将任务入队 */
-		TEST_ASSERT(!list_empty(&runqueue));
+		TEST_ASSERT(!sched_test_runqueue_empty());
 
 		/* 清理：出队并释放 */
 		sched_dequeue(t);
@@ -32,7 +32,7 @@ void test_kernel_thread_basic(void)
 
 		/* 队列应恢复原状 */
 		if (was_empty)
-			TEST_ASSERT(list_empty(&runqueue));
+			TEST_ASSERT(sched_test_runqueue_empty());
 	}
 	TEST_END("kthread: basic create");
 	return;

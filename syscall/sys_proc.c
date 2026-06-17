@@ -72,6 +72,7 @@ ssize_t sys_exit(struct trap_frame *tf)
 
 ssize_t sys_yield(struct trap_frame *tf)
 {
-	schedule();
+	(void)tf;
+	sched_yield();
 	return 0;
 }

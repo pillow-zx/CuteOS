@@ -14,8 +14,8 @@
  *   schedule()  - Pick the next runnable task and switch to it
  *   switch_to(prev, next) - Low-level context switch (asm)
  *
- * Runqueue:
- *   The global runqueue is a simple list of runnable tasks.
+ * Policy:
+ *   The scheduler uses a single-core 4-level MLFQ policy.
  *
  * Preemption stubs (currently no-op):
  *   preempt_disable()
@@ -26,9 +26,9 @@
 #include <kernel/task.h>
 #include <asm/trap.h>
 
-/* ---- 全局就绪队列 ---- */
+/* ---- MLFQ 参数 ---- */
 
-extern struct list_head runqueue;
+#define SCHED_MLFQ_LEVELS 4
 
 /* ---- 调度器函数声明 ---- */
 
@@ -48,10 +48,39 @@ void sched_init(void);
 void schedule(void);
 
 /**
+ * sched_tick - timer tick 调度计费
+ *
+ * 由时钟中断处理调用。当前只在 trap 返回用户态前根据 need_resched
+ * 实际切换，sched_tick 只负责策略状态更新和置位。
+ */
+void sched_tick(void);
+
+/**
+ * sched_yield - 当前任务主动让出 CPU
+ *
+ * 当前任务按同级队尾重排，不主动降级，不刷新剩余时间片。
+ */
+void sched_yield(void);
+
+/**
+ * sched_task_init - 初始化 task_struct 内的调度字段
+ * @task: 新分配或静态初始化的任务
+ */
+void sched_task_init(struct task_struct *task);
+
+/**
  * sched_enqueue - 将进程加入就绪队列尾部
  * @task: 要入队的任务
  */
 void sched_enqueue(struct task_struct *task);
+
+/**
+ * sched_wakeup - 唤醒任务并按策略入队
+ * @task: 被唤醒任务
+ *
+ * 保持当前 MLFQ 等级，刷新该等级完整时间片；若已在队列中则不重复入队。
+ */
+void sched_wakeup(struct task_struct *task);
 
 /**
  * sched_dequeue - 将进程从就绪队列中移除
@@ -88,5 +117,13 @@ static __always_inline bool preemptible(void)
 {
 	return preempt_count == 0;
 }
+
+#ifdef CONFIG_KERNEL_TEST
+bool sched_test_runqueue_empty(void);
+uint32_t sched_test_runnable_count(void);
+struct task_struct *sched_test_peek_next(void);
+void sched_test_force_boost(void);
+uint8_t sched_test_level_slice(uint8_t level);
+#endif
 
 #endif
