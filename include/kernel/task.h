@@ -11,10 +11,12 @@
  *   pid        - Process ID
  *   state      - Current task state (RUNNING/SLEEPING/ZOMBIE/DEAD)
  *   mm         - Pointer to mm_struct (NULL for kernel threads)
- *   fd_array   - Open file descriptors (fixed array of 32 entries)
- *   sigactions - Signal action table (32 entries)
- *   blocked    - Blocked signal mask
- *   pending    - Pending signal mask
+ *   files      - Shared file descriptor table
+ *   fs         - Shared filesystem context (root/cwd/umask)
+ *   sighand    - Shared signal action table
+ *   signal     - Shared thread-group signal state
+ *   blocked    - Per-thread blocked signal mask
+ *   pending    - Per-thread pending signal mask
  *   ctx        - Saved callee-saved registers for context switch
  *   tf         - Pointer to trap_frame on kernel stack
  *   kstack     - Kernel stack base (low address)
@@ -44,8 +46,10 @@
 
 /* 前向声明，避免循环依赖 */
 struct mm_struct;
-struct file;
-struct dentry;
+struct files_struct;
+struct fs_struct;
+struct sighand_struct;
+struct signal_struct;
 
 /* ---- 任务状态 ---- */
 
@@ -85,15 +89,15 @@ struct task_struct {
 	int exit_signal;		   /* 线程组 leader 退出时发送给父进程的信号 */
 	int *clear_child_tid;		   /* CLONE_CHILD_CLEARTID 用户地址 */
 
-	/* 文件描述符 */
-	struct file *fd_array[32]; /* 打开的文件 */
-	struct dentry *cwd;	   /* 当前工作目录 */
-	uint32_t umask;		   /* 文件创建权限掩码 */
+	/* 可共享进程资源 */
+	struct files_struct *files;	  /* 文件描述符表 */
+	struct fs_struct *fs;		  /* root/cwd/umask */
+	struct sighand_struct *sighand; /* 信号处理动作 */
+	struct signal_struct *signal;	  /* 线程组共享信号状态 */
 	uid_t uid;		   /* 当前用户 ID */
 	gid_t gid;		   /* 当前组 ID */
 
-	/* 信号处理 */
-	struct sigaction sigactions[NSIG]; /* 每个信号的处理动作 */
+	/* 每线程信号状态 */
 	uint64_t blocked;		   /* 被屏蔽的信号掩码 */
 	uint64_t pending;		   /* 待处理的信号掩码 */
 	uint64_t in_handler; /* 当前正在运行其 handler 的信号掩码（防重入） */
@@ -150,6 +154,8 @@ void task_init(void);
  * 失败返回 NULL。
  */
 struct task_struct *task_alloc(void);
+int task_init_resources(struct task_struct *task);
+void task_release_resources(struct task_struct *task);
 
 /**
  * task_free - 释放 task_struct 及其内核栈

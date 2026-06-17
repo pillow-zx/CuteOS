@@ -117,6 +117,13 @@ void kernel_test(void)
 	test_task_process_tree();
 	test_task_free_null();
 
+	/* ---- Task Resources ---- */
+	TEST_SECTION("Task Resources");
+	test_files_struct_copy_and_share();
+	test_fs_struct_copy_and_share();
+	test_sighand_struct_copy_and_share();
+	test_signal_struct_pending();
+
 	/* ---- Sched ---- */
 	TEST_SECTION("Sched");
 	test_sched_init();

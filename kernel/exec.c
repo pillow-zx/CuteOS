@@ -290,8 +290,6 @@ static int load_elf_file(struct exec_image *image,
 	*entry_out = 0;
 	*sp_out = 0;
 
-	printk("exec: loading ELF file (%lu bytes)\n", (size_t)image->size);
-
 	if (image->size < sizeof(Elf64_Ehdr))
 		return -ENOEXEC;
 
@@ -354,12 +352,6 @@ static int load_elf_file(struct exec_image *image,
 			continue;
 		if (ph->p_memsz == 0)
 			continue;
-
-		printk("exec: PT_LOAD vaddr=%p filesz=%llu memsz=%llu "
-		       "flags=0x%x\n",
-		       (void *)ph->p_vaddr, ph->p_filesz, ph->p_memsz,
-		       ph->p_flags);
-
 		if (!(ph->p_flags & PF_R)) {
 			ret = -ENOEXEC;
 			goto fail;
@@ -499,10 +491,6 @@ static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
 	current->tf = tf;
 
 	flush_old_exec(oldmm);
-
-	printk("exec: switching to user mode (sepc=%p, sp=%p, pgd=%p, "
-	       "brk=%p)\n",
-	       (void *)entry, (void *)sp, (void *)user_pgd_pa, (void *)mm->brk);
 
 	memset(tf, 0, sizeof(*tf));
 	tf->sepc = entry;

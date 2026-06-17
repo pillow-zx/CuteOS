@@ -26,6 +26,7 @@
 
 #include <kernel/fdtable.h>
 #include <kernel/fs.h>
+#include <kernel/fs_struct.h>
 #include <kernel/stat.h>
 #include <kernel/types.h>
 #include <kernel/errno.h>
@@ -91,9 +92,13 @@ static struct file *fd_get_readable(int fd)
 {
 	struct file *file = fd_get(fd);
 
-	if (!file || !(file->f_mode & FMODE_READ) || !file->f_op ||
-	    !file->f_op->read)
+	if (!file)
 		return NULL;
+	if (!(file->f_mode & FMODE_READ) || !file->f_op ||
+	    !file->f_op->read) {
+		file_put(file);
+		return NULL;
+	}
 
 	return file;
 }
@@ -102,9 +107,13 @@ static struct file *fd_get_writable(int fd)
 {
 	struct file *file = fd_get(fd);
 
-	if (!file || !(file->f_mode & FMODE_WRITE) || !file->f_op ||
-	    !file->f_op->write)
+	if (!file)
 		return NULL;
+	if (!(file->f_mode & FMODE_WRITE) || !file->f_op ||
+	    !file->f_op->write) {
+		file_put(file);
+		return NULL;
+	}
 
 	return file;
 }
@@ -114,7 +123,7 @@ static uint32_t apply_umask(uint32_t mode)
 	if (!current)
 		return mode;
 
-	return mode & ~current->umask;
+	return mode & ~fs_get_umask(current->fs);
 }
 
 static uint8_t vfs_type_to_dirent(uint8_t type)
@@ -330,11 +339,14 @@ ssize_t sys_write(struct trap_frame *tf)
 	const char *buf = (const char *)tf->a1;
 	size_t len = tf->a2;
 	struct file *file = fd_get_writable(fd);
+	ssize_t ret;
 
 	if (!file)
 		return -EBADF;
 
-	return rw_user_buffer(file, (void *)buf, len, true);
+	ret = rw_user_buffer(file, (void *)buf, len, true);
+	file_put(file);
+	return ret;
 }
 
 ssize_t sys_read(struct trap_frame *tf)
@@ -343,11 +355,14 @@ ssize_t sys_read(struct trap_frame *tf)
 	char *buf = (char *)tf->a1;
 	size_t len = tf->a2;
 	struct file *file = fd_get_readable(fd);
+	ssize_t ret;
 
 	if (!file)
 		return -EBADF;
 
-	return rw_user_buffer(file, buf, len, false);
+	ret = rw_user_buffer(file, buf, len, false);
+	file_put(file);
+	return ret;
 }
 
 ssize_t sys_readv(struct trap_frame *tf)
@@ -356,13 +371,18 @@ ssize_t sys_readv(struct trap_frame *tf)
 	const struct sys_iovec *uiov = (const struct sys_iovec *)tf->a1;
 	size_t iovcnt = tf->a2;
 	struct file *file = fd_get_readable(fd);
+	ssize_t ret;
 
 	if (!file)
 		return -EBADF;
-	if (!access_ok(uiov, iovcnt * sizeof(*uiov)))
+	if (!access_ok(uiov, iovcnt * sizeof(*uiov))) {
+		file_put(file);
 		return -EFAULT;
+	}
 
-	return rw_iovec(file, uiov, iovcnt, false);
+	ret = rw_iovec(file, uiov, iovcnt, false);
+	file_put(file);
+	return ret;
 }
 
 ssize_t sys_writev(struct trap_frame *tf)
@@ -371,13 +391,18 @@ ssize_t sys_writev(struct trap_frame *tf)
 	const struct sys_iovec *uiov = (const struct sys_iovec *)tf->a1;
 	size_t iovcnt = tf->a2;
 	struct file *file = fd_get_writable(fd);
+	ssize_t ret;
 
 	if (!file)
 		return -EBADF;
-	if (!access_ok(uiov, iovcnt * sizeof(*uiov)))
+	if (!access_ok(uiov, iovcnt * sizeof(*uiov))) {
+		file_put(file);
 		return -EFAULT;
+	}
 
-	return rw_iovec(file, uiov, iovcnt, true);
+	ret = rw_iovec(file, uiov, iovcnt, true);
+	file_put(file);
+	return ret;
 }
 
 ssize_t sys_pread64(struct trap_frame *tf)
@@ -387,11 +412,14 @@ ssize_t sys_pread64(struct trap_frame *tf)
 	size_t len = tf->a2;
 	loff_t offset = (loff_t)tf->a3;
 	struct file *file = fd_get_readable(fd);
+	ssize_t ret;
 
 	if (!file)
 		return -EBADF;
 
-	return rw_at_offset(file, buf, len, offset, false);
+	ret = rw_at_offset(file, buf, len, offset, false);
+	file_put(file);
+	return ret;
 }
 
 ssize_t sys_pwrite64(struct trap_frame *tf)
@@ -401,11 +429,14 @@ ssize_t sys_pwrite64(struct trap_frame *tf)
 	size_t len = tf->a2;
 	loff_t offset = (loff_t)tf->a3;
 	struct file *file = fd_get_writable(fd);
+	ssize_t ret;
 
 	if (!file)
 		return -EBADF;
 
-	return rw_at_offset(file, (void *)buf, len, offset, true);
+	ret = rw_at_offset(file, (void *)buf, len, offset, true);
+	file_put(file);
+	return ret;
 }
 
 ssize_t sys_close(struct trap_frame *tf)
@@ -418,23 +449,30 @@ ssize_t sys_lseek(struct trap_frame *tf)
 	struct file *file = fd_get((int)tf->a0);
 	loff_t offset = (loff_t)tf->a1;
 	int whence = (int)tf->a2;
+	ssize_t ret;
 
 	if (!file)
 		return -EBADF;
 
-	return vfs_llseek(file, offset, whence);
+	ret = vfs_llseek(file, offset, whence);
+	file_put(file);
+	return ret;
 }
 
 ssize_t sys_ioctl(struct trap_frame *tf)
 {
 	int fd = (int)tf->a0;
 	uint64_t cmd = tf->a1;
+	struct file *file = fd_get(fd);
 
-	if (!fd_get(fd))
+	if (!file)
 		return -EBADF;
-	if (cmd == TCGETS)
+	if (cmd == TCGETS) {
+		file_put(file);
 		return 0;
+	}
 
+	file_put(file);
 	return 0;
 }
 
@@ -530,6 +568,7 @@ ssize_t sys_getcwd(struct trap_frame *tf)
 {
 	char *ubuf = (char *)tf->a0;
 	size_t size = tf->a1;
+	struct dentry *cwd;
 	char *path;
 	int ret;
 
@@ -540,8 +579,10 @@ ssize_t sys_getcwd(struct trap_frame *tf)
 	if (!path)
 		return -ENOMEM;
 
-	ret = vfs_getcwd_path(current ? current->cwd : NULL, path,
-			      VFS_PATH_MAX);
+	cwd = fs_get_cwd_dentry(current ? current->fs : NULL);
+	ret = vfs_getcwd_path(cwd, path, VFS_PATH_MAX);
+	if (cwd)
+		dput(cwd);
 	if (ret < 0)
 		goto out;
 	if ((size_t)ret > size) {
@@ -573,11 +614,14 @@ ssize_t sys_getdents64(struct trap_frame *tf)
 	struct getdents_ctx ctx;
 	loff_t start;
 	int ret;
+	ssize_t result;
 
 	if (!file)
 		return -EBADF;
-	if (!access_ok(dirp, count))
+	if (!access_ok(dirp, count)) {
+		file_put(file);
 		return -EFAULT;
+	}
 
 	start = file->f_pos;
 	memset(&ctx, 0, sizeof(ctx));
@@ -598,14 +642,16 @@ ssize_t sys_getdents64(struct trap_frame *tf)
 		ret = vfs_readdir(file, &ctx, filldir64);
 		if (ret < 0) {
 			file->f_pos = start;
-			return ret;
+			result = ret;
+			goto out_put;
 		}
 		if (ctx.written == 0)
 			break;
 
 		if (copy_to_user(dirp, kbuf, ctx.written) != 0) {
 			file->f_pos = start;
-			return -EFAULT;
+			result = -EFAULT;
+			goto out_put;
 		}
 
 		dirp += ctx.written;
@@ -615,7 +661,10 @@ ssize_t sys_getdents64(struct trap_frame *tf)
 			break;
 	}
 
-	return (ssize_t)((uintptr_t)dirp - tf->a1);
+	result = (ssize_t)((uintptr_t)dirp - tf->a1);
+out_put:
+	file_put(file);
+	return result;
 }
 
 ssize_t sys_fstat(struct trap_frame *tf)
@@ -624,17 +673,20 @@ ssize_t sys_fstat(struct trap_frame *tf)
 	struct kstat *ustat = (struct kstat *)tf->a1;
 	struct file *file = fd_get(fd);
 	struct kstat st;
+	int ret;
 
 	if (!file)
 		return -EBADF;
-	if (!access_ok(ustat, sizeof(*ustat)))
+	if (!access_ok(ustat, sizeof(*ustat))) {
+		file_put(file);
 		return -EFAULT;
+	}
 
 	vfs_stat_file(file, &st);
-	if (copy_to_user(ustat, &st, sizeof(st)) != 0)
-		return -EFAULT;
+	ret = copy_to_user(ustat, &st, sizeof(st)) != 0 ? -EFAULT : 0;
+	file_put(file);
 
-	return 0;
+	return ret;
 }
 
 ssize_t sys_newfstatat(struct trap_frame *tf)
@@ -661,13 +713,16 @@ ssize_t sys_newfstatat(struct trap_frame *tf)
 
 		if (first == '\0') {
 			struct file *file = fd_get(dfd);
+			int ret;
 
 			if (!file)
 				return -EBADF;
 			vfs_stat_file(file, &st);
-			if (copy_to_user(ustat, &st, sizeof(st)) != 0)
-				return -EFAULT;
-			return 0;
+			ret = copy_to_user(ustat, &st, sizeof(st)) != 0 ?
+				      -EFAULT :
+				      0;
+			file_put(file);
+			return ret;
 		}
 	}
 
@@ -789,11 +844,14 @@ ssize_t sys_dup3(struct trap_frame *tf)
 ssize_t sys_fsync(struct trap_frame *tf)
 {
 	struct file *file = fd_get((int)tf->a0);
+	ssize_t ret;
 
 	if (!file)
 		return -EBADF;
 
-	return vfs_sync_file(file);
+	ret = vfs_sync_file(file);
+	file_put(file);
+	return ret;
 }
 
 ssize_t sys_fdatasync(struct trap_frame *tf)
@@ -805,15 +863,26 @@ ssize_t sys_ftruncate64(struct trap_frame *tf)
 {
 	struct file *file = fd_get((int)tf->a0);
 	int64_t length = (int64_t)tf->a1;
+	ssize_t ret;
 
-	if (!file || !(file->f_mode & FMODE_WRITE))
+	if (!file)
 		return -EBADF;
-	if (length < 0 || length > MAX_FILE_SIZE)
+	if (!(file->f_mode & FMODE_WRITE)) {
+		file_put(file);
+		return -EBADF;
+	}
+	if (length < 0 || length > MAX_FILE_SIZE) {
+		file_put(file);
 		return -EINVAL;
-	if (!file->f_inode)
+	}
+	if (!file->f_inode) {
+		file_put(file);
 		return -EINVAL;
+	}
 
-	return vfs_truncate_file(file, (uint64_t)length);
+	ret = vfs_truncate_file(file, (uint64_t)length);
+	file_put(file);
+	return ret;
 }
 
 ssize_t sys_fallocate(struct trap_frame *tf)

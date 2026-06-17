@@ -15,6 +15,21 @@ struct futex_wait_args {
 	long wait_ret;
 };
 
+struct files_share_args {
+	volatile int state;
+	int fd;
+};
+
+struct fs_share_args {
+	volatile int state;
+	long old_umask;
+};
+
+static void *stack_top(char *stack)
+{
+	return (void *)((unsigned long)(stack + STACK_SIZE) & ~15UL);
+}
+
 static int wait_for_state(volatile int *addr, int value)
 {
 	for (int i = 0; i < 100000; i++) {
@@ -26,6 +41,22 @@ static int wait_for_state(volatile int *addr, int value)
 	}
 
 	return -1;
+}
+
+static int wait_for_clean_exit(long pid, const char *name)
+{
+	int status = -1;
+	long waited = wait4(pid, &status, 0, NULL);
+
+	if (waited != pid) {
+		printf("thread-test: %s wait returned %ld\n", name, waited);
+		return -1;
+	}
+	if (status != 0) {
+		printf("thread-test: %s status=%d\n", name, status);
+		return -1;
+	}
+	return 0;
 }
 
 static int child_main(void *arg)
@@ -59,6 +90,33 @@ static int futex_waiter_main(void *arg)
 		      0);
 	args->state = args->wait_ret == 0 ? 2 : -1;
 	return 0;
+}
+
+static int files_share_main(void *arg)
+{
+	struct files_share_args *args = arg;
+
+	args->state = close(args->fd) == 0 ? 1 : -1;
+	return 0;
+}
+
+static int fs_share_main(void *arg)
+{
+	struct fs_share_args *args = arg;
+
+	args->old_umask = umask(0007);
+	args->state = args->old_umask == 0022 ? 1 : -1;
+	return 0;
+}
+
+static int sighand_share_main(void *arg)
+{
+	struct sigaction act;
+
+	(void)arg;
+	memset(&act, 0, sizeof(act));
+	act.sa_handler = SIG_IGN;
+	return sigaction(SIGUSR1, &act, NULL) == 0 ? 0 : 1;
 }
 
 int main(void)
@@ -98,11 +156,56 @@ int main(void)
 		return 1;
 	}
 
+	struct files_share_args *files_args =
+		mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)files_args < 0) {
+		printf("thread-test: mmap files args failed: %ld\n",
+		       (long)files_args);
+		return 1;
+	}
+	memset(files_args, 0, sizeof(*files_args));
+
+	struct fs_share_args *fs_args =
+		mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)fs_args < 0) {
+		printf("thread-test: mmap fs args failed: %ld\n",
+		       (long)fs_args);
+		return 1;
+	}
+	memset(fs_args, 0, sizeof(*fs_args));
+
+	char *files_stack = mmap(NULL, STACK_SIZE, PROT_READ | PROT_WRITE,
+				 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)files_stack < 0) {
+		printf("thread-test: mmap files stack failed: %ld\n",
+		       (long)files_stack);
+		return 1;
+	}
+
+	char *fs_stack = mmap(NULL, STACK_SIZE, PROT_READ | PROT_WRITE,
+			      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)fs_stack < 0) {
+		printf("thread-test: mmap fs stack failed: %ld\n",
+		       (long)fs_stack);
+		return 1;
+	}
+
+	char *combo_stack = mmap(NULL, STACK_SIZE, PROT_READ | PROT_WRITE,
+				 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)combo_stack < 0) {
+		printf("thread-test: mmap combo stack failed: %ld\n",
+		       (long)combo_stack);
+		return 1;
+	}
+
 	int parent_tid = 0;
 	int child_tid = -1;
 	int futex_word = 7;
-	unsigned long flags = CLONE_VM | CLONE_THREAD | CLONE_PARENT_SETTID |
-				      CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID;
+	unsigned long flags = CLONE_VM | CLONE_SIGHAND | CLONE_THREAD |
+			      CLONE_PARENT_SETTID | CLONE_CHILD_SETTID |
+			      CLONE_CHILD_CLEARTID;
 
 	if (futex(&futex_word, FUTEX_WAIT, 8, NULL, 0, 0) != -EAGAIN) {
 		printf("thread-test: FUTEX_WAIT mismatch did not EAGAIN\n");
@@ -128,8 +231,9 @@ int main(void)
 
 	void *wake_child_stack = wake_stack + STACK_SIZE;
 	wake_child_stack = (void *)((unsigned long)wake_child_stack & ~15UL);
-	long wake_child = clone_thread(CLONE_VM | CLONE_THREAD, wake_child_stack,
-				       0, 0, 0, futex_waiter_main, futex_args);
+	long wake_child = clone_thread(CLONE_VM | CLONE_SIGHAND | CLONE_THREAD,
+				       wake_child_stack, 0, 0, 0,
+				       futex_waiter_main, futex_args);
 	if (wake_child < 0) {
 		printf("thread-test: futex waiter clone failed: %ld\n",
 		       wake_child);
@@ -152,21 +256,31 @@ int main(void)
 		return 1;
 	}
 
-	if (clone(CLONE_VM, 0, 0, 0, 0) != -EINVAL) {
-		printf("thread-test: CLONE_VM without CLONE_THREAD accepted\n");
+	if (clone(CLONE_VM, stack_top(stack), 0, 0, 0) != -EINVAL) {
+		printf("thread-test: CLONE_VM without SIGHAND accepted\n");
 		return 1;
 	}
 	if (clone(CLONE_THREAD, 0, 0, 0, 0) != -EINVAL) {
 		printf("thread-test: CLONE_THREAD without CLONE_VM accepted\n");
 		return 1;
 	}
-	if (clone(CLONE_VM | CLONE_THREAD, 0, 0, 0, 0) != -EINVAL) {
+	if (clone(CLONE_VM | CLONE_SIGHAND | CLONE_THREAD, 0, 0, 0, 0) !=
+	    -EINVAL) {
 		printf("thread-test: CLONE_THREAD without stack accepted\n");
 		return 1;
 	}
-	if (clone(CLONE_VM | CLONE_THREAD | CLONE_FILES, 0, 0, 0, 0) !=
+	if (clone(CLONE_VM | CLONE_THREAD, stack_top(stack), 0, 0, 0) !=
 	    -EINVAL) {
-		printf("thread-test: CLONE_FILES accepted\n");
+		printf("thread-test: CLONE_THREAD without SIGHAND accepted\n");
+		return 1;
+	}
+	if (clone(SIGCHLD | CLONE_VM | CLONE_SIGHAND, 0, 0, 0, 0) !=
+	    -EINVAL) {
+		printf("thread-test: shared VM without stack accepted\n");
+		return 1;
+	}
+	if (clone(SIGCHLD | CLONE_SIGHAND, 0, 0, 0, 0) != -EINVAL) {
+		printf("thread-test: CLONE_SIGHAND without CLONE_VM accepted\n");
 		return 1;
 	}
 	if (clone(SIGCHLD | CLONE_CHILD_SETTID, 0, 0, 0, &child_tid) !=
@@ -181,6 +295,179 @@ int main(void)
 	}
 	if (clone(SIGCHLD | CLONE_SETTLS, 0, 0, 1, 0) != -EINVAL) {
 		printf("thread-test: fork-like CLONE_SETTLS accepted\n");
+		return 1;
+	}
+
+	files_args->fd = dup(1);
+	if (files_args->fd < 0) {
+		printf("thread-test: dup stdout failed: %ld\n",
+		       (long)files_args->fd);
+		return 1;
+	}
+	void *files_child_stack = files_stack + STACK_SIZE;
+	files_child_stack =
+		(void *)((unsigned long)files_child_stack & ~15UL);
+	long files_child = clone_thread(CLONE_VM | CLONE_SIGHAND |
+						CLONE_THREAD | CLONE_FILES,
+					files_child_stack, 0, 0, 0,
+					files_share_main, files_args);
+	if (files_child < 0) {
+		printf("thread-test: CLONE_FILES clone failed: %ld\n",
+		       files_child);
+		return 1;
+	}
+	if (wait_for_state(&files_args->state, 1) < 0) {
+		printf("thread-test: CLONE_FILES child state=%ld\n",
+		       (long)files_args->state);
+		return 1;
+	}
+	if (write(files_args->fd, "", 0) != -EBADF) {
+		printf("thread-test: shared fd remained open\n");
+		return 1;
+	}
+
+	long original_umask = umask(0022);
+	void *fs_child_stack = fs_stack + STACK_SIZE;
+	fs_child_stack = (void *)((unsigned long)fs_child_stack & ~15UL);
+	long fs_child = clone_thread(CLONE_VM | CLONE_SIGHAND |
+					     CLONE_THREAD | CLONE_FS,
+				     fs_child_stack, 0, 0, 0, fs_share_main,
+				     fs_args);
+	if (fs_child < 0) {
+		printf("thread-test: CLONE_FS clone failed: %ld\n", fs_child);
+		umask((unsigned int)original_umask);
+		return 1;
+	}
+	if (wait_for_state(&fs_args->state, 1) < 0) {
+		printf("thread-test: CLONE_FS child state=%ld old=%ld\n",
+		       (long)fs_args->state, fs_args->old_umask);
+		umask((unsigned int)original_umask);
+		return 1;
+	}
+	if (umask(0022) != 0007) {
+		printf("thread-test: shared umask was not observed\n");
+		umask((unsigned int)original_umask);
+		return 1;
+	}
+	umask((unsigned int)original_umask);
+
+	int isolated_fd = dup(1);
+	if (isolated_fd < 0) {
+		printf("thread-test: dup isolated stdout failed: %ld\n",
+		       (long)isolated_fd);
+		return 1;
+	}
+	files_args->fd = isolated_fd;
+	long isolated_child = clone_thread(SIGCHLD, stack_top(combo_stack), 0,
+					   0, 0, files_share_main, files_args);
+	if (isolated_child < 0) {
+		printf("thread-test: fork-like clone failed: %ld\n",
+		       isolated_child);
+		close(isolated_fd);
+		return 1;
+	}
+	if (wait_for_clean_exit(isolated_child, "fork-like files copy") < 0) {
+		close(isolated_fd);
+		return 1;
+	}
+	if (write(isolated_fd, "", 0) != 0) {
+		printf("thread-test: copied fd was closed in parent\n");
+		close(isolated_fd);
+		return 1;
+	}
+	close(isolated_fd);
+
+	files_args->fd = dup(1);
+	if (files_args->fd < 0) {
+		printf("thread-test: dup fork-like stdout failed: %ld\n",
+		       (long)files_args->fd);
+		return 1;
+	}
+	long files_proc = clone_thread(SIGCHLD | CLONE_FILES,
+				       stack_top(combo_stack), 0, 0, 0,
+				       files_share_main, files_args);
+	if (files_proc < 0) {
+		printf("thread-test: fork-like CLONE_FILES failed: %ld\n",
+		       files_proc);
+		close(files_args->fd);
+		return 1;
+	}
+	if (wait_for_clean_exit(files_proc, "fork-like CLONE_FILES") < 0)
+		return 1;
+	if (write(files_args->fd, "", 0) != -EBADF) {
+		printf("thread-test: fork-like shared fd remained open\n");
+		close(files_args->fd);
+		return 1;
+	}
+
+	original_umask = umask(0022);
+	long fs_copy = clone_thread(SIGCHLD, stack_top(combo_stack), 0, 0, 0,
+				    fs_share_main, fs_args);
+	if (fs_copy < 0) {
+		printf("thread-test: fork-like fs copy failed: %ld\n", fs_copy);
+		umask((unsigned int)original_umask);
+		return 1;
+	}
+	if (wait_for_clean_exit(fs_copy, "fork-like fs copy") < 0) {
+		umask((unsigned int)original_umask);
+		return 1;
+	}
+	if (umask(0022) != 0022) {
+		printf("thread-test: copied umask changed parent\n");
+		umask((unsigned int)original_umask);
+		return 1;
+	}
+
+	long fs_proc = clone_thread(SIGCHLD | CLONE_FS, stack_top(combo_stack),
+				    0, 0, 0, fs_share_main, fs_args);
+	if (fs_proc < 0) {
+		printf("thread-test: fork-like CLONE_FS failed: %ld\n",
+		       fs_proc);
+		umask((unsigned int)original_umask);
+		return 1;
+	}
+	if (wait_for_clean_exit(fs_proc, "fork-like CLONE_FS") < 0) {
+		umask((unsigned int)original_umask);
+		return 1;
+	}
+	if (umask(0022) != 0007) {
+		printf("thread-test: fork-like shared umask was not observed\n");
+		umask((unsigned int)original_umask);
+		return 1;
+	}
+	umask((unsigned int)original_umask);
+
+	struct sigaction act;
+	struct sigaction oldact;
+
+	memset(&act, 0, sizeof(act));
+	act.sa_handler = SIG_DFL;
+	if (sigaction(SIGUSR1, &act, NULL) < 0) {
+		printf("thread-test: reset SIGUSR1 failed\n");
+		return 1;
+	}
+	long sighand_proc = clone_thread(SIGCHLD | CLONE_VM | CLONE_SIGHAND,
+					 stack_top(combo_stack), 0, 0, 0,
+					 sighand_share_main, NULL);
+	if (sighand_proc < 0) {
+		printf("thread-test: fork-like CLONE_SIGHAND failed: %ld\n",
+		       sighand_proc);
+		return 1;
+	}
+	if (wait_for_clean_exit(sighand_proc,
+				"fork-like CLONE_VM|CLONE_SIGHAND") < 0)
+		return 1;
+	memset(&oldact, 0, sizeof(oldact));
+	if (sigaction(SIGUSR1, NULL, &oldact) < 0) {
+		printf("thread-test: read SIGUSR1 failed\n");
+		return 1;
+	}
+	if (oldact.sa_handler != SIG_IGN) {
+		printf("thread-test: shared sighand was not observed\n");
+		return 1;
+	}
+	if (sigaction(SIGUSR1, &act, NULL) < 0) {
+		printf("thread-test: restore SIGUSR1 failed\n");
 		return 1;
 	}
 

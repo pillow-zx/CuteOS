@@ -21,13 +21,14 @@
  *   SIG_DFL - Default signal handler sentinel
  *   SIG_IGN - Ignore signal sentinel
  *
- * 信号状态封装：task_struct 中 sigactions / blocked / pending / in_handler
- * 的访问全部收敛到本文件提供的 API（send_signal / force_signal /
- * signals_clone 等）；外部模块（如 fork）不直接读写这些字段，从而把信号
- * 状态的表示作为 signal.c 的私有实现细节。
+ * 信号状态封装：sighand_struct 持有可共享的 handler 表，
+ * signal_struct 持有线程组共享 pending；task_struct 仅保留每线程
+ * blocked / pending / in_handler。外部模块通过 send_signal /
+ * send_group_signal / signals_clone 等 API 管理生命周期和语义。
  */
 
 #include <kernel/types.h>
+#include <kernel/sync.h>
 #include <asm/page.h>
 #include <asm/pte.h>
 #include <asm/trap.h>
@@ -79,6 +80,18 @@ struct sigaction {
 	unsigned long sa_mask;
 };
 
+struct sighand_struct {
+	uint32_t refcount;
+	mutex_t lock;
+	struct sigaction sigactions[NSIG];
+};
+
+struct signal_struct {
+	uint32_t refcount;
+	mutex_t lock;
+	uint64_t shared_pending;
+};
+
 /*
  * 进程因信号被默认终止时写入 wait 状态的编码：低字节 = 128 + 信号号。
  * 必须与 user/include/user.h 的 SIGNAL_EXIT_CODE 保持一致。
@@ -98,8 +111,12 @@ struct task_struct;
 bool signal_is_valid(int sig);
 uint64_t signal_mask(int sig);
 int send_signal(int sig, struct task_struct *task);
+int send_group_signal(int sig, struct task_struct *leader);
 int force_signal(int sig, struct task_struct *task);
-void signals_clone(struct task_struct *child);
+int signals_init(struct task_struct *task);
+int signals_clone(struct task_struct *child, bool share_sighand,
+		  bool share_signal);
+void signals_release(struct task_struct *task);
 vaddr_t signal_trampoline_start(void);
 vaddr_t signal_trampoline_end(void);
 bool signal_trampoline_contains(vaddr_t addr);

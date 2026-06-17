@@ -91,14 +91,6 @@ int vfs_stat_file(struct file *file, struct kstat *st)
 	return vfs_stat_inode(file->f_inode, st);
 }
 
-struct file *fd_get_checked(int fd)
-{
-	if (fd < 0 || fd >= NR_OPEN)
-		return NULL;
-
-	return current->fd_array[fd];
-}
-
 static struct file console_stdin = {
 	.f_op = &console_fops,
 	.f_mode = FMODE_READ,
@@ -279,19 +271,113 @@ void file_put(struct file *file)
 	kfree(file);
 }
 
-int fd_alloc(struct file *file)
+struct files_struct *files_alloc(void)
 {
-	if (!file)
-		return -EINVAL;
+	struct files_struct *files = kmalloc(sizeof(*files));
+
+	if (!files)
+		return NULL;
+
+	memset(files, 0, sizeof(*files));
+	files->refcount = 1;
+	mutex_init(&files->lock);
+	return files;
+}
+
+struct files_struct *files_dup(struct files_struct *old)
+{
+	struct files_struct *files = files_alloc();
+
+	if (!files)
+		return NULL;
+	if (!old)
+		return files;
+
+	mutex_lock(&old->lock);
+	for (int fd = 0; fd < NR_OPEN; fd++) {
+		files->fd[fd] = old->fd[fd];
+		file_get(files->fd[fd]);
+	}
+	mutex_unlock(&old->lock);
+
+	return files;
+}
+
+void files_get(struct files_struct *files)
+{
+	if (files)
+		files->refcount++;
+}
+
+void files_put(struct files_struct *files)
+{
+	if (!files)
+		return;
+
+	BUG_ON(files->refcount == 0);
+	files->refcount--;
+	if (files->refcount > 0)
+		return;
 
 	for (int fd = 0; fd < NR_OPEN; fd++) {
-		if (!current->fd_array[fd]) {
-			current->fd_array[fd] = file;
+		struct file *file = files->fd[fd];
+
+		files->fd[fd] = NULL;
+		file_put(file);
+	}
+	kfree(files);
+}
+
+void files_install_standard_fds(struct files_struct *files)
+{
+	if (!files)
+		return;
+
+	files->fd[KERN_STDIN] = &console_stdin;
+	files->fd[KERN_STDOUT] = &console_stdout;
+	files->fd[KERN_STDERR] = &console_stderr;
+}
+
+static struct files_struct *current_files(void)
+{
+	return current ? current->files : NULL;
+}
+
+int fd_alloc(struct file *file)
+{
+	struct files_struct *files = current_files();
+
+	if (!file)
+		return -EINVAL;
+	if (!files)
+		return -EBADF;
+
+	mutex_lock(&files->lock);
+	for (int fd = 0; fd < NR_OPEN; fd++) {
+		if (!files->fd[fd]) {
+			files->fd[fd] = file;
+			mutex_unlock(&files->lock);
 			return fd;
 		}
 	}
+	mutex_unlock(&files->lock);
 
 	return -EMFILE;
+}
+
+struct file *fd_get_checked(int fd)
+{
+	struct files_struct *files = current_files();
+	struct file *file;
+
+	if (!files || fd < 0 || fd >= NR_OPEN)
+		return NULL;
+
+	mutex_lock(&files->lock);
+	file = files->fd[fd];
+	file_get(file);
+	mutex_unlock(&files->lock);
+	return file;
 }
 
 struct file *fd_get(int fd)
@@ -301,11 +387,21 @@ struct file *fd_get(int fd)
 
 int fd_close(int fd)
 {
-	struct file *file = fd_get(fd);
-	if (!file)
+	struct files_struct *files = current_files();
+	struct file *file;
+
+	if (!files || fd < 0 || fd >= NR_OPEN)
 		return -EBADF;
 
-	current->fd_array[fd] = NULL;
+	mutex_lock(&files->lock);
+	file = files->fd[fd];
+	if (!file) {
+		mutex_unlock(&files->lock);
+		return -EBADF;
+	}
+
+	files->fd[fd] = NULL;
+	mutex_unlock(&files->lock);
 	file_put(file);
 
 	return 0;
@@ -313,74 +409,104 @@ int fd_close(int fd)
 
 int fd_dup(int oldfd)
 {
+	struct files_struct *files = current_files();
 	struct file *file = fd_get(oldfd);
+	int newfd = -EMFILE;
+
 	if (!file)
 		return -EBADF;
+	if (!files) {
+		file_put(file);
+		return -EBADF;
+	}
 
-	int newfd = fd_alloc(file);
-	if (newfd < 0)
-		return newfd;
+	mutex_lock(&files->lock);
+	for (int fd = 0; fd < NR_OPEN; fd++) {
+		if (!files->fd[fd]) {
+			file_get(file);
+			files->fd[fd] = file;
+			newfd = fd;
+			break;
+		}
+	}
+	mutex_unlock(&files->lock);
 
-	file_get(file);
+	file_put(file);
 	return newfd;
 }
 
 int fd_dup2(int oldfd, int newfd)
 {
+	struct files_struct *files = current_files();
 	struct file *file = fd_get(oldfd);
+	struct file *old = NULL;
+
 	if (!file)
 		return -EBADF;
-	if (newfd < 0 || newfd >= NR_OPEN)
+	if (!files || newfd < 0 || newfd >= NR_OPEN) {
+		file_put(file);
 		return -EBADF;
-	if (oldfd == newfd)
+	}
+	if (oldfd == newfd) {
+		file_put(file);
 		return newfd;
+	}
 
-	if (current->fd_array[newfd])
-		fd_close(newfd);
-
-	current->fd_array[newfd] = file;
+	mutex_lock(&files->lock);
+	old = files->fd[newfd];
 	file_get(file);
+	files->fd[newfd] = file;
+	mutex_unlock(&files->lock);
+
+	file_put(old);
+	file_put(file);
 
 	return newfd;
 }
 
-int copy_files(struct task_struct *child)
+int init_files(struct task_struct *task)
 {
+	if (!task)
+		return -EINVAL;
+
+	task->files = files_alloc();
+	if (!task->files)
+		return -ENOMEM;
+
+	files_install_standard_fds(task->files);
+	return 0;
+}
+
+int copy_files(struct task_struct *child, bool share)
+{
+	struct files_struct *files;
+
 	if (!child)
 		return -EINVAL;
 
-	for (int fd = 0; fd < NR_OPEN; fd++) {
-		struct file *file = current->fd_array[fd];
-		child->fd_array[fd] = file;
-		file_get(file);
+	if (share) {
+		files = current ? current->files : NULL;
+		if (!files)
+			return init_files(child);
+		files_get(files);
+	} else {
+		files = files_dup(current ? current->files : NULL);
+		if (!files)
+			return -ENOMEM;
 	}
 
+	close_files(child);
+	child->files = files;
 	return 0;
 }
 
 void close_files(struct task_struct *task)
 {
-	if (!task)
+	if (!task || !task->files)
 		return;
 
-	for (int fd = 0; fd < NR_OPEN; fd++) {
-		struct file *file = task->fd_array[fd];
-		if (!file)
-			continue;
-
-		task->fd_array[fd] = NULL;
-		file_put(file);
-	}
-}
-
-void file_install_standard_fds(struct task_struct *task)
-{
-	if (!task)
-		return;
-
-	task->fd_array[KERN_STDIN] = &console_stdin;
-	task->fd_array[KERN_STDOUT] = &console_stdout;
-	task->fd_array[KERN_STDERR] = &console_stderr;
+	files_put(task->files);
+	task->files = NULL;
 }
 
 static ssize_t console_read(struct file *file, char *buf, size_t count)

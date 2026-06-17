@@ -6,6 +6,7 @@
  */
 
 #include <kernel/errno.h>
+#include <kernel/fs_struct.h>
 #include <kernel/mm.h>
 #include <kernel/string.h>
 #include <kernel/syscall.h>
@@ -138,10 +139,8 @@ ssize_t sys_setgroups(struct trap_frame *tf)
 ssize_t sys_umask(struct trap_frame *tf)
 {
 	uint32_t mask = (uint32_t)tf->a0 & 0777;
-	uint32_t old = current->umask;
 
-	current->umask = mask;
-	return old;
+	return fs_set_umask(current ? current->fs : NULL, mask);
 }
 
 ssize_t sys_sysinfo(struct trap_frame *tf)

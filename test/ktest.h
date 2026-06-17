@@ -93,6 +93,16 @@ void test_task_idle(void);
 void test_task_free_null(void);
 
 /* ================================================================
+ *  Task 共享资源测试
+ * ================================================================
+ */
+
+void test_files_struct_copy_and_share(void);
+void test_fs_struct_copy_and_share(void);
+void test_sighand_struct_copy_and_share(void);
+void test_signal_struct_pending(void);
+
+/* ================================================================
  *  Sched 调度器测试
  * ================================================================
  */

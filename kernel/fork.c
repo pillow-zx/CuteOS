@@ -19,10 +19,10 @@
 #define CLONE_EXIT_SIGNAL_MASK 0xffUL
 
 static const unsigned long unsupported_clone_flags =
-	CLONE_NEWTIME | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
-	CLONE_PTRACE | CLONE_VFORK | CLONE_PARENT | CLONE_NEWNS |
-	CLONE_SYSVSEM | CLONE_NEWCGROUP | CLONE_NEWUTS | CLONE_NEWIPC |
-	CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNET | CLONE_IO;
+	CLONE_NEWTIME | CLONE_PTRACE | CLONE_VFORK | CLONE_PARENT |
+	CLONE_NEWNS | CLONE_SYSVSEM | CLONE_NEWCGROUP | CLONE_NEWUTS |
+	CLONE_NEWIPC | CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNET |
+	CLONE_IO;
 static const unsigned long thread_only_clone_flags =
 	CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_SETTLS;
 
@@ -37,11 +37,21 @@ static int validate_clone_flags(unsigned long flags, uintptr_t child_stack)
 
 	if (flags & unsupported_clone_flags)
 		return -EINVAL;
-	if ((flags & CLONE_VM) && !(flags & CLONE_THREAD))
+	if ((flags & CLONE_SIGHAND) && !(flags & CLONE_VM))
+		return -EINVAL;
+	/*
+	 * Shared address spaces need an explicit child stack. Bare CLONE_VM is
+	 * still unsupported for now, but CLONE_VM|CLONE_SIGHAND is allowed as
+	 * the fork-like form that shares handler state without joining a thread
+	 * group.
+	 */
+	if ((flags & CLONE_VM) && child_stack == 0)
+		return -EINVAL;
+	if ((flags & CLONE_VM) && !(flags & CLONE_SIGHAND))
 		return -EINVAL;
 	if ((flags & CLONE_THREAD) && !(flags & CLONE_VM))
 		return -EINVAL;
-	if ((flags & CLONE_THREAD) && child_stack == 0)
+	if ((flags & CLONE_THREAD) && !(flags & CLONE_SIGHAND))
 		return -EINVAL;
 	if (!clone_wants_thread(flags) && !task_is_group_leader(current))
 		return -EINVAL;
@@ -71,6 +81,7 @@ static void child_cleanup(struct task_struct *child)
 
 	close_files(child);
 	exit_fs(child);
+	signals_release(child);
 	if (child->mm) {
 		mm_put(child->mm);
 		child->mm = NULL;
@@ -117,17 +128,22 @@ static void clone_setup_frame(struct task_struct *child, struct trap_frame *tf,
 	child->ctx.sp = (size_t)child_tf;
 }
 
-static int clone_copy_resources(struct task_struct *child)
+static int clone_copy_resources(struct task_struct *child, unsigned long flags)
 {
-	int ret = copy_files(child);
+	int ret = copy_files(child, (bool)(flags & CLONE_FILES));
 	if (ret < 0)
 		return ret;
 
-	copy_fs(child);
-	child->umask = current->umask;
+	ret = copy_fs(child, (bool)(flags & CLONE_FS));
+	if (ret < 0)
+		return ret;
+
 	child->uid = current->uid;
 	child->gid = current->gid;
-	signals_clone(child);
+	ret = signals_clone(child, (bool)(flags & CLONE_SIGHAND),
+			    clone_wants_thread(flags));
+	if (ret < 0)
+		return ret;
 
 	return 0;
 }
@@ -202,7 +218,7 @@ static ssize_t do_clone(struct trap_frame *tf, unsigned long flags,
 
 	clone_setup_frame(child, tf, flags, child_stack, tls);
 
-	ret = clone_copy_resources(child);
+	ret = clone_copy_resources(child, flags);
 	if (ret < 0) {
 		child_cleanup(child);
 		return ret;
@@ -214,10 +230,6 @@ static ssize_t do_clone(struct trap_frame *tf, unsigned long flags,
 		goto fail_after_link;
 
 	sched_enqueue(child);
-
-	printk("clone: parent=%d child=%d tgid=%d flags=%p\n", current->pid,
-	       child->pid, child->tgid, (void *)flags);
-
 	return child->pid;
 
 fail_after_link:

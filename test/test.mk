@@ -8,6 +8,7 @@ TEST_OBJS = \
 	test/kthread_test.o \
 	test/mm_test.o \
 	test/pid_test.o \
+	test/resource_test.o \
 	test/sched_test.o \
 	test/slab_test.o \
 	test/sync_test.o \

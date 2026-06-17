@@ -2,16 +2,37 @@
 #define _CUTEOS_KERNEL_FS_STRUCT_H
 
 /*
- * include/kernel/fs_struct.h - 进程文件系统上下文
- *
- * 目前只封装 cwd 引用计数。后续如果引入 root/cwd 分离或 chroot，
- * 继续在这里扩展，不让 fork/exit 直接操作 dentry 引用。
+ * include/kernel/fs_struct.h - 可共享的进程文件系统上下文
  */
 
-struct task_struct;
+#include <kernel/sync.h>
+#include <kernel/types.h>
 
-void init_fs(struct task_struct *task);
-void copy_fs(struct task_struct *child);
+struct task_struct;
+struct dentry;
+
+struct fs_struct {
+	uint32_t refcount;
+	mutex_t lock;
+	struct dentry *root;
+	struct dentry *cwd;
+	uint32_t umask;
+};
+
+struct fs_struct *fs_alloc(void);
+struct fs_struct *fs_dup(struct fs_struct *old);
+void fs_get(struct fs_struct *fs);
+void fs_put(struct fs_struct *fs);
+
+struct dentry *fs_get_root_dentry(struct fs_struct *fs);
+struct dentry *fs_get_cwd_dentry(struct fs_struct *fs);
+int fs_set_cwd(struct fs_struct *fs, struct dentry *dentry);
+uint32_t fs_get_umask(struct fs_struct *fs);
+uint32_t fs_set_umask(struct fs_struct *fs, uint32_t mask);
+void fs_set_root_if_empty(struct fs_struct *fs, struct dentry *root);
+
+int init_fs(struct task_struct *task);
+int copy_fs(struct task_struct *child, bool share);
 void exit_fs(struct task_struct *task);
 
 #endif

@@ -208,7 +208,6 @@ static int wait_and_report(long pid)
 		return 1;
 	}
 
-	printf("[exit %ld]\n", (long)status);
 	return status == 0 ? 0 : 1;
 }
 

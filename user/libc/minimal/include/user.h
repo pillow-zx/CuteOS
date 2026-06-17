@@ -143,6 +143,7 @@ typedef unsigned long size_t;
 #define EINVAL	22
 #define EAGAIN	11
 #define EFAULT	14
+#define EBADF	9
 #define ENOSYS	38
 #define ELOOP	40
 

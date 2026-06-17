@@ -25,6 +25,7 @@
  */
 
 #include <kernel/task.h>
+#include <kernel/errno.h>
 #include <kernel/pid.h>
 #include <kernel/slab.h>
 #include <kernel/buddy.h>
@@ -104,7 +105,6 @@ struct task_struct *task_alloc(void)
 	task->tgid = task->pid;
 	task->group_leader = task;
 	task->exit_signal = SIGCHLD;
-	task->umask = 0022;
 	task->uid = 0;
 	task->gid = 0;
 	sched_task_init(task);
@@ -116,8 +116,6 @@ struct task_struct *task_alloc(void)
 	INIT_LIST_HEAD(&task->run_list);
 	INIT_LIST_HEAD(&task->wait_list);
 	init_waitqueue_head(&task->wait_child_queue);
-	file_install_standard_fds(task);
-	init_fs(task);
 
 	/* 5. 内核栈清零并在栈底写入 canary */
 	memset(kstack, 0, KSTACK_SIZE);
@@ -126,6 +124,42 @@ struct task_struct *task_alloc(void)
 	pid_attach_task(task->pid, task);
 
 	return task;
+}
+
+int task_init_resources(struct task_struct *task)
+{
+	int ret;
+
+	if (!task)
+		return -EINVAL;
+
+	ret = init_files(task);
+	if (ret < 0)
+		return ret;
+
+	ret = init_fs(task);
+	if (ret < 0)
+		goto fail;
+
+	ret = signals_init(task);
+	if (ret < 0)
+		goto fail;
+
+	return 0;
+
+fail:
+	task_release_resources(task);
+	return ret;
+}
+
+void task_release_resources(struct task_struct *task)
+{
+	if (!task)
+		return;
+
+	close_files(task);
+	exit_fs(task);
+	signals_release(task);
 }
 
 void task_free(struct task_struct *task)
@@ -137,7 +171,7 @@ void task_free(struct task_struct *task)
 	pid_detach_task(task->pid, task);
 	free_pid(task->pid);
 
-	exit_fs(task);
+	task_release_resources(task);
 
 	/* 释放内核栈 */
 	if (task->kstack) {
@@ -163,7 +197,6 @@ void task_init(void)
 	idle_task.tgid = idle_task.pid;
 	idle_task.group_leader = &idle_task;
 	idle_task.exit_signal = SIGCHLD;
-	idle_task.umask = 0022;
 	idle_task.uid = 0;
 	idle_task.gid = 0;
 	sched_task_init(&idle_task);
@@ -175,8 +208,7 @@ void task_init(void)
 	INIT_LIST_HEAD(&idle_task.run_list);
 	INIT_LIST_HEAD(&idle_task.wait_list);
 	init_waitqueue_head(&idle_task.wait_child_queue);
-	file_install_standard_fds(&idle_task);
-	init_fs(&idle_task);
+	BUG_ON(task_init_resources(&idle_task) < 0);
 	pid_attach_task(idle_task.pid, &idle_task);
 
 	/* 3. 设置 current 指针 */
@@ -205,6 +237,10 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 	struct task_struct *task = task_alloc();
 	if (!task)
 		return NULL;
+	if (task_init_resources(task) < 0) {
+		task_free(task);
+		return NULL;
+	}
 
 	/* 在内核栈顶预留 trap_frame 空间 */
 	struct trap_frame *tf =

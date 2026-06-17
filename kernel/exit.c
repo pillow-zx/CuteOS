@@ -179,6 +179,7 @@ static void finish_task_exit(struct task_struct *task, int code,
 	clear_child_tid(task);
 	close_files(task);
 	exit_fs(task);
+	signals_release(task);
 	release_task_mm(task);
 
 	if (task_is_group_leader(task))
@@ -248,8 +249,6 @@ static void reap_other_threads(struct task_struct *leader, int code)
  */
 void do_exit(int code)
 {
-	printk("do_exit: pid=%d exit_code=%d\n", current->pid, code);
-
 	if (!task_is_group_leader(current)) {
 		finish_task_exit(current, code, false);
 	} else {

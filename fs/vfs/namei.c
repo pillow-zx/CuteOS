@@ -3,15 +3,16 @@
  *
  * 功能：
  *   实现 VFS 层的路径名解析（Pathname Lookup）。path_lookup 逐分量
- *   解析路径。绝对路径从 root_dentry 开始，相对路径从 current->cwd
- *   开始。每个分量处理 "."（跳过）和 ".."（回溯到 d_parent）。遇到
+ *   解析路径。绝对路径从当前 fs_struct 的 root 开始，相对路径从
+ *   fs_struct 的 cwd 开始。每个分量处理 "."（跳过）和 ".."（回溯到
+ *   d_parent）。遇到
  *   符号链接时读取其目标并继续解析；中间分量总是跟随符号链接，末端
  *   分量在未设置 LOOKUP_NOFOLLOW 时跟随。跟随深度受 MAXSYMLINKS 限制
  *   以防环路。每个分量最终调用 i_op->lookup 在磁盘上查找。
  *
  * 主要函数：
- *   path_lookup(path, flags) - 主路径解析函数。绝对路径从 root_dentry
- *                              开始，相对路径从 current->cwd 开始
+ *   path_lookup(path, flags) - 主路径解析函数。绝对路径从 fs root 开始，
+ *                              相对路径从 fs cwd 开始
  *   walk_path(base, path, …) - 从 base 起逐分量解析并跟随符号链接
  *   follow_symlink(dir, link, …) - 读取符号链接目标并解析出目标 dentry
  *   follow_dotdot(dentry)    - 处理 ".." 分量，通过 d_parent 回溯
@@ -21,6 +22,7 @@
 #include <kernel/fs.h>
 #include <kernel/errno.h>
 #include <kernel/buddy.h>
+#include <kernel/fs_struct.h>
 #include <kernel/stat.h>
 #include <kernel/string.h>
 #include <kernel/task.h>
@@ -206,13 +208,16 @@ static int follow_symlink(struct dentry *dir, struct dentry *link,
 	}
 	target[len] = '\0';
 
-	base = target[0] == '/' ? root_dentry : dir;
+	if (target[0] == '/')
+		base = fs_get_root_dentry(current ? current->fs : NULL);
+	else {
+		base = dir;
+		dget(base);
+	}
 	if (!base) {
 		free_page(target, 0);
 		return -ENOENT;
 	}
-
-	dget(base);
 	ret = walk_path(base, target, flags, depth + 1, res);
 	free_page(target, 0);
 	return ret;
@@ -299,14 +304,13 @@ int path_lookup_err(const char *path, uint32_t flags, struct dentry **res)
 		return -ENOENT;
 
 	if (*path == '/')
-		base = root_dentry;
+		base = fs_get_root_dentry(current ? current->fs : NULL);
 	else
-		base = current ? current->cwd : NULL;
+		base = fs_get_cwd_dentry(current ? current->fs : NULL);
 
 	if (!base)
 		return -ENOENT;
 
-	dget(base);
 	return walk_path(base, path, flags, 0, res);
 }
 
@@ -336,13 +340,11 @@ struct dentry *path_parent_lookup(const char *path, char *name, size_t *namelen)
 		return NULL;
 
 	if (absolute)
-		parent = root_dentry;
+		parent = fs_get_root_dentry(current ? current->fs : NULL);
 	else
-		parent = current ? current->cwd : NULL;
+		parent = fs_get_cwd_dentry(current ? current->fs : NULL);
 	if (!parent)
 		return NULL;
-
-	dget(parent);
 	last = NULL;
 	last_len = 0;
 
@@ -419,10 +421,7 @@ int vfs_chdir_dentry(struct dentry *dentry)
 		return -ENOTDIR;
 	}
 
-	if (current->cwd)
-		dput(current->cwd);
-	current->cwd = dentry;
-	return 0;
+	return fs_set_cwd(current ? current->fs : NULL, dentry);
 }
 
 int vfs_create(const char *path, uint32_t mode, struct dentry **res)
@@ -598,8 +597,6 @@ void vfs_set_root_dentry(struct dentry *dentry)
 		root_dentry->d_sb = root_dentry->d_inode->i_sb;
 	dget(root_dentry);
 
-	if (current && !current->cwd) {
-		current->cwd = root_dentry;
-		dget(current->cwd);
-	}
+	if (current)
+		fs_set_root_if_empty(current->fs, root_dentry);
 }

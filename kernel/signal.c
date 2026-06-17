@@ -36,6 +36,7 @@
 #include <kernel/mm.h>
 #include <kernel/sched.h>
 #include <kernel/signal.h>
+#include <kernel/slab.h>
 #include <kernel/string.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
@@ -90,9 +91,180 @@ static __always_inline uint64_t unblockable_mask(void)
 	return signal_mask(SIGKILL) | signal_mask(SIGSTOP);
 }
 
+static struct sighand_struct *sighand_alloc(void)
+{
+	struct sighand_struct *sighand = kmalloc(sizeof(*sighand));
+
+	if (!sighand)
+		return NULL;
+
+	memset(sighand, 0, sizeof(*sighand));
+	sighand->refcount = 1;
+	mutex_init(&sighand->lock);
+	return sighand;
+}
+
+static struct sighand_struct *sighand_dup(struct sighand_struct *old)
+{
+	struct sighand_struct *sighand = sighand_alloc();
+
+	if (!sighand)
+		return NULL;
+	if (!old)
+		return sighand;
+
+	mutex_lock(&old->lock);
+	memcpy(sighand->sigactions, old->sigactions,
+	       sizeof(sighand->sigactions));
+	mutex_unlock(&old->lock);
+	return sighand;
+}
+
+static void sighand_get(struct sighand_struct *sighand)
+{
+	if (sighand)
+		sighand->refcount++;
+}
+
+static void sighand_put(struct sighand_struct *sighand)
+{
+	if (!sighand)
+		return;
+
+	BUG_ON(sighand->refcount == 0);
+	sighand->refcount--;
+	if (sighand->refcount == 0)
+		kfree(sighand);
+}
+
+static struct signal_struct *signal_state_alloc(void)
+{
+	struct signal_struct *signal = kmalloc(sizeof(*signal));
+
+	if (!signal)
+		return NULL;
+
+	memset(signal, 0, sizeof(*signal));
+	signal->refcount = 1;
+	mutex_init(&signal->lock);
+	return signal;
+}
+
+static void signal_state_get(struct signal_struct *signal)
+{
+	if (signal)
+		signal->refcount++;
+}
+
+static void signal_state_put(struct signal_struct *signal)
+{
+	if (!signal)
+		return;
+
+	BUG_ON(signal->refcount == 0);
+	signal->refcount--;
+	if (signal->refcount == 0)
+		kfree(signal);
+}
+
+int signals_init(struct task_struct *task)
+{
+	if (!task)
+		return -EINVAL;
+
+	task->sighand = sighand_alloc();
+	if (!task->sighand)
+		return -ENOMEM;
+
+	task->signal = signal_state_alloc();
+	if (!task->signal) {
+		sighand_put(task->sighand);
+		task->sighand = NULL;
+		return -ENOMEM;
+	}
+
+	task->blocked = 0;
+	task->pending = 0;
+	task->in_handler = 0;
+	return 0;
+}
+
+void signals_release(struct task_struct *task)
+{
+	if (!task)
+		return;
+
+	sighand_put(task->sighand);
+	signal_state_put(task->signal);
+	task->sighand = NULL;
+	task->signal = NULL;
+	task->blocked = 0;
+	task->pending = 0;
+	task->in_handler = 0;
+}
+
+int signals_clone(struct task_struct *child, bool share_sighand,
+		  bool share_signal)
+{
+	struct sighand_struct *sighand;
+	struct signal_struct *signal;
+
+	if (!child)
+		return -EINVAL;
+
+	if (share_sighand) {
+		sighand = current ? current->sighand : NULL;
+		if (!sighand)
+			return -EINVAL;
+		sighand_get(sighand);
+	} else {
+		sighand = sighand_dup(current ? current->sighand : NULL);
+		if (!sighand)
+			return -ENOMEM;
+	}
+
+	if (share_signal) {
+		signal = current ? current->signal : NULL;
+		if (!signal) {
+			sighand_put(sighand);
+			return -EINVAL;
+		}
+		signal_state_get(signal);
+	} else {
+		signal = signal_state_alloc();
+		if (!signal) {
+			sighand_put(sighand);
+			return -ENOMEM;
+		}
+	}
+
+	signals_release(child);
+	child->sighand = sighand;
+	child->signal = signal;
+	child->blocked = current ? current->blocked : 0;
+	child->pending = 0;
+	child->in_handler = 0;
+	return 0;
+}
+
 struct task_struct *find_task_by_pid(pid_t pid)
 {
 	return task_find_thread(pid);
+}
+
+static void wake_signal_target(struct task_struct *task, int sig)
+{
+	if (!task)
+		return;
+
+	if (sig == SIGKILL || sig == SIGCONT) {
+		if (task->state == TASK_STOPPED ||
+		    task->state == TASK_SLEEPING) {
+			task->state = TASK_RUNNING;
+			if (task != current)
+				sched_wakeup(task);
+		}
+	}
 }
 
 int send_signal(int sig, struct task_struct *task)
@@ -103,14 +275,33 @@ int send_signal(int sig, struct task_struct *task)
 		return -ESRCH;
 
 	task->pending |= signal_mask(sig);
+	wake_signal_target(task, sig);
 
-	if (sig == SIGKILL || sig == SIGCONT) {
-		if (task->state == TASK_STOPPED ||
-		    task->state == TASK_SLEEPING) {
-			task->state = TASK_RUNNING;
-			if (task != current)
-				sched_wakeup(task);
-		}
+	return 0;
+}
+
+int send_group_signal(int sig, struct task_struct *leader)
+{
+	if (!signal_is_valid(sig))
+		return -EINVAL;
+	if (!leader || leader->state == TASK_DEAD ||
+	    leader->state == TASK_ZOMBIE)
+		return -ESRCH;
+
+	if (!leader->signal)
+		return send_signal(sig, leader);
+
+	mutex_lock(&leader->signal->lock);
+	leader->signal->shared_pending |= signal_mask(sig);
+	mutex_unlock(&leader->signal->lock);
+
+	wake_signal_target(leader, sig);
+	if (task_is_group_leader(leader)) {
+		struct task_struct *thread;
+
+		list_for_each_entry (thread, &leader->thread_group,
+				     thread_node)
+			wake_signal_target(thread, sig);
 	}
 
 	return 0;
@@ -142,31 +333,18 @@ int force_signal(int sig, struct task_struct *task)
 	}
 
 	task->blocked &= ~signal_mask(sig);
-	if (task->sigactions[sig].sa_handler == SIG_IGN)
-		task->sigactions[sig].sa_handler = SIG_DFL;
+	if (task->sighand) {
+		mutex_lock(&task->sighand->lock);
+		if (task->sighand->sigactions[sig].sa_handler == SIG_IGN)
+			task->sighand->sigactions[sig].sa_handler = SIG_DFL;
+		mutex_unlock(&task->sighand->lock);
+	}
 
 	ret = send_signal(sig, task);
 	if (ret < 0)
 		return ret;
 
 	return 0;
-}
-
-/*
- * signals_clone - 为新创建的子进程继承可继承的信号状态
- * @child: 刚由 task_alloc() 分配、尚未入就绪队列的子进程
- *
- * sigactions 与 blocked 从父进程继承；pending 清零（不继承待处理信号）；
- * in_handler 保持 task_alloc() 给出的 0（子进程不在任何 handler 中）。
- * 这是 fork 唯一应当知道的信号语义——至于这些字段如何表示、还有哪些字段，
- * 是 signal.c 的私有实现细节。
- */
-void signals_clone(struct task_struct *child)
-{
-	memcpy(child->sigactions, current->sigactions,
-	       sizeof(child->sigactions));
-	child->blocked = current->blocked;
-	child->pending = 0;
 }
 
 vaddr_t signal_trampoline_start(void)
@@ -220,7 +398,7 @@ static void stop_current(void)
 }
 
 static int setup_signal_frame(struct trap_frame *tf, int sig,
-			      __sighandler_t handler)
+			      const struct sigaction *action)
 {
 	uintptr_t sp = (tf->sp - sizeof(struct signal_frame)) & ~(uintptr_t)0xf;
 	struct signal_frame frame;
@@ -242,47 +420,94 @@ static int setup_signal_frame(struct trap_frame *tf, int sig,
 	 * 必须成对维护。详见 force_signal 的重入护栏注释。
 	 */
 	current->blocked |= signal_mask(sig);
-	current->blocked |= current->sigactions[sig].sa_mask;
+	current->blocked |= action->sa_mask;
 	current->blocked &= ~unblockable_mask();
 	current->in_handler |= signal_mask(sig);
 
-	tf->sepc = (uintptr_t)handler;
+	tf->sepc = (uintptr_t)action->sa_handler;
 	tf->ra = SIGNAL_TRAMPOLINE_ADDR;
 	tf->sp = sp;
 	tf->a0 = (uintptr_t)sig;
 	return 0;
 }
 
-static int next_signal(void)
+static uint64_t current_shared_pending(void)
 {
-	uint64_t pending = current->pending;
+	uint64_t pending = 0;
+
+	if (!current || !current->signal)
+		return 0;
+
+	mutex_lock(&current->signal->lock);
+	pending = current->signal->shared_pending;
+	mutex_unlock(&current->signal->lock);
+	return pending;
+}
+
+static void clear_shared_pending(int sig)
+{
+	if (!current || !current->signal)
+		return;
+
+	mutex_lock(&current->signal->lock);
+	current->signal->shared_pending &= ~signal_mask(sig);
+	mutex_unlock(&current->signal->lock);
+}
+
+static int next_signal(bool *shared)
+{
+	uint64_t shared_pending = current_shared_pending();
+	uint64_t pending = current->pending | shared_pending;
 	uint64_t deliverable;
 
+	*shared = false;
 	pending &= (1UL << (NSIG - 1)) - 1;
 	deliverable = pending & ~(current->blocked & ~unblockable_mask());
 	if (!deliverable)
 		return 0;
 
 	for (int sig = 1; sig < NSIG; sig++) {
-		if (deliverable & signal_mask(sig))
+		if (deliverable & signal_mask(sig)) {
+			*shared = (current->pending & signal_mask(sig)) == 0 &&
+				  (shared_pending & signal_mask(sig)) != 0;
 			return sig;
+		}
 	}
 
 	return 0;
 }
 
+static struct sigaction get_signal_action(int sig)
+{
+	struct sigaction action;
+
+	memset(&action, 0, sizeof(action));
+	if (!current || !current->sighand)
+		return action;
+
+	mutex_lock(&current->sighand->lock);
+	action = current->sighand->sigactions[sig];
+	mutex_unlock(&current->sighand->lock);
+	return action;
+}
+
 void do_signal(struct trap_frame *tf)
 {
 	while (true) {
-		int sig = next_signal();
+		bool shared;
+		int sig = next_signal(&shared);
 
 		if (sig == 0)
 			return;
 
 		uint64_t mask = signal_mask(sig);
-		__sighandler_t handler = current->sigactions[sig].sa_handler;
+		struct sigaction action = get_signal_action(sig);
+		__sighandler_t handler = action.sa_handler;
 
-		current->pending &= ~mask;
+		if (shared)
+			clear_shared_pending(sig);
+		else
+			current->pending &= ~mask;
 
 		if (sig == SIGCONT) {
 			if (handler == SIG_DFL || handler == SIG_IGN)
@@ -306,7 +531,7 @@ void do_signal(struct trap_frame *tf)
 			continue;
 		}
 
-		if (setup_signal_frame(tf, sig, handler) < 0)
+		if (setup_signal_frame(tf, sig, &action) < 0)
 			do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 		return;
 	}
@@ -329,7 +554,7 @@ ssize_t sys_kill(struct trap_frame *tf)
 	if (sig == 0)
 		return 0;
 
-	return send_signal(sig, task);
+	return send_group_signal(sig, task);
 }
 
 ssize_t sys_tgkill(struct trap_frame *tf)
@@ -379,7 +604,14 @@ ssize_t sys_sigaction(struct trap_frame *tf)
 		return -EINVAL;
 
 	if (oldact) {
-		struct sigaction old = current->sigactions[sig];
+		struct sigaction old;
+
+		if (!current->sighand)
+			return -EINVAL;
+
+		mutex_lock(&current->sighand->lock);
+		old = current->sighand->sigactions[sig];
+		mutex_unlock(&current->sighand->lock);
 
 		if (copy_to_user(oldact, &old, sizeof(old)) != 0)
 			return -EFAULT;
@@ -394,7 +626,12 @@ ssize_t sys_sigaction(struct trap_frame *tf)
 		return -EINVAL;
 
 	kact.sa_mask &= ~unblockable_mask();
-	current->sigactions[sig] = kact;
+	if (!current->sighand)
+		return -EINVAL;
+
+	mutex_lock(&current->sighand->lock);
+	current->sighand->sigactions[sig] = kact;
+	mutex_unlock(&current->sighand->lock);
 	return 0;
 }
 
