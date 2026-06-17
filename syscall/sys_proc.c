@@ -21,7 +21,7 @@
 ssize_t sys_getpid(struct trap_frame *tf)
 {
 	(void)tf;
-	return (ssize_t)current->pid;
+	return (ssize_t)current->tgid;
 }
 
 ssize_t sys_getppid(struct trap_frame *tf)
@@ -67,6 +67,13 @@ ssize_t sys_exit(struct trap_frame *tf)
 {
 	int code = (int)tf->a0;
 	do_exit(code);
+	unreachable();
+}
+
+ssize_t sys_exit_group(struct trap_frame *tf)
+{
+	int code = (int)tf->a0;
+	do_exit_group(code);
 	unreachable();
 }
 

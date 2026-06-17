@@ -101,6 +101,9 @@ struct task_struct *task_alloc(void)
 	task->kstack = kstack;
 	task->tf = NULL;
 	task->mm = NULL;
+	task->tgid = task->pid;
+	task->group_leader = task;
+	task->exit_signal = SIGCHLD;
 	task->umask = 0022;
 	task->uid = 0;
 	task->gid = 0;
@@ -108,6 +111,8 @@ struct task_struct *task_alloc(void)
 
 	INIT_LIST_HEAD(&task->children);
 	INIT_LIST_HEAD(&task->sibling);
+	INIT_LIST_HEAD(&task->thread_group);
+	INIT_LIST_HEAD(&task->thread_node);
 	INIT_LIST_HEAD(&task->run_list);
 	INIT_LIST_HEAD(&task->wait_list);
 	init_waitqueue_head(&task->wait_child_queue);
@@ -118,6 +123,8 @@ struct task_struct *task_alloc(void)
 	memset(kstack, 0, KSTACK_SIZE);
 	*stack_canary_ptr(task) = CANARY_MAGIC;
 
+	pid_attach_task(task->pid, task);
+
 	return task;
 }
 
@@ -127,6 +134,7 @@ void task_free(struct task_struct *task)
 		return;
 
 	/* 释放 PID */
+	pid_detach_task(task->pid, task);
 	free_pid(task->pid);
 
 	exit_fs(task);
@@ -152,6 +160,9 @@ void task_init(void)
 	idle_task.state = TASK_RUNNING;
 	idle_task.kstack = NULL; /* idle 使用 boot_stack，无独立内核栈 */
 	idle_task.mm = NULL;
+	idle_task.tgid = idle_task.pid;
+	idle_task.group_leader = &idle_task;
+	idle_task.exit_signal = SIGCHLD;
 	idle_task.umask = 0022;
 	idle_task.uid = 0;
 	idle_task.gid = 0;
@@ -159,11 +170,14 @@ void task_init(void)
 
 	INIT_LIST_HEAD(&idle_task.children);
 	INIT_LIST_HEAD(&idle_task.sibling);
+	INIT_LIST_HEAD(&idle_task.thread_group);
+	INIT_LIST_HEAD(&idle_task.thread_node);
 	INIT_LIST_HEAD(&idle_task.run_list);
 	INIT_LIST_HEAD(&idle_task.wait_list);
 	init_waitqueue_head(&idle_task.wait_child_queue);
 	file_install_standard_fds(&idle_task);
 	init_fs(&idle_task);
+	pid_attach_task(idle_task.pid, &idle_task);
 
 	/* 3. 设置 current 指针 */
 	current = &idle_task;
@@ -229,4 +243,37 @@ void set_init_task(struct task_struct *task)
 	BUG_ON(init_task && init_task != task);
 
 	init_task = task;
+}
+
+bool task_is_group_leader(const struct task_struct *task)
+{
+	return task && task->group_leader == task;
+}
+
+bool task_group_has_other_threads(const struct task_struct *task)
+{
+	if (!task || !task->group_leader)
+		return false;
+
+	return !list_empty(&task->group_leader->thread_group);
+}
+
+struct task_struct *task_find_thread(pid_t tid)
+{
+	return pid_task(tid);
+}
+
+struct task_struct *task_find_group_leader(pid_t tgid)
+{
+	struct task_struct *task = pid_task(tgid);
+
+	if (!task || !task_is_group_leader(task) || task->tgid != tgid)
+		return NULL;
+
+	return task;
+}
+
+bool task_in_thread_group(const struct task_struct *task, pid_t tgid)
+{
+	return task && task->tgid == tgid;
 }

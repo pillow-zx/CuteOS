@@ -21,6 +21,9 @@ struct trap_frame;
  * wait4 回收。此函数不会返回。
  */
 void do_exit(int code);
+void do_exit_group(int code);
+bool exited_threads_pending(void);
+void reap_exited_threads(void);
 
 /*
  * release_task - 释放已被父进程 wait 回收的 zombie task

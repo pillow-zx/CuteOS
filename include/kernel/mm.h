@@ -48,6 +48,7 @@ struct vm_area_struct {
 /* ---- mm_struct - 进程地址空间描述符 ---- */
 
 struct mm_struct {
+	uint32_t refcount;		   /* 共享地址空间引用计数 */
 	pte_t *pgd;			   /* 用户页表根（PGD 页虚拟地址） */
 	uintptr_t brk;			   /* 当前堆顶 */
 	uintptr_t code_start;		   /* 代码段起始 */
@@ -63,6 +64,9 @@ struct mm_struct {
  * 返回初始化后的 mm_struct 指针，失败返回 NULL。
  */
 struct mm_struct *mm_alloc(void);
+
+void mm_get(struct mm_struct *mm);
+void mm_put(struct mm_struct *mm);
 
 /*
  * dup_mm - 深拷贝用户地址空间

@@ -71,11 +71,7 @@ ssize_t sys_uname(struct trap_frame *tf)
 
 ssize_t sys_set_tid_addr(struct trap_frame *tf)
 {
-	(void)tf;
-	/*
-	 * TODO(thread): 当前没有 clone 线程和 clear_child_tid futex 语义；
-	 * 单线程进程下只需返回当前 TID 以兼容 C 运行库探测。
-	 */
+	current->clear_child_tid = (int *)tf->a0;
 	return (ssize_t)current->pid;
 }
 

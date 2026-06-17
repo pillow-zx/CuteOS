@@ -19,6 +19,8 @@
 #define PID_MAX	  255 /* 最大 PID 值 */
 #define PID_COUNT 256 /* PID 总数 (0 ~ PID_MAX) */
 
+struct task_struct;
+
 /**
  * pid_init - 初始化 PID 位图
  *
@@ -39,5 +41,9 @@ int32_t alloc_pid(void);
  * @pid: 要释放的 PID 值
  */
 void free_pid(pid_t pid);
+
+void pid_attach_task(pid_t pid, struct task_struct *task);
+void pid_detach_task(pid_t pid, const struct task_struct *task);
+struct task_struct *pid_task(pid_t pid);
 
 #endif

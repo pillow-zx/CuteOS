@@ -484,7 +484,7 @@ static void flush_old_exec(struct mm_struct *oldmm)
 
 	csr_write(satp, kernel_satp());
 	sfence_vma_all();
-	mm_destroy(oldmm);
+	mm_put(oldmm);
 }
 
 static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
@@ -549,6 +549,9 @@ ssize_t sys_execve(struct trap_frame *tf)
 	char *path;
 	ssize_t path_len;
 	int ret;
+
+	if (task_group_has_other_threads(current))
+		return -EINVAL;
 
 	path = get_free_page(0);
 	if (!path)

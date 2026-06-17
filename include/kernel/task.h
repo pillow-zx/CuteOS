@@ -78,6 +78,12 @@ struct task_struct {
 	struct mm_struct *mm; /* 指向 mm_struct，内核线程为 NULL */
 	uint64_t satp; /* 预计算的 satp 值，避免 trapret 通过pgd临时计算 */
 	int exit_code; /* zombie 状态下保留的退出码 */
+	pid_t tgid;    /* 线程组 ID；单线程进程等于 pid */
+	struct task_struct *group_leader; /* 所属线程组 leader */
+	struct list_head thread_group;    /* leader 持有的线程组成员链表 */
+	struct list_head thread_node;     /* 在线程组链表中的节点 */
+	int exit_signal;		   /* 线程组 leader 退出时发送给父进程的信号 */
+	int *clear_child_tid;		   /* CLONE_CHILD_CLEARTID 用户地址 */
 
 	/* 文件描述符 */
 	struct file *fd_array[32]; /* 打开的文件 */
@@ -175,5 +181,11 @@ void check_canary(struct task_struct *task);
 struct task_struct *kernel_thread(void (*fn)(void *), void *arg);
 
 void set_init_task(struct task_struct *task);
+
+bool task_is_group_leader(const struct task_struct *task);
+bool task_group_has_other_threads(const struct task_struct *task);
+struct task_struct *task_find_group_leader(pid_t tgid);
+struct task_struct *task_find_thread(pid_t tid);
+bool task_in_thread_group(const struct task_struct *task, pid_t tgid);
 
 #endif

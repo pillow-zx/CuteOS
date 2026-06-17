@@ -38,6 +38,7 @@ typedef unsigned long size_t;
 #define SYS_fstat	   80
 #define SYS_lseek	   62
 #define SYS_exit	   93
+#define SYS_exit_group	   94
 #define SYS_fsync	   82
 #define SYS_fdatasync	   83
 #define SYS_ftruncate64	   46
@@ -69,7 +70,8 @@ typedef unsigned long size_t;
 #define SYS_sysinfo	   179
 #define SYS_brk		   214
 #define SYS_munmap	   215
-#define SYS_fork	   220
+#define SYS_clone	   220
+#define SYS_fork	   SYS_clone
 #define SYS_execve	   221
 #define SYS_mmap	   222
 #define SYS_wait4	   260
@@ -148,6 +150,16 @@ typedef unsigned long size_t;
 #define MAP_PRIVATE   0x02
 #define MAP_FIXED     0x10
 #define MAP_ANONYMOUS 0x20
+
+#define CLONE_VM	     0x00000100
+#define CLONE_FS	     0x00000200
+#define CLONE_FILES	     0x00000400
+#define CLONE_SIGHAND	     0x00000800
+#define CLONE_THREAD	     0x00010000
+#define CLONE_SETTLS	     0x00080000
+#define CLONE_PARENT_SETTID  0x00100000
+#define CLONE_CHILD_CLEARTID 0x00200000
+#define CLONE_CHILD_SETTID   0x01000000
 
 #define CLOCK_REALTIME	0
 #define CLOCK_MONOTONIC 1
@@ -525,6 +537,12 @@ static inline void exit(int code)
 	__builtin_unreachable();
 }
 
+static inline void exit_group(int code)
+{
+	syscall(SYS_exit_group, code);
+	__builtin_unreachable();
+}
+
 static inline long getpid(void)
 {
 	return syscall0(SYS_getpid);
@@ -631,7 +649,43 @@ static inline long sigprocmask(int how, const unsigned long *set,
 
 static inline long fork(void)
 {
-	return syscall0(SYS_fork);
+	return syscall(SYS_clone, SIGCHLD, 0, 0, 0, 0);
+}
+
+static inline long clone(unsigned long flags, void *child_stack,
+			 int *parent_tid, unsigned long tls, int *child_tid)
+{
+	return syscall(SYS_clone, flags, (long)child_stack, (long)parent_tid,
+		       tls, (long)child_tid);
+}
+
+static inline long clone_thread(unsigned long flags, void *child_stack,
+				int *parent_tid, unsigned long tls,
+				int *child_tid, int (*fn)(void *), void *arg)
+{
+	register long a0 __asm__("a0") = flags;
+	register long a1 __asm__("a1") = (long)child_stack;
+	register long a2 __asm__("a2") = (long)parent_tid;
+	register long a3 __asm__("a3") = (long)tls;
+	register long a4 __asm__("a4") = (long)child_tid;
+	register long a5 __asm__("a5") = (long)fn;
+	register long a6 __asm__("a6") = (long)arg;
+	register long a7 __asm__("a7") = SYS_clone;
+
+	__asm__ volatile(
+		"ecall\n"
+		"bnez a0, 1f\n"
+		"mv a0, a6\n"
+		"jalr a5\n"
+		"li a7, %[sys_exit]\n"
+		"ecall\n"
+		"1:\n"
+		: "+r"(a0)
+		: "r"(a1), "r"(a2), "r"(a3), "r"(a4), "r"(a5), "r"(a6),
+		  "r"(a7), [sys_exit] "i"(SYS_exit)
+		: "memory", "ra");
+
+	return a0;
 }
 
 static inline long execve(const char *path, char *const argv[],

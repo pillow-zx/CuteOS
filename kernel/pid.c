@@ -16,12 +16,15 @@
 #include <kernel/pid.h>
 #include <kernel/bitmap.h>
 #include <kernel/printk.h>
+#include <kernel/string.h>
 
 BITMAP_DECLARE_STATIC(pid_map, PID_COUNT);
+static struct task_struct *pid_tasks[PID_COUNT];
 
 void pid_init(void)
 {
 	bitmap_zero(&pid_map);
+	memset(pid_tasks, 0, sizeof(pid_tasks));
 
 	/* 预留 PID 0 给 idle 进程 */
 	bitmap_set(&pid_map, 0);
@@ -51,5 +54,31 @@ void free_pid(pid_t pid)
 	if (pid > PID_MAX)
 		return;
 
+	pid_tasks[pid] = NULL;
 	bitmap_clear(&pid_map, pid);
+}
+
+void pid_attach_task(pid_t pid, struct task_struct *task)
+{
+	BUG_ON(pid < 0 || pid > PID_MAX);
+	BUG_ON(!task);
+	BUG_ON(pid_tasks[pid] && pid_tasks[pid] != task);
+
+	pid_tasks[pid] = task;
+}
+
+void pid_detach_task(pid_t pid, const struct task_struct *task)
+{
+	if (pid < 0 || pid > PID_MAX)
+		return;
+	if (pid_tasks[pid] == task)
+		pid_tasks[pid] = NULL;
+}
+
+struct task_struct *pid_task(pid_t pid)
+{
+	if (pid < 0 || pid > PID_MAX)
+		return NULL;
+
+	return pid_tasks[pid];
 }

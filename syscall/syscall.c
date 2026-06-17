@@ -83,7 +83,7 @@ void syscall_init(void)
 	syscall_table[SYS_dup] = sys_dup;
 	syscall_table[SYS_dup3] = sys_dup3;
 	syscall_table[SYS_exit] = sys_exit;
-	syscall_table[SYS_exit_group] = sys_exit;
+	syscall_table[SYS_exit_group] = sys_exit_group;
 	syscall_table[SYS_set_tid_addr] = sys_set_tid_addr;
 	syscall_table[SYS_futex] = sys_futex;
 	syscall_table[SYS_set_robust_list] = sys_set_robust_list;
@@ -128,7 +128,7 @@ void syscall_init(void)
 	syscall_table[SYS_brk] = sys_brk;
 	syscall_table[SYS_munmap] = sys_munmap;
 	syscall_table[SYS_mremap] = sys_mremap;
-	syscall_table[SYS_clone] = sys_fork;
+	syscall_table[SYS_clone] = sys_clone;
 	syscall_table[SYS_execve] = sys_execve;
 	syscall_table[SYS_mmap] = sys_mmap;
 	syscall_table[SYS_mprotect] = sys_mprotect;

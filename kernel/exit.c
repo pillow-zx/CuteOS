@@ -49,11 +49,16 @@
 
 #define WEXITCODE(code) ((code) << 8)
 
+static LIST_HEAD(exited_threads);
+static bool exited_threads_reap_pending;
+
 static struct task_struct *find_child(pid_t pid)
 {
 	struct task_struct *child;
 
 	list_for_each_entry (child, &current->children, sibling) {
+		if (!task_is_group_leader(child))
+			continue;
 		if (child->pid == pid)
 			return child;
 	}
@@ -66,6 +71,8 @@ static struct task_struct *find_any_zombie_child(void)
 	struct task_struct *child;
 
 	list_for_each_entry (child, &current->children, sibling) {
+		if (!task_is_group_leader(child))
+			continue;
 		if (child->state == TASK_ZOMBIE)
 			return child;
 	}
@@ -87,8 +94,15 @@ static struct task_struct *find_waitable_child(pid_t pid)
 
 static bool has_wait_target(pid_t pid)
 {
-	if (pid == (pid_t)-1)
-		return !list_empty(&current->children);
+	struct task_struct *child;
+
+	if (pid == (pid_t)-1) {
+		list_for_each_entry (child, &current->children, sibling) {
+			if (task_is_group_leader(child))
+				return true;
+		}
+		return false;
+	}
 
 	return find_child(pid) != NULL;
 }
@@ -111,20 +125,119 @@ static void reparent_children(struct task_struct *dead)
 	}
 }
 
-static void destroy_current_mm(void)
+static void clear_child_tid(struct task_struct *task)
 {
-	struct mm_struct *mm = current->mm;
+	int zero = 0;
+
+	if (!task->clear_child_tid)
+		return;
+
+	copy_to_user(task->clear_child_tid, &zero, sizeof(zero));
+	task->clear_child_tid = NULL;
+}
+
+static void release_task_mm(struct task_struct *task)
+{
+	struct mm_struct *mm = task->mm;
 
 	if (!mm)
 		return;
 
-	current->mm = NULL;
-	current->satp = 0;
+	task->mm = NULL;
+	task->satp = 0;
 
-	csr_write(satp, kernel_satp());
-	sfence_vma_all();
+	if (task == current) {
+		csr_write(satp, kernel_satp());
+		sfence_vma_all();
+	}
 
-	mm_destroy(mm);
+	mm_put(mm);
+}
+
+static void detach_task_queues(struct task_struct *task)
+{
+	if (!task || task == current)
+		return;
+
+	if (!list_empty(&task->run_list))
+		sched_dequeue(task);
+	if (!list_empty(&task->wait_list))
+		list_del_init(&task->wait_list);
+}
+
+static void finish_task_exit(struct task_struct *task, int code,
+			     bool notify_parent)
+{
+	if (!task || task->state == TASK_ZOMBIE || task->state == TASK_DEAD)
+		return;
+
+	detach_task_queues(task);
+
+	task->exit_code = code;
+	clear_child_tid(task);
+	close_files(task);
+	exit_fs(task);
+	release_task_mm(task);
+
+	if (task_is_group_leader(task))
+		reparent_children(task);
+	else if (!list_empty(&task->thread_node))
+		list_del_init(&task->thread_node);
+
+	task->state = TASK_ZOMBIE;
+	if (!task_is_group_leader(task) && task == current) {
+		list_add_tail(&task->thread_node, &exited_threads);
+		exited_threads_reap_pending = true;
+	}
+
+	if (notify_parent && task->parent && task->exit_signal > 0) {
+		send_signal(task->exit_signal, task->parent);
+		wake_up(&task->parent->wait_child_queue);
+	}
+}
+
+bool exited_threads_pending(void)
+{
+	return exited_threads_reap_pending;
+}
+
+void reap_exited_threads(void)
+{
+	struct list_head *pos;
+	struct list_head *next;
+
+	if (!exited_threads_reap_pending)
+		return;
+
+	list_for_each_safe (pos, next, &exited_threads) {
+		struct task_struct *thread =
+			list_entry(pos, struct task_struct, thread_node);
+
+		if (thread == current)
+			continue;
+
+		release_task(thread);
+	}
+
+	if (list_empty(&exited_threads))
+		exited_threads_reap_pending = false;
+}
+
+static void reap_other_threads(struct task_struct *leader, int code)
+{
+	struct list_head *pos;
+	struct list_head *next;
+
+	list_for_each_safe (pos, next, &leader->thread_group) {
+		struct task_struct *thread =
+			list_entry(pos, struct task_struct, thread_node);
+
+		if (thread == current)
+			continue;
+
+		finish_task_exit(thread, code, false);
+		release_task(thread);
+	}
 }
 
 /*
@@ -135,17 +248,11 @@ void do_exit(int code)
 {
 	printk("do_exit: pid=%d exit_code=%d\n", current->pid, code);
 
-	current->exit_code = code;
-	close_files(current);
-	exit_fs(current);
-	destroy_current_mm();
-	reparent_children(current);
-
-	current->state = TASK_ZOMBIE;
-
-	if (current->parent) {
-		send_signal(SIGCHLD, current->parent);
-		wake_up(&current->parent->wait_child_queue);
+	if (!task_is_group_leader(current)) {
+		finish_task_exit(current, code, false);
+	} else {
+		reap_other_threads(current, code);
+		finish_task_exit(current, code, true);
 	}
 
 	/*
@@ -163,6 +270,26 @@ void do_exit(int code)
 	unreachable();
 }
 
+void do_exit_group(int code)
+{
+	struct task_struct *leader = current->group_leader;
+
+	printk("exit_group: pid=%d tgid=%d exit_code=%d\n", current->pid,
+	       current->tgid, code);
+
+	if (leader && leader != current) {
+		finish_task_exit(leader, code, true);
+	}
+
+	if (leader)
+		reap_other_threads(leader, code);
+
+	finish_task_exit(current, code, current == leader);
+	schedule();
+
+	unreachable();
+}
+
 void release_task(struct task_struct *task)
 {
 	if (!task)
@@ -172,9 +299,12 @@ void release_task(struct task_struct *task)
 	BUG_ON(task == &idle_task);
 	BUG_ON(task->state != TASK_ZOMBIE);
 	BUG_ON(!list_empty(&task->children));
+	BUG_ON(task_is_group_leader(task) && !list_empty(&task->thread_group));
 
 	if (!list_empty(&task->sibling))
 		list_del_init(&task->sibling);
+	if (!list_empty(&task->thread_node))
+		list_del_init(&task->thread_node);
 	if (!list_empty(&task->run_list))
 		sched_dequeue(task);
 	if (!list_empty(&task->wait_list))

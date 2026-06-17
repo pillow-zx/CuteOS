@@ -250,7 +250,25 @@ struct mm_struct *mm_alloc(void)
 		return NULL;
 
 	memset(mm, 0, sizeof(struct mm_struct));
+	mm->refcount = 1;
 	return mm;
+}
+
+void mm_get(struct mm_struct *mm)
+{
+	if (mm)
+		mm->refcount++;
+}
+
+void mm_put(struct mm_struct *mm)
+{
+	if (!mm)
+		return;
+
+	BUG_ON(mm->refcount == 0);
+	mm->refcount--;
+	if (mm->refcount == 0)
+		mm_destroy(mm);
 }
 
 struct mm_struct *dup_mm(struct mm_struct *oldmm)

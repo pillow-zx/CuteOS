@@ -1,106 +1,243 @@
 /*
- * kernel/fork.c - 进程创建（完整物理复制）
- *
- * 功能：
- *   实现 sys_fork 系统调用。通过完整物理复制创建子进程——
- *   为子进程的每个 VMA 分配新的物理页并复制父进程的页面内容。
- *   这是朴素但正确的 fork 语义，后续可引入 COW 优化。
- *
- * 主要函数：
- *   sys_fork()          - fork 系统调用入口，调用 do_fork 创建子进程，
- *                         父进程返回子进程 PID。
- *   dup_mm(oldmm)       - 完整复制父进程的用户地址空间。
- *   copy_files(child)   - 复制文件描述符表。
- *   signals_clone(child)   - 继承可继承的信号状态（实现在 kernel/signal.c）。
+ * kernel/fork.c - fork/clone 进程与线程创建
  */
 
-#include <kernel/task.h>
-#include <kernel/signal.h>
-#include <kernel/mm.h>
-#include <kernel/sched.h>
-#include <kernel/printk.h>
-#include <kernel/string.h>
 #include <kernel/errno.h>
 #include <kernel/fdtable.h>
 #include <kernel/fs_struct.h>
+#include <kernel/mm.h>
+#include <kernel/printk.h>
+#include <kernel/sched.h>
+#include <kernel/signal.h>
+#include <kernel/string.h>
+#include <kernel/syscall.h>
+#include <kernel/task.h>
+#include <asm/csr.h>
 #include <asm/page.h>
 #include <asm/trap.h>
-#include <asm/csr.h>
 
-/* ---- 公共接口 ---- */
+#define CLONE_EXIT_SIGNAL_MASK 0xffUL
 
-/*
- * sys_fork - fork 系统调用实现
- * @tf: 父进程的 trap_frame
- *
- * 创建子进程，完整复制父进程的地址空间。
- * 父进程返回子进程 PID，子进程返回 0。
- *
- * 流程：
- *   1. task_alloc 分配子进程 task_struct + 内核栈 + PID
- *   2. dup_mm 深拷贝用户地址空间
- *   3. 在子进程栈顶构造 trap_frame（复制父进程 + a0=0）
- *   4. 设置子进程 context（ra=__trapret, sp→trap_frame）
- *   5. 复制 fd_array、调用 signals_clone 继承信号状态
- *   6. 建立进程树关系
- *   7. 子进程入就绪队列，父进程继续运行
- */
-ssize_t sys_fork(struct trap_frame *tf)
+static const unsigned long unsupported_clone_flags =
+	CLONE_NEWTIME | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
+	CLONE_PTRACE | CLONE_VFORK | CLONE_PARENT | CLONE_NEWNS |
+	CLONE_SYSVSEM | CLONE_NEWCGROUP | CLONE_NEWUTS | CLONE_NEWIPC |
+	CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNET | CLONE_IO;
+static const unsigned long thread_only_clone_flags =
+	CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_SETTLS;
+
+static bool clone_wants_thread(unsigned long flags)
 {
-	/* 1. 分配 task_struct */
-	struct task_struct *child = task_alloc();
-	if (!child)
-		return -ENOMEM;
+	return (flags & CLONE_THREAD) != 0;
+}
 
-	/* 2. 复制用户地址空间 */
-	child->mm = dup_mm(current->mm);
-	if (!child->mm && current->mm) {
-		task_free(child);
-		return -ENOMEM;
+static int validate_clone_flags(unsigned long flags, uintptr_t child_stack)
+{
+	unsigned long exit_signal = flags & CLONE_EXIT_SIGNAL_MASK;
+
+	if (flags & unsupported_clone_flags)
+		return -EINVAL;
+	if ((flags & CLONE_VM) && !(flags & CLONE_THREAD))
+		return -EINVAL;
+	if ((flags & CLONE_THREAD) && !(flags & CLONE_VM))
+		return -EINVAL;
+	if ((flags & CLONE_THREAD) && child_stack == 0)
+		return -EINVAL;
+	if (!clone_wants_thread(flags) && !task_is_group_leader(current))
+		return -EINVAL;
+	if (!clone_wants_thread(flags) && (flags & thread_only_clone_flags))
+		return -EINVAL;
+
+	if (!clone_wants_thread(flags) &&
+	    exit_signal != 0 && exit_signal != SIGCHLD)
+		return -EINVAL;
+
+	return 0;
+}
+
+static int write_user_tid(int *uaddr, pid_t tid)
+{
+	if (!uaddr)
+		return -EFAULT;
+	if (copy_to_user(uaddr, &tid, sizeof(tid)) != 0)
+		return -EFAULT;
+	return 0;
+}
+
+static void child_cleanup(struct task_struct *child)
+{
+	if (!child)
+		return;
+
+	close_files(child);
+	exit_fs(child);
+	if (child->mm) {
+		mm_put(child->mm);
+		child->mm = NULL;
+	}
+	task_free(child);
+}
+
+static int clone_setup_mm(struct task_struct *child, unsigned long flags)
+{
+	if (flags & CLONE_VM) {
+		child->mm = current->mm;
+		mm_get(child->mm);
+	} else {
+		child->mm = dup_mm(current->mm);
+		if (!child->mm && current->mm)
+			return -ENOMEM;
 	}
 
-	/* 3. 计算子进程 satp */
 	if (child->mm) {
 		paddr_t pgd_pa = __pa((uintptr_t)child->mm->pgd);
 		child->satp = SATP_MODE_SV39 | (pgd_pa >> PAGE_SHIFT);
 	}
 
-	/* 4. 在子进程内核栈顶构造 trap_frame */
+	return 0;
+}
+
+static void clone_setup_frame(struct task_struct *child, struct trap_frame *tf,
+			      unsigned long flags, uintptr_t child_stack,
+			      uintptr_t tls)
+{
 	struct trap_frame *child_tf =
 		(struct trap_frame *)((uint8_t *)child->kstack + KSTACK_SIZE -
 				      sizeof(struct trap_frame));
-	memcpy(child_tf, tf, sizeof(struct trap_frame));
-	child_tf->a0 = 0; /* fork 在子进程中返回 0 */
-	child->tf = child_tf;
 
-	/* 5. 设置子进程 context：首次调度时走 __trapret 返回用户态 */
+	memcpy(child_tf, tf, sizeof(struct trap_frame));
+	child_tf->a0 = 0;
+	if (child_stack != 0)
+		child_tf->sp = child_stack;
+	if (flags & CLONE_SETTLS)
+		child_tf->tp = tls;
+
+	child->tf = child_tf;
 	child->ctx.ra = (size_t)__trapret;
 	child->ctx.sp = (size_t)child_tf;
+}
 
-	/* 6. 复制文件描述符和信号处理表 */
+static int clone_copy_resources(struct task_struct *child)
+{
 	int ret = copy_files(child);
-	if (ret < 0) {
-		close_files(child);
-		if (child->mm)
-			mm_destroy(child->mm);
-		task_free(child);
+	if (ret < 0)
 		return ret;
-	}
+
 	copy_fs(child);
 	child->umask = current->umask;
 	child->uid = current->uid;
 	child->gid = current->gid;
 	signals_clone(child);
 
-	/* 7. 建立进程树关系 */
+	return 0;
+}
+
+static void clone_link_task(struct task_struct *child, unsigned long flags)
+{
+	child->exit_signal = (int)(flags & CLONE_EXIT_SIGNAL_MASK);
+	if (clone_wants_thread(flags)) {
+		struct task_struct *leader = current->group_leader;
+
+		child->tgid = current->tgid;
+		child->group_leader = leader;
+		child->exit_signal = 0;
+		child->parent = leader;
+		list_add_tail(&child->thread_node, &leader->thread_group);
+		return;
+	}
+
+	child->tgid = child->pid;
+	child->group_leader = child;
 	child->parent = current;
 	list_add(&child->sibling, &current->children);
+}
 
-	/* 8. 子进程入就绪队列 */
+static void clone_unlink_task(struct task_struct *child)
+{
+	if (!list_empty(&child->thread_node))
+		list_del_init(&child->thread_node);
+	if (!list_empty(&child->sibling))
+		list_del_init(&child->sibling);
+}
+
+static int clone_write_tid_results(struct task_struct *child,
+				   unsigned long flags, int *parent_tid,
+				   int *child_tid)
+{
+	int ret;
+
+	if (flags & CLONE_CHILD_CLEARTID)
+		child->clear_child_tid = child_tid;
+	if (flags & CLONE_PARENT_SETTID) {
+		ret = write_user_tid(parent_tid, child->pid);
+		if (ret < 0)
+			return ret;
+	}
+	if (flags & CLONE_CHILD_SETTID) {
+		ret = write_user_tid(child_tid, child->pid);
+		if (ret < 0)
+			return ret;
+	}
+
+	return 0;
+}
+
+static ssize_t do_clone(struct trap_frame *tf, unsigned long flags,
+			uintptr_t child_stack, int *parent_tid, uintptr_t tls,
+			int *child_tid)
+{
+	int ret = validate_clone_flags(flags, child_stack);
+	if (ret < 0)
+		return ret;
+
+	struct task_struct *child = task_alloc();
+	if (!child)
+		return -ENOMEM;
+
+	ret = clone_setup_mm(child, flags);
+	if (ret < 0) {
+		child_cleanup(child);
+		return ret;
+	}
+
+	clone_setup_frame(child, tf, flags, child_stack, tls);
+
+	ret = clone_copy_resources(child);
+	if (ret < 0) {
+		child_cleanup(child);
+		return ret;
+	}
+
+	clone_link_task(child, flags);
+	ret = clone_write_tid_results(child, flags, parent_tid, child_tid);
+	if (ret < 0)
+		goto fail_after_link;
+
 	sched_enqueue(child);
 
-	printk("fork: parent=%d child=%d\n", current->pid, child->pid);
+	printk("clone: parent=%d child=%d tgid=%d flags=%p\n", current->pid,
+	       child->pid, child->tgid, (void *)flags);
 
-	/* 9. 父进程返回子进程 PID */
 	return child->pid;
+
+fail_after_link:
+	clone_unlink_task(child);
+	child_cleanup(child);
+	return ret;
+}
+
+ssize_t sys_fork(struct trap_frame *tf)
+{
+	return do_clone(tf, SIGCHLD, 0, NULL, 0, NULL);
+}
+
+ssize_t sys_clone(struct trap_frame *tf)
+{
+	unsigned long flags = (unsigned long)tf->a0;
+	uintptr_t child_stack = (uintptr_t)tf->a1;
+	int *parent_tid = (int *)tf->a2;
+	uintptr_t tls = (uintptr_t)tf->a3;
+	int *child_tid = (int *)tf->a4;
+
+	return do_clone(tf, flags, child_stack, parent_tid, tls, child_tid);
 }

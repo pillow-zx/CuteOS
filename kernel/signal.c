@@ -90,31 +90,9 @@ static __always_inline uint64_t unblockable_mask(void)
 	return signal_mask(SIGKILL) | signal_mask(SIGSTOP);
 }
 
-static struct task_struct *find_task_recursive(struct task_struct *root,
-					       pid_t pid)
-{
-	struct task_struct *child;
-
-	if (!root)
-		return NULL;
-	if (root->pid == pid)
-		return root;
-	if (list_empty(&root->children))
-		return NULL;
-
-	list_for_each_entry (child, &root->children, sibling) {
-		struct task_struct *found = find_task_recursive(child, pid);
-
-		if (found)
-			return found;
-	}
-
-	return NULL;
-}
-
 struct task_struct *find_task_by_pid(pid_t pid)
 {
-	return find_task_recursive(&idle_task, pid);
+	return task_find_thread(pid);
 }
 
 int send_signal(int sig, struct task_struct *task)
@@ -345,7 +323,7 @@ ssize_t sys_kill(struct trap_frame *tf)
 	if (pid <= 0)
 		return -EINVAL;
 
-	task = find_task_by_pid(pid);
+	task = task_find_group_leader(pid);
 	if (!task)
 		return -ESRCH;
 	if (sig == 0)
@@ -366,15 +344,8 @@ ssize_t sys_tgkill(struct trap_frame *tf)
 	if (tgid <= 0 || tid <= 0)
 		return -EINVAL;
 
-	/*
-	 * TODO(signal): 当前内核没有线程组，tid 与 pid 等价。等 clone
-	 * 支持线程后，应按 tgid 校验线程组成员关系。
-	 */
-	if (tgid != tid)
-		return -ESRCH;
-
 	task = find_task_by_pid(tid);
-	if (!task)
+	if (!task || !task_in_thread_group(task, tgid))
 		return -ESRCH;
 	if (sig == 0)
 		return 0;

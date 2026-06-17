@@ -6,15 +6,26 @@
 
 #include <asm/csr.h>
 #include <asm/pte.h>
+#include <kernel/exit.h>
 #include <kernel/printk.h>
 
 /* ---- 抢占计数器 ---- */
 
 volatile int preempt_count;
 
-static __always_inline void switch_address_space(const struct task_struct *next)
+static __always_inline uintptr_t task_satp(const struct task_struct *task)
 {
-	const uintptr_t satp_val = next->satp ? next->satp : kernel_satp();
+	return task && task->satp ? task->satp : kernel_satp();
+}
+
+static __always_inline void switch_address_space(const struct task_struct *prev,
+						 const struct task_struct *next)
+{
+	const uintptr_t satp_val = task_satp(next);
+
+	if (task_satp(prev) == satp_val)
+		return;
+
 	csr_write(satp, satp_val);
 	sfence_vma_all();
 }
@@ -64,13 +75,16 @@ void schedule(void)
 	if (!preemptible())
 		return;
 
+	if (exited_threads_pending())
+		reap_exited_threads();
+
 	if (mlfq_empty()) {
 		if (current == &idle_task || current->state == TASK_RUNNING)
 			return;
 
 		struct task_struct *prev = current;
 		check_canary(prev);
-		switch_address_space(&idle_task);
+		switch_address_space(prev, &idle_task);
 		current = &idle_task;
 		switch_to(&prev->ctx, &idle_task.ctx);
 		return;
@@ -84,7 +98,7 @@ void schedule(void)
 
 	check_canary(prev);
 	current = next;
-	switch_address_space(next);
+	switch_address_space(prev, next);
 	switch_to(&prev->ctx, &next->ctx);
 }
 
