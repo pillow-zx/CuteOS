@@ -49,6 +49,18 @@ static void vma_free_slot(struct vm_area_struct *vma)
 	memset(vma, 0, sizeof(*vma));
 }
 
+static int vma_free_slot_count(struct mm_struct *mm)
+{
+	int count = 0;
+
+	for (int i = 0; i < NR_VMA; i++) {
+		if (!mm->vma[i].used)
+			count++;
+	}
+
+	return count;
+}
+
 static uintptr_t align_up_page(uintptr_t addr)
 {
 	return (addr + PAGE_SIZE - 1) & PAGE_MASK;
@@ -74,6 +86,64 @@ static bool vma_overlaps(struct vm_area_struct *vma, uintptr_t start,
 			 uintptr_t end)
 {
 	return vma->used && start < vma->vm_end && end > vma->vm_start;
+}
+
+static bool vma_contains_split_addr(struct vm_area_struct *vma, uintptr_t addr)
+{
+	return vma->used && addr > vma->vm_start && addr < vma->vm_end;
+}
+
+static bool vma_can_merge(const struct vm_area_struct *a,
+			  const struct vm_area_struct *b)
+{
+	if (!a->used || !b->used || a == b)
+		return false;
+	if (a->vm_flags != b->vm_flags || a->vm_type != b->vm_type)
+		return false;
+	return a->vm_end == b->vm_start || b->vm_end == a->vm_start;
+}
+
+static void vma_merge_all(struct mm_struct *mm)
+{
+	bool merged;
+
+	do {
+		merged = false;
+		for (int i = 0; i < NR_VMA && !merged; i++) {
+			for (int j = 0; j < NR_VMA; j++) {
+				if (i == j || !vma_can_merge(&mm->vma[i],
+							     &mm->vma[j]))
+					continue;
+
+				if (mm->vma[i].vm_end == mm->vma[j].vm_start)
+					mm->vma[i].vm_end = mm->vma[j].vm_end;
+				else
+					mm->vma[i].vm_start =
+						mm->vma[j].vm_start;
+				vma_free_slot(&mm->vma[j]);
+				merged = true;
+				break;
+			}
+		}
+	} while (merged);
+}
+
+static int vma_split_at(struct mm_struct *mm, struct vm_area_struct *vma,
+			uintptr_t addr)
+{
+	struct vm_area_struct *tail;
+
+	if (!vma_contains_split_addr(vma, addr))
+		return 0;
+
+	tail = vma_alloc_slot(mm);
+	if (!tail)
+		return -ENOMEM;
+
+	*tail = *vma;
+	tail->vm_start = addr;
+	vma->vm_end = addr;
+	return 0;
 }
 
 static bool range_overlaps_other_vma(struct mm_struct *mm,
@@ -148,47 +218,68 @@ static void unmap_user_pages(pte_t *pgd, uintptr_t start, uintptr_t end)
 	}
 }
 
+static int vma_munmap_slots_needed(struct mm_struct *mm, uintptr_t start,
+				   uintptr_t end)
+{
+	int needed = 0;
+
+	for (int i = 0; i < NR_VMA; i++) {
+		struct vm_area_struct *vma = &mm->vma[i];
+		uintptr_t unmap_start;
+		uintptr_t unmap_end;
+
+		if (!vma_overlaps(vma, start, end))
+			continue;
+
+		unmap_start = start > vma->vm_start ? start : vma->vm_start;
+		unmap_end = end < vma->vm_end ? end : vma->vm_end;
+
+		if (unmap_start > vma->vm_start && unmap_end < vma->vm_end)
+			needed++;
+	}
+
+	return needed;
+}
+
 static int unmap_vma_range(struct mm_struct *mm, struct vm_area_struct *vma,
 			   uintptr_t start, uintptr_t end)
 {
+	uintptr_t unmap_start;
+	uintptr_t unmap_end;
+
 	if (!vma_overlaps(vma, start, end))
 		return 0;
 
-	uintptr_t unmap_start = start > vma->vm_start ? start : vma->vm_start;
-	uintptr_t unmap_end = end < vma->vm_end ? end : vma->vm_end;
-	uintptr_t old_start = vma->vm_start;
-	uintptr_t old_end = vma->vm_end;
-	struct vm_area_struct *tail = NULL;
+	unmap_start = start > vma->vm_start ? start : vma->vm_start;
+	unmap_end = end < vma->vm_end ? end : vma->vm_end;
 
-	if (unmap_start != old_start && unmap_end != old_end) {
-		tail = vma_alloc_slot(mm);
-		if (!tail)
-			return -ENOMEM;
-	}
-
-	if (unmap_start == old_start && unmap_end == old_end) {
+	if (unmap_start == vma->vm_start && unmap_end == vma->vm_end) {
 		unmap_user_pages(mm->pgd, unmap_start, unmap_end);
 		vma_free_slot(vma);
 		return 0;
 	}
 
-	if (unmap_start == old_start) {
+	if (unmap_start == vma->vm_start) {
 		unmap_user_pages(mm->pgd, unmap_start, unmap_end);
 		vma->vm_start = unmap_end;
 		return 0;
 	}
 
-	if (unmap_end == old_end) {
+	if (unmap_end == vma->vm_end) {
 		unmap_user_pages(mm->pgd, unmap_start, unmap_end);
 		vma->vm_end = unmap_start;
 		return 0;
 	}
 
+	int ret = vma_split_at(mm, vma, unmap_start);
+	if (ret < 0)
+		return ret;
+
+	struct vm_area_struct *right = find_vma(mm, unmap_start);
+	BUG_ON(!right || right == vma);
+
 	unmap_user_pages(mm->pgd, unmap_start, unmap_end);
-	*tail = *vma;
-	tail->vm_start = unmap_end;
-	tail->vm_end = old_end;
-	vma->vm_end = unmap_start;
+	right->vm_start = unmap_end;
 	return 0;
 }
 
@@ -251,6 +342,7 @@ struct mm_struct *mm_alloc(void)
 
 	memset(mm, 0, sizeof(struct mm_struct));
 	mm->refcount = 1;
+	mutex_init(&mm->mmap_lock);
 	return mm;
 }
 
@@ -271,6 +363,18 @@ void mm_put(struct mm_struct *mm)
 		mm_destroy(mm);
 }
 
+void mm_lock(struct mm_struct *mm)
+{
+	BUG_ON(!mm);
+	mutex_lock(&mm->mmap_lock);
+}
+
+void mm_unlock(struct mm_struct *mm)
+{
+	BUG_ON(!mm);
+	mutex_unlock(&mm->mmap_lock);
+}
+
 struct mm_struct *dup_mm(struct mm_struct *oldmm)
 {
 	if (!oldmm)
@@ -286,6 +390,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 		return NULL;
 	}
 
+	mm_lock(oldmm);
 	newmm->brk = oldmm->brk;
 	newmm->code_start = oldmm->code_start;
 	newmm->code_end = oldmm->code_end;
@@ -306,6 +411,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 			uintptr_t old_pa = pte_to_pa(*pte);
 			void *new_page = get_free_page(0);
 			if (!new_page) {
+				mm_unlock(oldmm);
 				mm_destroy(newmm);
 				return NULL;
 			}
@@ -318,6 +424,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 				 perm);
 		}
 	}
+	mm_unlock(oldmm);
 
 	return newmm;
 }
@@ -382,25 +489,25 @@ struct vm_area_struct *find_vma(struct mm_struct *mm, uintptr_t addr)
  */
 uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr)
 {
-	/* 无地址空间 */
+	uintptr_t ret;
+	uintptr_t old_brk;
+	struct vm_area_struct *heap_vma = NULL;
+
 	if (!mm)
 		return 0;
 
-	/* 查询当前 brk */
+	mm_lock(mm);
+	old_brk = mm->brk;
+	ret = old_brk;
+
 	if (addr == 0)
-		return mm->brk;
+		goto out;
 
-	/* 不允许缩小 */
-	if (addr <= mm->brk)
-		return mm->brk;
-
-	/* 不允许超过用户地址空间上限 */
+	if (addr <= old_brk)
+		goto out;
 	if (addr > TASK_SIZE)
-		return mm->brk;
+		goto out;
 
-	/* 查找堆 VMA（通过类型标记精确匹配） */
-	uintptr_t old_brk = mm->brk;
-	struct vm_area_struct *heap_vma = NULL;
 	for (int i = 0; i < NR_VMA; i++) {
 		if (mm->vma[i].used && mm->vma[i].vm_type == VMA_HEAP) {
 			heap_vma = &mm->vma[i];
@@ -410,12 +517,11 @@ uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr)
 
 	if (!heap_vma) {
 		if (range_overlaps_vma(mm, old_brk, addr))
-			return old_brk;
+			goto out;
 
-		/* 首次扩展：创建堆 VMA */
 		heap_vma = vma_alloc_slot(mm);
 		if (!heap_vma)
-			return old_brk;
+			goto out;
 		heap_vma->vm_start = old_brk;
 		heap_vma->vm_end = addr;
 		heap_vma->vm_flags = VM_READ | VM_WRITE;
@@ -424,14 +530,18 @@ uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr)
 	} else {
 		if (range_overlaps_other_vma(mm, heap_vma, heap_vma->vm_start,
 					     addr))
-			return old_brk;
+			goto out;
 
-		/* 扩展已有堆 VMA */
 		heap_vma->vm_end = addr;
 	}
 
 	mm->brk = addr;
-	return addr;
+	vma_merge_all(mm);
+	ret = addr;
+
+out:
+	mm_unlock(mm);
+	return ret;
 }
 
 ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot,
@@ -441,6 +551,7 @@ ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot,
 	uintptr_t end;
 	uint32_t vm_flags = 0;
 	struct vm_area_struct *vma;
+	ssize_t ret;
 
 	if (!mm)
 		return -ENOMEM;
@@ -457,30 +568,7 @@ ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot,
 	if (flags & MAP_FIXED) {
 		if (addr == 0 || (addr & (PAGE_SIZE - 1)))
 			return -EINVAL;
-		start = addr;
-	} else if (addr != 0) {
-		start = align_up_page(addr);
-	} else {
-		start = find_unmapped_area(mm, length);
-		if (!start)
-			return -ENOMEM;
 	}
-
-	if (range_overflows(start, length, &end))
-		return -EINVAL;
-
-	if (end > TASK_SIZE || end > USER_STACK_BASE)
-		return -EINVAL;
-
-	if (signal_trampoline_overlaps(start, end))
-		return -EINVAL;
-
-	if (range_overlaps_vma(mm, start, end))
-		return -EINVAL;
-
-	vma = vma_alloc_slot(mm);
-	if (!vma)
-		return -ENOMEM;
 
 	if (prot & PROT_READ)
 		vm_flags |= VM_READ;
@@ -489,17 +577,63 @@ ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot,
 	if (prot & PROT_EXEC)
 		vm_flags |= VM_EXEC;
 
+	mm_lock(mm);
+
+	if (flags & MAP_FIXED) {
+		start = addr;
+	} else if (addr != 0) {
+		start = align_up_page(addr);
+	} else {
+		start = find_unmapped_area(mm, length);
+		if (!start) {
+			ret = -ENOMEM;
+			goto out;
+		}
+	}
+
+	if (range_overflows(start, length, &end)) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	if (end > TASK_SIZE || end > USER_STACK_BASE) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	if (signal_trampoline_overlaps(start, end)) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	if (range_overlaps_vma(mm, start, end)) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	vma = vma_alloc_slot(mm);
+	if (!vma) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
 	vma->vm_start = start;
 	vma->vm_end = end;
 	vma->vm_flags = vm_flags;
 	vma->vm_type = VMA_MMAP;
 	vma->used = true;
-	return start;
+	vma_merge_all(mm);
+	ret = start;
+
+out:
+	mm_unlock(mm);
+	return ret;
 }
 
 int mm_munmap(struct mm_struct *mm, uintptr_t addr, size_t length)
 {
 	uintptr_t end;
+	int ret = 0;
 
 	if (!mm)
 		return -ENOMEM;
@@ -513,12 +647,19 @@ int mm_munmap(struct mm_struct *mm, uintptr_t addr, size_t length)
 	if (end > TASK_SIZE)
 		return -EINVAL;
 
-	for (int i = 0; i < NR_VMA; i++) {
-		int ret = unmap_vma_range(mm, &mm->vma[i], addr, end);
-
-		if (ret < 0)
-			return ret;
+	mm_lock(mm);
+	if (vma_munmap_slots_needed(mm, addr, end) > vma_free_slot_count(mm)) {
+		ret = -ENOMEM;
+		goto out;
 	}
 
-	return 0;
+	for (int i = 0; i < NR_VMA; i++) {
+		ret = unmap_vma_range(mm, &mm->vma[i], addr, end);
+		if (ret < 0)
+			goto out;
+	}
+
+out:
+	mm_unlock(mm);
+	return ret;
 }

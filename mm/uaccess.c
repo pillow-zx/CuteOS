@@ -68,6 +68,7 @@ int user_range_probe(const void *addr, size_t size, bool write)
 	uintptr_t range_start;
 	uintptr_t range_end;
 	uint64_t scause;
+	struct mm_struct *mm;
 
 	if (size == 0)
 		return 0;
@@ -76,54 +77,70 @@ int user_range_probe(const void *addr, size_t size, bool write)
 	if (!current || !current->mm)
 		return -EFAULT;
 
+	mm = current->mm;
 	range_start = (uintptr_t)addr;
 	range_end = range_start + size;
 	scause = write ? EXC_STORE_PAGE_FAULT : EXC_LOAD_PAGE_FAULT;
 
 	for (uintptr_t cursor = range_start; cursor < range_end;) {
-		struct vm_area_struct *vma = find_vma(current->mm, cursor);
+		struct vm_area_struct *vma;
 		uintptr_t segment_end;
 		uintptr_t va;
 		uintptr_t page_end;
+		uintptr_t fault_addr = 0;
+		bool need_fault = false;
 
-		if (!vma)
+		mm_lock(mm);
+		vma = find_vma(mm, cursor);
+
+		if (!vma) {
+			mm_unlock(mm);
 			return -EFAULT;
+		}
 		if (write) {
-			if (!(vma->vm_flags & VM_WRITE))
+			if (!(vma->vm_flags & VM_WRITE)) {
+				mm_unlock(mm);
 				return -EFAULT;
+			}
 		} else if (!(vma->vm_flags & VM_READ)) {
+			mm_unlock(mm);
 			return -EFAULT;
 		}
 
 		segment_end = vma->vm_end < range_end ? vma->vm_end : range_end;
-		if (segment_end <= cursor)
+		if (segment_end <= cursor) {
+			mm_unlock(mm);
 			return -EFAULT;
+		}
 
 		va = cursor & PAGE_MASK;
 		page_end = (segment_end + PAGE_SIZE - 1) & PAGE_MASK;
 		while (va < page_end) {
-			pte_t *pte =
-				walk_page_table(current->mm->pgd, va, false);
+			pte_t *pte = walk_page_table(mm->pgd, va, false);
 
 			if (pte && pte_allows_user_access(*pte, write)) {
 				va += PAGE_SIZE;
 				continue;
 			}
-			if (pte && pte_present(*pte))
+			if (pte && pte_present(*pte)) {
+				mm_unlock(mm);
 				return -EFAULT;
+			}
 
-			uintptr_t fault_addr = va < cursor ? cursor : va;
+			fault_addr = va < cursor ? cursor : va;
+			need_fault = true;
+			break;
+		}
+		mm_unlock(mm);
+
+		if (need_fault) {
 			struct trap_frame probe = {
 				.scause = scause,
 				.stval = fault_addr,
 				.sstatus = SSTATUS_SPIE,
 			};
 			do_page_fault(&probe);
-
-			pte = walk_page_table(current->mm->pgd, va, false);
-			if (!pte || !pte_allows_user_access(*pte, write))
-				return -EFAULT;
-			va += PAGE_SIZE;
+			continue;
 		}
 
 		cursor = segment_end;
@@ -172,15 +189,21 @@ ssize_t strncpy_from_user(char *dst, const char *src, size_t maxlen)
 		struct vm_area_struct *vma;
 		size_t chunk = min_size(maxlen - done,
 					PAGE_SIZE - (addr & (PAGE_SIZE - 1)));
+		struct mm_struct *mm;
 
 		if (!access_ok((const void *)addr, 1))
 			return -EFAULT;
 		if (!current || !current->mm)
 			return -EFAULT;
-		vma = find_vma(current->mm, addr);
-		if (!vma || !(vma->vm_flags & VM_READ))
+		mm = current->mm;
+		mm_lock(mm);
+		vma = find_vma(mm, addr);
+		if (!vma || !(vma->vm_flags & VM_READ)) {
+			mm_unlock(mm);
 			return -EFAULT;
+		}
 		chunk = min_size(chunk, vma->vm_end - addr);
+		mm_unlock(mm);
 		if (chunk == 0)
 			return -EFAULT;
 

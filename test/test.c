@@ -99,6 +99,15 @@ void kernel_test(void)
 	test_spinlock_irqsave();
 	test_mutex_blocking();
 
+	/* ---- MM/VMA ---- */
+	TEST_SECTION("MM/VMA");
+	test_mm_vma_merge_adjacent();
+	test_mm_vma_munmap_middle_split();
+	test_mm_vma_munmap_head_tail_trim();
+	test_mm_vma_split_enospc_preserves_layout();
+	test_mm_vma_munmap_full_table_edge_trim();
+	test_mm_dup_split_vmas();
+
 	/* ---- Task ---- */
 	TEST_SECTION("Task");
 	test_task_idle();

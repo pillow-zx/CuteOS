@@ -13,6 +13,7 @@
  *   - mm_struct 通过 kmalloc 分配，内核线程 mm=NULL
  */
 
+#include <kernel/sync.h>
 #include <kernel/types.h>
 #include <asm/pte.h>
 
@@ -49,6 +50,7 @@ struct vm_area_struct {
 
 struct mm_struct {
 	uint32_t refcount;		   /* 共享地址空间引用计数 */
+	mutex_t mmap_lock;		   /* 保护 VMA 与用户页表结构 */
 	pte_t *pgd;			   /* 用户页表根（PGD 页虚拟地址） */
 	uintptr_t brk;			   /* 当前堆顶 */
 	uintptr_t code_start;		   /* 代码段起始 */
@@ -67,6 +69,8 @@ struct mm_struct *mm_alloc(void);
 
 void mm_get(struct mm_struct *mm);
 void mm_put(struct mm_struct *mm);
+void mm_lock(struct mm_struct *mm);
+void mm_unlock(struct mm_struct *mm);
 
 /*
  * dup_mm - 深拷贝用户地址空间
@@ -100,7 +104,7 @@ pte_t *mm_create_user_pgd(void);
  * @addr: 要查找的虚拟地址
  *
  * 线性扫描 VMA 数组，返回满足 vm_start <= addr < vm_end 的 VMA 指针。
- * 未找到返回 NULL。
+ * 调用者必须持有 mm->mmap_lock；返回指针只在锁内有效。未找到返回 NULL。
  */
 struct vm_area_struct *find_vma(struct mm_struct *mm, uintptr_t addr);
 

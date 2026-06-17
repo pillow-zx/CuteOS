@@ -6,6 +6,7 @@ TEST_OBJS = \
 	test/buffer_test.o \
 	test/buddy_test.o \
 	test/kthread_test.o \
+	test/mm_test.o \
 	test/pid_test.o \
 	test/sched_test.o \
 	test/slab_test.o \

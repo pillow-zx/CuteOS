@@ -69,6 +69,18 @@ void test_spinlock_irqsave(void);
 void test_mutex_blocking(void);
 
 /* ================================================================
+ *  MM/VMA 测试
+ * ================================================================
+ */
+
+void test_mm_vma_merge_adjacent(void);
+void test_mm_vma_munmap_middle_split(void);
+void test_mm_vma_munmap_head_tail_trim(void);
+void test_mm_vma_split_enospc_preserves_layout(void);
+void test_mm_vma_munmap_full_table_edge_trim(void);
+void test_mm_dup_split_vmas(void);
+
+/* ================================================================
  *  Task 管理测试
  * ================================================================
  */

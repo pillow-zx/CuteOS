@@ -150,10 +150,13 @@ void do_page_fault(struct trap_frame *tf)
 		      (void *)tf->sepc);
 	}
 
-	/* 查找 VMA */
-	struct vm_area_struct *vma = find_vma(current->mm, fault_addr);
+	struct mm_struct *mm = current->mm;
+	mm_lock(mm);
+
+	struct vm_area_struct *vma = find_vma(mm, fault_addr);
 
 	if (!vma) {
+		mm_unlock(mm);
 		printk("page fault: illegal access (no VMA) "
 		       "type=%s addr=%p sepc=%p origin=%s pid=%d\n",
 		       fault_type_name(scause), (void *)fault_addr,
@@ -165,11 +168,14 @@ void do_page_fault(struct trap_frame *tf)
 
 	/* 检查权限 */
 	if (!check_vma_permission(scause, vma)) {
+		uint32_t vm_flags = vma->vm_flags;
+
+		mm_unlock(mm);
 		printk("page fault: permission denied "
 		       "type=%s addr=%p vma_flags=0x%x sepc=%p "
 		       "origin=%s pid=%d\n",
 		       fault_type_name(scause), (void *)fault_addr,
-		       vma->vm_flags, (void *)tf->sepc,
+		       vm_flags, (void *)tf->sepc,
 		       from_user_mode ? "user" : "kernel", current->pid);
 		signal_or_exit_segv(from_user_mode);
 		return;
@@ -179,7 +185,7 @@ void do_page_fault(struct trap_frame *tf)
 	vaddr_t page_addr = fault_addr & PAGE_MASK;
 
 	/* 防御性检查：是否已映射 */
-	pte_t *existing = walk_page_table(current->mm->pgd, page_addr, false);
+	pte_t *existing = walk_page_table(mm->pgd, page_addr, false);
 	if (existing && (*existing & PTE_V)) {
 		if (pte_allows_fault(scause, *existing)) {
 			/*
@@ -187,13 +193,16 @@ void do_page_fault(struct trap_frame *tf)
 			 * 刷新 TLB 后直接返回，让指令重新执行。
 			 */
 			sfence_vma_addr(page_addr);
+			mm_unlock(mm);
 			return;
 		}
 
+		pte_t pte = *existing;
+		mm_unlock(mm);
 		printk("page fault: mapped page permission denied "
 		       "type=%s addr=%p pte=0x%lx sepc=%p origin=%s pid=%d\n",
 		       fault_type_name(scause), (void *)fault_addr,
-		       (size_t)*existing, (void *)tf->sepc,
+		       (size_t)pte, (void *)tf->sepc,
 		       from_user_mode ? "user" : "kernel", current->pid);
 		signal_or_exit_segv(from_user_mode);
 		return;
@@ -202,6 +211,7 @@ void do_page_fault(struct trap_frame *tf)
 	/* 分配物理页 */
 	void *page = get_free_page(0);
 	if (!page) {
+		mm_unlock(mm);
 		printk("page fault: OOM at addr=%p pid=%d\n",
 		       (void *)fault_addr, current->pid);
 		do_exit(1);
@@ -213,8 +223,9 @@ void do_page_fault(struct trap_frame *tf)
 
 	/* 建立映射 */
 	pte_t perm = vma_flags_to_pte(vma->vm_flags);
-	map_page(current->mm->pgd, page_addr, __pa((uintptr_t)page), perm);
+	map_page(mm->pgd, page_addr, __pa((uintptr_t)page), perm);
 
 	/* 刷新 TLB 使新映射生效 */
 	sfence_vma_addr(page_addr);
+	mm_unlock(mm);
 }
