@@ -9,6 +9,7 @@ TEST_OBJS = \
 	test/pid_test.o \
 	test/sched_test.o \
 	test/slab_test.o \
+	test/sync_test.o \
 	test/task_test.o \
 	test/timer_test.o \
 	test/trap_test.o \

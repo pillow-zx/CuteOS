@@ -93,6 +93,12 @@ void kernel_test(void)
 	test_timer_jiffies();
 	test_timer_constants();
 
+	/* ---- Sync ---- */
+	TEST_SECTION("Sync");
+	test_atomic_basic();
+	test_spinlock_irqsave();
+	test_mutex_blocking();
+
 	/* ---- Task ---- */
 	TEST_SECTION("Task");
 	test_task_idle();
