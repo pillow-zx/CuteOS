@@ -2,6 +2,10 @@
 
 USER_CC       = $(TOOLPREFIX)gcc
 USER_LD       = $(TOOLPREFIX)ld
+USER_AR       = $(shell if command -v $(TOOLPREFIX)gcc-ar >/dev/null 2>&1; \
+		 then echo $(TOOLPREFIX)gcc-ar; else echo $(TOOLPREFIX)ar; fi)
+USER_RANLIB   = $(shell if command -v $(TOOLPREFIX)gcc-ranlib >/dev/null 2>&1; \
+		 then echo $(TOOLPREFIX)gcc-ranlib; else echo $(TOOLPREFIX)ranlib; fi)
 USER_OBJCOPY  = $(TOOLPREFIX)objcopy
 
 USER_ARCH_FLAGS = -march=rv64gc -mabi=lp64 -mcmodel=medany
@@ -9,7 +13,7 @@ USER_ARCH_FLAGS = -march=rv64gc -mabi=lp64 -mcmodel=medany
 USER_CFLAGS   = $(USER_ARCH_FLAGS)
 USER_CFLAGS  += -ffreestanding -nostdlib -nostdinc -fno-builtin
 USER_CFLAGS  += -Wall -Werror
-USER_CFLAGS  += -I user/include
+USER_CFLAGS  += -I user/libc/minimal/include
 USER_LDFLAGS  = -z max-page-size=4096
 USER_LD_SCRIPT = -T user/user.ld
 
@@ -48,6 +52,10 @@ endif
 USER_OUTROOT = $(OUTROOT)/user
 USER_OUT     = $(USER_OUTROOT)/$(BUILD)
 
+USER_CRT_OBJS  = $(USER_OUT)/start.o
+
+include user/libc/minimal/libc.mk
+
 USER_INIT_ELF = $(USER_OUT)/init/init.elf
 USER_SH_ELF   = $(USER_OUT)/init/sh.elf
 USER_BIN_SRCS  = $(sort $(wildcard user/bin/*.c))
@@ -56,23 +64,21 @@ USER_BIN_ELFS  = $(addprefix $(USER_OUT)/bin/, \
 		 $(addsuffix .elf,$(USER_BIN_NAMES)))
 USER_ELFS      = $(USER_INIT_ELF) $(USER_SH_ELF) $(USER_BIN_ELFS)
 
-USER_COMMON_OBJS = $(USER_OUT)/start.o			\
-		   $(USER_OUT)/lib/string.o		\
-		   $(USER_OUT)/lib/stdlib.o		\
-		   $(USER_OUT)/lib/vsprintf.o		\
-		   $(USER_OUT)/lib/printf.o		\
-		   $(USER_OUT)/lib/coreutils.o
-USER_INIT_OBJS   = $(USER_COMMON_OBJS) $(USER_OUT)/init/init.o
-USER_SH_OBJS     = $(USER_COMMON_OBJS) $(USER_OUT)/init/shell.o
+USER_INIT_OBJS = $(USER_CRT_OBJS) $(USER_OUT)/init/init.o
+USER_SH_OBJS   = $(USER_CRT_OBJS) $(USER_OUT)/init/shell.o
 
 quiet_user_CC       = CC
 quiet_user_LD       = LD
+quiet_user_AR       = AR
+quiet_user_RANLIB   = RANLIB
 quiet_user_OBJCOPY  = OBJCOPY
 
 user_cmd = $(if $(filter 1,$(V)),$(user_cmd_$(1)),$(Q)printf '  %-7s %s\n' '$(quiet_user_$(1))' '$@' && $(user_cmd_$(1)))
 
 user_cmd_CC      = $(USER_CC) $(USER_CFLAGS) -c -o $@ $<
-user_cmd_LD      = $(USER_LD) $(USER_LDFLAGS) $(USER_LD_SCRIPT) -o $@ $(filter %.o,$^)
+user_cmd_AR      = rm -f $@ && $(USER_AR) rc $@ $(filter %.o,$^)
+user_cmd_RANLIB  = $(USER_RANLIB) $@
+user_cmd_LD      = $(USER_LD) $(USER_LDFLAGS) $(USER_LD_SCRIPT) -o $@ $(filter %.o,$^) $(filter %.a,$^)
 user_cmd_OBJCOPY = $(USER_OBJCOPY) -O binary $< $@
 
 $(USER_OUT)/%.o: user/%.S
@@ -83,11 +89,11 @@ $(USER_OUT)/%.o: user/%.c
 	@mkdir -p $(dir $@)
 	$(call user_cmd,CC)
 
-$(USER_INIT_ELF): $(USER_INIT_OBJS) user/user.ld
+$(USER_INIT_ELF): $(USER_INIT_OBJS) $(USER_LIBC_A) user/user.ld
 	$(call user_cmd,LD)
 
-$(USER_SH_ELF): $(USER_SH_OBJS) user/user.ld
+$(USER_SH_ELF): $(USER_SH_OBJS) $(USER_LIBC_A) user/user.ld
 	$(call user_cmd,LD)
 
-$(USER_OUT)/bin/%.elf: $(USER_COMMON_OBJS) $(USER_OUT)/bin/%.o user/user.ld
+$(USER_OUT)/bin/%.elf: $(USER_CRT_OBJS) $(USER_OUT)/bin/%.o $(USER_LIBC_A) user/user.ld
 	$(call user_cmd,LD)

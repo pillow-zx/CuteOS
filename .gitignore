@@ -20,9 +20,11 @@
 !mm/
 !user/
 !user/bin/
-!user/include/
 !user/init/
-!user/lib/
+!user/libc/
+!user/libc/minimal/
+!user/libc/minimal/include/
+!user/libc/minimal/src/
 
 
 

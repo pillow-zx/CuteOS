@@ -1,5 +1,5 @@
 /*
- * user/include/user.h - 用户态系统调用封装
+ * user/libc/minimal/include/user.h - 用户态系统调用封装
  *
  * 功能：
  *   提供用户态程序的 ecall 系统调用封装。使用内联汇编将系统调用号
