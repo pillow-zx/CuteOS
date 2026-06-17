@@ -34,6 +34,7 @@
 #include <kernel/exit.h>
 #include <kernel/errno.h>
 #include <kernel/fdtable.h>
+#include <kernel/futex.h>
 #include <kernel/fs_struct.h>
 #include <kernel/list.h>
 #include <kernel/mm.h>
@@ -132,7 +133,8 @@ static void clear_child_tid(struct task_struct *task)
 	if (!task->clear_child_tid)
 		return;
 
-	copy_to_user(task->clear_child_tid, &zero, sizeof(zero));
+	if (copy_to_user(task->clear_child_tid, &zero, sizeof(zero)) == 0)
+		futex_wake_mm(task->mm, task->clear_child_tid, 1);
 	task->clear_child_tid = NULL;
 }
 

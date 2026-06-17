@@ -65,13 +65,6 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 	return -ENOSYS;
 }
 
-ssize_t sys_futex(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(futex): 需要用户地址哈希等待队列和原子比较唤醒。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_set_robust_list(struct trap_frame *tf)
 {
 	(void)tf;

@@ -1,23 +1,66 @@
 #ifndef _CUTEOS_KERNEL_ATOMIC_H
 #define _CUTEOS_KERNEL_ATOMIC_H
 
-/*
- * include/kernel/atomic.h - 原子整数操作
- *
- * 提供 atomic_t 及基本的原子读/设/加一/减一/加操作。
- * cuteOS 面向单核系统，因此原子性通过关中断而非使用
- * RISC-V 原子扩展（A 扩展）指令实现。
- *
- * 中断控制：
- *   local_irq_disable()  - 关中断（清除 sstatus 中的 SIE）
- *   local_irq_enable()   - 开中断（设置 sstatus 中的 SIE）
- *
- * atomic_t 原子操作（volatile int 计数器）：
- *   atomic_read(v)   - 读取计数器值
- *   atomic_set(v, i) - 将计数器设为 i
- *   atomic_inc(v)    - 加 1
- *   atomic_dec(v)    - 减 1
- *   atomic_add(v, i) - 将计数器加 i
- */
+#include <kernel/sync.h>
+
+typedef struct {
+	volatile int counter;
+} atomic_t;
+
+#define ATOMIC_INIT(i) { .counter = (i) }
+
+static __always_inline int atomic_read(const atomic_t *v)
+{
+	return v->counter;
+}
+
+static __always_inline void atomic_set(atomic_t *v, int i)
+{
+	irq_flags_t flags = local_irq_save();
+
+	v->counter = i;
+	local_irq_restore(flags);
+}
+
+static __always_inline int atomic_add_return(atomic_t *v, int i)
+{
+	irq_flags_t flags = local_irq_save();
+	int ret;
+
+	v->counter += i;
+	ret = v->counter;
+	local_irq_restore(flags);
+	return ret;
+}
+
+static __always_inline void atomic_add(atomic_t *v, int i)
+{
+	(void)atomic_add_return(v, i);
+}
+
+static __always_inline int atomic_inc_return(atomic_t *v)
+{
+	return atomic_add_return(v, 1);
+}
+
+static __always_inline int atomic_dec_return(atomic_t *v)
+{
+	return atomic_add_return(v, -1);
+}
+
+static __always_inline void atomic_inc(atomic_t *v)
+{
+	(void)atomic_inc_return(v);
+}
+
+static __always_inline void atomic_dec(atomic_t *v)
+{
+	(void)atomic_dec_return(v);
+}
+
+static __always_inline bool atomic_dec_and_test(atomic_t *v)
+{
+	return atomic_dec_return(v) == 0;
+}
 
 #endif

@@ -2,8 +2,10 @@
 
 KERNEL_OBJS = \
 	kernel/printk.o         \
+	kernel/sync.o           \
 	kernel/task.o           \
 	kernel/fork.o           \
+	kernel/futex.o          \
 	kernel/exec.o           \
 	kernel/exit.o           \
 	kernel/pid.o            \

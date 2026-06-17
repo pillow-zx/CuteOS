@@ -11,7 +11,7 @@ void init_waitqueue_head(struct wait_queue_head *wq)
 	INIT_LIST_HEAD(&wq->task_list);
 }
 
-void sleep_on(struct wait_queue_head *wq)
+void prepare_to_wait_locked(struct wait_queue_head *wq)
 {
 	if (!wq)
 		return;
@@ -20,26 +20,52 @@ void sleep_on(struct wait_queue_head *wq)
 		list_add_tail(&current->wait_list, &wq->task_list);
 
 	current->state = TASK_SLEEPING;
-	schedule();
+}
+
+void finish_wait(struct wait_queue_head *wq)
+{
+	(void)wq;
+
+	if (!current)
+		return;
 
 	if (!list_empty(&current->wait_list))
 		list_del_init(&current->wait_list);
 
-	current->state = TASK_RUNNING;
+	if (current->state == TASK_SLEEPING)
+		current->state = TASK_RUNNING;
 }
 
-void wake_up(struct wait_queue_head *wq)
+struct task_struct *wake_up_locked(struct wait_queue_head *wq)
 {
 	if (!wq || list_empty(&wq->task_list))
-		return;
+		return NULL;
 
 	struct task_struct *task =
 		list_first_entry(&wq->task_list, struct task_struct, wait_list);
 
 	list_del_init(&task->wait_list);
-	task->state = TASK_RUNNING;
+	if (task->state != TASK_SLEEPING)
+		return NULL;
 
+	task->state = TASK_RUNNING;
 	sched_wakeup(task);
+	return task;
+}
+
+void sleep_on(struct wait_queue_head *wq)
+{
+	if (!wq)
+		return;
+
+	prepare_to_wait_locked(wq);
+	schedule();
+	finish_wait(wq);
+}
+
+void wake_up(struct wait_queue_head *wq)
+{
+	(void)wake_up_locked(wq);
 }
 
 void wake_up_all(struct wait_queue_head *wq)

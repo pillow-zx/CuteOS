@@ -20,6 +20,7 @@
 #include <kernel/task.h>
 #include <kernel/mm.h>
 #include <kernel/exit.h>
+#include <kernel/futex.h>
 #include <asm/trap.h>
 #include <asm/csr.h>
 #include <drivers/uart.h>
@@ -47,6 +48,8 @@ void do_syscall(struct trap_frame *tf)
 
 void syscall_init(void)
 {
+	futex_init();
+
 	syscall_table[SYS_getcwd] = sys_getcwd;
 	syscall_table[SYS_epoll_create1] = sys_epoll_create1;
 	syscall_table[SYS_epoll_ctl] = sys_epoll_ctl;

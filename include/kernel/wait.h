@@ -10,11 +10,16 @@
 
 #include <kernel/list.h>
 
+struct task_struct;
+
 struct wait_queue_head {
 	struct list_head task_list;
 };
 
 void init_waitqueue_head(struct wait_queue_head *wq);
+void prepare_to_wait_locked(struct wait_queue_head *wq);
+void finish_wait(struct wait_queue_head *wq);
+struct task_struct *wake_up_locked(struct wait_queue_head *wq);
 void sleep_on(struct wait_queue_head *wq);
 void wake_up(struct wait_queue_head *wq);
 void wake_up_all(struct wait_queue_head *wq);
