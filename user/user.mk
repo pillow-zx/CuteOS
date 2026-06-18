@@ -14,6 +14,7 @@ USER_CFLAGS   = $(USER_ARCH_FLAGS)
 USER_CFLAGS  += -ffreestanding -nostdlib -nostdinc -fno-builtin
 USER_CFLAGS  += -Wall -Werror
 USER_CFLAGS  += -I user/libc/minimal/include
+USER_CFLAGS  += -I include
 USER_LDFLAGS  = -z max-page-size=4096
 USER_LD_SCRIPT = -T user/user.ld
 

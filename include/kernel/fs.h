@@ -111,6 +111,7 @@ struct file_operations {
 	int (*open)(struct inode *inode, struct file *file);
 	int (*readdir)(struct file *file, void *ctx, filldir_t filldir);
 	uint32_t (*poll)(struct file *file, uint32_t events);
+	int (*ioctl)(struct file *file, uint64_t cmd, uint64_t arg);
 	int (*release)(struct file *file);
 };
 
@@ -187,6 +188,7 @@ int vfs_stat_inode(const struct inode *inode, struct kstat *st);
 int vfs_stat_file(struct file *file, struct kstat *st);
 int vfs_statfs(struct super_block *sb, struct kstatfs *buf);
 uint32_t vfs_poll(struct file *file, uint32_t events);
+int vfs_ioctl(struct file *file, uint64_t cmd, uint64_t arg);
 uint64_t vfs_inode_size(const struct inode *inode);
 uint64_t vfs_inode_number(const struct inode *inode);
 uint32_t vfs_inode_mode(const struct inode *inode);

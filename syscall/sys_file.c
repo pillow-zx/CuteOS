@@ -12,7 +12,7 @@
  *   sys_read(fd, buf, count)           - 从文件描述符读取数据
  *   sys_write(fd, buf, count)          - 向文件描述符写入数据
  *   sys_lseek(fd, offset, whence)      - 定位读写位置（SET/CUR/END）
- *   sys_ioctl(fd, cmd, arg)            - 设备控制（shell 特殊：直接返回 0）
+ *   sys_ioctl(fd, cmd, arg)            - 设备控制（通过 VFS 分发）
  *   sys_mkdirat(dfd, path, mode)       - 创建目录
  *   sys_unlinkat(dfd, path, flags)     - 删除文件/目录
  *   sys_chdir(path)                    - 切换当前工作目录
@@ -48,8 +48,6 @@
 #define SEEK_SET 0
 #define SEEK_CUR 1
 #define SEEK_END 2
-
-#define TCGETS 0x5401
 
 #define F_OK 0
 #define R_OK 4
@@ -511,17 +509,16 @@ ssize_t sys_ioctl(struct trap_frame *tf)
 {
 	int fd = (int)tf->a0;
 	uint64_t cmd = tf->a1;
+	uint64_t arg = tf->a2;
 	struct file *file = fd_get(fd);
+	ssize_t ret;
 
 	if (!file)
 		return -EBADF;
-	if (cmd == TCGETS) {
-		file_put(file);
-		return 0;
-	}
 
+	ret = vfs_ioctl(file, cmd, arg);
 	file_put(file);
-	return 0;
+	return ret;
 }
 
 ssize_t sys_mkdirat(struct trap_frame *tf)

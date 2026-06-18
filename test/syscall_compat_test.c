@@ -1,8 +1,19 @@
 #include <kernel/fs.h>
+#include <kernel/errno.h>
 #include <kernel/resource.h>
 #include <kernel/statfs.h>
 #include <kernel/test.h>
 #include <kernel/vfs.h>
+#include <uapi/tty.h>
+
+ssize_t console_tty_read_stream_for_test(const struct termios *termios,
+					 const char *input, size_t input_len,
+					 char *out, size_t out_size,
+					 char *echo, size_t echo_size,
+					 int *signal);
+ssize_t console_tty_write_for_test(const struct termios *termios,
+				   const char *input, size_t input_len,
+				   char *out, size_t out_size);
 
 void test_rlimit_defaults(void)
 {
@@ -40,6 +51,92 @@ void test_vfs_default_poll_masks(void)
 	return;
 fail:
 	TEST_FAIL("syscall compat: default poll masks", "see above");
+}
+
+void test_vfs_default_ioctl_enotty(void)
+{
+	struct file file = {
+		.f_mode = FMODE_READ | FMODE_WRITE,
+	};
+
+	TEST_BEGIN("syscall compat: default ioctl enotty");
+	{
+		TEST_ASSERT_EQ(vfs_ioctl(NULL, 0x5401, 0), -EINVAL);
+		TEST_ASSERT_EQ(vfs_ioctl(&file, 0x5401, 0), -ENOTTY);
+		TEST_ASSERT_EQ(vfs_ioctl(&file, 0xdeadbeef, 0), -ENOTTY);
+	}
+	TEST_END("syscall compat: default ioctl enotty");
+	return;
+fail:
+	TEST_FAIL("syscall compat: default ioctl enotty", "see above");
+}
+
+void test_console_tty_line_discipline(void)
+{
+	struct termios termios = {
+		.c_iflag = ICRNL,
+		.c_oflag = OPOST | ONLCR,
+		.c_lflag = ISIG | ICANON | ECHO,
+	};
+	char out[16];
+	char echo[32];
+	int signal = 0;
+
+	termios.c_cc[VINTR] = 3;
+	termios.c_cc[VERASE] = 127;
+	termios.c_cc[VEOF] = 4;
+	termios.c_cc[VSUSP] = 26;
+
+	TEST_BEGIN("syscall compat: console tty line discipline");
+	{
+		TEST_ASSERT_EQ(console_tty_write_for_test(
+				       &termios, "a\nb", 3, out, sizeof(out)),
+			       4);
+		TEST_ASSERT_EQ(out[0], 'a');
+		TEST_ASSERT_EQ(out[1], '\r');
+		TEST_ASSERT_EQ(out[2], '\n');
+		TEST_ASSERT_EQ(out[3], 'b');
+
+		TEST_ASSERT_EQ(console_tty_read_stream_for_test(
+				       &termios, "ab\x7f"
+						 "cd\n",
+				       6, out, sizeof(out), echo,
+				       sizeof(echo), &signal),
+			       4);
+		TEST_ASSERT_EQ(signal, 0);
+		TEST_ASSERT_EQ(out[0], 'a');
+		TEST_ASSERT_EQ(out[1], 'c');
+		TEST_ASSERT_EQ(out[2], 'd');
+		TEST_ASSERT_EQ(out[3], '\n');
+		TEST_ASSERT_EQ(echo[0], 'a');
+		TEST_ASSERT_EQ(echo[1], 'b');
+		TEST_ASSERT_EQ(echo[2], '\b');
+		TEST_ASSERT_EQ(echo[3], ' ');
+		TEST_ASSERT_EQ(echo[4], '\b');
+
+		TEST_ASSERT_EQ(console_tty_read_stream_for_test(
+				       &termios, "\004", 1, out, sizeof(out),
+				       echo, sizeof(echo), &signal),
+			       0);
+		TEST_ASSERT_EQ(signal, 0);
+
+		TEST_ASSERT_EQ(console_tty_read_stream_for_test(
+				       &termios, "\003", 1, out, sizeof(out),
+				       echo, sizeof(echo), &signal),
+			       -EINTR);
+		TEST_ASSERT_EQ(signal, 2);
+
+		TEST_ASSERT_EQ(console_tty_read_stream_for_test(
+				       &termios, "\032", 1, out, sizeof(out),
+				       echo, sizeof(echo), &signal),
+			       1);
+		TEST_ASSERT_EQ(signal, 0);
+		TEST_ASSERT_EQ(out[0], 26);
+	}
+	TEST_END("syscall compat: console tty line discipline");
+	return;
+fail:
+	TEST_FAIL("syscall compat: console tty line discipline", "see above");
 }
 
 void test_root_statfs_fields(void)

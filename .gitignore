@@ -4,6 +4,7 @@
 !include/
 !include/asm/
 !include/compiler/
+!include/uapi/
 !include/kernel/
 !drivers/
 !syscall/

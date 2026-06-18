@@ -233,6 +233,74 @@ static void test_rseq(void)
 		       -ENOSYS);
 }
 
+static void test_ioctl(void)
+{
+	struct termios tio;
+	struct termios original;
+	struct termios updated;
+	struct winsize ws;
+	struct winsize original_ws;
+	int fd;
+
+	expect_eq_long("ioctl bad fd",
+		       ioctl(1234, TCGETS, 0), -EBADF);
+
+	fd = open("/", O_RDONLY | O_DIRECTORY);
+	expect_true("ioctl open root dir", fd >= 0);
+	if (fd >= 0) {
+		expect_eq_long("ioctl directory tcgets",
+			       ioctl(fd, TCGETS, 0), -ENOTTY);
+		close(fd);
+	}
+
+	memset(&tio, 0, sizeof(tio));
+	expect_eq_long("ioctl stdio tcgets", ioctl(0, TCGETS, (long)&tio), 0);
+	original = tio;
+	expect_true("ioctl tcgets has speed flags",
+		    (tio.c_cflag & (B38400 | CS8 | CREAD)) ==
+			    (B38400 | CS8 | CREAD));
+	expect_true("ioctl tcgets has local flags",
+		    (tio.c_lflag & (ICANON | ECHO | ISIG)) ==
+			    (ICANON | ECHO | ISIG));
+	expect_eq_long("ioctl tcgets has vsusp disabled", tio.c_cc[VSUSP], 0);
+	expect_eq_long("ioctl tcgets null", ioctl(0, TCGETS, 0), -EFAULT);
+
+	updated = tio;
+	updated.c_lflag &= ~ECHO;
+	expect_eq_long("ioctl stdio tcsets", ioctl(0, TCSETS, (long)&updated),
+		       0);
+	memset(&tio, 0, sizeof(tio));
+	expect_eq_long("ioctl tcgets after tcsets",
+		       ioctl(0, TCGETS, (long)&tio), 0);
+	expect_true("ioctl tcsets persists echo off", (tio.c_lflag & ECHO) == 0);
+	expect_eq_long("ioctl tcsetsw", ioctl(0, TCSETSW, (long)&tio), 0);
+	expect_eq_long("ioctl tcsetsf", ioctl(0, TCSETSF, (long)&tio), 0);
+	expect_eq_long("ioctl tcsets null", ioctl(0, TCSETS, 0), -EFAULT);
+	expect_eq_long("ioctl restore termios",
+		       ioctl(0, TCSETS, (long)&original), 0);
+
+	memset(&ws, 0, sizeof(ws));
+	expect_eq_long("ioctl tiocgwinsz", ioctl(0, TIOCGWINSZ, (long)&ws), 0);
+	original_ws = ws;
+	expect_true("ioctl winsize default", ws.ws_row > 0 && ws.ws_col > 0);
+	ws.ws_row = 40;
+	ws.ws_col = 100;
+	ws.ws_xpixel = 0;
+	ws.ws_ypixel = 0;
+	expect_eq_long("ioctl tiocswinsz", ioctl(0, TIOCSWINSZ, (long)&ws), 0);
+	memset(&ws, 0, sizeof(ws));
+	expect_eq_long("ioctl tiocgwinsz after set",
+		       ioctl(0, TIOCGWINSZ, (long)&ws), 0);
+	expect_eq_long("ioctl winsize row", ws.ws_row, 40);
+	expect_eq_long("ioctl winsize col", ws.ws_col, 100);
+	expect_eq_long("ioctl tiocgwinsz null", ioctl(0, TIOCGWINSZ, 0),
+		       -EFAULT);
+	expect_eq_long("ioctl restore winsize",
+		       ioctl(0, TIOCSWINSZ, (long)&original_ws), 0);
+	expect_eq_long("ioctl stdio unknown", ioctl(0, 0xdeadbeef, 0),
+		       -ENOTTY);
+}
+
 int main(void)
 {
 	test_nanosleep();
@@ -241,6 +309,7 @@ int main(void)
 	test_statfs64();
 	test_ppoll();
 	test_rseq();
+	test_ioctl();
 
 	if (failures) {
 		printf("syscall-compat-test: %d failures\n", failures);

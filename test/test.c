@@ -131,6 +131,8 @@ void kernel_test(void)
 	TEST_SECTION("Syscall Compat");
 	test_rlimit_defaults();
 	test_vfs_default_poll_masks();
+	test_vfs_default_ioctl_enotty();
+	test_console_tty_line_discipline();
 	test_root_statfs_fields();
 
 	/* ---- Sched ---- */

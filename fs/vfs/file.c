@@ -2,29 +2,20 @@
  * fs/vfs/file.c - Stage 4 最小 file/fd 层
  */
 
+#include <drivers/console.h>
 #include <kernel/fdtable.h>
-#include <kernel/task.h>
 #include <kernel/slab.h>
 #include <kernel/stat.h>
 #include <kernel/statfs.h>
 #include <kernel/blkdev.h>
 #include <kernel/string.h>
 #include <kernel/errno.h>
+#include <kernel/task.h>
 #include <kernel/vfs.h>
-#include <drivers/uart.h>
 
-static ssize_t console_read(struct file *file, char *buf, size_t count);
-static ssize_t console_write(struct file *file, const char *buf, size_t count);
-static uint32_t console_poll(struct file *file, uint32_t events);
 static ssize_t null_read(struct file *file, char *buf, size_t count);
 static ssize_t null_write(struct file *file, const char *buf, size_t count);
 static uint32_t null_poll(struct file *file, uint32_t events);
-
-static const struct file_operations console_fops = {
-	.read = console_read,
-	.write = console_write,
-	.poll = console_poll,
-};
 
 static const struct file_operations null_fops = {
 	.read = null_read,
@@ -120,6 +111,16 @@ uint32_t vfs_poll(struct file *file, uint32_t events)
 	if ((events & POLLOUT) && (file->f_mode & FMODE_WRITE))
 		mask |= POLLOUT;
 	return mask;
+}
+
+int vfs_ioctl(struct file *file, uint64_t cmd, uint64_t arg)
+{
+	if (!file)
+		return -EINVAL;
+	if (!file->f_op || !file->f_op->ioctl)
+		return -ENOTTY;
+
+	return file->f_op->ioctl(file, cmd, arg);
 }
 
 static struct file console_stdin = {
@@ -538,37 +539,6 @@ void close_files(struct task_struct *task)
 
 	files_put(task->files);
 	task->files = NULL;
-}
-
-static ssize_t console_read(struct file *file, char *buf, size_t count)
-{
-	(void)file;
-
-	for (size_t i = 0; i < count; i++)
-		buf[i] = (char)uart_getc();
-
-	return (ssize_t)count;
-}
-
-static ssize_t console_write(struct file *file, const char *buf, size_t count)
-{
-	(void)file;
-
-	for (size_t i = 0; i < count; i++)
-		uart_putc(buf[i]);
-
-	return (ssize_t)count;
-}
-
-static uint32_t console_poll(struct file *file, uint32_t events)
-{
-	uint32_t mask = 0;
-
-	if ((events & POLLIN) && (file->f_mode & FMODE_READ))
-		mask |= POLLIN;
-	if ((events & POLLOUT) && (file->f_mode & FMODE_WRITE))
-		mask |= POLLOUT;
-	return mask;
 }
 
 static ssize_t null_read(struct file *file, char *buf, size_t count)

@@ -29,11 +29,6 @@ static int is_space(char ch)
 	return ch == ' ' || ch == '\t';
 }
 
-static int is_printable(char ch)
-{
-	return ch >= ' ' && ch <= '~';
-}
-
 static int read_line(char *line, int size)
 {
 	int len = 0;
@@ -44,30 +39,18 @@ static int read_line(char *line, int size)
 
 		if (n < 0)
 			return (int)n;
-		if (n == 0)
-			continue;
+		if (n == 0) {
+			line[0] = '\0';
+			return 0;
+		}
 
-		if (ch == '\r' || ch == '\n') {
-			printf("\n");
+		if (ch == '\n') {
 			line[len] = '\0';
 			return len;
 		}
 
-		if (ch == '\b' || ch == 0x7f) {
-			if (len > 0) {
-				len--;
-				printf("\b \b");
-			}
-			continue;
-		}
-
-		if (!is_printable(ch))
-			continue;
-
-		if (len + 1 < size) {
+		if (len + 1 < size)
 			line[len++] = ch;
-			write(1, &ch, 1);
-		}
 	}
 }
 
@@ -150,11 +133,17 @@ static void exec_child(char **argv)
 {
 	char path[64];
 	char *envp[] = {"PATH=/bin", 0};
+	struct sigaction dfl;
 
 	if (build_path(path, sizeof(path), argv[0]) < 0) {
 		printf("command path too long\n");
 		exit(127);
 	}
+
+	memset(&dfl, 0, sizeof(dfl));
+	dfl.sa_handler = SIG_DFL;
+	sigaction(SIGINT, &dfl, NULL);
+	sigaction(SIGQUIT, &dfl, NULL);
 
 	long ret = execve(path, argv, envp);
 
@@ -429,9 +418,16 @@ static void run_command(int argc, char **argv)
 
 int main(int argc, char **argv, char **envp)
 {
+	struct sigaction ign;
+
 	(void)argc;
 	(void)argv;
 	(void)envp;
+
+	memset(&ign, 0, sizeof(ign));
+	ign.sa_handler = SIG_IGN;
+	sigaction(SIGINT, &ign, NULL);
+	sigaction(SIGQUIT, &ign, NULL);
 
 	printf("CuteOS shell\n");
 
@@ -443,6 +439,8 @@ int main(int argc, char **argv, char **envp)
 
 		print_prompt();
 		n = read_line(line, sizeof(line));
+		if (n == -EINTR)
+			continue;
 		if (n < 0) {
 			printf("read failed, ret=%ld\n", (long)n);
 			continue;

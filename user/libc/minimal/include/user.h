@@ -13,12 +13,15 @@
 #ifndef _USER_H
 #define _USER_H
 
+#include <uapi/tty.h>
+
 typedef unsigned long size_t;
 
 /* Linux riscv64 系统调用号 */
 #define SYS_getcwd	   17
 #define SYS_dup		   23
 #define SYS_dup3	   24
+#define SYS_ioctl	   29
 #define SYS_mkdirat	   34
 #define SYS_unlinkat	   35
 #define SYS_chdir	   49
@@ -151,6 +154,7 @@ typedef unsigned long size_t;
 #define ENOTDIR 20
 #define EISDIR	21
 #define EINVAL	22
+#define ENOTTY	25
 #define EAGAIN	11
 #define EFAULT	14
 #define EBADF	9
@@ -525,6 +529,11 @@ static inline long open(const char *path, int flags)
 static inline long close(int fd)
 {
 	return syscall(SYS_close, fd);
+}
+
+static inline long ioctl(int fd, unsigned long cmd, unsigned long arg)
+{
+	return syscall(SYS_ioctl, fd, cmd, arg);
 }
 
 static inline long faccessat(int dfd, const char *path, int mode, int flags)

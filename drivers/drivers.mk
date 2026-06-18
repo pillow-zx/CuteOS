@@ -1,4 +1,5 @@
 # drivers/drivers.mk — 字符设备驱动
 
 DRIVER_OBJS = \
-	drivers/uart.o
+	drivers/uart.o \
+	drivers/console.o
