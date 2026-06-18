@@ -59,6 +59,7 @@ struct robust_list_head;
 #define TASK_ZOMBIE   2 /* 已退出，等待父进程回收 */
 #define TASK_DEAD     3 /* 已被回收 */
 #define TASK_STOPPED  4 /* 被 SIGSTOP 暂停 */
+#define TASK_INTERRUPTIBLE 5 /* 等待事件，可被未屏蔽信号打断 */
 
 /* ---- 内核栈常量 ---- */
 

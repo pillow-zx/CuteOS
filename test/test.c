@@ -125,6 +125,13 @@ void kernel_test(void)
 	test_fs_struct_copy_and_share();
 	test_sighand_struct_copy_and_share();
 	test_signal_struct_pending();
+	test_signal_struct_rlimits_copy();
+
+	/* ---- Syscall Compat Helpers ---- */
+	TEST_SECTION("Syscall Compat");
+	test_rlimit_defaults();
+	test_vfs_default_poll_masks();
+	test_root_statfs_fields();
 
 	/* ---- Sched ---- */
 	TEST_SECTION("Sched");

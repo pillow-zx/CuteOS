@@ -6,6 +6,7 @@
 #include <kernel/task.h>
 #include <kernel/slab.h>
 #include <kernel/stat.h>
+#include <kernel/statfs.h>
 #include <kernel/blkdev.h>
 #include <kernel/string.h>
 #include <kernel/errno.h>
@@ -14,17 +15,21 @@
 
 static ssize_t console_read(struct file *file, char *buf, size_t count);
 static ssize_t console_write(struct file *file, const char *buf, size_t count);
+static uint32_t console_poll(struct file *file, uint32_t events);
 static ssize_t null_read(struct file *file, char *buf, size_t count);
 static ssize_t null_write(struct file *file, const char *buf, size_t count);
+static uint32_t null_poll(struct file *file, uint32_t events);
 
 static const struct file_operations console_fops = {
 	.read = console_read,
 	.write = console_write,
+	.poll = console_poll,
 };
 
 static const struct file_operations null_fops = {
 	.read = null_read,
 	.write = null_write,
+	.poll = null_poll,
 };
 
 int vfs_inode_permission(struct inode *inode, uint32_t mask)
@@ -89,6 +94,32 @@ int vfs_stat_file(struct file *file, struct kstat *st)
 		return -EINVAL;
 
 	return vfs_stat_inode(file->f_inode, st);
+}
+
+int vfs_statfs(struct super_block *sb, struct kstatfs *buf)
+{
+	if (!sb || !buf)
+		return -EINVAL;
+	if (!sb->s_op || !sb->s_op->statfs)
+		return -ENOSYS;
+
+	return sb->s_op->statfs(sb, buf);
+}
+
+uint32_t vfs_poll(struct file *file, uint32_t events)
+{
+	uint32_t mask = 0;
+
+	if (!file)
+		return POLLNVAL;
+	if (file->f_op && file->f_op->poll)
+		return file->f_op->poll(file, events);
+
+	if ((events & POLLIN) && (file->f_mode & FMODE_READ))
+		mask |= POLLIN;
+	if ((events & POLLOUT) && (file->f_mode & FMODE_WRITE))
+		mask |= POLLOUT;
+	return mask;
 }
 
 static struct file console_stdin = {
@@ -529,6 +560,17 @@ static ssize_t console_write(struct file *file, const char *buf, size_t count)
 	return (ssize_t)count;
 }
 
+static uint32_t console_poll(struct file *file, uint32_t events)
+{
+	uint32_t mask = 0;
+
+	if ((events & POLLIN) && (file->f_mode & FMODE_READ))
+		mask |= POLLIN;
+	if ((events & POLLOUT) && (file->f_mode & FMODE_WRITE))
+		mask |= POLLOUT;
+	return mask;
+}
+
 static ssize_t null_read(struct file *file, char *buf, size_t count)
 {
 	(void)file;
@@ -544,4 +586,15 @@ static ssize_t null_write(struct file *file, const char *buf, size_t count)
 	(void)buf;
 
 	return (ssize_t)count;
+}
+
+static uint32_t null_poll(struct file *file, uint32_t events)
+{
+	uint32_t mask = 0;
+
+	if ((events & POLLIN) && (file->f_mode & FMODE_READ))
+		mask |= POLLIN;
+	if ((events & POLLOUT) && (file->f_mode & FMODE_WRITE))
+		mask |= POLLOUT;
+	return mask;
 }

@@ -16,6 +16,8 @@
  */
 
 #include <kernel/timer.h>
+#include <kernel/errno.h>
+#include <kernel/signal.h>
 #include <kernel/sched.h>
 #include <kernel/sync.h>
 #include <kernel/task.h>
@@ -116,13 +118,57 @@ void timer_run_expired(uint64_t now)
 		wait->active = false;
 		wait->fired = true;
 
-		if (wait->task && wait->task->state == TASK_SLEEPING) {
+		if (wait->task &&
+		    (wait->task->state == TASK_SLEEPING ||
+		     wait->task->state == TASK_INTERRUPTIBLE)) {
 			wait->task->state = TASK_RUNNING;
 			if (wait->task != current)
 				sched_wakeup(wait->task);
 		}
 	}
 	spin_unlock_irqrestore(&timer_wait_queue.lock, flags);
+}
+
+int timer_sleep_until(uint64_t expires, bool interruptible)
+{
+	struct timer_wait wait;
+	bool local_timer_wait;
+	bool enabled_irq_for_sleep = false;
+
+	if (!current)
+		return -EINVAL;
+	if (interruptible && signal_pending(current))
+		return -EINTR;
+	if (expires <= get_mtime())
+		return 0;
+
+	local_timer_wait = !sched_has_runnable();
+	current->state = interruptible ? TASK_INTERRUPTIBLE : TASK_SLEEPING;
+	timer_wait_init(&wait, current, expires);
+	timer_wait_start(&wait);
+
+	if (irqs_disabled()) {
+		csr_set(sstatus, SSTATUS_SIE);
+		enabled_irq_for_sleep = true;
+	}
+	if (local_timer_wait) {
+		while (!timer_wait_fired(&wait) &&
+		       !(interruptible && signal_pending(current)))
+			wfi();
+	} else {
+		schedule();
+	}
+	if (enabled_irq_for_sleep)
+		csr_clear(sstatus, SSTATUS_SIE);
+
+	timer_wait_cancel(&wait);
+	if (current->state == TASK_SLEEPING ||
+	    current->state == TASK_INTERRUPTIBLE)
+		current->state = TASK_RUNNING;
+
+	if (interruptible && signal_pending(current))
+		return -EINTR;
+	return 0;
 }
 
 /*

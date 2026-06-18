@@ -12,6 +12,7 @@ TEST_OBJS = \
 	test/sched_test.o \
 	test/slab_test.o \
 	test/sync_test.o \
+	test/syscall_compat_test.o \
 	test/task_test.o \
 	test/timer_test.o \
 	test/trap_test.o \

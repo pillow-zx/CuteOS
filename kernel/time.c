@@ -66,6 +66,34 @@ static void mtime_to_timespec(uint64_t ticks, struct sys_timespec *ts)
 	ts->tv_nsec = (int64_t)nsec_from_mtime_remainder(rem);
 }
 
+static int timespec_to_mtime_delta(const struct sys_timespec *ts,
+				   uint64_t *delta)
+{
+	uint64_t sec_ticks;
+	uint64_t nsec_ticks;
+
+	if (!ts || !delta)
+		return -EINVAL;
+	if (ts->tv_sec < 0 || ts->tv_nsec < 0 ||
+	    ts->tv_nsec >= 1000000000LL)
+		return -EINVAL;
+
+	if ((uint64_t)ts->tv_sec > UINT64_MAX / MTIME_FREQ)
+		sec_ticks = UINT64_MAX;
+	else
+		sec_ticks = (uint64_t)ts->tv_sec * MTIME_FREQ;
+
+	nsec_ticks =
+		((uint64_t)ts->tv_nsec * MTIME_FREQ + 999999999ULL) /
+		1000000000ULL;
+	if (nsec_ticks > UINT64_MAX - sec_ticks)
+		*delta = UINT64_MAX;
+	else
+		*delta = sec_ticks + nsec_ticks;
+
+	return 0;
+}
+
 ssize_t sys_times(struct trap_frame *tf)
 {
 	struct sys_tms *utms = (struct sys_tms *)tf->a0;
@@ -153,12 +181,41 @@ ssize_t sys_clock_getres(struct trap_frame *tf)
 
 ssize_t sys_nanosleep(struct trap_frame *tf)
 {
-	(void)tf;
-	/*
-	 * TODO(time): 需要基于 timer 的睡眠队列和超时唤醒，再实现
-	 * nanosleep/remain 语义。
-	 */
-	return -ENOSYS;
+	const struct sys_timespec *ureq = (const struct sys_timespec *)tf->a0;
+	struct sys_timespec *urem = (struct sys_timespec *)tf->a1;
+	struct sys_timespec req;
+	uint64_t now;
+	uint64_t deadline;
+	uint64_t delta;
+	int ret;
+
+	if (!ureq)
+		return -EFAULT;
+	if (copy_from_user(&req, ureq, sizeof(req)) != 0)
+		return -EFAULT;
+
+	ret = timespec_to_mtime_delta(&req, &delta);
+	if (ret < 0)
+		return ret;
+
+	now = get_mtime();
+	if (delta > UINT64_MAX - now)
+		deadline = UINT64_MAX;
+	else
+		deadline = now + delta;
+
+	ret = timer_sleep_until(deadline, true);
+	if (ret == -EINTR && urem) {
+		struct sys_timespec rem = {0};
+		uint64_t after = get_mtime();
+
+		if (deadline > after)
+			mtime_to_timespec(deadline - after, &rem);
+		if (copy_to_user(urem, &rem, sizeof(rem)) != 0)
+			return -EFAULT;
+	}
+
+	return ret;
 }
 
 ssize_t sys_getitimer(struct trap_frame *tf)

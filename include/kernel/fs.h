@@ -39,6 +39,7 @@ struct inode;
 struct dentry;
 struct super_block;
 struct kstat;
+struct kstatfs;
 
 #define VFS_NAME_MAX 255
 #define VFS_PATH_MAX 4096
@@ -65,6 +66,12 @@ struct kstat;
 #define AT_FDCWD     -100
 #define AT_REMOVEDIR 0x200
 
+#define POLLIN	 0x0001
+#define POLLOUT	 0x0004
+#define POLLERR	 0x0008
+#define POLLHUP	 0x0010
+#define POLLNVAL 0x0020
+
 #define DT_UNKNOWN 0
 #define DT_FIFO	   1
 #define DT_CHR	   2
@@ -82,6 +89,7 @@ struct super_operations {
 	int (*write_inode)(struct inode *inode);
 	void (*evict_inode)(struct inode *inode);
 	int (*sync_fs)(struct super_block *sb);
+	int (*statfs)(struct super_block *sb, struct kstatfs *buf);
 };
 
 struct inode_operations {
@@ -102,6 +110,7 @@ struct file_operations {
 	loff_t (*llseek)(struct file *file, loff_t offset, int whence);
 	int (*open)(struct inode *inode, struct file *file);
 	int (*readdir)(struct file *file, void *ctx, filldir_t filldir);
+	uint32_t (*poll)(struct file *file, uint32_t events);
 	int (*release)(struct file *file);
 };
 
@@ -176,6 +185,8 @@ int vfs_inode_writeback(struct inode *inode);
 int vfs_sync_file(struct file *file);
 int vfs_stat_inode(const struct inode *inode, struct kstat *st);
 int vfs_stat_file(struct file *file, struct kstat *st);
+int vfs_statfs(struct super_block *sb, struct kstatfs *buf);
+uint32_t vfs_poll(struct file *file, uint32_t events);
 uint64_t vfs_inode_size(const struct inode *inode);
 uint64_t vfs_inode_number(const struct inode *inode);
 uint32_t vfs_inode_mode(const struct inode *inode);

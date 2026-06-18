@@ -5,6 +5,7 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/slab.h>
+#include <kernel/statfs.h>
 #include <kernel/string.h>
 #include <kernel/vfs.h>
 
@@ -15,11 +16,13 @@
 static struct super_block *ext2_mount(struct file_system_type *fs_type,
 				      dev_t dev, void *data);
 static void ext2_evict_inode(struct inode *inode);
+static int ext2_statfs(struct super_block *sb, struct kstatfs *buf);
 
 static const struct super_operations ext2_sops = {
 	.read_inode = ext2_read_inode,
 	.write_inode = ext2_write_inode,
 	.evict_inode = ext2_evict_inode,
+	.statfs = ext2_statfs,
 };
 
 static struct file_system_type ext2_fs_type = {
@@ -52,6 +55,39 @@ static void ext2_free_super(struct super_block *sb)
 
 	ext2_free_sbi(EXT2_SB(sb));
 	kfree(sb);
+}
+
+static int ext2_statfs(struct super_block *sb, struct kstatfs *buf)
+{
+	struct ext2_sb_info *sbi;
+	uint64_t free_blocks = 0;
+	uint64_t free_inodes = 0;
+
+	if (!sb || !buf)
+		return -EINVAL;
+	sbi = EXT2_SB(sb);
+	if (!sbi)
+		return -EINVAL;
+
+	for (uint32_t i = 0; i < sbi->s_groups_count; i++) {
+		free_blocks += sbi->s_group_desc[i].bg_free_blocks_count;
+		free_inodes += sbi->s_group_desc[i].bg_free_inodes_count;
+	}
+
+	memset(buf, 0, sizeof(*buf));
+	buf->f_type = EXT2_SUPER_MAGIC;
+	buf->f_bsize = sb->s_blocksize;
+	buf->f_blocks = sbi->s_es.s_blocks_count;
+	buf->f_bfree = free_blocks;
+	buf->f_bavail = free_blocks;
+	buf->f_files = sbi->s_es.s_inodes_count;
+	buf->f_ffree = free_inodes;
+	buf->f_fsid[0] = (int32_t)sb->s_dev;
+	buf->f_fsid[1] = 0;
+	buf->f_namelen = EXT2_NAME_LEN;
+	buf->f_frsize = sb->s_blocksize;
+	buf->f_flags = sb->s_flags;
+	return 0;
 }
 
 static uint32_t div_round_up_u32(uint32_t value, uint32_t divisor)

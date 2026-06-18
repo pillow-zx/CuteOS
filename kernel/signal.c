@@ -33,6 +33,7 @@
 #include <kernel/errno.h>
 #include <kernel/exit.h>
 #include <kernel/buddy.h>
+#include <kernel/fs.h>
 #include <kernel/mm.h>
 #include <kernel/sched.h>
 #include <kernel/signal.h>
@@ -147,6 +148,7 @@ static struct signal_struct *signal_state_alloc(void)
 	memset(signal, 0, sizeof(*signal));
 	signal->refcount = 1;
 	mutex_init(&signal->lock);
+	rlimits_init(signal->rlimits);
 	return signal;
 }
 
@@ -236,6 +238,12 @@ int signals_clone(struct task_struct *child, bool share_sighand,
 			sighand_put(sighand);
 			return -ENOMEM;
 		}
+		if (current && current->signal) {
+			mutex_lock(&current->signal->lock);
+			memcpy(signal->rlimits, current->signal->rlimits,
+			       sizeof(signal->rlimits));
+			mutex_unlock(&current->signal->lock);
+		}
 	}
 
 	signals_release(child);
@@ -252,10 +260,36 @@ struct task_struct *find_task_by_pid(pid_t pid)
 	return task_find_thread(pid);
 }
 
+bool signal_pending(struct task_struct *task)
+{
+	uint64_t pending;
+	uint64_t blocked;
+
+	if (!task)
+		return false;
+
+	pending = task->pending;
+	if (task->signal) {
+		mutex_lock(&task->signal->lock);
+		pending |= task->signal->shared_pending;
+		mutex_unlock(&task->signal->lock);
+	}
+	blocked = task->blocked & ~unblockable_mask();
+	return (pending & ~blocked) != 0;
+}
+
 static void wake_signal_target(struct task_struct *task, int sig)
 {
 	if (!task)
 		return;
+
+	if (task->state == TASK_INTERRUPTIBLE &&
+	    ((signal_mask(sig) & ~task->blocked) || !signal_is_catchable(sig))) {
+		task->state = TASK_RUNNING;
+		if (task != current)
+			sched_wakeup(task);
+		return;
+	}
 
 	if (sig == SIGKILL || sig == SIGCONT) {
 		if (task->state == TASK_STOPPED ||

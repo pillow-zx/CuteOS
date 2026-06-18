@@ -51,15 +51,18 @@ struct pipe_buffer {
 
 static ssize_t pipe_read(struct file *file, char *buf, size_t count);
 static ssize_t pipe_write(struct file *file, const char *buf, size_t count);
+static uint32_t pipe_poll(struct file *file, uint32_t events);
 static int pipe_release(struct file *file);
 
 static const struct file_operations pipe_read_fops = {
 	.read = pipe_read,
+	.poll = pipe_poll,
 	.release = pipe_release,
 };
 
 static const struct file_operations pipe_write_fops = {
 	.write = pipe_write,
+	.poll = pipe_poll,
 	.release = pipe_release,
 };
 
@@ -185,6 +188,28 @@ static ssize_t pipe_write(struct file *file, const char *buf, size_t count)
 	}
 
 	return (ssize_t)done;
+}
+
+static uint32_t pipe_poll(struct file *file, uint32_t events)
+{
+	struct pipe_buffer *pipe = file->private_data;
+	uint32_t mask = 0;
+
+	if (!pipe)
+		return POLLERR;
+	if ((events & POLLIN) && (file->f_mode & FMODE_READ)) {
+		if (pipe->used > 0)
+			mask |= POLLIN;
+		if (pipe->writers == 0)
+			mask |= POLLHUP;
+	}
+	if ((events & POLLOUT) && (file->f_mode & FMODE_WRITE)) {
+		if (pipe->readers == 0)
+			mask |= POLLERR;
+		else if (pipe->used < PIPE_SIZE)
+			mask |= POLLOUT;
+	}
+	return mask;
 }
 
 static int pipe_release(struct file *file)

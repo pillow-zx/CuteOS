@@ -29,6 +29,7 @@
 
 #include <kernel/types.h>
 #include <kernel/sync.h>
+#include <kernel/resource.h>
 #include <asm/page.h>
 #include <asm/pte.h>
 #include <asm/trap.h>
@@ -90,6 +91,7 @@ struct signal_struct {
 	uint32_t refcount;
 	mutex_t lock;
 	uint64_t shared_pending;
+	struct rlimit64 rlimits[RLIM_NLIMITS];
 };
 
 /*
@@ -113,6 +115,7 @@ uint64_t signal_mask(int sig);
 int send_signal(int sig, struct task_struct *task);
 int send_group_signal(int sig, struct task_struct *leader);
 int force_signal(int sig, struct task_struct *task);
+bool signal_pending(struct task_struct *task);
 int signals_init(struct task_struct *task);
 int signals_clone(struct task_struct *child, bool share_sighand,
 		  bool share_signal);

@@ -44,27 +44,6 @@ ssize_t sys_mount(struct trap_frame *tf)
 	return -ENOSYS;
 }
 
-ssize_t sys_statfs64(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(vfs): 需要 super_block 统计字段和 statfs64 ABI 结构。 */
-	return -ENOSYS;
-}
-
-ssize_t sys_fstatfs64(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(vfs): 需要从 file->super_block 导出 statfs64 统计。 */
-	return -ENOSYS;
-}
-
-ssize_t sys_ppoll(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(poll): 需要 file poll 操作、超时睡眠和信号掩码切换。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 {
 	(void)tf;
@@ -121,13 +100,6 @@ ssize_t sys_madvise(struct trap_frame *tf)
 	return -ENOSYS;
 }
 
-ssize_t sys_prlimit64(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(resource): 需要进程资源限制表。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_renameat2(struct trap_frame *tf)
 {
 	(void)tf;
@@ -135,16 +107,13 @@ ssize_t sys_renameat2(struct trap_frame *tf)
 	return -ENOSYS;
 }
 
-ssize_t sys_getrandom(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(random): 需要熵源或确定性的内核 PRNG。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_rseq(struct trap_frame *tf)
 {
 	(void)tf;
-	/* TODO(thread): 需要 per-thread restartable sequence 状态。 */
+	/*
+	 * Compatibility policy: report rseq unsupported so libc falls back to
+	 * normal atomics. Returning success without full abort-on-preempt/signal
+	 * semantics would be more dangerous than an explicit -ENOSYS.
+	 */
 	return -ENOSYS;
 }

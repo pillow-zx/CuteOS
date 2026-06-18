@@ -43,10 +43,14 @@ typedef unsigned long size_t;
 #define SYS_fdatasync	   83
 #define SYS_ftruncate64	   46
 #define SYS_fallocate	   47
+#define SYS_statfs64	   43
+#define SYS_fstatfs64	   44
+#define SYS_ppoll	   73
 #define SYS_set_tid_addr   96
 #define SYS_futex	   98
 #define SYS_set_robust_list 99
 #define SYS_get_robust_list 100
+#define SYS_nanosleep	   101
 #define SYS_clock_gettime  113
 #define SYS_clock_getres   114
 #define SYS_yield	   124
@@ -78,6 +82,9 @@ typedef unsigned long size_t;
 #define SYS_execve	   221
 #define SYS_mmap	   222
 #define SYS_wait4	   260
+#define SYS_prlimit64	   261
+#define SYS_getrandom	   278
+#define SYS_rseq	   293
 
 #define AT_FDCWD	    -100
 #define AT_REMOVEDIR	    0x200
@@ -138,6 +145,7 @@ typedef unsigned long size_t;
 #define DT_SOCK	   12
 
 #define ENOENT	2
+#define EINTR	4
 #define EACCES	13
 #define EEXIST	17
 #define ENOTDIR 20
@@ -149,6 +157,27 @@ typedef unsigned long size_t;
 #define ENOSYS	38
 #define ELOOP	40
 #define ETIMEDOUT 110
+
+#define POLLIN	 0x0001
+#define POLLOUT	 0x0004
+#define POLLERR	 0x0008
+#define POLLHUP	 0x0010
+#define POLLNVAL 0x0020
+
+#define GRND_NONBLOCK 0x0001
+#define GRND_RANDOM   0x0002
+#define GRND_INSECURE 0x0004
+
+#define RLIM_INFINITY (~0UL)
+#define RLIMIT_CPU    0
+#define RLIMIT_FSIZE  1
+#define RLIMIT_DATA   2
+#define RLIMIT_STACK  3
+#define RLIMIT_CORE   4
+#define RLIMIT_RSS    5
+#define RLIMIT_NPROC  6
+#define RLIMIT_NOFILE 7
+#define RLIMIT_AS     9
 
 #define PROT_READ  0x1
 #define PROT_WRITE 0x2
@@ -194,6 +223,32 @@ struct timeval {
 struct timespec {
 	long tv_sec;
 	long tv_nsec;
+};
+
+struct pollfd {
+	int fd;
+	short events;
+	short revents;
+};
+
+struct statfs64 {
+	long f_type;
+	long f_bsize;
+	unsigned long f_blocks;
+	unsigned long f_bfree;
+	unsigned long f_bavail;
+	unsigned long f_files;
+	unsigned long f_ffree;
+	int f_fsid[2];
+	long f_namelen;
+	long f_frsize;
+	long f_flags;
+	long f_spare[4];
+};
+
+struct rlimit64 {
+	unsigned long rlim_cur;
+	unsigned long rlim_max;
 };
 
 struct robust_list {
@@ -555,6 +610,14 @@ static inline long pipe(int pipefd[2])
 	return syscall(SYS_pipe2, (long)pipefd, 0);
 }
 
+static inline long ppoll(struct pollfd *fds, size_t nfds,
+			 const struct timespec *timeout,
+			 const unsigned long *sigmask)
+{
+	return syscall(SYS_ppoll, (long)fds, nfds, (long)timeout,
+		       (long)sigmask, sizeof(unsigned long));
+}
+
 static inline void exit(int code)
 {
 	syscall(SYS_exit, code);
@@ -625,6 +688,11 @@ static inline long get_robust_list(long pid, struct robust_list_head **head,
 	return syscall(SYS_get_robust_list, pid, (long)head, (long)len);
 }
 
+static inline long nanosleep(const struct timespec *req, struct timespec *rem)
+{
+	return syscall(SYS_nanosleep, (long)req, (long)rem);
+}
+
 static inline long setuid(unsigned int uid)
 {
 	return syscall(SYS_setuid, uid);
@@ -658,6 +726,35 @@ static inline long umask(unsigned int mask)
 static inline long sysinfo(struct sysinfo *info)
 {
 	return syscall(SYS_sysinfo, (long)info);
+}
+
+static inline long getrandom(void *buf, size_t count, unsigned int flags)
+{
+	return syscall(SYS_getrandom, (long)buf, count, flags);
+}
+
+static inline long prlimit64(long pid, int resource,
+			     const struct rlimit64 *new_limit,
+			     struct rlimit64 *old_limit)
+{
+	return syscall(SYS_prlimit64, pid, resource, (long)new_limit,
+		       (long)old_limit);
+}
+
+static inline long statfs64(const char *path, struct statfs64 *buf)
+{
+	return syscall(SYS_statfs64, (long)path, (long)buf);
+}
+
+static inline long fstatfs64(int fd, struct statfs64 *buf)
+{
+	return syscall(SYS_fstatfs64, fd, (long)buf);
+}
+
+static inline long rseq(void *rseq_area, unsigned int rseq_len,
+			int flags, unsigned int sig)
+{
+	return syscall(SYS_rseq, (long)rseq_area, rseq_len, flags, sig);
 }
 
 static inline long yield(void)

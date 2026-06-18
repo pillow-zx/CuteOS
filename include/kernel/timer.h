@@ -64,6 +64,7 @@ void timer_wait_start(struct timer_wait *wait);
 bool timer_wait_cancel(struct timer_wait *wait);
 bool timer_wait_fired(const struct timer_wait *wait);
 void timer_run_expired(uint64_t now);
+int timer_sleep_until(uint64_t expires, bool interruptible);
 
 /**
  * timer_init - 设置首次时钟中断超时值

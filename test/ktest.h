@@ -103,6 +103,16 @@ void test_files_struct_copy_and_share(void);
 void test_fs_struct_copy_and_share(void);
 void test_sighand_struct_copy_and_share(void);
 void test_signal_struct_pending(void);
+void test_signal_struct_rlimits_copy(void);
+
+/* ================================================================
+ *  Syscall compatibility helper tests
+ * ================================================================
+ */
+
+void test_rlimit_defaults(void);
+void test_vfs_default_poll_masks(void);
+void test_root_statfs_fields(void);
 
 /* ================================================================
  *  Sched 调度器测试

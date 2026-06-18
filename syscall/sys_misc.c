@@ -6,15 +6,23 @@
  */
 
 #include <kernel/errno.h>
+#include <kernel/fs.h>
 #include <kernel/fs_struct.h>
 #include <kernel/mm.h>
+#include <kernel/resource.h>
 #include <kernel/string.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
+#include <kernel/timer.h>
 #include <asm/page.h>
 #include <asm/trap.h>
 
 #define UTS_FIELD_LEN 65
+
+#define GRND_NONBLOCK 0x0001
+#define GRND_RANDOM   0x0002
+#define GRND_INSECURE 0x0004
+#define GRND_VALID_FLAGS (GRND_NONBLOCK | GRND_RANDOM | GRND_INSECURE)
 
 struct sys_new_utsname {
 	char sysname[UTS_FIELD_LEN];
@@ -41,6 +49,19 @@ struct sys_sysinfo {
 	uint32_t mem_unit;
 	char _f[0];
 };
+
+void rlimits_init(struct rlimit64 rlimits[RLIM_NLIMITS])
+{
+	if (!rlimits)
+		return;
+
+	for (int i = 0; i < RLIM_NLIMITS; i++) {
+		rlimits[i].rlim_cur = RLIM_INFINITY;
+		rlimits[i].rlim_max = RLIM_INFINITY;
+	}
+	rlimits[RLIMIT_NOFILE].rlim_cur = NR_OPEN;
+	rlimits[RLIMIT_NOFILE].rlim_max = NR_OPEN;
+}
 
 static void uts_copy(char dst[UTS_FIELD_LEN], const char *src)
 {
@@ -162,4 +183,104 @@ ssize_t sys_sysinfo(struct trap_frame *tf)
 		return -EFAULT;
 
 	return 0;
+}
+
+ssize_t sys_prlimit64(struct trap_frame *tf)
+{
+	pid_t pid = (pid_t)tf->a0;
+	int resource = (int)tf->a1;
+	const struct rlimit64 *unew = (const struct rlimit64 *)tf->a2;
+	struct rlimit64 *uold = (struct rlimit64 *)tf->a3;
+	struct task_struct *task;
+	struct rlimit64 new_limit;
+
+	if (resource < 0 || resource >= RLIM_NLIMITS)
+		return -EINVAL;
+
+	if (pid == 0) {
+		task = current;
+	} else {
+		task = task_find_group_leader(pid);
+		if (!task)
+			return -ESRCH;
+		if (!current || task->tgid != current->tgid)
+			return -EPERM;
+	}
+	if (!task || !task->signal)
+		return -ESRCH;
+
+	if (unew) {
+		if (copy_from_user(&new_limit, unew, sizeof(new_limit)) != 0)
+			return -EFAULT;
+		if (new_limit.rlim_cur > new_limit.rlim_max)
+			return -EINVAL;
+	}
+
+	mutex_lock(&task->signal->lock);
+	if (uold) {
+		struct rlimit64 old = task->signal->rlimits[resource];
+
+		mutex_unlock(&task->signal->lock);
+		if (copy_to_user(uold, &old, sizeof(old)) != 0)
+			return -EFAULT;
+		mutex_lock(&task->signal->lock);
+	}
+	if (unew)
+		task->signal->rlimits[resource] = new_limit;
+	mutex_unlock(&task->signal->lock);
+
+	return 0;
+}
+
+static uint64_t random_state;
+
+static uint64_t random_next_u64(void)
+{
+	uint64_t x = random_state;
+
+	if (x == 0)
+		x = get_mtime() ^ ((uintptr_t)current << 17) ^
+		    0x9e3779b97f4a7c15ULL;
+
+	x ^= x << 13;
+	x ^= x >> 7;
+	x ^= x << 17;
+	random_state = x;
+	return x;
+}
+
+ssize_t sys_getrandom(struct trap_frame *tf)
+{
+	uint8_t *ubuf = (uint8_t *)tf->a0;
+	size_t count = (size_t)tf->a1;
+	uint32_t flags = (uint32_t)tf->a2;
+	uint8_t chunk[64];
+	size_t done = 0;
+
+	if (flags & ~GRND_VALID_FLAGS)
+		return -EINVAL;
+	if (count == 0)
+		return 0;
+	if (!ubuf)
+		return -EFAULT;
+
+	while (done < count) {
+		size_t n = count - done;
+
+		if (n > sizeof(chunk))
+			n = sizeof(chunk);
+		for (size_t i = 0; i < n; i++) {
+			if ((i & 7) == 0) {
+				uint64_t r = random_next_u64();
+
+				memcpy(chunk + i, &r,
+				       n - i < sizeof(r) ? n - i : sizeof(r));
+			}
+		}
+		if (copy_to_user(ubuf + done, chunk, n) != 0)
+			return done ? (ssize_t)done : -EFAULT;
+		done += n;
+	}
+
+	return (ssize_t)done;
 }

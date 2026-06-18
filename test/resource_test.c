@@ -225,3 +225,38 @@ cleanup:
 	if (parent)
 		task_free(parent);
 }
+
+void test_signal_struct_rlimits_copy(void)
+{
+	struct task_struct *saved = current;
+	struct task_struct *parent = NULL;
+	struct task_struct *child = NULL;
+
+	TEST_BEGIN("resources: signal rlimits copy");
+	{
+		parent = resource_test_task();
+		child = task_alloc();
+		TEST_ASSERT_NOT_NULL(parent);
+		TEST_ASSERT_NOT_NULL(child);
+
+		current = parent;
+		parent->signal->rlimits[RLIMIT_NOFILE].rlim_cur = 16;
+		parent->signal->rlimits[RLIMIT_NOFILE].rlim_max = 16;
+		TEST_ASSERT_EQ(signals_clone(child, false, false), 0);
+		TEST_ASSERT(parent->signal != child->signal);
+		TEST_ASSERT_EQ(child->signal->rlimits[RLIMIT_NOFILE].rlim_cur,
+			       (uint64_t)16);
+		TEST_ASSERT_EQ(child->signal->rlimits[RLIMIT_NOFILE].rlim_max,
+			       (uint64_t)16);
+	}
+	TEST_END("resources: signal rlimits copy");
+	goto cleanup;
+fail:
+	TEST_FAIL("resources: signal rlimits copy", "see above");
+cleanup:
+	current = saved;
+	if (child)
+		task_free(child);
+	if (parent)
+		task_free(parent);
+}
