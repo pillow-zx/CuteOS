@@ -28,6 +28,7 @@
  */
 
 #include <kernel/types.h>
+#include <kernel/refcount.h>
 #include <kernel/sync.h>
 #include <kernel/resource.h>
 #include <asm/page.h>
@@ -82,13 +83,13 @@ struct sigaction {
 };
 
 struct sighand_struct {
-	uint32_t refcount;
+	refcount_t refcount;
 	mutex_t lock;
 	struct sigaction sigactions[NSIG];
 };
 
 struct signal_struct {
-	uint32_t refcount;
+	refcount_t refcount;
 	mutex_t lock;
 	uint64_t shared_pending;
 	struct rlimit64 rlimits[RLIM_NLIMITS];

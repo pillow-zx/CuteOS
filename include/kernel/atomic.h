@@ -11,26 +11,17 @@ typedef struct {
 
 static __always_inline int atomic_read(const atomic_t *v)
 {
-	return v->counter;
+	return __atomic_load_n(&v->counter, __ATOMIC_SEQ_CST);
 }
 
 static __always_inline void atomic_set(atomic_t *v, int i)
 {
-	irq_flags_t flags = local_irq_save();
-
-	v->counter = i;
-	local_irq_restore(flags);
+	__atomic_store_n(&v->counter, i, __ATOMIC_SEQ_CST);
 }
 
 static __always_inline int atomic_add_return(atomic_t *v, int i)
 {
-	irq_flags_t flags = local_irq_save();
-	int ret;
-
-	v->counter += i;
-	ret = v->counter;
-	local_irq_restore(flags);
-	return ret;
+	return __atomic_add_fetch(&v->counter, i, __ATOMIC_SEQ_CST);
 }
 
 static __always_inline void atomic_add(atomic_t *v, int i)
@@ -61,6 +52,13 @@ static __always_inline void atomic_dec(atomic_t *v)
 static __always_inline bool atomic_dec_and_test(atomic_t *v)
 {
 	return atomic_dec_return(v) == 0;
+}
+
+static __always_inline int atomic_cmpxchg(atomic_t *v, int old, int new)
+{
+	__atomic_compare_exchange_n(&v->counter, &old, new, false,
+				    __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+	return old;
 }
 
 #endif

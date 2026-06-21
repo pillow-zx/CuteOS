@@ -5,6 +5,7 @@
  * include/kernel/fs_struct.h - 可共享的进程文件系统上下文
  */
 
+#include <kernel/refcount.h>
 #include <kernel/sync.h>
 #include <kernel/types.h>
 
@@ -12,7 +13,7 @@ struct task_struct;
 struct dentry;
 
 struct fs_struct {
-	uint32_t refcount;
+	refcount_t refcount;
 	mutex_t lock;
 	struct dentry *root;
 	struct dentry *cwd;

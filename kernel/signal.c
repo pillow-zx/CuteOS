@@ -100,7 +100,7 @@ static struct sighand_struct *sighand_alloc(void)
 		return NULL;
 
 	memset(sighand, 0, sizeof(*sighand));
-	sighand->refcount = 1;
+	refcount_set(&sighand->refcount, 1);
 	mutex_init(&sighand->lock);
 	return sighand;
 }
@@ -124,7 +124,7 @@ static struct sighand_struct *sighand_dup(struct sighand_struct *old)
 static void sighand_get(struct sighand_struct *sighand)
 {
 	if (sighand)
-		sighand->refcount++;
+		refcount_inc(&sighand->refcount);
 }
 
 static void sighand_put(struct sighand_struct *sighand)
@@ -132,9 +132,7 @@ static void sighand_put(struct sighand_struct *sighand)
 	if (!sighand)
 		return;
 
-	BUG_ON(sighand->refcount == 0);
-	sighand->refcount--;
-	if (sighand->refcount == 0)
+	if (refcount_dec_and_test(&sighand->refcount))
 		kfree(sighand);
 }
 
@@ -146,7 +144,7 @@ static struct signal_struct *signal_state_alloc(void)
 		return NULL;
 
 	memset(signal, 0, sizeof(*signal));
-	signal->refcount = 1;
+	refcount_set(&signal->refcount, 1);
 	mutex_init(&signal->lock);
 	rlimits_init(signal->rlimits);
 	return signal;
@@ -155,7 +153,7 @@ static struct signal_struct *signal_state_alloc(void)
 static void signal_state_get(struct signal_struct *signal)
 {
 	if (signal)
-		signal->refcount++;
+		refcount_inc(&signal->refcount);
 }
 
 static void signal_state_put(struct signal_struct *signal)
@@ -163,9 +161,7 @@ static void signal_state_put(struct signal_struct *signal)
 	if (!signal)
 		return;
 
-	BUG_ON(signal->refcount == 0);
-	signal->refcount--;
-	if (signal->refcount == 0)
+	if (refcount_dec_and_test(&signal->refcount))
 		kfree(signal);
 }
 

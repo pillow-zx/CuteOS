@@ -62,7 +62,7 @@ struct dentry *dentry_alloc(struct dentry *parent, const char *name,
 	memcpy(dentry->d_name, name, namelen);
 	dentry->d_name[namelen] = '\0';
 	dentry->d_namelen = (uint8_t)namelen;
-	dentry->d_refcount = 1;
+	refcount_set(&dentry->d_refcount, 1);
 	dentry->d_parent = parent ? parent : dentry;
 	dentry->d_sb = parent ? parent->d_sb : NULL;
 	INIT_LIST_HEAD(&dentry->d_hash);
@@ -113,7 +113,7 @@ void dcache_insert(struct dentry *dentry)
 void dget(struct dentry *dentry)
 {
 	if (dentry)
-		dentry->d_refcount++;
+		refcount_inc_allow_zero(&dentry->d_refcount);
 }
 
 void dput(struct dentry *dentry)
@@ -121,8 +121,7 @@ void dput(struct dentry *dentry)
 	if (!dentry)
 		return;
 
-	if (dentry->d_refcount > 0)
-		dentry->d_refcount--;
+	(void)refcount_dec_if_positive(&dentry->d_refcount);
 }
 
 struct inode *vfs_dentry_inode(struct dentry *dentry)

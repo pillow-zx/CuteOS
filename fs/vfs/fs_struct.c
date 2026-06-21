@@ -28,7 +28,7 @@ struct fs_struct *fs_alloc(void)
 		return NULL;
 
 	memset(fs, 0, sizeof(*fs));
-	fs->refcount = 1;
+	refcount_set(&fs->refcount, 1);
 	mutex_init(&fs->lock);
 	fs->umask = 0022;
 	fs_set_initial_root(fs);
@@ -69,7 +69,7 @@ struct fs_struct *fs_dup(struct fs_struct *old)
 void fs_get(struct fs_struct *fs)
 {
 	if (fs)
-		fs->refcount++;
+		refcount_inc(&fs->refcount);
 }
 
 void fs_put(struct fs_struct *fs)
@@ -77,9 +77,7 @@ void fs_put(struct fs_struct *fs)
 	if (!fs)
 		return;
 
-	BUG_ON(fs->refcount == 0);
-	fs->refcount--;
-	if (fs->refcount > 0)
+	if (!refcount_dec_and_test(&fs->refcount))
 		return;
 
 	if (fs->root)

@@ -6,12 +6,13 @@
  */
 
 #include <kernel/fs.h>
+#include <kernel/refcount.h>
 #include <kernel/sync.h>
 
 struct task_struct;
 
 struct files_struct {
-	uint32_t refcount;
+	refcount_t refcount;
 	mutex_t lock;
 	struct file *fd[NR_OPEN];
 };

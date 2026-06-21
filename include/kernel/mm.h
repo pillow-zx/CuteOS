@@ -14,6 +14,7 @@
  */
 
 #include <kernel/sync.h>
+#include <kernel/refcount.h>
 #include <kernel/types.h>
 #include <asm/pte.h>
 
@@ -49,7 +50,7 @@ struct vm_area_struct {
 /* ---- mm_struct - 进程地址空间描述符 ---- */
 
 struct mm_struct {
-	uint32_t refcount;		   /* 共享地址空间引用计数 */
+	refcount_t refcount;		   /* 共享地址空间引用计数 */
 	mutex_t mmap_lock;		   /* 保护 VMA 与用户页表结构 */
 	pte_t *pgd;			   /* 用户页表根（PGD 页虚拟地址） */
 	uintptr_t brk;			   /* 当前堆顶 */

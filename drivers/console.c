@@ -18,12 +18,6 @@
 #define TTY_INPUT_EOF	    2
 #define TTY_INPUT_SIGNAL   3
 
-struct console_emit_buffer {
-	char *data;
-	size_t len;
-	size_t cap;
-};
-
 typedef void (*console_emit_fn)(char ch, void *ctx);
 
 static ssize_t console_read(struct file *file, char *buf, size_t count);
@@ -77,15 +71,6 @@ static void console_uart_emit(char ch, void *ctx)
 {
 	(void)ctx;
 	uart_putc(ch);
-}
-
-static void console_buffer_emit(char ch, void *ctx)
-{
-	struct console_emit_buffer *buf = ctx;
-
-	if (buf->len < buf->cap)
-		buf->data[buf->len] = ch;
-	buf->len++;
 }
 
 static void console_emit_output(const struct termios *termios, char ch,
@@ -312,6 +297,21 @@ static ssize_t console_write(struct file *file, const char *buf, size_t count)
 }
 
 #ifdef CONFIG_KERNEL_TEST
+struct console_emit_buffer {
+	char *data;
+	size_t len;
+	size_t cap;
+};
+
+static void console_buffer_emit(char ch, void *ctx)
+{
+	struct console_emit_buffer *buf = ctx;
+
+	if (buf->len < buf->cap)
+		buf->data[buf->len] = ch;
+	buf->len++;
+}
+
 ssize_t console_tty_write_for_test(const struct termios *termios,
 				   const char *input, size_t input_len,
 				   char *out, size_t out_size)

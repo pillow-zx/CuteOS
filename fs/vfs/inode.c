@@ -52,7 +52,7 @@ struct inode *inode_alloc(struct super_block *sb, uint64_t ino)
 	memset(inode, 0, sizeof(*inode));
 	inode->i_ino = ino;
 	inode->i_sb = sb;
-	inode->i_refcount = 1;
+	refcount_set(&inode->i_refcount, 1);
 	INIT_LIST_HEAD(&inode->i_hash);
 	INIT_LIST_HEAD(&inode->i_sb_list);
 
@@ -106,7 +106,7 @@ struct inode *iget(struct super_block *sb, uint64_t ino)
 void igrab(struct inode *inode)
 {
 	if (inode)
-		inode->i_refcount++;
+		refcount_inc_allow_zero(&inode->i_refcount);
 }
 
 void iput(struct inode *inode)
@@ -114,10 +114,7 @@ void iput(struct inode *inode)
 	if (!inode)
 		return;
 
-	if (inode->i_refcount == 0)
-		return;
-
-	inode->i_refcount--;
+	(void)refcount_dec_if_positive(&inode->i_refcount);
 }
 
 int vfs_inode_writeback(struct inode *inode)

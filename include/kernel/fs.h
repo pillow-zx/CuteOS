@@ -30,6 +30,7 @@
  */
 
 #include <kernel/list.h>
+#include <kernel/refcount.h>
 #include <kernel/types.h>
 
 struct task_struct;
@@ -141,7 +142,7 @@ struct inode {
 	uint32_t i_nlink;
 	uint64_t i_size;
 	dev_t i_rdev;
-	int i_refcount;
+	refcount_t i_refcount;
 	struct super_block *i_sb;
 	const struct inode_operations *i_op;
 	const struct file_operations *i_fop;
@@ -153,7 +154,7 @@ struct inode {
 struct dentry {
 	char d_name[VFS_NAME_MAX + 1];
 	uint8_t d_namelen;
-	int d_refcount;
+	refcount_t d_refcount;
 	struct inode *d_inode;
 	struct dentry *d_parent;
 	struct super_block *d_sb;
@@ -171,7 +172,7 @@ struct file {
 	loff_t f_pos;
 	uint32_t f_flags;
 	uint32_t f_mode;
-	int refcount;
+	refcount_t refcount;
 	bool static_file;
 };
 

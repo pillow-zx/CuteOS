@@ -1,5 +1,6 @@
 #include <kernel/atomic.h>
 #include <kernel/exit.h>
+#include <kernel/refcount.h>
 #include <kernel/sched.h>
 #include <kernel/sync.h>
 #include <kernel/task.h>
@@ -23,6 +24,27 @@ void test_atomic_basic(void)
 		TEST_ASSERT_EQ(atomic_read(&value), 1);
 		TEST_ASSERT(atomic_dec_and_test(&value));
 		TEST_ASSERT_EQ(atomic_read(&value), 0);
+		TEST_ASSERT_EQ(atomic_cmpxchg(&value, 0, 9), 0);
+		TEST_ASSERT_EQ(atomic_read(&value), 9);
+		TEST_ASSERT_EQ(atomic_cmpxchg(&value, 0, 1), 9);
+		TEST_ASSERT_EQ(atomic_read(&value), 9);
+
+		refcount_t refs = REFCOUNT_INIT(1);
+		TEST_ASSERT_EQ(refcount_read(&refs), 1);
+		refcount_inc(&refs);
+		TEST_ASSERT_EQ(refcount_read(&refs), 2);
+		TEST_ASSERT(!refcount_dec_and_test(&refs));
+		TEST_ASSERT(refcount_dec_and_test(&refs));
+		TEST_ASSERT_EQ(refcount_read(&refs), 0);
+		TEST_ASSERT(!refcount_inc_not_zero(&refs));
+		TEST_ASSERT(!refcount_dec_if_positive(&refs));
+		refcount_inc_allow_zero(&refs);
+		TEST_ASSERT_EQ(refcount_read(&refs), 1);
+		TEST_ASSERT(refcount_inc_not_zero(&refs));
+		TEST_ASSERT_EQ(refcount_read(&refs), 2);
+		TEST_ASSERT(!refcount_dec_if_positive(&refs));
+		TEST_ASSERT(refcount_dec_if_positive(&refs));
+		TEST_ASSERT_EQ(refcount_read(&refs), 0);
 	}
 	TEST_END("sync: atomic basic");
 	return;

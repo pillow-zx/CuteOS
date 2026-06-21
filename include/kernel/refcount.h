@@ -1,0 +1,93 @@
+#ifndef _CUTEOS_KERNEL_REFCOUNT_H
+#define _CUTEOS_KERNEL_REFCOUNT_H
+
+#include <kernel/atomic.h>
+#include <kernel/printk.h>
+
+#define REFCOUNT_MAX INT32_MAX
+
+typedef struct {
+	atomic_t refs;
+} refcount_t;
+
+#define REFCOUNT_INIT(n) { .refs = ATOMIC_INIT(n) }
+
+static __always_inline void refcount_set(refcount_t *ref, int value)
+{
+	BUG_ON(!ref);
+	BUG_ON(value < 0);
+	atomic_set(&ref->refs, value);
+}
+
+static __always_inline int refcount_read(const refcount_t *ref)
+{
+	BUG_ON(!ref);
+	return atomic_read(&ref->refs);
+}
+
+static __always_inline bool refcount_inc_not_zero(refcount_t *ref)
+{
+	int old;
+
+	BUG_ON(!ref);
+	do {
+		old = refcount_read(ref);
+		if (old == 0)
+			return false;
+		BUG_ON(old < 0);
+		BUG_ON(old == REFCOUNT_MAX);
+	} while (atomic_cmpxchg(&ref->refs, old, old + 1) != old);
+
+	return true;
+}
+
+static __always_inline void refcount_inc(refcount_t *ref)
+{
+	BUG_ON(!refcount_inc_not_zero(ref));
+}
+
+/*
+ * Only for immortal cache entries whose zero count does not imply object
+ * destruction, such as inode/dentry cache records.
+ */
+static __always_inline void refcount_inc_allow_zero(refcount_t *ref)
+{
+	int old;
+
+	BUG_ON(!ref);
+	do {
+		old = refcount_read(ref);
+		BUG_ON(old < 0);
+		BUG_ON(old == REFCOUNT_MAX);
+	} while (atomic_cmpxchg(&ref->refs, old, old + 1) != old);
+}
+
+static __always_inline bool refcount_dec_and_test(refcount_t *ref)
+{
+	int old;
+
+	BUG_ON(!ref);
+	do {
+		old = refcount_read(ref);
+		BUG_ON(old <= 0);
+	} while (atomic_cmpxchg(&ref->refs, old, old - 1) != old);
+
+	return old == 1;
+}
+
+static __always_inline bool refcount_dec_if_positive(refcount_t *ref)
+{
+	int old;
+
+	BUG_ON(!ref);
+	do {
+		old = refcount_read(ref);
+		BUG_ON(old < 0);
+		if (old == 0)
+			return false;
+	} while (atomic_cmpxchg(&ref->refs, old, old - 1) != old);
+
+	return old == 1;
+}
+
+#endif

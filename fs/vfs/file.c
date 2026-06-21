@@ -126,21 +126,21 @@ int vfs_ioctl(struct file *file, uint64_t cmd, uint64_t arg)
 static struct file console_stdin = {
 	.f_op = &console_fops,
 	.f_mode = FMODE_READ,
-	.refcount = 1,
+	.refcount = REFCOUNT_INIT(1),
 	.static_file = true,
 };
 
 static struct file console_stdout = {
 	.f_op = &console_fops,
 	.f_mode = FMODE_WRITE,
-	.refcount = 1,
+	.refcount = REFCOUNT_INIT(1),
 	.static_file = true,
 };
 
 static struct file console_stderr = {
 	.f_op = &console_fops,
 	.f_mode = FMODE_WRITE,
-	.refcount = 1,
+	.refcount = REFCOUNT_INIT(1),
 	.static_file = true,
 };
 
@@ -155,7 +155,7 @@ struct file *file_alloc(const struct file_operations *f_op, uint32_t mode,
 	file->f_op = f_op;
 	file->f_mode = mode;
 	file->private_data = private_data;
-	file->refcount = 1;
+	refcount_set(&file->refcount, 1);
 
 	return file;
 }
@@ -283,7 +283,7 @@ int vfs_open(const char *path, uint32_t flags, uint32_t mode)
 void file_get(struct file *file)
 {
 	if (file && !file->static_file)
-		file->refcount++;
+		refcount_inc(&file->refcount);
 }
 
 void file_put(struct file *file)
@@ -291,8 +291,7 @@ void file_put(struct file *file)
 	if (!file || file->static_file)
 		return;
 
-	file->refcount--;
-	if (file->refcount > 0)
+	if (!refcount_dec_and_test(&file->refcount))
 		return;
 
 	if (file->f_op && file->f_op->release)
@@ -311,7 +310,7 @@ struct files_struct *files_alloc(void)
 		return NULL;
 
 	memset(files, 0, sizeof(*files));
-	files->refcount = 1;
+	refcount_set(&files->refcount, 1);
 	mutex_init(&files->lock);
 	return files;
 }
@@ -338,7 +337,7 @@ struct files_struct *files_dup(struct files_struct *old)
 void files_get(struct files_struct *files)
 {
 	if (files)
-		files->refcount++;
+		refcount_inc(&files->refcount);
 }
 
 void files_put(struct files_struct *files)
@@ -346,9 +345,7 @@ void files_put(struct files_struct *files)
 	if (!files)
 		return;
 
-	BUG_ON(files->refcount == 0);
-	files->refcount--;
-	if (files->refcount > 0)
+	if (!refcount_dec_and_test(&files->refcount))
 		return;
 
 	for (int fd = 0; fd < NR_OPEN; fd++) {

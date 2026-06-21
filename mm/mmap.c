@@ -341,7 +341,7 @@ struct mm_struct *mm_alloc(void)
 		return NULL;
 
 	memset(mm, 0, sizeof(struct mm_struct));
-	mm->refcount = 1;
+	refcount_set(&mm->refcount, 1);
 	mutex_init(&mm->mmap_lock);
 	return mm;
 }
@@ -349,7 +349,7 @@ struct mm_struct *mm_alloc(void)
 void mm_get(struct mm_struct *mm)
 {
 	if (mm)
-		mm->refcount++;
+		refcount_inc(&mm->refcount);
 }
 
 void mm_put(struct mm_struct *mm)
@@ -357,9 +357,7 @@ void mm_put(struct mm_struct *mm)
 	if (!mm)
 		return;
 
-	BUG_ON(mm->refcount == 0);
-	mm->refcount--;
-	if (mm->refcount == 0)
+	if (refcount_dec_and_test(&mm->refcount))
 		mm_destroy(mm);
 }
 
