@@ -39,6 +39,18 @@ struct exec_image {
 	uint64_t size;
 };
 
+struct elf_phdr_table {
+	Elf64_Phdr *entries;
+	int count;
+};
+
+struct elf_load_layout {
+	vaddr_t first_vaddr;
+	vaddr_t last_end;
+	int vma_idx;
+	bool loaded_segment;
+};
+
 static pte_t elf_flags_to_pte(uint32_t p_flags)
 {
 	const bool w = p_flags & PF_W;
@@ -281,191 +293,338 @@ static int setup_user_stack(struct mm_struct *mm,
 	return 0;
 }
 
+static int read_elf_header(struct exec_image *image, Elf64_Ehdr *ehdr)
+{
+	int ret;
+
+	if (!image || !ehdr)
+		return -EINVAL;
+	if (image->size < sizeof(*ehdr))
+		return -ENOEXEC;
+
+	ret = read_exec_image(image, 0, ehdr, sizeof(*ehdr));
+	if (ret < 0)
+		return ret;
+
+	if (ehdr->e_ident[EI_MAG0] != ELFMAG0 ||
+	    ehdr->e_ident[EI_MAG1] != ELFMAG1 ||
+	    ehdr->e_ident[EI_MAG2] != ELFMAG2 ||
+	    ehdr->e_ident[EI_MAG3] != ELFMAG3)
+		return -ENOEXEC;
+	if (ehdr->e_ident[EI_CLASS] != ELFCLASS64)
+		return -ENOEXEC;
+	if (ehdr->e_ident[EI_DATA] != ELFDATA2LSB)
+		return -ENOEXEC;
+	if (ehdr->e_type != ET_EXEC || ehdr->e_machine != EM_RISCV)
+		return -ENOEXEC;
+	if (ehdr->e_phoff == 0 || ehdr->e_phnum == 0)
+		return -ENOEXEC;
+	if (ehdr->e_phentsize != sizeof(Elf64_Phdr))
+		return -ENOEXEC;
+
+	return 0;
+}
+
+static int read_elf_phdr_table(struct exec_image *image,
+			       const Elf64_Ehdr *ehdr,
+			       struct elf_phdr_table *table)
+{
+	uint64_t phdr_bytes;
+	int ret;
+
+	if (!image || !ehdr || !table)
+		return -EINVAL;
+
+	memset(table, 0, sizeof(*table));
+	phdr_bytes = (uint64_t)ehdr->e_phnum * sizeof(Elf64_Phdr);
+	if (ehdr->e_phoff > image->size ||
+	    phdr_bytes > image->size - ehdr->e_phoff)
+		return -ENOEXEC;
+
+	table->entries = kmalloc((size_t)phdr_bytes);
+	if (!table->entries)
+		return -ENOMEM;
+
+	ret = read_exec_image(image, ehdr->e_phoff, table->entries,
+			      (size_t)phdr_bytes);
+	if (ret < 0) {
+		kfree(table->entries);
+		table->entries = NULL;
+		return ret;
+	}
+
+	table->count = ehdr->e_phnum;
+	return 0;
+}
+
+static void free_elf_phdr_table(struct elf_phdr_table *table)
+{
+	if (!table || !table->entries)
+		return;
+
+	kfree(table->entries);
+	table->entries = NULL;
+	table->count = 0;
+}
+
+static int create_exec_mm(struct mm_struct **mm_out)
+{
+	struct mm_struct *mm;
+
+	if (!mm_out)
+		return -EINVAL;
+	*mm_out = NULL;
+
+	mm = mm_alloc();
+	if (!mm)
+		return -ENOMEM;
+
+	mm->pgd = mm_create_user_pgd();
+	if (!mm->pgd) {
+		mm_destroy(mm);
+		return -ENOMEM;
+	}
+
+	*mm_out = mm;
+	return 0;
+}
+
+static bool elf_phdr_loadable(const Elf64_Phdr *ph)
+{
+	return ph->p_type == PT_LOAD && ph->p_memsz != 0;
+}
+
+static int validate_load_segment(struct exec_image *image, const Elf64_Phdr *ph,
+				 vaddr_t *seg_start, vaddr_t *seg_end)
+{
+	uint64_t start;
+	uint64_t end;
+
+	if (!(ph->p_flags & PF_R))
+		return -ENOEXEC;
+	if (ph->p_filesz > ph->p_memsz)
+		return -ENOEXEC;
+	if (ph->p_offset > image->size ||
+	    ph->p_filesz > image->size - ph->p_offset)
+		return -ENOEXEC;
+
+	start = ph->p_vaddr;
+	end = ph->p_vaddr + ph->p_memsz;
+	if (end < start || end > USER_STACK_BASE)
+		return -ENOEXEC;
+
+	*seg_start = (vaddr_t)start;
+	*seg_end = (vaddr_t)end;
+	return 0;
+}
+
+static int copy_segment_page(struct exec_image *image, const Elf64_Phdr *ph,
+			     void *page, vaddr_t va, vaddr_t seg_start)
+{
+	uint64_t page_file_start = va < seg_start ? 0 : va - seg_start;
+	uint64_t file_off;
+	uint64_t remaining;
+	size_t copy_off;
+	size_t copy_len;
+
+	if (page_file_start >= ph->p_filesz)
+		return 0;
+
+	file_off = ph->p_offset + page_file_start;
+	copy_off = va < seg_start ? seg_start - va : 0;
+	copy_len = PAGE_SIZE - copy_off;
+	remaining = ph->p_filesz - page_file_start;
+	if (copy_len > remaining)
+		copy_len = (size_t)remaining;
+
+	return read_exec_image(image, file_off, (uint8_t *)page + copy_off,
+			       copy_len);
+}
+
+static int map_segment_page(struct exec_image *image, struct mm_struct *mm,
+			    const Elf64_Phdr *ph, vaddr_t va, vaddr_t seg_start)
+{
+	void *page;
+	int ret;
+
+	page = get_free_page(0);
+	if (!page)
+		return -ENOMEM;
+	memset(page, 0, PAGE_SIZE);
+
+	ret = copy_segment_page(image, ph, page, va, seg_start);
+	if (ret < 0) {
+		free_page(page, 0);
+		return ret;
+	}
+
+	map_page(mm->pgd, va, __pa((uintptr_t)page),
+		 elf_flags_to_pte(ph->p_flags));
+	return 0;
+}
+
+static int map_load_segment(struct exec_image *image, struct mm_struct *mm,
+			    const Elf64_Phdr *ph, vaddr_t seg_start,
+			    vaddr_t seg_end)
+{
+	vaddr_t page_start = PFN_DOWN(seg_start) << PAGE_SHIFT;
+	vaddr_t page_end = PFN_UP(seg_end) << PAGE_SHIFT;
+
+	for (vaddr_t va = page_start; va < page_end; va += PAGE_SIZE) {
+		int ret = map_segment_page(image, mm, ph, va, seg_start);
+
+		if (ret < 0)
+			return ret;
+	}
+
+	return 0;
+}
+
+static void record_load_bounds(struct elf_load_layout *layout, vaddr_t start,
+			       vaddr_t end)
+{
+	if (!layout->loaded_segment || start < layout->first_vaddr)
+		layout->first_vaddr = start;
+	if (!layout->loaded_segment || end > layout->last_end)
+		layout->last_end = end;
+	layout->loaded_segment = true;
+}
+
+static int add_load_vma(struct mm_struct *mm, struct elf_load_layout *layout,
+			const Elf64_Phdr *ph, vaddr_t start, vaddr_t end)
+{
+	struct vm_area_struct *vma;
+
+	if (layout->vma_idx >= NR_VMA)
+		return -E2BIG;
+
+	vma = &mm->vma[layout->vma_idx++];
+	vma->vm_start = start;
+	vma->vm_end = end;
+	vma->vm_flags = elf_flags_to_vma(ph->p_flags);
+	vma->vm_type = VMA_CODE;
+	vma->used = true;
+	return 0;
+}
+
+static int load_elf_segment(struct exec_image *image, struct mm_struct *mm,
+			    const Elf64_Phdr *ph,
+			    struct elf_load_layout *layout)
+{
+	vaddr_t seg_start;
+	vaddr_t seg_end;
+	int ret;
+
+	if (!elf_phdr_loadable(ph))
+		return 0;
+
+	ret = validate_load_segment(image, ph, &seg_start, &seg_end);
+	if (ret < 0)
+		return ret;
+	ret = map_load_segment(image, mm, ph, seg_start, seg_end);
+	if (ret < 0)
+		return ret;
+	ret = add_load_vma(mm, layout, ph, seg_start, seg_end);
+	if (ret < 0)
+		return ret;
+
+	record_load_bounds(layout, seg_start, seg_end);
+	return 0;
+}
+
+static int load_elf_segments(struct exec_image *image,
+			     const struct elf_phdr_table *phdrs,
+			     struct mm_struct *mm,
+			     struct elf_load_layout *layout)
+{
+	for (int i = 0; i < phdrs->count; i++) {
+		int ret = load_elf_segment(image, mm, &phdrs->entries[i], layout);
+
+		if (ret < 0)
+			return ret;
+	}
+
+	return layout->loaded_segment ? 0 : -ENOEXEC;
+}
+
+static int add_stack_vma(struct mm_struct *mm, struct elf_load_layout *layout)
+{
+	struct vm_area_struct *vma;
+
+	if (layout->vma_idx >= NR_VMA)
+		return -E2BIG;
+
+	vma = &mm->vma[layout->vma_idx++];
+	vma->vm_start = USER_STACK_BASE;
+	vma->vm_end = USER_STACK_TOP;
+	vma->vm_flags = VM_READ | VM_WRITE;
+	vma->vm_type = VMA_STACK;
+	vma->used = true;
+	return 0;
+}
+
+static int finish_exec_mm(struct mm_struct *mm,
+			  const struct exec_args_envp *args,
+			  struct elf_load_layout *layout, vaddr_t *sp_out)
+{
+	int ret;
+
+	fence_i();
+
+	mm->code_start = layout->first_vaddr;
+	mm->code_end = PFN_UP(layout->last_end) << PAGE_SHIFT;
+	mm->brk = mm->code_end;
+
+	ret = setup_user_stack(mm, args, sp_out);
+	if (ret < 0)
+		return ret;
+
+	return add_stack_vma(mm, layout);
+}
+
 static int load_elf_file(struct exec_image *image,
 			 const struct exec_args_envp *args,
 			 struct mm_struct **mm_out, vaddr_t *entry_out,
 			 vaddr_t *sp_out)
 {
+	Elf64_Ehdr ehdr;
+	struct elf_phdr_table phdrs;
+	struct elf_load_layout layout = { 0 };
+	struct mm_struct *mm = NULL;
+	vaddr_t user_sp = 0;
+	int ret;
+
 	*mm_out = NULL;
 	*entry_out = 0;
 	*sp_out = 0;
 
-	if (image->size < sizeof(Elf64_Ehdr))
-		return -ENOEXEC;
-
-	Elf64_Ehdr ehdr;
-	int ret = read_exec_image(image, 0, &ehdr, sizeof(ehdr));
+	ret = read_elf_header(image, &ehdr);
 	if (ret < 0)
 		return ret;
 
-	if (ehdr.e_ident[EI_MAG0] != ELFMAG0 ||
-	    ehdr.e_ident[EI_MAG1] != ELFMAG1 ||
-	    ehdr.e_ident[EI_MAG2] != ELFMAG2 ||
-	    ehdr.e_ident[EI_MAG3] != ELFMAG3)
-		return -ENOEXEC;
-	if (ehdr.e_ident[EI_CLASS] != ELFCLASS64)
-		return -ENOEXEC;
-	if (ehdr.e_ident[EI_DATA] != ELFDATA2LSB)
-		return -ENOEXEC;
-	if (ehdr.e_type != ET_EXEC || ehdr.e_machine != EM_RISCV)
-		return -ENOEXEC;
-	if (ehdr.e_phoff == 0 || ehdr.e_phnum == 0)
-		return -ENOEXEC;
-	if (ehdr.e_phentsize != sizeof(Elf64_Phdr))
-		return -ENOEXEC;
-
-	uint64_t phdr_bytes = (uint64_t)ehdr.e_phnum * sizeof(Elf64_Phdr);
-	if (ehdr.e_phoff > image->size || phdr_bytes > image->size ||
-	    ehdr.e_phoff + phdr_bytes > image->size)
-		return -ENOEXEC;
-
-	Elf64_Phdr *phdrs = kmalloc((size_t)phdr_bytes);
-	if (!phdrs)
-		return -ENOMEM;
-
-	ret = read_exec_image(image, ehdr.e_phoff, phdrs, (size_t)phdr_bytes);
-	if (ret < 0) {
-		kfree(phdrs);
+	ret = read_elf_phdr_table(image, &ehdr, &phdrs);
+	if (ret < 0)
 		return ret;
-	}
 
-	struct mm_struct *mm = mm_alloc();
-	if (!mm) {
-		kfree(phdrs);
-		return -ENOMEM;
-	}
-
-	mm->pgd = mm_create_user_pgd();
-	if (!mm->pgd) {
-		kfree(phdrs);
-		mm_destroy(mm);
-		return -ENOMEM;
-	}
-
-	vaddr_t first_vaddr = 0;
-	vaddr_t last_end = 0;
-	int vma_idx = 0;
-
-	for (int i = 0; i < ehdr.e_phnum; i++) {
-		Elf64_Phdr *ph = &phdrs[i];
-		if (ph->p_type != PT_LOAD)
-			continue;
-		if (ph->p_memsz == 0)
-			continue;
-		if (!(ph->p_flags & PF_R)) {
-			ret = -ENOEXEC;
-			goto fail;
-		}
-		if (ph->p_filesz > ph->p_memsz) {
-			ret = -ENOEXEC;
-			goto fail;
-		}
-		if (ph->p_offset > image->size ||
-		    ph->p_filesz > image->size - ph->p_offset) {
-			ret = -ENOEXEC;
-			goto fail;
-		}
-
-		vaddr_t seg_start = ph->p_vaddr;
-		vaddr_t seg_end = ph->p_vaddr + ph->p_memsz;
-		if (seg_end < seg_start || seg_end > USER_STACK_BASE) {
-			ret = -ENOEXEC;
-			goto fail;
-		}
-
-		if (first_vaddr == 0 || seg_start < first_vaddr)
-			first_vaddr = seg_start;
-		if (seg_end > last_end)
-			last_end = seg_end;
-
-		vaddr_t page_start = PFN_DOWN(seg_start) << PAGE_SHIFT;
-		vaddr_t page_end = PFN_UP(seg_end) << PAGE_SHIFT;
-
-		for (vaddr_t va = page_start; va < page_end; va += PAGE_SIZE) {
-			void *page = get_free_page(0);
-			if (!page) {
-				ret = -ENOMEM;
-				goto fail;
-			}
-			memset(page, 0, PAGE_SIZE);
-
-			uint64_t page_file_start =
-				va < seg_start ? 0 : va - seg_start;
-			if (page_file_start < ph->p_filesz) {
-				uint64_t file_off =
-					ph->p_offset + page_file_start;
-				size_t copy_off =
-					va < seg_start ? seg_start - va : 0;
-				size_t copy_len = PAGE_SIZE - copy_off;
-				uint64_t remaining =
-					ph->p_filesz - page_file_start;
-
-				if (copy_len > remaining)
-					copy_len = (size_t)remaining;
-
-				ret = read_exec_image(
-					image, file_off,
-					(uint8_t *)page + copy_off, copy_len);
-				if (ret < 0) {
-					free_page(page, 0);
-					goto fail;
-				}
-			}
-
-			map_page(mm->pgd, va, __pa((uintptr_t)page),
-				 elf_flags_to_pte(ph->p_flags));
-		}
-
-		if (vma_idx >= NR_VMA) {
-			ret = -E2BIG;
-			goto fail;
-		}
-
-		struct vm_area_struct *vma = &mm->vma[vma_idx++];
-		vma->vm_start = seg_start;
-		vma->vm_end = seg_end;
-		vma->vm_flags = elf_flags_to_vma(ph->p_flags);
-		vma->vm_type = VMA_CODE;
-		vma->used = true;
-	}
-
-	if (last_end == 0) {
-		ret = -ENOEXEC;
+	ret = create_exec_mm(&mm);
+	if (ret < 0)
 		goto fail;
-	}
-
-	fence_i();
-
-	mm->code_start = first_vaddr;
-	mm->code_end = PFN_UP(last_end) << PAGE_SHIFT;
-	mm->brk = mm->code_end;
-
-	vaddr_t user_sp;
-	ret = setup_user_stack(mm, args, &user_sp);
+	ret = load_elf_segments(image, &phdrs, mm, &layout);
+	if (ret < 0)
+		goto fail;
+	ret = finish_exec_mm(mm, args, &layout, &user_sp);
 	if (ret < 0)
 		goto fail;
 
-	if (vma_idx >= NR_VMA) {
-		ret = -E2BIG;
-		goto fail;
-	}
-
-	struct vm_area_struct *stack_vma = &mm->vma[vma_idx++];
-	stack_vma->vm_start = USER_STACK_BASE;
-	stack_vma->vm_end = USER_STACK_TOP;
-	stack_vma->vm_flags = VM_READ | VM_WRITE;
-	stack_vma->vm_type = VMA_STACK;
-	stack_vma->used = true;
-
-	kfree(phdrs);
+	free_elf_phdr_table(&phdrs);
 	*mm_out = mm;
 	*entry_out = ehdr.e_entry;
 	*sp_out = user_sp;
 	return 0;
 
 fail:
-	kfree(phdrs);
 	mm_destroy(mm);
+	free_elf_phdr_table(&phdrs);
 	return ret;
 }
 

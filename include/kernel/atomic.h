@@ -4,7 +4,7 @@
 #include <kernel/sync.h>
 
 typedef struct {
-	volatile int counter;
+	volatile int __aligned(sizeof(int))  counter;
 } atomic_t;
 
 #define ATOMIC_INIT(i) { .counter = (i) }
