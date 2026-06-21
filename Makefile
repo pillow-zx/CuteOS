@@ -83,6 +83,7 @@ help:
 	@printf '  make                         Build kernel ELF (debug, tests enabled)\n'
 	@printf '  make qemu                    Build image and boot QEMU\n'
 	@printf '  make qemu-gdb                Boot QEMU paused with GDB stub\n'
+	@printf '  make .gdbinit                Generate GDB startup file\n'
 	@printf '  make user                    Build user-space ELFs only\n'
 	@printf '  make cuteos.img              Build filesystem image\n'
 	@printf '  make asm | make sym          Generate disassembly or symbol table\n'
@@ -145,6 +146,10 @@ QEMUGDB = $(shell if $(QEMU) -help | grep -q '^-gdb'; \
 	then echo "-gdb tcp::$(GDBPORT)"; \
 	else echo "-s -p $(GDBPORT)"; fi)
 
+# GDB startup file
+.gdbinit: .gdbinit.tmpl-riscv FORCE
+	$(Q)sed -e "s/:1234/:$(GDBPORT)/" -e "s|@KERNEL@|$(KERNEL)|" < $< > $@
+
 # QEMU options for riscv-virt platform
 QEMUOPTS  = -machine virt
 QEMUOPTS += -kernel $(KERNEL)
@@ -168,7 +173,7 @@ qemu: check-qemu-version $(KERNEL) $(KERNEL_IMG)
 	$(QEMU) $(QEMUOPTS)
 
 # Run in QEMU with GDB
-qemu-gdb: $(KERNEL) $(KERNEL_IMG)
+qemu-gdb: $(KERNEL) $(KERNEL_IMG) .gdbinit
 	@echo "*** Now run 'gdb' in another window (target remote :$(GDBPORT))." 1>&2
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
 
@@ -217,8 +222,10 @@ clean: clean-user
 # Prevent deletion of intermediate .o files
 .PRECIOUS: $(OUTDIR)/%.o
 
+FORCE:
+
 # Declare phony targets
-.PHONY: all help qemu qemu-gdb check-qemu-version clean clean-user
+.PHONY: all help qemu qemu-gdb check-qemu-version clean clean-user FORCE
 .PHONY: user format asm sym
 .PHONY: $(KERNEL_NAME) $(KERNEL_NAME).img
 .PHONY: print-gdbport print-toolprefix

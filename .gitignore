@@ -57,6 +57,7 @@
 !user/user.ld
 !.clang-format
 !.editorconfig
+!.gdbinit.tmpl-riscv
 !.gitignore
 !Makefile
 !README.md
