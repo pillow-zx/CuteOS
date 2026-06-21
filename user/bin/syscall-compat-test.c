@@ -76,6 +76,23 @@ static int any_nonzero(const unsigned char *buf, size_t len)
 	return 0;
 }
 
+static int timespec_ge(const struct timespec *a, const struct timespec *b)
+{
+	return a->tv_sec > b->tv_sec ||
+	       (a->tv_sec == b->tv_sec && a->tv_nsec >= b->tv_nsec);
+}
+
+static void timespec_add_nsec(struct timespec *ts, long nsec)
+{
+	ts->tv_nsec += nsec;
+	while (ts->tv_nsec >= 1000000000) {
+		ts->tv_sec++;
+		ts->tv_nsec -= 1000000000;
+	}
+}
+
+static volatile unsigned long spin_sink;
+
 static void test_nanosleep(void)
 {
 	struct timespec bad = {.tv_sec = 0, .tv_nsec = 1000000000};
@@ -98,6 +115,121 @@ static void test_nanosleep(void)
 		    after.tv_sec > before.tv_sec ||
 			    (after.tv_sec == before.tv_sec &&
 			     after.tv_nsec >= before.tv_nsec));
+}
+
+static void test_clock_nanosleep_relative(void)
+{
+	struct timespec ts = {.tv_sec = 0, .tv_nsec = 1000000};
+	struct timespec before;
+	struct timespec after;
+	long ret;
+
+	expect_eq_long("clock_nanosleep relative before",
+		       clock_gettime(CLOCK_MONOTONIC, &before), 0);
+	ret = clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, 0);
+	expect_eq_long("clock_nanosleep relative", ret, 0);
+	expect_eq_long("clock_nanosleep relative after",
+		       clock_gettime(CLOCK_MONOTONIC, &after), 0);
+	expect_true("clock_nanosleep relative elapsed",
+		    timespec_ge(&after, &before));
+}
+
+static void test_clock_nanosleep_absolute_and_errors(void)
+{
+	struct timespec deadline;
+	struct timespec after;
+	struct timespec bad = {.tv_sec = 0, .tv_nsec = 1000000000};
+	struct timespec short_ts = {.tv_sec = 0, .tv_nsec = 1000000};
+
+	expect_eq_long("clock_nanosleep absolute before",
+		       clock_gettime(CLOCK_MONOTONIC, &deadline), 0);
+	timespec_add_nsec(&deadline, 1000000);
+	expect_eq_long("clock_nanosleep absolute",
+		       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME,
+				       &deadline, 0),
+		       0);
+	expect_eq_long("clock_nanosleep absolute after",
+		       clock_gettime(CLOCK_MONOTONIC, &after), 0);
+	expect_true("clock_nanosleep absolute elapsed",
+		    timespec_ge(&after, &deadline));
+
+	expect_eq_long("clock_nanosleep bad flags",
+		       clock_nanosleep(CLOCK_MONOTONIC, 0x8000, &short_ts, 0),
+		       -EINVAL);
+	expect_eq_long("clock_nanosleep bad nsec",
+		       clock_nanosleep(CLOCK_MONOTONIC, 0, &bad, 0),
+		       -EINVAL);
+	expect_eq_long("clock_nanosleep null req",
+		       clock_nanosleep(CLOCK_MONOTONIC, 0, 0, 0), -EFAULT);
+	expect_eq_long("clock_nanosleep bad clock",
+		       clock_nanosleep(99, 0, &short_ts, 0), -EINVAL);
+}
+
+static void test_sched_getaffinity(void)
+{
+	unsigned long mask = ~0UL;
+
+	expect_eq_long("sched_getaffinity current",
+		       sched_getaffinity(0, sizeof(mask), &mask),
+		       (long)sizeof(mask));
+	expect_eq_long("sched_getaffinity cpu0 mask", (long)mask, 1);
+}
+
+static void test_sched_setaffinity(void)
+{
+	unsigned long cpu0 = 1;
+	unsigned long empty = 0;
+	unsigned long cpu1 = 2;
+
+	expect_eq_long("sched_setaffinity cpu0",
+		       sched_setaffinity(0, sizeof(cpu0), &cpu0), 0);
+	expect_eq_long("sched_setaffinity empty",
+		       sched_setaffinity(0, sizeof(empty), &empty), -EINVAL);
+	expect_eq_long("sched_setaffinity cpu1 only",
+		       sched_setaffinity(0, sizeof(cpu1), &cpu1), -EINVAL);
+	expect_eq_long("sched_setaffinity tid",
+		       sched_setaffinity(gettid(), sizeof(cpu0), &cpu0), 0);
+	expect_eq_long("sched_setaffinity missing tid",
+		       sched_setaffinity(9999, sizeof(cpu0), &cpu0), -ESRCH);
+}
+
+static void test_times_accounting(void)
+{
+	struct tms before;
+	struct tms after;
+	long start;
+	long now = 0;
+
+	start = times(&before);
+	expect_true("times start", start >= 0);
+
+	for (int attempt = 0; attempt < 1000; attempt++) {
+		for (int i = 0; i < 20000; i++)
+			spin_sink = spin_sink * 1664525UL + 1013904223UL;
+
+		now = times(&after);
+		if (now > start)
+			break;
+	}
+
+	expect_true("times elapsed tick", now > start);
+	expect_true("times cpu accounted",
+		    after.tms_utime + after.tms_stime >
+			    before.tms_utime + before.tms_stime);
+}
+
+static void test_sysinfo_fields(void)
+{
+	struct sysinfo info;
+
+	memset(&info, 0, sizeof(info));
+	expect_eq_long("sysinfo", sysinfo(&info), 0);
+	expect_eq_long("sysinfo mem_unit", info.mem_unit, 1);
+	expect_true("sysinfo totalram", info.totalram > 0);
+	expect_true("sysinfo freeram",
+		    info.freeram > 0 && info.freeram <= info.totalram);
+	expect_true("sysinfo procs", info.procs >= 1);
+	expect_true("sysinfo uptime", info.uptime >= 0);
 }
 
 static void test_getrandom(void)
@@ -304,6 +436,12 @@ static void test_ioctl(void)
 int main(void)
 {
 	test_nanosleep();
+	test_clock_nanosleep_relative();
+	test_clock_nanosleep_absolute_and_errors();
+	test_sched_getaffinity();
+	test_sched_setaffinity();
+	test_times_accounting();
+	test_sysinfo_fields();
 	test_getrandom();
 	test_prlimit64();
 	test_statfs64();

@@ -61,8 +61,20 @@ bool sched_has_runnable(void)
 	return !mlfq_empty();
 }
 
+static void sched_account_tick(void)
+{
+	if (!current || current == &idle_task)
+		return;
+
+	if (current->tf && from_user(current->tf))
+		current->utime_ticks++;
+	else
+		current->stime_ticks++;
+}
+
 void sched_tick(void)
 {
+	sched_account_tick();
 	mlfq_tick();
 }
 

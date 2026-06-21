@@ -5,10 +5,12 @@
  * futex、权限模型或随机源的系统调用放在 sys_stub.c 中保留 TODO。
  */
 
+#include <kernel/buddy.h>
 #include <kernel/errno.h>
 #include <kernel/fs.h>
 #include <kernel/fs_struct.h>
 #include <kernel/mm.h>
+#include <kernel/pid.h>
 #include <kernel/resource.h>
 #include <kernel/string.h>
 #include <kernel/syscall.h>
@@ -173,12 +175,11 @@ ssize_t sys_sysinfo(struct trap_frame *tf)
 		return -EFAULT;
 
 	memset(&info, 0, sizeof(info));
+	info.uptime = (int64_t)(jiffies / HZ);
 	info.totalram = DRAM_SIZE;
+	info.freeram = buddy_free_pages() * PAGE_SIZE;
+	info.procs = pid_count_tasks();
 	info.mem_unit = 1;
-	/*
-	 * TODO(mm): buddy 暂未提供可用页统计接口，freeram 先返回 0。
-	 * TODO(sched): 进程表遍历接口补齐后再填写 procs。
-	 */
 	if (copy_to_user(uinfo, &info, sizeof(info)) != 0)
 		return -EFAULT;
 

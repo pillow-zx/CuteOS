@@ -16,6 +16,7 @@
 #include <kernel/errno.h>
 #include <kernel/mm.h>
 #include <kernel/syscall.h>
+#include <kernel/task.h>
 #include <kernel/timer.h>
 #include <kernel/types.h>
 #include <asm/trap.h>
@@ -23,6 +24,8 @@
 #define CLOCK_REALTIME	0
 #define CLOCK_MONOTONIC 1
 #define CLOCK_BOOTTIME	7
+
+#define TIMER_ABSTIME 1
 
 struct sys_tms {
 	int64_t tms_utime;
@@ -94,15 +97,23 @@ static int timespec_to_mtime_delta(const struct sys_timespec *ts,
 	return 0;
 }
 
+static uint64_t mtime_deadline_after(uint64_t now, uint64_t delta)
+{
+	if (delta > UINT64_MAX - now)
+		return UINT64_MAX;
+	return now + delta;
+}
+
 ssize_t sys_times(struct trap_frame *tf)
 {
 	struct sys_tms *utms = (struct sys_tms *)tf->a0;
-	struct sys_tms ktms = {0};
+	struct sys_tms ktms = {
+		.tms_utime = current ? (int64_t)current->utime_ticks : 0,
+		.tms_stime = current ? (int64_t)current->stime_ticks : 0,
+		.tms_cutime = 0,
+		.tms_cstime = 0,
+	};
 
-	/*
-	 * TODO(time): task_struct 还没有用户态/内核态 CPU 时间和子进程累计
-	 * 时间字段；当前只能返回启动以来的 tick，并把 tms 字段置 0。
-	 */
 	if (utms && copy_to_user(utms, &ktms, sizeof(ktms)) != 0)
 		return -EFAULT;
 
@@ -199,10 +210,7 @@ ssize_t sys_nanosleep(struct trap_frame *tf)
 		return ret;
 
 	now = get_mtime();
-	if (delta > UINT64_MAX - now)
-		deadline = UINT64_MAX;
-	else
-		deadline = now + delta;
+	deadline = mtime_deadline_after(now, delta);
 
 	ret = timer_sleep_until(deadline, true);
 	if (ret == -EINTR && urem) {
@@ -276,9 +284,46 @@ ssize_t sys_clock_settime(struct trap_frame *tf)
 
 ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 {
-	(void)tf;
-	/*
-	 * TODO(time): 需要可按 clock_id 排队的睡眠队列和绝对时间唤醒。
-	 */
-	return -ENOSYS;
+	int clock_id = (int)tf->a0;
+	int flags = (int)tf->a1;
+	const struct sys_timespec *ureq = (const struct sys_timespec *)tf->a2;
+	struct sys_timespec *urem = (struct sys_timespec *)tf->a3;
+	struct sys_timespec req;
+	uint64_t now;
+	uint64_t deadline;
+	uint64_t delta;
+	int ret;
+
+	if (!clock_id_supported(clock_id))
+		return -EINVAL;
+	if (!ureq)
+		return -EFAULT;
+	if (copy_from_user(&req, ureq, sizeof(req)) != 0)
+		return -EFAULT;
+
+	ret = timespec_to_mtime_delta(&req, &delta);
+	if (ret < 0)
+		return ret;
+
+	if (flags == TIMER_ABSTIME) {
+		deadline = delta;
+	} else if (flags == 0) {
+		now = get_mtime();
+		deadline = mtime_deadline_after(now, delta);
+	} else {
+		return -EINVAL;
+	}
+
+	ret = timer_sleep_until(deadline, true);
+	if (ret == -EINTR && flags == 0 && urem) {
+		struct sys_timespec rem = {0};
+		uint64_t after = get_mtime();
+
+		if (deadline > after)
+			mtime_to_timespec(deadline - after, &rem);
+		if (copy_to_user(urem, &rem, sizeof(rem)) != 0)
+			return -EFAULT;
+	}
+
+	return ret;
 }

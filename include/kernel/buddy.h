@@ -64,4 +64,6 @@ void *get_free_page(uint32_t order);
  */
 void free_page(void *addr, uint32_t order);
 
+size_t buddy_free_pages(void);
+
 #endif

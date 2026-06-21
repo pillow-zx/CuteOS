@@ -120,6 +120,10 @@ struct task_struct {
 	uint8_t time_slice;	       /* 当前等级剩余 tick */
 	uint8_t sched_ticks;	       /* 当前等级已消耗 tick */
 	uint64_t enqueue_jiffies;      /* 最近一次入队时间 */
+
+	/* CPU time accounting, in HZ ticks. */
+	uint64_t utime_ticks;
+	uint64_t stime_ticks;
 };
 
 static_assert(offsetof(struct task_struct, kstack) == 128,

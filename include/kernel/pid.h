@@ -45,5 +45,6 @@ void free_pid(pid_t pid);
 void pid_attach_task(pid_t pid, struct task_struct *task);
 void pid_detach_task(pid_t pid, const struct task_struct *task);
 struct task_struct *pid_task(pid_t pid);
+uint16_t pid_count_tasks(void);
 
 #endif

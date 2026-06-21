@@ -203,8 +203,12 @@ void *get_free_page(uint32_t order)
  */
 void free_page(void *addr, uint32_t order)
 {
+	size_t freed_pages;
+
 	if (order > MAX_ORDER)
 		panic("free_page: order %d > MAX_ORDER", order);
+
+	freed_pages = 1UL << order;
 
 	size_t pfn = virt_to_pfn(addr);
 
@@ -247,5 +251,10 @@ void free_page(void *addr, uint32_t order)
 	list_add(&page->lru, &free_area[order].free_list);
 	free_area[order].nr_free++;
 
-	nr_free_pages += (1UL << order);
+	nr_free_pages += freed_pages;
+}
+
+size_t buddy_free_pages(void)
+{
+	return nr_free_pages;
 }

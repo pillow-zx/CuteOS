@@ -56,6 +56,9 @@ typedef unsigned long size_t;
 #define SYS_nanosleep	   101
 #define SYS_clock_gettime  113
 #define SYS_clock_getres   114
+#define SYS_clock_nanosleep 115
+#define SYS_sched_setaffinity 122
+#define SYS_sched_getaffinity 123
 #define SYS_yield	   124
 #define SYS_kill	   129
 #define SYS_tgkill	   131
@@ -148,6 +151,7 @@ typedef unsigned long size_t;
 #define DT_SOCK	   12
 
 #define ENOENT	2
+#define ESRCH	3
 #define EINTR	4
 #define EACCES	13
 #define EEXIST	17
@@ -211,6 +215,8 @@ typedef unsigned long size_t;
 #define CLOCK_REALTIME	0
 #define CLOCK_MONOTONIC 1
 #define CLOCK_BOOTTIME	7
+
+#define TIMER_ABSTIME 0x01
 
 struct tms {
 	long tms_utime;
@@ -870,6 +876,26 @@ static inline long clock_gettime(int clock_id, struct timespec *ts)
 static inline long clock_getres(int clock_id, struct timespec *ts)
 {
 	return syscall(SYS_clock_getres, clock_id, (long)ts);
+}
+
+static inline long clock_nanosleep(int clock_id, int flags,
+				   const struct timespec *req,
+				   struct timespec *rem)
+{
+	return syscall(SYS_clock_nanosleep, clock_id, flags, (long)req,
+		       (long)rem);
+}
+
+static inline long sched_setaffinity(long pid, size_t cpusetsize,
+				     const unsigned long *mask)
+{
+	return syscall(SYS_sched_setaffinity, pid, cpusetsize, (long)mask);
+}
+
+static inline long sched_getaffinity(long pid, size_t cpusetsize,
+				     unsigned long *mask)
+{
+	return syscall(SYS_sched_getaffinity, pid, cpusetsize, (long)mask);
 }
 
 /*

@@ -6,8 +6,20 @@
  */
 
 #include <kernel/errno.h>
+#include <kernel/mm.h>
 #include <kernel/syscall.h>
+#include <kernel/task.h>
 #include <asm/trap.h>
+
+#define SINGLE_CPU_AFFINITY_MASK 1UL
+
+static struct task_struct *affinity_target_task(pid_t pid)
+{
+	if (pid == 0)
+		return current;
+
+	return task_find_thread(pid);
+}
 
 ssize_t sys_epoll_create1(struct trap_frame *tf)
 {
@@ -46,16 +58,55 @@ ssize_t sys_mount(struct trap_frame *tf)
 
 ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 {
-	(void)tf;
-	/* TODO(smp): 当前单核且没有 CPU mask 状态。 */
-	return -ENOSYS;
+	pid_t pid = (pid_t)tf->a0;
+	size_t cpusetsize = (size_t)tf->a1;
+	const unsigned long *umask = (const unsigned long *)tf->a2;
+	unsigned long mask = 0;
+	size_t copy_size;
+	struct task_struct *task;
+
+	if (cpusetsize == 0)
+		return -EINVAL;
+	if (!umask)
+		return -EFAULT;
+
+	task = affinity_target_task(pid);
+	if (!task)
+		return -ESRCH;
+	if (task != current && current && current->uid != 0 &&
+	    current->uid != task->uid)
+		return -EPERM;
+
+	copy_size = cpusetsize < sizeof(mask) ? cpusetsize : sizeof(mask);
+	if (copy_from_user(&mask, umask, copy_size) != 0)
+		return -EFAULT;
+	if ((mask & SINGLE_CPU_AFFINITY_MASK) == 0)
+		return -EINVAL;
+
+	return 0;
 }
 
 ssize_t sys_sched_getaffinity(struct trap_frame *tf)
 {
-	(void)tf;
-	/* TODO(smp): 当前单核；补 cpumask ABI 后可返回 CPU0。 */
-	return -ENOSYS;
+	pid_t pid = (pid_t)tf->a0;
+	size_t cpusetsize = (size_t)tf->a1;
+	unsigned long *umask = (unsigned long *)tf->a2;
+	unsigned long mask = SINGLE_CPU_AFFINITY_MASK;
+	struct task_struct *task;
+
+	if (cpusetsize < sizeof(mask))
+		return -EINVAL;
+	if (!umask)
+		return -EFAULT;
+
+	task = affinity_target_task(pid);
+	if (!task)
+		return -ESRCH;
+
+	if (copy_to_user(umask, &mask, sizeof(mask)) != 0)
+		return -EFAULT;
+
+	return (ssize_t)sizeof(mask);
 }
 
 ssize_t sys_mremap(struct trap_frame *tf)

@@ -82,3 +82,15 @@ struct task_struct *pid_task(pid_t pid)
 
 	return pid_tasks[pid];
 }
+
+uint16_t pid_count_tasks(void)
+{
+	uint16_t count = 0;
+
+	for (pid_t pid = 1; pid <= PID_MAX; pid++) {
+		if (pid_tasks[pid])
+			count++;
+	}
+
+	return count;
+}
