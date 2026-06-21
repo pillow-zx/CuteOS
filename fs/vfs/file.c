@@ -206,7 +206,8 @@ struct file *file_alloc_dentry(struct dentry *dentry, uint32_t flags,
 	return file;
 }
 
-int vfs_open(const char *path, uint32_t flags, uint32_t mode)
+int vfs_openat(struct dentry *base, const char *path, uint32_t flags,
+	       uint32_t mode)
 {
 	struct dentry *dentry;
 	struct file *file;
@@ -214,12 +215,12 @@ int vfs_open(const char *path, uint32_t flags, uint32_t mode)
 	int ret;
 	uint32_t fmode;
 
-	ret = path_lookup_err(path, 0, &dentry);
+	ret = path_lookupat_err(base, path, 0, &dentry);
 	if (ret < 0) {
 		if (!(flags & O_CREAT) || ret != -ENOENT)
 			return ret;
 
-		ret = vfs_create(path, mode, &dentry);
+		ret = vfs_create_at(base, path, mode, &dentry);
 		if (ret < 0)
 			return ret;
 	} else if ((flags & O_CREAT) && (flags & O_EXCL)) {
@@ -278,6 +279,11 @@ int vfs_open(const char *path, uint32_t flags, uint32_t mode)
 	}
 
 	return fd;
+}
+
+int vfs_open(const char *path, uint32_t flags, uint32_t mode)
+{
+	return vfs_openat(NULL, path, flags, mode);
 }
 
 void file_get(struct file *file)

@@ -246,6 +246,8 @@ static int ext2_create(struct inode *dir, struct dentry *dentry, uint32_t mode)
 {
 	struct buffer_head *bh = NULL;
 	uint32_t ino;
+	uint32_t type = mode & EXT2_S_IFMT;
+	uint32_t inode_mode;
 	struct inode *inode;
 	struct ext2_inode_info *ei;
 	int ret;
@@ -255,7 +257,11 @@ static int ext2_create(struct inode *dir, struct dentry *dentry, uint32_t mode)
 		return -EEXIST;
 	}
 
-	ino = ext2_alloc_inode(dir->i_sb, (uint16_t)(EXT2_S_IFREG | mode));
+	if (type == 0)
+		type = EXT2_S_IFREG;
+	inode_mode = type | (mode & ~EXT2_S_IFMT);
+
+	ino = ext2_alloc_inode(dir->i_sb, (uint16_t)inode_mode);
 	if (!ino)
 		return -ENOSPC;
 
@@ -267,9 +273,11 @@ static int ext2_create(struct inode *dir, struct dentry *dentry, uint32_t mode)
 
 	ei = EXT2_I(inode);
 	memset(&ei->raw_inode, 0, sizeof(ei->raw_inode));
-	inode->i_mode = EXT2_S_IFREG | mode;
+	inode->i_mode = inode_mode;
 	inode->i_nlink = 1;
 	inode->i_size = 0;
+	inode->i_rdev = 0;
+	ext2_init_inode_ops(inode);
 	ext2_write_inode(inode);
 
 	ret = ext2_add_entry(dir, dentry->d_name, dentry->d_namelen, ino,

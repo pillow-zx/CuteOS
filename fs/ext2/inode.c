@@ -233,6 +233,32 @@ static int ext2_zero_truncate_tail(struct inode *inode, uint64_t size)
 	return 0;
 }
 
+void ext2_init_inode_ops(struct inode *inode)
+{
+	if (!inode)
+		return;
+
+	inode->i_op = NULL;
+	inode->i_fop = NULL;
+	switch (inode->i_mode & EXT2_S_IFMT) {
+	case EXT2_S_IFDIR:
+		inode->i_op = &ext2_dir_inode_operations;
+		inode->i_fop = &ext2_dir_operations;
+		break;
+	case EXT2_S_IFLNK:
+		inode->i_op = &ext2_symlink_inode_operations;
+		break;
+	case EXT2_S_IFCHR:
+	case EXT2_S_IFBLK:
+		break;
+	case EXT2_S_IFREG:
+	default:
+		inode->i_op = &ext2_file_inode_operations;
+		inode->i_fop = &ext2_file_operations;
+		break;
+	}
+}
+
 static void ext2_fill_vfs_inode(struct inode *inode)
 {
 	struct ext2_inode *raw = &EXT2_I(inode)->raw_inode;
@@ -245,21 +271,10 @@ static void ext2_fill_vfs_inode(struct inode *inode)
 	if ((raw->i_mode & EXT2_S_IFMT) == EXT2_S_IFCHR ||
 	    (raw->i_mode & EXT2_S_IFMT) == EXT2_S_IFBLK)
 		inode->i_rdev = ext2_decode_dev(raw->i_block[0]);
+	else
+		inode->i_rdev = 0;
 
-	switch (raw->i_mode & EXT2_S_IFMT) {
-	case EXT2_S_IFDIR:
-		inode->i_op = &ext2_dir_inode_operations;
-		inode->i_fop = &ext2_dir_operations;
-		break;
-	case EXT2_S_IFLNK:
-		inode->i_op = &ext2_symlink_inode_operations;
-		break;
-	case EXT2_S_IFREG:
-	default:
-		inode->i_op = &ext2_file_inode_operations;
-		inode->i_fop = &ext2_file_operations;
-		break;
-	}
+	ext2_init_inode_ops(inode);
 }
 
 /*

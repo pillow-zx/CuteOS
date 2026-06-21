@@ -22,7 +22,8 @@ cuteOS 不是 Linux，也不是只会打印日志的 boot demo。它是一颗尽
   约定组织；未实现系统调用返回 `-ENOSYS`。
 - 文件系统：构建时生成 16 MB ext2 镜像，内核启动后挂载为根文件系统。
 - 取舍：优先选择最小正确实现。比如 fork 目前急切复制，无 COW；virtio-blk
-  和 UART 当前为轮询；buffer cache 写穿；单核非抢占。
+  和 UART 当前为轮询；buffer cache 写穿；内核非抢占，用户态由时钟中断触发
+  时间中断触发发时间片调度。
 
 项目的目标是跑起真实 Linux riscv64 静态 ELF，达到 busybox 级的交互
 体验：shell 可用、管道可用、ext2 文件可读写、系统调用按 Linux ABI 返回。

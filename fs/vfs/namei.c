@@ -292,9 +292,10 @@ static int walk_path(struct dentry *base, const char *path, uint32_t flags,
 	return 0;
 }
 
-int path_lookup_err(const char *path, uint32_t flags, struct dentry **res)
+int path_lookupat_err(struct dentry *base, const char *path, uint32_t flags,
+		      struct dentry **res)
 {
-	struct dentry *base;
+	struct dentry *start;
 
 	if (res)
 		*res = NULL;
@@ -304,14 +305,22 @@ int path_lookup_err(const char *path, uint32_t flags, struct dentry **res)
 		return -ENOENT;
 
 	if (*path == '/')
-		base = fs_get_root_dentry(current ? current->fs : NULL);
-	else
-		base = fs_get_cwd_dentry(current ? current->fs : NULL);
+		start = fs_get_root_dentry(current ? current->fs : NULL);
+	else if (base) {
+		start = base;
+		dget(start);
+	} else
+		start = fs_get_cwd_dentry(current ? current->fs : NULL);
 
-	if (!base)
+	if (!start)
 		return -ENOENT;
 
-	return walk_path(base, path, flags, 0, res);
+	return walk_path(start, path, flags, 0, res);
+}
+
+int path_lookup_err(const char *path, uint32_t flags, struct dentry **res)
+{
+	return path_lookupat_err(NULL, path, flags, res);
 }
 
 struct dentry *path_lookup(const char *path, uint32_t flags)
@@ -323,28 +332,36 @@ struct dentry *path_lookup(const char *path, uint32_t flags)
 	return dentry;
 }
 
-struct dentry *path_parent_lookup(const char *path, char *name, size_t *namelen)
+int path_parent_lookupat_err(struct dentry *base, const char *path, char *name,
+			     size_t *namelen, struct dentry **res)
 {
 	struct dentry *parent;
 	const char *last;
 	size_t last_len;
 	bool absolute;
 
-	if (!path || !*path || !name || !namelen)
-		return NULL;
+	if (res)
+		*res = NULL;
+	if (!res || !name || !namelen)
+		return -EINVAL;
+	if (!path || !*path)
+		return -ENOENT;
 
 	absolute = path[0] == '/';
 	while (*path == '/')
 		path++;
 	if (!*path)
-		return NULL;
+		return -ENOENT;
 
 	if (absolute)
 		parent = fs_get_root_dentry(current ? current->fs : NULL);
-	else
+	else if (base) {
+		parent = base;
+		dget(parent);
+	} else
 		parent = fs_get_cwd_dentry(current ? current->fs : NULL);
 	if (!parent)
-		return NULL;
+		return -ENOENT;
 	last = NULL;
 	last_len = 0;
 
@@ -366,19 +383,24 @@ struct dentry *path_parent_lookup(const char *path, char *name, size_t *namelen)
 			break;
 		}
 
+		if (!parent->d_inode || !S_ISDIR(parent->d_inode->i_mode)) {
+			dput(parent);
+			return -ENOTDIR;
+		}
+
 		if (is_dotdot(component, len)) {
 			struct dentry *next = follow_dotdot(parent);
 			dput(parent);
 			parent = next;
 			if (!parent)
-				return NULL;
+				return -ENOENT;
 			continue;
 		}
 
 		struct dentry *next = lookup_one(parent, component, len);
 		if (!next) {
 			dput(parent);
-			return NULL;
+			return -ENOENT;
 		}
 
 		if (d_is_symlink(next)) {
@@ -387,7 +409,7 @@ struct dentry *path_parent_lookup(const char *path, char *name, size_t *namelen)
 
 			dput(parent);
 			if (ret < 0)
-				return NULL;
+				return ret;
 			parent = target;
 			continue;
 		}
@@ -399,12 +421,27 @@ struct dentry *path_parent_lookup(const char *path, char *name, size_t *namelen)
 	if (!last || last_len == 0 || last_len > VFS_NAME_MAX ||
 	    is_dot(last, last_len) || is_dotdot(last, last_len)) {
 		dput(parent);
-		return NULL;
+		return last_len > VFS_NAME_MAX ? -ENAMETOOLONG : -ENOENT;
+	}
+
+	if (!parent->d_inode || !S_ISDIR(parent->d_inode->i_mode)) {
+		dput(parent);
+		return -ENOTDIR;
 	}
 
 	memcpy(name, last, last_len);
 	name[last_len] = '\0';
 	*namelen = last_len;
+	*res = parent;
+	return 0;
+}
+
+struct dentry *path_parent_lookup(const char *path, char *name, size_t *namelen)
+{
+	struct dentry *parent;
+
+	if (path_parent_lookupat_err(NULL, path, name, namelen, &parent) < 0)
+		return NULL;
 	return parent;
 }
 
@@ -424,7 +461,8 @@ int vfs_chdir_dentry(struct dentry *dentry)
 	return fs_set_cwd(current ? current->fs : NULL, dentry);
 }
 
-int vfs_create(const char *path, uint32_t mode, struct dentry **res)
+int vfs_create_at(struct dentry *base, const char *path, uint32_t mode,
+		  struct dentry **res)
 {
 	char name[VFS_NAME_MAX + 1];
 	size_t namelen;
@@ -436,9 +474,9 @@ int vfs_create(const char *path, uint32_t mode, struct dentry **res)
 	if (res)
 		*res = NULL;
 
-	parent = path_parent_lookup(path, name, &namelen);
-	if (!parent)
-		return -ENOENT;
+	ret = path_parent_lookupat_err(base, path, name, &namelen, &parent);
+	if (ret < 0)
+		return ret;
 	if (!parent->d_inode || !parent->d_inode->i_op ||
 	    !parent->d_inode->i_op->create) {
 		dput(parent);
@@ -447,11 +485,8 @@ int vfs_create(const char *path, uint32_t mode, struct dentry **res)
 
 	dentry = dcache_lookup(parent, name, namelen);
 	if (dentry && dentry->d_inode) {
+		dput(dentry);
 		dput(parent);
-		if (res)
-			*res = dentry;
-		else
-			dput(dentry);
 		return -EEXIST;
 	}
 	if (!dentry) {
@@ -480,7 +515,12 @@ int vfs_create(const char *path, uint32_t mode, struct dentry **res)
 	return ret;
 }
 
-int vfs_mkdir(const char *path, uint32_t mode)
+int vfs_create(const char *path, uint32_t mode, struct dentry **res)
+{
+	return vfs_create_at(NULL, path, mode, res);
+}
+
+int vfs_mkdir_at(struct dentry *base, const char *path, uint32_t mode)
 {
 	char name[VFS_NAME_MAX + 1];
 	size_t namelen;
@@ -489,9 +529,9 @@ int vfs_mkdir(const char *path, uint32_t mode)
 	bool new_dentry = false;
 	int ret;
 
-	parent = path_parent_lookup(path, name, &namelen);
-	if (!parent)
-		return -ENOENT;
+	ret = path_parent_lookupat_err(base, path, name, &namelen, &parent);
+	if (ret < 0)
+		return ret;
 	if (!parent->d_inode || !parent->d_inode->i_op ||
 	    !parent->d_inode->i_op->mkdir) {
 		dput(parent);
@@ -524,7 +564,12 @@ int vfs_mkdir(const char *path, uint32_t mode)
 	return ret;
 }
 
-int vfs_unlink(const char *path, int flags)
+int vfs_mkdir(const char *path, uint32_t mode)
+{
+	return vfs_mkdir_at(NULL, path, mode);
+}
+
+int vfs_unlink_at(struct dentry *base, const char *path, int flags)
 {
 	char name[VFS_NAME_MAX + 1];
 	size_t namelen;
@@ -532,9 +577,9 @@ int vfs_unlink(const char *path, int flags)
 	struct dentry *dentry;
 	int ret;
 
-	parent = path_parent_lookup(path, name, &namelen);
-	if (!parent)
-		return -ENOENT;
+	ret = path_parent_lookupat_err(base, path, name, &namelen, &parent);
+	if (ret < 0)
+		return ret;
 	if (!parent->d_inode || !parent->d_inode->i_op) {
 		dput(parent);
 		return -ENOTDIR;
@@ -565,12 +610,24 @@ int vfs_unlink(const char *path, int flags)
 	return ret;
 }
 
-int vfs_mknod(const char *path, uint32_t mode, dev_t dev)
+int vfs_unlink(const char *path, int flags)
+{
+	return vfs_unlink_at(NULL, path, flags);
+}
+
+int vfs_mknod_at(struct dentry *base, const char *path, uint32_t mode,
+		 dev_t dev)
 {
 	struct dentry *dentry;
+	uint32_t type = mode & S_IFMT;
 	int ret;
 
-	ret = vfs_create(path, mode, &dentry);
+	if (type == 0)
+		mode |= S_IFREG;
+	else if (type != S_IFREG && type != S_IFCHR && type != S_IFBLK)
+		return -EINVAL;
+
+	ret = vfs_create_at(base, path, mode, &dentry);
 	if (ret < 0)
 		return ret;
 
@@ -581,6 +638,11 @@ int vfs_mknod(const char *path, uint32_t mode, dev_t dev)
 	}
 	dput(dentry);
 	return 0;
+}
+
+int vfs_mknod(const char *path, uint32_t mode, dev_t dev)
+{
+	return vfs_mknod_at(NULL, path, mode, dev);
 }
 
 void vfs_set_root_dentry(struct dentry *dentry)

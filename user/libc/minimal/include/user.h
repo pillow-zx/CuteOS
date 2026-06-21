@@ -22,6 +22,7 @@ typedef unsigned long size_t;
 #define SYS_dup		   23
 #define SYS_dup3	   24
 #define SYS_ioctl	   29
+#define SYS_mknodat	   33
 #define SYS_mkdirat	   34
 #define SYS_unlinkat	   35
 #define SYS_chdir	   49
@@ -140,6 +141,10 @@ typedef unsigned long size_t;
 #define S_ISCHR(m)  (((m) & S_IFMT) == S_IFCHR)
 #define S_ISBLK(m)  (((m) & S_IFMT) == S_IFBLK)
 #define S_ISFIFO(m) (((m) & S_IFMT) == S_IFIFO)
+
+#define MINORBITS 20u
+#define MKDEV(major, minor)                                                    \
+	(((unsigned long)(major) << MINORBITS) | (unsigned long)(minor))
 
 #define DT_UNKNOWN 0
 #define DT_FIFO	   1
@@ -573,6 +578,12 @@ static inline long getdents64(int fd, void *dirp, size_t count)
 static inline long mkdirat(int dfd, const char *path, int mode)
 {
 	return syscall(SYS_mkdirat, dfd, (long)path, mode);
+}
+
+static inline long mknodat(int dfd, const char *path, int mode,
+			   unsigned long dev)
+{
+	return syscall(SYS_mknodat, dfd, (long)path, mode, dev);
 }
 
 static inline long unlinkat(int dfd, const char *path, int flags)

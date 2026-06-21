@@ -27,9 +27,12 @@ mkfs.ext2 -q -F -b 1024 "$img"
 cat >"$debugfs_cmds" <<EOF
 mkdir /bin
 mkdir /dev
+mkdir /fixtures
 cd /dev
 mknod console c 5 1
 mknod null c 1 3
+cd /fixtures
+symlink readlink-link readlink-target
 cd /
 write $init_elf /init
 write $init_elf /bin/init

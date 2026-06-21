@@ -224,6 +224,65 @@ static int copy_user_path(char **pathp, const char *user)
 	return 0;
 }
 
+static int dirfd_path_base(int dfd, const char *path, struct dentry **basep)
+{
+	struct file *file;
+	int ret = 0;
+
+	if (basep)
+		*basep = NULL;
+	if (!basep)
+		return -EINVAL;
+	if (!path)
+		return -EFAULT;
+	if (path[0] == '/' || dfd == AT_FDCWD)
+		return 0;
+
+	file = fd_get(dfd);
+	if (!file)
+		return -EBADF;
+	if (!file->f_dentry || !file->f_inode ||
+	    !S_ISDIR(file->f_inode->i_mode)) {
+		ret = -ENOTDIR;
+		goto out;
+	}
+
+	dget(file->f_dentry);
+	*basep = file->f_dentry;
+
+out:
+	file_put(file);
+	return ret;
+}
+
+static int stat_empty_path(int dfd, struct kstat *ustat)
+{
+	struct kstat st;
+	int ret;
+
+	if (dfd == AT_FDCWD) {
+		struct dentry *cwd =
+			fs_get_cwd_dentry(current ? current->fs : NULL);
+
+		if (!cwd)
+			return -ENOENT;
+		vfs_stat_dentry(cwd, &st);
+		dput(cwd);
+		return copy_to_user(ustat, &st, sizeof(st)) != 0 ? -EFAULT :
+								   0;
+	} else {
+		struct file *file = fd_get(dfd);
+
+		if (!file)
+			return -EBADF;
+		vfs_stat_file(file, &st);
+		ret = copy_to_user(ustat, &st, sizeof(st)) != 0 ? -EFAULT :
+								 0;
+		file_put(file);
+		return ret;
+	}
+}
+
 static ssize_t rw_user_buffer(struct file *file, void *buf, size_t len,
 			      bool write)
 {
@@ -365,16 +424,21 @@ ssize_t sys_openat(struct trap_frame *tf)
 	uint32_t flags = (uint32_t)tf->a2;
 	uint32_t mode = (uint32_t)tf->a3;
 	char *path;
+	struct dentry *base;
 	int ret;
-
-	if (dfd != AT_FDCWD)
-		return -EINVAL;
 
 	ret = copy_user_path(&path, upath);
 	if (ret < 0)
 		return ret;
 
-	ret = vfs_open(path, flags, apply_umask(mode));
+	ret = dirfd_path_base(dfd, path, &base);
+	if (ret < 0)
+		goto out;
+
+	ret = vfs_openat(base, path, flags, apply_umask(mode));
+	if (base)
+		dput(base);
+out:
 	free_page(path, 0);
 	return ret;
 }
@@ -527,16 +591,21 @@ ssize_t sys_mkdirat(struct trap_frame *tf)
 	const char *upath = (const char *)tf->a1;
 	uint32_t mode = (uint32_t)tf->a2;
 	char *path;
+	struct dentry *base;
 	int ret;
-
-	if (dfd != AT_FDCWD)
-		return -EINVAL;
 
 	ret = copy_user_path(&path, upath);
 	if (ret < 0)
 		return ret;
 
-	ret = vfs_mkdir(path, apply_umask(mode));
+	ret = dirfd_path_base(dfd, path, &base);
+	if (ret < 0)
+		goto out;
+
+	ret = vfs_mkdir_at(base, path, apply_umask(mode));
+	if (base)
+		dput(base);
+out:
 	free_page(path, 0);
 	return ret;
 }
@@ -547,10 +616,9 @@ ssize_t sys_unlinkat(struct trap_frame *tf)
 	const char *upath = (const char *)tf->a1;
 	int flags = (int)tf->a2;
 	char *path;
+	struct dentry *base;
 	int ret;
 
-	if (dfd != AT_FDCWD)
-		return -EINVAL;
 	if (flags & ~AT_REMOVEDIR)
 		return -EINVAL;
 
@@ -558,7 +626,14 @@ ssize_t sys_unlinkat(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	ret = vfs_unlink(path, flags);
+	ret = dirfd_path_base(dfd, path, &base);
+	if (ret < 0)
+		goto out;
+
+	ret = vfs_unlink_at(base, path, flags);
+	if (base)
+		dput(base);
+out:
 	free_page(path, 0);
 	return ret;
 }
@@ -587,11 +662,10 @@ ssize_t sys_faccessat(struct trap_frame *tf)
 	const char *upath = (const char *)tf->a1;
 	int mode = (int)tf->a2;
 	char *path;
+	struct dentry *base;
 	struct dentry *dentry;
 	int ret;
 
-	if (dfd != AT_FDCWD)
-		return -EINVAL;
 	if (mode & ~(R_OK | W_OK | X_OK))
 		return -EINVAL;
 
@@ -599,7 +673,14 @@ ssize_t sys_faccessat(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	ret = path_lookup_err(path, 0, &dentry);
+	ret = dirfd_path_base(dfd, path, &base);
+	if (ret < 0)
+		goto out;
+
+	ret = path_lookupat_err(base, path, 0, &dentry);
+	if (base)
+		dput(base);
+out:
 	free_page(path, 0);
 	if (ret < 0)
 		return ret;
@@ -741,6 +822,7 @@ ssize_t sys_newfstatat(struct trap_frame *tf)
 	struct kstat *ustat = (struct kstat *)tf->a2;
 	int flags = (int)tf->a3;
 	char *path;
+	struct dentry *base;
 	struct dentry *dentry;
 	struct kstat st;
 	int ret;
@@ -750,37 +832,32 @@ ssize_t sys_newfstatat(struct trap_frame *tf)
 	if (flags & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW))
 		return -EINVAL;
 
+	if ((flags & AT_EMPTY_PATH) && !upath)
+		return stat_empty_path(dfd, ustat);
 	if ((flags & AT_EMPTY_PATH) && upath) {
 		char first;
 
 		if (copy_from_user(&first, upath, sizeof(first)) != 0)
 			return -EFAULT;
 
-		if (first == '\0') {
-			struct file *file = fd_get(dfd);
-			int ret;
-
-			if (!file)
-				return -EBADF;
-			vfs_stat_file(file, &st);
-			ret = copy_to_user(ustat, &st, sizeof(st)) != 0 ?
-				      -EFAULT :
-				      0;
-			file_put(file);
-			return ret;
-		}
+		if (first == '\0')
+			return stat_empty_path(dfd, ustat);
 	}
-
-	if (dfd != AT_FDCWD)
-		return -EINVAL;
 
 	ret = copy_user_path(&path, upath);
 	if (ret < 0)
 		return ret;
 
-	ret = path_lookup_err(
-		path, (flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0,
+	ret = dirfd_path_base(dfd, path, &base);
+	if (ret < 0)
+		goto out_free_path;
+
+	ret = path_lookupat_err(
+		base, path, (flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0,
 		&dentry);
+	if (base)
+		dput(base);
+out_free_path:
 	free_page(path, 0);
 	if (ret < 0)
 		return ret;
@@ -978,12 +1055,11 @@ ssize_t sys_readlinkat(struct trap_frame *tf)
 	char *path;
 	char *link;
 	size_t link_size;
+	struct dentry *base;
 	struct dentry *dentry;
 	int len;
 	int ret;
 
-	if (dfd != AT_FDCWD)
-		return -EINVAL;
 	if (bufsiz == 0)
 		return -EINVAL;
 	if (!ubuf || !access_ok(ubuf, bufsiz))
@@ -994,7 +1070,14 @@ ssize_t sys_readlinkat(struct trap_frame *tf)
 		return ret;
 
 	/* readlink 操作链接本身，绝不跟随末端符号链接。 */
-	ret = path_lookup_err(path, LOOKUP_NOFOLLOW, &dentry);
+	ret = dirfd_path_base(dfd, path, &base);
+	if (ret < 0)
+		goto out_free_path;
+
+	ret = path_lookupat_err(base, path, LOOKUP_NOFOLLOW, &dentry);
+	if (base)
+		dput(base);
+out_free_path:
 	free_page(path, 0);
 	if (ret < 0)
 		return ret;
@@ -1031,16 +1114,21 @@ ssize_t sys_mknod(struct trap_frame *tf)
 	uint32_t mode = (uint32_t)tf->a2;
 	dev_t dev = (dev_t)tf->a3;
 	char *path;
+	struct dentry *base;
 	int ret;
-
-	if (dfd != AT_FDCWD)
-		return -EINVAL;
 
 	ret = copy_user_path(&path, upath);
 	if (ret < 0)
 		return ret;
 
-	ret = vfs_mknod(path, apply_umask(mode), dev);
+	ret = dirfd_path_base(dfd, path, &base);
+	if (ret < 0)
+		goto out;
+
+	ret = vfs_mknod_at(base, path, apply_umask(mode), dev);
+	if (base)
+		dput(base);
+out:
 	free_page(path, 0);
 	return ret;
 }

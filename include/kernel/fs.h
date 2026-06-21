@@ -177,6 +177,8 @@ struct file {
 };
 
 int vfs_open(const char *path, uint32_t flags, uint32_t mode);
+int vfs_openat(struct dentry *base, const char *path, uint32_t flags,
+	       uint32_t mode);
 ssize_t vfs_read(struct file *file, char *buf, size_t count);
 ssize_t vfs_write(struct file *file, const char *buf, size_t count);
 loff_t vfs_llseek(struct file *file, loff_t offset, int whence);

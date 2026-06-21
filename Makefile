@@ -19,16 +19,7 @@ include scripts/flags.mk
 # Include Per-Directory Object Lists
 # =============================================================================
 
-include arch/riscv/arch.mk
-include init/init.mk
-include kernel/kernel.mk
-include sched/sched.mk
-include mm/mm.mk
-include fs/fs.mk
-include block/block.mk
-include drivers/drivers.mk
-include syscall/syscall.mk
-include lib/lib.mk
+include filelist.mk
 
 ifeq ($(KERNEL_TEST_ENABLE),1)
 include test/test.mk
