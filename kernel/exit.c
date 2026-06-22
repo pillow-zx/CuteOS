@@ -276,7 +276,7 @@ void do_exit_group(int code)
 {
 	struct task_struct *leader = current->group_leader;
 
-	printk("exit_group: pid=%d tgid=%d exit_code=%d\n", current->pid,
+	pr_info("exit_group: pid=%d tgid=%d exit_code=%d\n", current->pid,
 	       current->tgid, code);
 
 	if (leader && leader != current) {

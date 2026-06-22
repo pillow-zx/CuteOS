@@ -8,7 +8,7 @@
  *
  * 初始化流程（严格按依赖顺序）：
  *   1. console_init_sbi()       — SBI ecall 控制台，printk 可用
- *   2. printk("cuteOS starting...")
+ *   2. pr_info("cuteOS starting...")
  *   3. kernel_pagetable_init()  — 建立正式内核页表（4KB 页 + MMIO mega page）
  *   4. console_init_mmio()      — 切换到 UART MMIO 轮询模式
  *   5. buddy_init()             — 物理页分配器（从 _end 到 DRAM 结束）
@@ -53,47 +53,47 @@ void kernel_main(void)
 {
 	console_init_sbi();
 
-	printk("\n");
-	printk("  /$$$$$$              /$$                /$$$$$$   /$$$$$$ \n");
-	printk(" /$$__  $$            | $$               /$$__  $$ /$$__  $$\n");
-	printk("| $$  \\__/ /$$   /$$ /$$$$$$    /$$$$$$ | $$  \\ $$| $$  \\__/\n");
-	printk("| $$      | $$  | $$|_  $$_/   /$$__  $$| $$  | $$|  $$$$$$ \n");
-	printk("| $$      | $$  | $$  | $$    | $$$$$$$$| $$  | $$ \\____  $$\n");
-	printk("| $$    $$| $$  | $$  | $$ /$$| $$_____/| $$  | $$ /$$  \\ $$\n");
-	printk("|  $$$$$$/|  $$$$$$/  |  $$$$/|  $$$$$$$|  $$$$$$/|  $$$$$$/\n");
-	printk(" \\______/  \\______/    \\___/   \\_______/ \\______/  \\______/ \n");
-	printk("\n");
+	pr_info("\n");
+	pr_info("  /$$$$$$              /$$                /$$$$$$   /$$$$$$ \n");
+	pr_info(" /$$__  $$            | $$               /$$__  $$ /$$__  $$\n");
+	pr_info("| $$  \\__/ /$$   /$$ /$$$$$$    /$$$$$$ | $$  \\ $$| $$  \\__/\n");
+	pr_info("| $$      | $$  | $$|_  $$_/   /$$__  $$| $$  | $$|  $$$$$$ \n");
+	pr_info("| $$      | $$  | $$  | $$    | $$$$$$$$| $$  | $$ \\____  $$\n");
+	pr_info("| $$    $$| $$  | $$  | $$ /$$| $$_____/| $$  | $$ /$$  \\ $$\n");
+	pr_info("|  $$$$$$/|  $$$$$$/  |  $$$$/|  $$$$$$$|  $$$$$$/|  $$$$$$/\n");
+	pr_info(" \\______/  \\______/    \\___/   \\_______/ \\______/  \\______/ \n");
+	pr_info("\n");
 
 	kernel_pagetable_init();
 	console_init_mmio();
-	printk("uart: init successfully\n");
+	pr_info("uart: init successfully\n");
 
 	buddy_init();
 	page_table_use_buddy();
 	slab_init();
-	printk("mm: init successfully\n");
+	pr_info("mm: init successfully\n");
 
 	trap_init();
-	printk("trap: init successfully\n");
+	pr_info("trap: init successfully\n");
 
 	task_init();
-	printk("task: init successfully\n");
+	pr_info("task: init successfully\n");
 
 	timer_init();
-	printk("timer: init successfully\n");
+	pr_info("timer: init successfully\n");
 
 	sched_init();
-	printk("sched: init successfully\n");
+	pr_info("sched: init successfully\n");
 
 	syscall_init();
-	printk("syscall: init successfully\n");
+	pr_info("syscall: init successfully\n");
 
 	vfs_init();
-	printk("vfs: init successfully\n");
+	pr_info("vfs: init successfully\n");
 
 	virtio_blk_init();
 	if (mount_root() < 0)
-		printk("VFS: root mount skipped\n");
+		pr_warn("VFS: root mount skipped\n");
 
 #ifdef CONFIG_KERNEL_TEST
 	kernel_test();

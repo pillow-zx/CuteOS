@@ -34,6 +34,7 @@
  */
 
 #include <kernel/printk.h>
+#include <kernel/stacktrace.h>
 #include <asm/csr.h>
 #include <asm/sbi.h>
 #include <drivers/uart.h>
@@ -94,7 +95,7 @@ void console_init_mmio(void)
  * 返回写入的字符数（不含 '\0'）。
  * 如果 console_putc 未初始化，则为空操作。
  */
-int printk(const char *fmt, ...)
+int __printk(const char *fmt, ...)
 {
 	if (!console_putc)
 		return 0;
@@ -120,21 +121,21 @@ void print_hexdump(const void *buf, size_t len)
 	const uint8_t *p = buf;
 
 	for (size_t off = 0; off < len; off += 16) {
-		printk("%04x: ", (unsigned int)off);
+		pr_info("%04x: ", (unsigned int)off);
 		for (size_t i = 0; i < 16; i++) {
 			if (off + i < len)
-				printk("%02x ", p[off + i]);
+				pr_info("%02x ", p[off + i]);
 			else
-				printk("   ");
+				pr_info("   ");
 		}
-		printk(" ");
+		pr_info(" ");
 		for (size_t i = 0; i < 16; i++) {
 			if (off + i < len) {
 				uint8_t c = p[off + i];
-				printk("%c", (c >= 0x20 && c < 0x7f) ? c : '.');
+				pr_info("%c", (c >= 0x20 && c < 0x7f) ? c : '.');
 			}
 		}
-		printk("\n");
+		pr_info("\n");
 	}
 }
 
@@ -146,23 +147,24 @@ void print_hexdump(const void *buf, size_t len)
  * 打印 panic 信息及关键 CSR 寄存器值，然后永久挂起 CPU。
  * 此函数不会返回。
  */
-void __noreturn panic(const char *fmt, ...)
+void __noreturn __panic(const char *fmt, ...)
 {
-	printk("\nKERNEL PANIC: ");
+	pr_err("\nKERNEL PANIC: ");
 
 	va_list ap;
 	va_start(ap, fmt);
 	vsnprintf(printk_buf, PRINTK_BUF_SIZE, fmt, ap);
 	va_end(ap);
 	console_write(printk_buf);
-	printk("\n");
+	pr_err("\n");
 
 	/* 输出关键 CSR 寄存器用于事后诊断 */
-	printk("  sepc   = %p\n", (void *)(uintptr_t)csr_read(sepc));
-	printk("  scause = %p\n", (void *)(uintptr_t)csr_read(scause));
-	printk("  stval  = %p\n", (void *)(uintptr_t)csr_read(stval));
-	printk("  ra     = %p\n", (void *)(uintptr_t)__return_address());
-	printk("  sp     = %p\n", (void *)(uintptr_t)__frame_address());
+	pr_err("  sepc   = %p\n", (void *)(uintptr_t)csr_read(sepc));
+	pr_err("  scause = %p\n", (void *)(uintptr_t)csr_read(scause));
+	pr_err("  stval  = %p\n", (void *)(uintptr_t)csr_read(stval));
+	pr_err("  ra     = %p\n", (void *)(uintptr_t)__return_address());
+	pr_err("  sp     = %p\n", (void *)(uintptr_t)__frame_address());
+	dump_stack();
 
 	/* 永久挂起 */
 	while (1)

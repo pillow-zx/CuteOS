@@ -157,7 +157,7 @@ void do_page_fault(struct trap_frame *tf)
 
 	if (!vma) {
 		mm_unlock(mm);
-		printk("page fault: illegal access (no VMA) "
+		pr_warn("page fault: illegal access (no VMA) "
 		       "type=%s addr=%p sepc=%p origin=%s pid=%d\n",
 		       fault_type_name(scause), (void *)fault_addr,
 		       (void *)tf->sepc, from_user_mode ? "user" : "kernel",
@@ -171,7 +171,7 @@ void do_page_fault(struct trap_frame *tf)
 		uint32_t vm_flags = vma->vm_flags;
 
 		mm_unlock(mm);
-		printk("page fault: permission denied "
+		pr_warn("page fault: permission denied "
 		       "type=%s addr=%p vma_flags=0x%x sepc=%p "
 		       "origin=%s pid=%d\n",
 		       fault_type_name(scause), (void *)fault_addr,
@@ -199,7 +199,7 @@ void do_page_fault(struct trap_frame *tf)
 
 		pte_t pte = *existing;
 		mm_unlock(mm);
-		printk("page fault: mapped page permission denied "
+		pr_warn("page fault: mapped page permission denied "
 		       "type=%s addr=%p pte=0x%lx sepc=%p origin=%s pid=%d\n",
 		       fault_type_name(scause), (void *)fault_addr,
 		       (size_t)pte, (void *)tf->sepc,
@@ -212,7 +212,7 @@ void do_page_fault(struct trap_frame *tf)
 	void *page = get_free_page(0);
 	if (!page) {
 		mm_unlock(mm);
-		printk("page fault: OOM at addr=%p pid=%d\n",
+		pr_err("page fault: OOM at addr=%p pid=%d\n",
 		       (void *)fault_addr, current->pid);
 		do_exit(1);
 		unreachable();

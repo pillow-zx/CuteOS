@@ -214,7 +214,7 @@ void task_init(void)
 	/* 3. 设置 current 指针 */
 	current = &idle_task;
 
-	printk("task: idle (PID 0) created\n");
+	pr_info("task: idle (PID 0) created\n");
 }
 
 /* ---- 内核线程创建 ---- */
@@ -266,7 +266,7 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 
 	sched_enqueue(task);
 
-	printk("task: kernel thread (PID %d) created, fn=%p\n", task->pid,
+	pr_info("task: kernel thread (PID %d) created, fn=%p\n", task->pid,
 	       (void *)fn);
 
 	return task;

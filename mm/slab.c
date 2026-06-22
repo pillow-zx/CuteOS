@@ -112,7 +112,7 @@ void slab_init(void)
 		INIT_LIST_HEAD(&caches[i].free_list);
 	}
 
-	printk("slab: %d caches initialized (16..2048 bytes)\n", NR_CACHES);
+	pr_info("slab: %d caches initialized (16..2048 bytes)\n", NR_CACHES);
 }
 
 /**

@@ -229,7 +229,7 @@ void kernel_pagetable_init(void)
 
 	/* 2. 映射 256MB DRAM（高地址 KERNEL_VBASE + PA → PA）
 	 *    walk_page_table 自动分配 1 个 PMD 页 + 128 个 PTE 页 */
-	printk("page_table: mapping %dMB DRAM with 4KB pages...\n",
+	pr_info("page_table: mapping %dMB DRAM with 4KB pages...\n",
 	       (int)(DRAM_SIZE >> 20));
 
 	for (paddr_t pa = DRAM_BASE; pa < DRAM_BASE + DRAM_SIZE;
@@ -255,7 +255,7 @@ void kernel_pagetable_init(void)
 	csr_write(satp, satp_val);
 	sfence_vma_all();
 
-	printk("page_table: switched to kernel page table (pgd=%p, "
+	pr_info("page_table: switched to kernel page table (pgd=%p, "
 	       "early_alloc=%dKB)\n",
 	       (void *)pgd_pa,
 	       (int)((uintptr_t)early_alloc_ptr - (uintptr_t)_end) / 1024);

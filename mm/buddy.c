@@ -142,7 +142,7 @@ void buddy_init(void)
 		remaining -= (1UL << order);
 	}
 
-	printk("buddy: %d pages free (%d MB)\n", (int)nr_free_pages,
+	pr_info("buddy: %d pages free (%d MB)\n", (int)nr_free_pages,
 	       (int)(nr_free_pages * PAGE_SIZE >> 20));
 }
 

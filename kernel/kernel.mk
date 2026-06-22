@@ -2,6 +2,8 @@
 
 KERNEL_OBJS = \
 	kernel/printk.o         \
+	kernel/ksyms.o          \
+	kernel/stacktrace.o     \
 	kernel/sync.o           \
 	kernel/task.o           \
 	kernel/fork.o           \

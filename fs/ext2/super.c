@@ -265,6 +265,6 @@ int mount_root(void)
 		return -EINVAL;
 
 	vfs_set_root_dentry(sb->s_root);
-	printk("VFS: mounted root (ext2)\n");
+	pr_info("VFS: mounted root (ext2)\n");
 	return 0;
 }

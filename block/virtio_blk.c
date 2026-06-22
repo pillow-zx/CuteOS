@@ -271,10 +271,10 @@ static void vblk_smoke_test(void)
 
 	ret = virtio_blk_rw(&vblk_bdev, false, sect0, 0, 1);
 	if (ret) {
-		printk("virtio_blk: sector 0 read failed (%d)\n", ret);
+		pr_err("virtio_blk: sector 0 read failed (%d)\n", ret);
 		return;
 	}
-	printk("virtio_blk: sector 0 first 32 bytes:\n");
+	pr_info("virtio_blk: sector 0 first 32 bytes:\n");
 	print_hexdump(sect0, 32);
 }
 
@@ -330,7 +330,7 @@ void virtio_blk_init(void)
 	/* 注册块设备 */
 	register_block_device(&vblk_bdev);
 
-	printk("virtio_blk: init ok, capacity=%llu sectors (%llu MB)\n",
+	pr_info("virtio_blk: init ok, capacity=%llu sectors (%llu MB)\n",
 	       (unsigned long long)vblk_dev.capacity,
 	       (unsigned long long)(vblk_dev.capacity >> 11));
 

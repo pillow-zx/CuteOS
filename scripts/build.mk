@@ -27,6 +27,7 @@ endif
 quiet_cmd_CC = CC
 quiet_cmd_AS = AS
 quiet_cmd_LD = LD
+quiet_cmd_LD_STAGE1 = LD-SYM
 quiet_cmd_OBJDUMP_S = OBJDUMP
 quiet_cmd_OBJDUMP_T = OBJDUMP
 quiet_cmd_FSIMG = FSIMG

@@ -29,7 +29,7 @@ void pid_init(void)
 	/* 预留 PID 0 给 idle 进程 */
 	bitmap_set(&pid_map, 0);
 
-	printk("pid: bitmap initialized (%d PIDs, 0 reserved for idle)\n",
+	pr_info("pid: bitmap initialized (%d PIDs, 0 reserved for idle)\n",
 	       PID_COUNT);
 }
 
@@ -47,7 +47,7 @@ int32_t alloc_pid(void)
 void free_pid(pid_t pid)
 {
 	if (pid == 0) {
-		printk("pid: cannot free PID 0 (idle)\n");
+		pr_warn("pid: cannot free PID 0 (idle)\n");
 		return;
 	}
 

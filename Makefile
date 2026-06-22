@@ -47,8 +47,19 @@ OBJ_REL = \
 # Kernel artifact names
 KERNEL_NAME = cuteos
 KERNEL      = $(OUTDIR)/$(KERNEL_NAME)
+KERNEL_STAGE1 = $(OUTDIR)/$(KERNEL_NAME).stage1
 KERNEL_IMG  = $(KERNEL).img
-OBJS        = $(addprefix $(OUTDIR)/,$(OBJ_REL))
+OBJS_NOKSYMS = $(addprefix $(OUTDIR)/,$(OBJ_REL))
+
+ifeq ($(CONFIG_KSYMS),1)
+KSYMS_GEN_C = $(OUTDIR)/kernel/ksyms.generated.c
+KSYMS_OBJ   = $(OUTDIR)/kernel/ksyms.generated.o
+OBJS        = $(OBJS_NOKSYMS) $(KSYMS_OBJ)
+else
+KSYMS_GEN_C =
+KSYMS_OBJ =
+OBJS        = $(OBJS_NOKSYMS)
+endif
 
 # =============================================================================
 # Build Commands (verbose variants, used when V=1)
@@ -57,6 +68,7 @@ OBJS        = $(addprefix $(OUTDIR)/,$(OBJ_REL))
 cmd_CC = $(CC) $(CFLAGS) -c -o $@ $<
 cmd_AS = $(CC) $(ASFLAGS) -c -o $@ $<
 cmd_LD = $(KERNEL_LD) $(KERNEL_LDFLAGS) $(KERNEL_LD_SCRIPT) -o $@ $(OBJS)
+cmd_LD_STAGE1 = $(KERNEL_LD) $(KERNEL_LDFLAGS) $(KERNEL_LD_SCRIPT) -o $@ $(OBJS_NOKSYMS)
 cmd_OBJDUMP_S = $(OBJDUMP) -S $@ > $@.asm
 cmd_OBJDUMP_T = $(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $@.sym
 
@@ -103,6 +115,20 @@ $(KERNEL): $(OBJS) kernel.ld
 	$(call cmd,LD)
 	$(call cmd,OBJDUMP_S)
 	$(call cmd,OBJDUMP_T)
+
+ifeq ($(CONFIG_KSYMS),1)
+$(KERNEL_STAGE1): $(OBJS_NOKSYMS) kernel.ld
+	$(Q)mkdir -p $(dir $@)
+	$(call cmd,LD_STAGE1)
+	$(call cmd,OBJDUMP_T)
+
+$(KSYMS_GEN_C): $(KERNEL_STAGE1) scripts/gen_ksyms.sh
+	$(Q)sh scripts/gen_ksyms.sh $(KERNEL_STAGE1).sym $@
+
+$(KSYMS_OBJ): $(KSYMS_GEN_C)
+	$(Q)mkdir -p $(dir $@)
+	$(call cmd,CC)
+endif
 
 # Compile C sources
 $(OUTDIR)/%.o: %.c

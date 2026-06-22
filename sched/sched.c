@@ -33,7 +33,7 @@ static __always_inline void switch_address_space(const struct task_struct *prev,
 void sched_init(void)
 {
 	mlfq_init();
-	printk("sched: MLFQ initialized (%d levels)\n", SCHED_MLFQ_LEVELS);
+	pr_info("sched: MLFQ initialized (%d levels)\n", SCHED_MLFQ_LEVELS);
 }
 
 void sched_task_init(struct task_struct *task)

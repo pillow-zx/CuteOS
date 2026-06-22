@@ -48,10 +48,10 @@ void kernel_test(void)
 	__test_passed = 0;
 	__test_failed = 0;
 
-	printk("\n");
-	printk("========================================\n");
-	printk("        CuteOS Kernel Self-Test         \n");
-	printk("========================================\n");
+	pr_info("\n");
+	pr_info("========================================\n");
+	pr_info("        CuteOS Kernel Self-Test         \n");
+	pr_info("========================================\n");
 
 	/* ---- Bitmap ---- */
 	TEST_SECTION("Bitmap");
@@ -160,14 +160,14 @@ void kernel_test(void)
 	test_buffer_cache_eviction();
 
 	/* ---- 汇总 ---- */
-	printk("\n========================================\n");
-	printk("  Total: %d  |  Passed: %d  |  Failed: %d\n", (int)__test_total,
+	pr_info("\n========================================\n");
+	pr_info("  Total: %d  |  Passed: %d  |  Failed: %d\n", (int)__test_total,
 	       (int)__test_passed, (int)__test_failed);
-	printk("========================================\n");
+	pr_info("========================================\n");
 
 	if (__test_failed > 0)
-		printk("  *** SOME TESTS FAILED ***\n");
+		pr_err("  *** SOME TESTS FAILED ***\n");
 	else
-		printk("  ALL TESTS PASSED\n");
-	printk("\n");
+		pr_info("  ALL TESTS PASSED\n");
+	pr_info("\n");
 }

@@ -20,7 +20,7 @@ void trap_init(void)
 	csr_write(sscratch, 0);
 	csr_set(sie, SIE_STIE);
 	csr_set(sstatus, SSTATUS_SIE);
-	printk("stvec: 0x%lx, sscratch: 0x%lx, sie: 0x%lx, sstatus: 0x%lx\n",
+	pr_info("stvec: 0x%lx, sscratch: 0x%lx, sie: 0x%lx, sstatus: 0x%lx\n",
 	       csr_read(stvec), csr_read(sscratch), csr_read(sie),
 	       csr_read(sstatus));
 }

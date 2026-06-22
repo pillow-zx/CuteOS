@@ -43,7 +43,7 @@ extern uint32_t __test_failed;
  *
  * 用于 kernel_test() 中各子系统之间的视觉分隔。
  */
-#define TEST_SECTION(name) printk("\n=== " name " ===\n")
+#define TEST_SECTION(name) pr_info("\n=== " name " ===\n")
 
 /**
  * TEST_BEGIN - 开始一项测试用例
@@ -51,7 +51,7 @@ extern uint32_t __test_failed;
  *
  * 打印测试开始标记。
  */
-#define TEST_BEGIN(name) printk("  [TEST] %s ... ", name)
+#define TEST_BEGIN(name) pr_info("  [TEST] %s ... ", name)
 
 /**
  * TEST_END - 结束一项测试用例（通过）
@@ -61,7 +61,7 @@ extern uint32_t __test_failed;
  */
 #define TEST_END(name)                                                         \
 	do {                                                                   \
-		printk("PASS\n");                                              \
+		pr_info("PASS\n");                                             \
 		__test_passed++;                                               \
 		__test_total++;                                                \
 	} while (0)
@@ -70,7 +70,7 @@ extern uint32_t __test_failed;
  * TEST_PASS - 快速打印通过信息
  * @name: 测试名称
  */
-#define TEST_PASS(name) printk("  [PASS] %s\n", name)
+#define TEST_PASS(name) pr_info("  [PASS] %s\n", name)
 
 /**
  * TEST_FAIL - 快速打印失败信息
@@ -79,8 +79,8 @@ extern uint32_t __test_failed;
  */
 #define TEST_FAIL(name, msg)                                                   \
 	do {                                                                   \
-		printk("FAIL\n");                                              \
-		printk("    [FAIL] %s: %s\n", name, msg);                      \
+		pr_err("FAIL\n");                                              \
+		pr_err("    [FAIL] %s: %s\n", name, msg);                      \
 		__test_failed++;                                               \
 		__test_total++;                                                \
 	} while (0)
@@ -113,8 +113,8 @@ extern uint32_t __test_failed;
 #define TEST_ASSERT(cond)                                                      \
 	do {                                                                   \
 		if (unlikely(!(cond))) {                                       \
-			printk("FAIL\n");                                      \
-			printk("    assert %s failed at %s:%d\n", #cond,       \
+			pr_err("FAIL\n");                                      \
+			pr_err("    assert %s failed at %s:%d\n", #cond,       \
 			       __FILE__, __LINE__);                            \
 			__test_failed++;                                       \
 			__test_total++;                                        \
@@ -130,8 +130,8 @@ extern uint32_t __test_failed;
 #define TEST_ASSERT_EQ(a, b)                                                   \
 	do {                                                                   \
 		if (unlikely((a) != (b))) {                                    \
-			printk("FAIL\n");                                      \
-			printk("    assert %s == %s failed"                    \
+			pr_err("FAIL\n");                                      \
+			pr_err("    assert %s == %s failed"                    \
 			       " (0x%lx != 0x%lx) at %s:%d\n",                 \
 			       #a, #b, (uintptr_t)(a), (uintptr_t)(b),         \
 			       __FILE__, __LINE__);                            \
@@ -149,8 +149,8 @@ extern uint32_t __test_failed;
 #define TEST_ASSERT_NE(a, b)                                                   \
 	do {                                                                   \
 		if (unlikely((a) == (b))) {                                    \
-			printk("FAIL\n");                                      \
-			printk("    assert %s != %s failed"                    \
+			pr_err("FAIL\n");                                      \
+			pr_err("    assert %s != %s failed"                    \
 			       " at %s:%d\n",                                  \
 			       #a, #b, __FILE__, __LINE__);                    \
 			__test_failed++;                                       \
@@ -166,8 +166,8 @@ extern uint32_t __test_failed;
 #define TEST_ASSERT_NULL(p)                                                    \
 	do {                                                                   \
 		if (unlikely((p) != NULL)) {                                   \
-			printk("FAIL\n");                                      \
-			printk("    assert %s == NULL failed"                  \
+			pr_err("FAIL\n");                                      \
+			pr_err("    assert %s == NULL failed"                  \
 			       " (got %p) at %s:%d\n",                         \
 			       #p, (void *)(p), __FILE__, __LINE__);           \
 			__test_failed++;                                       \
@@ -183,8 +183,8 @@ extern uint32_t __test_failed;
 #define TEST_ASSERT_NOT_NULL(p)                                                \
 	do {                                                                   \
 		if (unlikely((p) == NULL)) {                                   \
-			printk("FAIL\n");                                      \
-			printk("    assert %s != NULL failed"                  \
+			pr_err("FAIL\n");                                      \
+			pr_err("    assert %s != NULL failed"                  \
 			       " at %s:%d\n",                                  \
 			       #p, __FILE__, __LINE__);                        \
 			__test_failed++;                                       \
@@ -201,8 +201,8 @@ extern uint32_t __test_failed;
 #define TEST_ASSERT_ALIGNED(p, align)                                          \
 	do {                                                                   \
 		if (unlikely((uintptr_t)(p) & ((align) - 1))) {                \
-			printk("FAIL\n");                                      \
-			printk("    assert %s aligned to %d failed"            \
+			pr_err("FAIL\n");                                      \
+			pr_err("    assert %s aligned to %d failed"            \
 			       " (addr=%p) at %s:%d\n",                        \
 			       #p, (int)(align), (void *)(p), __FILE__,        \
 			       __LINE__);                                      \
