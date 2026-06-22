@@ -42,7 +42,7 @@ ssize_t sys_epoll_pwait(struct trap_frame *tf)
 	return -ENOSYS;
 }
 
-ssize_t sys_umount(struct trap_frame *tf)
+ssize_t sys_umount2(struct trap_frame *tf)
 {
 	(void)tf;
 	/* TODO(vfs): 当前根文件系统固定挂载，尚无 mount namespace。 */

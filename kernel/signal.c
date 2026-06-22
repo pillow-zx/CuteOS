@@ -48,7 +48,7 @@
 
 static void *trampoline_page;
 
-static_assert(SYS_sigreturn >= 0 && SYS_sigreturn < 2048,
+static_assert(SYS_rt_sigreturn >= 0 && SYS_rt_sigreturn < 2048,
 	      "SYS_sigreturn must fit in a RISC-V addi immediate");
 
 #define RISCV_REG_ZERO 0
@@ -402,7 +402,7 @@ bool signal_trampoline_overlaps(vaddr_t start, vaddr_t end)
 int signal_map_trampoline(pte_t *pgd)
 {
 	static const uint32_t code[] = {
-		RISCV_ADDI(RISCV_REG_A7, RISCV_REG_ZERO, SYS_sigreturn),
+		RISCV_ADDI(RISCV_REG_A7, RISCV_REG_ZERO, SYS_rt_sigreturn),
 		RISCV_ECALL,
 		RISCV_J_SELF,
 	};
