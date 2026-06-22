@@ -13,7 +13,7 @@ MCONF        := $(KCONFIG_DIR)/build/mconf
 KCONFIG_SRCS := $(KCONFIG) arch/riscv/Kconfig fs/Kconfig kernel/Kconfig
 KCONFIG_SILENT := -s
 
-KCONFIG_SKIP_GOALS := clean clean-user help print-gdbport print-toolprefix format
+KCONFIG_SKIP_GOALS := clean clean-user help print-gdbport print-toolprefix format defconfig
 ifneq ($(strip $(MAKECMDGOALS)),)
 ifneq ($(filter-out $(KCONFIG_SKIP_GOALS),$(MAKECMDGOALS)),)
 KCONFIG_NEED_CONFIG := 1
@@ -43,8 +43,13 @@ endif
 
 syncconfig: $(AUTO_CONF)
 
+defconfig: $(CONF) $(DEFCONFIG) $(KCONFIG_SRCS)
+	$(Q)cp $(DEFCONFIG) $(DOT_CONFIG)
+	$(Q)$(CONF) $(KCONFIG_SILENT) --olddefconfig $(KCONFIG)
+	$(Q)$(CONF) $(KCONFIG_SILENT) --syncconfig $(KCONFIG)
+
 menuconfig: $(MCONF) $(CONF) $(DOT_CONFIG)
 	$(Q)$(MCONF) $(KCONFIG)
 	$(Q)$(CONF) $(KCONFIG_SILENT) --syncconfig $(KCONFIG)
 
-.PHONY: syncconfig menuconfig
+.PHONY: syncconfig defconfig menuconfig

@@ -128,8 +128,14 @@ make
 `configs/cuteos_defconfig` 生成基线配置。修改配置请使用：
 
 ```sh
+make defconfig
 make menuconfig
 ```
+
+其中：
+
+- `make defconfig` 会用 `configs/cuteos_defconfig` 显式覆盖根目录 `.config`
+- `make menuconfig` 会在当前 `.config` 基础上交互式修改配置
 
 构建用户态程序：
 
@@ -151,11 +157,14 @@ make qemu
 | 命令 | 作用 |
 | --- | --- |
 | `make` | 按 `.config` 构建内核 ELF，默认输出到 `build/kernel/` |
+| `make defconfig` | 用 `configs/cuteos_defconfig` 重置根目录 `.config` |
 | `make menuconfig` | 修改唯一的根目录 `.config` |
 | `make qemu` | 构建内核、生成 ext2 镜像并启动 QEMU |
 | `make qemu-gdb` | 启动 QEMU 并暂停在入口，同时打开 GDB stub |
 | `make print-gdbport` | 打印当前 GDB stub 端口 |
 | `make user` | 只构建用户态 ELF |
+| `make tags` | 生成 `tags` 文件，便于编辑器 / LSP 做源码跳转 |
+| `make gtags` | 生成 `GTAGS` / `GRTAGS` / `GPATH`，便于 GNU Global 建索引 |
 | `make asm` / `make sym` | 生成反汇编和符号表 |
 | `make clean` | 删除构建产物和 `.gdbinit` |
 
@@ -206,7 +215,7 @@ ELF。
   重复；修改结构布局时需要同步两侧。
 - 内核返回错误统一使用负 errno，例如 `-EINVAL`、`-ENOMEM`、`-ENOSYS`。
 - `CONFIG_KERNEL_TEST=y` 时，启动后自动运行内核自测。
-- 当前只有 `make menuconfig` 是公开配置入口；`ext2` 仍是唯一可启动根文件系统。
+- `make defconfig` 用于恢复基线配置，`make menuconfig` 用于交互式调整；`ext2` 仍是唯一可启动根文件系统。
 - C 代码使用固定宽度整数类型，避免裸 `unsigned`；格式以 tab 缩进、80 列、
   K&R 风格括号和右指针为主。
 - 加新内核对象时，在对应目录的 `*.mk` 中登记对象；加新用户命令时，放到

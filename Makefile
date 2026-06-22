@@ -72,6 +72,7 @@ all: $(KERNEL)
 help:
 	@printf 'CuteOS build usage:\n'
 	@printf '  make                         Build kernel ELF using .config\n'
+	@printf '  make defconfig               Reset .config from configs/cuteos_defconfig\n'
 	@printf '  make menuconfig              Configure build options\n'
 	@printf '  make qemu                    Build image and boot QEMU\n'
 	@printf '  make qemu-gdb                Boot QEMU paused with GDB stub\n'
@@ -79,6 +80,8 @@ help:
 	@printf '  make user                    Build user-space ELFs only\n'
 	@printf '  make cuteos.img              Build filesystem image\n'
 	@printf '  make analyze                 Run GCC -fanalyzer over C sources\n'
+	@printf '  make tags                    Generate a ctags index for the project\n'
+	@printf '  make gtags                   Generate GNU Global tag databases\n'
 	@printf '  make asm | make sym          Generate disassembly or symbol table\n'
 	@printf '  make clean | make clean-user  Remove build artifacts\n'
 	@printf '\n'
@@ -87,6 +90,8 @@ help:
 	@printf '  V=1                          Print full command lines\n'
 	@printf '\n'
 	@printf 'Examples:\n'
+	@printf '  make defconfig\n'
+	@printf '  make tags\n'
 	@printf '  make menuconfig\n'
 	@printf '  TOOLPREFIX=riscv64-linux-gnu- make qemu\n'
 
@@ -208,6 +213,33 @@ print-gdbport:
 print-toolprefix:
 	@echo $(TOOLPREFIX)
 
+# Source index files. Keep generated output and build directories out of tags.
+INDEX_PRUNE_DIRS = \( -path './.git' -o -path './build' -o \
+		      -path './tools/kconfig/build' -o -path './.cache' \)
+CTAGS_SOURCE_EXPR = \( -name '*.[ch]' -o -name '*.S' -o -name '*.s' -o \
+		      -name '*.ld' -o -name '*.mk' -o -name 'Makefile' \)
+GTAGS_SOURCE_EXPR = \( -name '*.[ch]' -o -name '*.S' -o -name '*.s' \)
+
+tags:
+	@command -v ctags >/dev/null 2>&1 || { \
+		echo "ERROR: ctags not found"; exit 1; \
+	}
+	$(Q)tmp=$$(mktemp); \
+	trap 'rm -f "$$tmp"' EXIT; \
+	find . $(INDEX_PRUNE_DIRS) -prune -o $(CTAGS_SOURCE_EXPR) -print | sort > "$$tmp"; \
+	ctags --quiet=yes -f tags -L "$$tmp" --languages=C,Asm,Make \
+		--langmap=Asm:+.S.s --langmap=Make:+.mk \
+		--fields=+iaS --extras=+q
+
+gtags:
+	@command -v gtags >/dev/null 2>&1 || { \
+		echo "ERROR: gtags not found"; exit 1; \
+	}
+	$(Q)tmp=$$(mktemp); \
+	trap 'rm -f "$$tmp"' EXIT; \
+	find . $(INDEX_PRUNE_DIRS) -prune -o $(GTAGS_SOURCE_EXPR) -print | sort > "$$tmp"; \
+	gtags -q --skip-unreadable -f "$$tmp" .
+
 # Run clang-format on C source and header files only
 FMT_FILES := $(shell find . \( -name '*.c' -o -name '*.h' \))
 format:
@@ -279,6 +311,7 @@ clean-user:
 clean: clean-user
 	$(Q)rm -rf $(OUTROOT)
 	$(Q)rm -f .gdbinit
+	$(Q)rm -f tags GTAGS GRTAGS GPATH ID
 
 # Prevent deletion of intermediate .o files
 .PRECIOUS: $(OUTDIR)/%.o
@@ -287,6 +320,6 @@ FORCE:
 
 # Declare phony targets
 .PHONY: all help qemu qemu-gdb check-qemu-version clean clean-user FORCE
-.PHONY: user format analyze analyze-kernel analyze-user asm sym
+.PHONY: user format analyze analyze-kernel analyze-user asm sym tags gtags
 .PHONY: $(KERNEL_NAME) $(KERNEL_NAME).img
 .PHONY: print-gdbport print-toolprefix
