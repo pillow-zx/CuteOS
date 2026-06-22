@@ -15,12 +15,13 @@ cuteOS 不是 Linux，也不是只会打印日志的 boot demo。它是一颗尽
 真实二进制接口推进的教学内核：
 
 - 架构：RISC-V 64，`rv64gc`，Sv39。
-- 平台：QEMU `virt`，内存 256 MB，单核启动。
+- 平台：QEMU `virt`，默认内存 256 MB；QEMU CPU 数来自 Kconfig，
+  内核当前仍仅启动 hart0。
 - 启动链路：OpenSBI -> 高半区内核 -> `kernel_main` -> PID 1 init ->
   `/bin/sh`。
 - 用户态契约：系统调用号、错误码、`stat`、信号 ABI 等按 Linux riscv64
   约定组织；未实现系统调用返回 `-ENOSYS`。
-- 文件系统：构建时生成 16 MB ext2 镜像，内核启动后挂载为根文件系统。
+- 文件系统：构建时生成 ext2 镜像，默认 16 MB，内核启动后挂载为根文件系统。
 - 取舍：优先选择最小正确实现。比如 fork 目前急切复制，无 COW；virtio-blk
   和 UART 当前为轮询；buffer cache 写穿；内核非抢占，用户态由时钟中断触发
   时间中断触发发时间片调度。
@@ -92,7 +93,7 @@ hello
 | futex | `FUTEX_WAIT`、`FUTEX_WAKE`、超时等待、robust list 注册和线程退出唤醒 |
 | 用户态 | `/bin/init`、`/bin/sh`、最小 libc、`ecall` 封装、`printf` / string / stdlib 子集 |
 | 用户命令 | `cat`、`cp`、`echo`、`false`、`id`、`kill`、`ls`、`mkdir`、`pwd`、`rm`、`rmdir`、`stat`、`touch`、`true`、`uname`，以及依赖已支持 syscall 的小型命令 |
-| 测试 | debug 构建自动启用内核自测；覆盖 bitmap、PID、buddy、slab、trap、timer、sync、MM/VMA、task、资源复制、调度、内核线程、virtio-blk、buffer cache；另有 `thread-test` 和 `vma-test` 用户态集成测试 |
+| 测试 | `CONFIG_KERNEL_TEST=y` 时启用内核自测；覆盖 bitmap、PID、buddy、slab、trap、timer、sync、MM/VMA、task、资源复制、调度、内核线程、virtio-blk、buffer cache；另有 `thread-test` 和 `vma-test` 用户态集成测试 |
 
 ### 暂不支持或后置
 
@@ -123,6 +124,13 @@ hello
 make
 ```
 
+首次构建如果没有 `.config`，构建系统会自动从
+`configs/cuteos_defconfig` 生成基线配置。修改配置请使用：
+
+```sh
+make menuconfig
+```
+
 构建用户态程序：
 
 ```sh
@@ -142,23 +150,24 @@ make qemu
 
 | 命令 | 作用 |
 | --- | --- |
-| `make` | 构建内核 ELF，默认输出到 `build/debug/sanitize-none/` |
+| `make` | 按 `.config` 构建内核 ELF，默认输出到 `build/kernel/` |
+| `make menuconfig` | 修改唯一的根目录 `.config` |
 | `make qemu` | 构建内核、生成 ext2 镜像并启动 QEMU |
 | `make qemu-gdb` | 启动 QEMU 并暂停在入口，同时打开 GDB stub |
 | `make print-gdbport` | 打印当前 GDB stub 端口 |
-| `BUILD=release make` | release 构建，启用优化和 section GC |
-| `SANITIZE=undefined make` | 开启 UBSan trap instrumentation |
 | `make user` | 只构建用户态 ELF |
 | `make asm` / `make sym` | 生成反汇编和符号表 |
 | `make clean` | 删除构建产物和 `.gdbinit` |
 
 构建系统是聚合式 Makefile：顶层 `Makefile` include 各目录的 `*.mk`，
-由顶层统一编译链接。新增内核对象时，把对象文件加入对应目录的 `*_OBJS`；
+由顶层统一编译链接；配置由 Kconfig 生成的 `.config`、`auto.conf` 和
+`autoconf.h` 驱动。新增内核对象时，把对象文件加入对应目录的 `*_OBJS`；
 新增用户命令时，添加 `user/bin/<name>.c` 即可被自动收集进 `/bin/<name>`。
 
 ## 镜像内容
 
-`mkimg.sh` 会创建一个 16 MB ext2 镜像，并写入：
+`mkimg.sh` 会创建一个 ext2 镜像，大小由
+`CONFIG_ROOTFS_IMAGE_SIZE_MB` 配置，并写入：
 
 - `/init` 和 `/bin/init`
 - `/bin/sh`
@@ -196,7 +205,8 @@ ELF。
 - 用户态 ABI 头在 `user/libc/minimal/include/user.h`，和内核头有意保持边界
   重复；修改结构布局时需要同步两侧。
 - 内核返回错误统一使用负 errno，例如 `-EINVAL`、`-ENOMEM`、`-ENOSYS`。
-- debug 构建会启用 `CONFIG_KERNEL_TEST`，启动后自动运行内核自测。
+- `CONFIG_KERNEL_TEST=y` 时，启动后自动运行内核自测。
+- 当前只有 `make menuconfig` 是公开配置入口；`ext2` 仍是唯一可启动根文件系统。
 - C 代码使用固定宽度整数类型，避免裸 `unsigned`；格式以 tab 缩进、80 列、
   K&R 风格括号和右指针为主。
 - 加新内核对象时，在对应目录的 `*.mk` 中登记对象；加新用户命令时，放到

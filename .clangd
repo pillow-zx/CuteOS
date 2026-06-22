@@ -1,0 +1,7 @@
+Diagnostics:
+  UnusedIncludes: None
+
+CompileFlags:
+  Remove:
+    - -fsanitize=undefined
+    - -fipa-pta

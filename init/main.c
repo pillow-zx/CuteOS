@@ -25,7 +25,7 @@
  *   console → pagetable → buddy → slab → trap → task → timer → sched → thread
  *
  * 注意事项：
- *   不解析 DTB，所有参数（DRAM_BASE/DRAM_SIZE/设备地址）编译时硬编码。
+ *   不解析 DTB；设备地址仍硬编码，DRAM 大小等参数来自 Kconfig。
  *   仅 hart0 运行，非 0 hart 在 boot.S 中已被 park。
  */
 

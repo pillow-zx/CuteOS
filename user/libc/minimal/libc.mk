@@ -6,6 +6,8 @@ USER_LIBC_OBJS = $(patsubst user/%.c,$(USER_OUT)/%.o,$(USER_LIBC_SRCS))
 USER_LIBC_A    = $(USER_OUT)/libc/minimal/libc.a
 
 $(USER_LIBC_A): $(USER_LIBC_OBJS)
-	@mkdir -p $(dir $@)
-	$(call user_cmd,AR)
-	$(call user_cmd,RANLIB)
+	$(Q)mkdir -p $(dir $@)
+	$(QUIET_AR)
+	$(Q)rm -f $@ && $(USER_AR) rc $@ $(filter %.o,$^)
+	$(QUIET_RANLIB)
+	$(Q)$(USER_RANLIB) $@

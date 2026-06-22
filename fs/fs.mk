@@ -16,7 +16,13 @@ EXT2_OBJS = \
 	fs/ext2/file.o          \
 	fs/ext2/balloc.o
 
+ifeq ($(CONFIG_EXT2_FS),y)
+FS_EXT2_OBJS = $(EXT2_OBJS)
+else
+FS_EXT2_OBJS =
+endif
+
 FS_OBJS = \
 	fs/pipe.o               \
 	$(VFS_OBJS)             \
-	$(EXT2_OBJS)
+	$(FS_EXT2_OBJS)

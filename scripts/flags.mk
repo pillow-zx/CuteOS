@@ -2,22 +2,30 @@
 
 KERNEL_ARCH_FLAGS = -march=rv64gc -mabi=lp64 -mcmodel=medany
 
+COMMON_SECTION_CFLAGS   = -ffunction-sections -fdata-sections
+COMMON_NO_STACK_PROTECTOR_CFLAGS = -fno-stack-protector
+COMMON_NO_PIE_CFLAGS = -fno-pie -no-pie
+COMMON_NO_LTO_CFLAGS = -fno-lto
+COMMON_DEBUG_INFO_CFLAGS = -g3 -ggdb -gdwarf-4
+COMMON_DEBUG_INFO_ASFLAGS = -g
+COMMON_LTO_CFLAGS = -flto=auto
+COMMON_UBSAN_TRAP_CFLAGS = -fsanitize-trap=undefined
+
 CFLAGS  = $(KERNEL_ARCH_FLAGS)
 ASFLAGS = -march=rv64gc -mabi=lp64
 
 CFLAGS += -Wall -Werror
 CFLAGS += -Wno-unknown-attributes
 CFLAGS += -Wno-main
-CFLAGS += -fno-omit-frame-pointer
 CFLAGS += -std=gnu17
 CFLAGS += -I include
 ASFLAGS += -I include
+CFLAGS += -include include/generated/autoconf.h
+ASFLAGS += -include include/generated/autoconf.h
 
 CFLAGS += -ffreestanding -fno-common -nostdlib -fno-builtin -nostdinc
-CFLAGS += $(call cc-option,-fno-stack-protector)
-CFLAGS += $(call cc-option,-fno-pie)
-CFLAGS += $(call cc-option,-no-pie)
-CFLAGS += $(call cc-option,-nopie)
+CFLAGS += $(COMMON_NO_STACK_PROTECTOR_CFLAGS)
+CFLAGS += $(COMMON_NO_PIE_CFLAGS)
 CFLAGS += -Wno-maybe-uninitialized
 
 LDFLAGS = -z max-page-size=4096
@@ -27,90 +35,66 @@ KERNEL_LD_SCRIPT = -T kernel.ld
 KERNEL_LDFLAGS = $(LDFLAGS)
 KERNEL_LINK_WITH_CC = 0
 KERNEL_NO_LTO_OBJS = lib/string.o lib/softfloat.o
+KERNEL_GC_SECTIONS = 0
 
-DEBUG_CFLAGS   = -O0 -g3 -ggdb -gdwarf-4 -DDEBUG
-DEBUG_CFLAGS  += -fno-inline -fno-optimize-sibling-calls
-DEBUG_ASFLAGS  = -g
-DEBUG_LDFLAGS  =
-
-RELEASE_CFLAGS  = -O3 -DNDEBUG
-RELEASE_CFLAGS += -ffunction-sections -fdata-sections
-RELEASE_CFLAGS += -fomit-frame-pointer
-RELEASE_CFLAGS += $(call cc-option,-fipa-pta)
-RELEASE_CFLAGS += $(call cc-option,-fweb)
-RELEASE_CFLAGS += $(call cc-option,-frename-registers)
-RELEASE_CFLAGS += $(call cc-option,-fgcse-after-reload)
-RELEASE_CFLAGS += $(call cc-option,-fno-semantic-interposition)
-RELEASE_CFLAGS += $(call cc-option,-fno-unwind-tables)
-RELEASE_CFLAGS += $(call cc-option,-fno-asynchronous-unwind-tables)
-RELEASE_LTO_CFLAGS = $(call cc-option,-flto=auto)
-RELEASE_ASFLAGS =
-RELEASE_LDFLAGS = --gc-sections
-
-
-CONFIG_SYSCALL_TRACE ?= 0
-ifeq ($(BUILD),debug)
-CONFIG_KSYMS ?= 1
-	CFLAGS  += $(DEBUG_CFLAGS)
-	ASFLAGS += $(DEBUG_ASFLAGS)
-	LDFLAGS += $(DEBUG_LDFLAGS)
-	CFLAGS  += -DCONFIG_KERNEL_TEST
-else ifeq ($(BUILD),release)
-CONFIG_KSYMS := 0
-	CFLAGS  += $(RELEASE_CFLAGS)
-	ASFLAGS += $(RELEASE_ASFLAGS)
-	LDFLAGS += $(RELEASE_LDFLAGS)
-ifeq ($(RELEASE_LTO),1)
-ifneq ($(RELEASE_LTO_CFLAGS),)
-	CFLAGS  += $(RELEASE_LTO_CFLAGS)
-	KERNEL_LD = $(CC)
-	KERNEL_LINK_WITH_CC = 1
-	KERNEL_LD_SCRIPT = -Wl,-T,kernel.ld
-	KERNEL_LDFLAGS = $(KERNEL_ARCH_FLAGS)
-	KERNEL_LDFLAGS += -nostdlib -nostartfiles -fno-pie -no-pie
-	KERNEL_LDFLAGS += $(RELEASE_LTO_CFLAGS)
-	KERNEL_LDFLAGS += -Wl,-z,max-page-size=4096 -Wl,--gc-sections
-	KERNEL_LDFLAGS += -Wl,--build-id=none
-endif
-endif
+ifeq ($(CONFIG_CC_OPTIMIZE_O0),y)
+CFLAGS += -O0
+else ifeq ($(CONFIG_CC_OPTIMIZE_O1),y)
+CFLAGS += -O1
+else ifeq ($(CONFIG_CC_OPTIMIZE_O2),y)
+CFLAGS += -O2
+else ifeq ($(CONFIG_CC_OPTIMIZE_O3),y)
+CFLAGS += -O3
+else ifeq ($(CONFIG_CC_OPTIMIZE_OZ),y)
+CFLAGS += -Oz
+else ifeq ($(CONFIG_CC_OPTIMIZE_OS),y)
+CFLAGS += -Os
 endif
 
-ifeq ($(RELEASE_LTO),1)
-ifeq ($(BUILD),release)
-CONFIG_KSYMS := 0
-endif
+ifneq ($(CONFIG_CC_OPTIMIZE_O0),y)
+CFLAGS  += $(COMMON_SECTION_CFLAGS)
+LDFLAGS += --gc-sections
+KERNEL_GC_SECTIONS = 1
 endif
 
-CONFIG_KSYMS ?= 0
-CONFIG_SYSCALL_TRACE ?= 0
+ifeq ($(CONFIG_DEBUG_INFO),y)
+CFLAGS  += $(COMMON_DEBUG_INFO_CFLAGS)
+ASFLAGS += $(COMMON_DEBUG_INFO_ASFLAGS)
+endif
 
-CFLAGS += -DCONFIG_KSYMS=$(CONFIG_KSYMS)
-CFLAGS += -DCONFIG_SYSCALL_TRACE=$(CONFIG_SYSCALL_TRACE)
+ifeq ($(CONFIG_FRAME_POINTER),y)
+CFLAGS += -fno-omit-frame-pointer
+endif
+
+ifeq ($(CONFIG_LTO),y)
+ifneq ($(COMMON_LTO_CFLAGS),)
+CFLAGS += $(COMMON_LTO_CFLAGS)
+KERNEL_LD = $(CC)
+KERNEL_LINK_WITH_CC = 1
+KERNEL_LD_SCRIPT = -Wl,-T,kernel.ld
+KERNEL_LDFLAGS = $(KERNEL_ARCH_FLAGS)
+KERNEL_LDFLAGS += -nostdlib -nostartfiles -fno-pie -no-pie
+KERNEL_LDFLAGS += $(COMMON_LTO_CFLAGS)
+KERNEL_LDFLAGS += -Wl,-z,max-page-size=4096
+ifeq ($(KERNEL_GC_SECTIONS),1)
+KERNEL_LDFLAGS += -Wl,--gc-sections
+endif
+KERNEL_LDFLAGS += -Wl,--build-id=none
+endif
+endif
 
 SANITIZE_CFLAGS =
-SANITIZE_ASFLAGS =
-SANITIZE_LDFLAGS =
-SANITIZE_UBSAN_TRAP_CFLAGS = $(call cc-option,-fsanitize-trap=undefined)
 
-ifeq ($(SANITIZE),none)
-else ifeq ($(SANITIZE),undefined)
-	SANITIZE_CFLAGS += -fsanitize=undefined
-ifneq ($(SANITIZE_UBSAN_TRAP_CFLAGS),)
-	SANITIZE_CFLAGS += $(SANITIZE_UBSAN_TRAP_CFLAGS)
-else
-	SANITIZE_CFLAGS += -fsanitize-undefined-trap-on-error
-endif
-	SANITIZE_CFLAGS += -fno-sanitize-recover=all
-else
-$(error Unsupported SANITIZE='$(SANITIZE)'; expected 'none' or 'undefined')
+ifeq ($(CONFIG_UBSAN),y)
+SANITIZE_CFLAGS += -fsanitize=undefined
+SANITIZE_CFLAGS += $(COMMON_UBSAN_TRAP_CFLAGS)
+SANITIZE_CFLAGS += -fno-sanitize-recover=all
 endif
 
-CFLAGS  += $(SANITIZE_CFLAGS)
-ASFLAGS += $(SANITIZE_ASFLAGS)
-LDFLAGS += $(SANITIZE_LDFLAGS)
+CFLAGS += $(SANITIZE_CFLAGS)
 
 ifeq ($(KERNEL_LINK_WITH_CC),1)
-	KERNEL_LDFLAGS += $(SANITIZE_CFLAGS)
+KERNEL_LDFLAGS += $(SANITIZE_CFLAGS)
 endif
 
 CFLAGS += -MD

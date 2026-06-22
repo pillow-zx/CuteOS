@@ -1,35 +1,34 @@
-# Build profile, artifact layout, and command verbosity.
+# Artifact layout and command verbosity.
 
 MIN_QEMU_VERSION = 7.2
 
-BUILD       ?= debug
-SANITIZE    ?= none
-RELEASE_LTO ?= 1
 OUTROOT     ?= build
-OUTDIR      = $(OUTROOT)/$(BUILD)/sanitize-$(SANITIZE)
-
-ifeq ($(BUILD),debug)
-KERNEL_TEST_ENABLE := 1
-else ifeq ($(BUILD),release)
-KERNEL_TEST_ENABLE := 0
-else
-$(error Unsupported BUILD='$(BUILD)'; expected 'debug' or 'release')
-endif
+OUTDIR      = $(OUTROOT)/kernel
 
 V ?= 0
 
 ifeq ($(V),1)
   Q :=
+  QUIET_CC :=
+  QUIET_AS :=
+  QUIET_LD :=
+  QUIET_LD_STAGE1 :=
+  QUIET_OBJDUMP_S :=
+  QUIET_OBJDUMP_T :=
+  QUIET_FSIMG :=
+  QUIET_AR :=
+  QUIET_RANLIB :=
+  QUIET_ANALYZE :=
 else
   Q := @
+  QUIET_CC = @echo '  CC      $@'
+  QUIET_AS = @echo '  AS      $@'
+  QUIET_LD = @echo '  LD      $@'
+  QUIET_LD_STAGE1 = @echo '  LD-SYM  $@'
+  QUIET_OBJDUMP_S = @echo '  OBJDUMP $@'
+  QUIET_OBJDUMP_T = @echo '  OBJDUMP $@'
+  QUIET_FSIMG = @echo '  FSIMG   $@'
+  QUIET_AR = @echo '  AR      $@'
+  QUIET_RANLIB = @echo '  RANLIB  $@'
+  QUIET_ANALYZE = @echo '  ANALYZE $<'
 endif
-
-quiet_cmd_CC = CC
-quiet_cmd_AS = AS
-quiet_cmd_LD = LD
-quiet_cmd_LD_STAGE1 = LD-SYM
-quiet_cmd_OBJDUMP_S = OBJDUMP
-quiet_cmd_OBJDUMP_T = OBJDUMP
-quiet_cmd_FSIMG = FSIMG
-
-cmd = $(if $(filter 1,$(V)),$(cmd_$(1)),$(Q)printf '  %-7s %s\n' '$(quiet_cmd_$(1))' '$@' && $(cmd_$(1)))

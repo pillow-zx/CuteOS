@@ -8,7 +8,7 @@
  *
  * 主要函数：
  *   kernel_pagetable_init() - 初始化内核全局页表。两步映射：
- *     步骤一：为 256MB DRAM 物理内存建立 4KB 细粒度页映射
+ *     步骤一：为配置的 DRAM 物理内存建立 4KB 细粒度页映射
  *             (恒等映射 + 高地址映射)，权限为 R+W+X（内核代码/数据）。
  *             恒等映射与高地址映射共享同一组 PMD/PTE 页。
  *     步骤二：pgd[0] 建立 1GB mega page 映射 MMIO 设备空间
@@ -227,7 +227,7 @@ void kernel_pagetable_init(void)
 	/* 1. 分配 PGD 页 */
 	pte_t *pgd = (pte_t *)early_alloc_page();
 
-	/* 2. 映射 256MB DRAM（高地址 KERNEL_VBASE + PA → PA）
+	/* 2. 映射 DRAM（高地址 KERNEL_VBASE + PA → PA）
 	 *    walk_page_table 自动分配 1 个 PMD 页 + 128 个 PTE 页 */
 	pr_info("page_table: mapping %dMB DRAM with 4KB pages...\n",
 	       (int)(DRAM_SIZE >> 20));

@@ -15,43 +15,56 @@ USER_CFLAGS  += -ffreestanding -nostdlib -nostdinc -fno-builtin
 USER_CFLAGS  += -Wall -Werror
 USER_CFLAGS  += -I user/libc/minimal/include
 USER_CFLAGS  += -I include
+USER_CFLAGS  += -include include/generated/autoconf.h
 USER_LDFLAGS  = -z max-page-size=4096
 USER_LD_SCRIPT = -T user/user.ld
 
-USER_RELEASE_CFLAGS  = -O3 -DNDEBUG
-USER_RELEASE_CFLAGS += -ffunction-sections -fdata-sections
-USER_RELEASE_CFLAGS += -fomit-frame-pointer
-USER_RELEASE_CFLAGS += $(call cc-option,-fipa-pta)
-USER_RELEASE_CFLAGS += $(call cc-option,-fweb)
-USER_RELEASE_CFLAGS += $(call cc-option,-frename-registers)
-USER_RELEASE_CFLAGS += $(call cc-option,-fgcse-after-reload)
-USER_RELEASE_CFLAGS += $(call cc-option,-fno-semantic-interposition)
-USER_RELEASE_CFLAGS += $(call cc-option,-fno-unwind-tables)
-USER_RELEASE_CFLAGS += $(call cc-option,-fno-asynchronous-unwind-tables)
-USER_RELEASE_LTO_CFLAGS = $(call cc-option,-flto=auto)
+ifeq ($(CONFIG_CC_OPTIMIZE_O0),y)
+USER_CFLAGS += -O0
+else ifeq ($(CONFIG_CC_OPTIMIZE_O1),y)
+USER_CFLAGS += -O1
+else ifeq ($(CONFIG_CC_OPTIMIZE_O2),y)
+USER_CFLAGS += -O2
+else ifeq ($(CONFIG_CC_OPTIMIZE_O3),y)
+USER_CFLAGS += -O3
+else ifeq ($(CONFIG_CC_OPTIMIZE_OZ),y)
+USER_CFLAGS += -Oz
+else ifeq ($(CONFIG_CC_OPTIMIZE_OS),y)
+USER_CFLAGS += -Os
+endif
 
-ifeq ($(BUILD),release)
-USER_CFLAGS  += $(USER_RELEASE_CFLAGS)
+ifneq ($(CONFIG_CC_OPTIMIZE_O0),y)
+USER_CFLAGS  += $(COMMON_SECTION_CFLAGS)
 USER_LDFLAGS += --gc-sections
-ifeq ($(RELEASE_LTO),1)
-ifneq ($(USER_RELEASE_LTO_CFLAGS),)
-USER_CFLAGS   += $(USER_RELEASE_LTO_CFLAGS)
+endif
+
+ifeq ($(CONFIG_DEBUG_INFO),y)
+USER_CFLAGS += $(COMMON_DEBUG_INFO_CFLAGS)
+endif
+
+ifeq ($(CONFIG_FRAME_POINTER),y)
+USER_CFLAGS += -fno-omit-frame-pointer
+endif
+
+ifeq ($(CONFIG_LTO),y)
+ifneq ($(COMMON_LTO_CFLAGS),)
+USER_CFLAGS   += $(COMMON_LTO_CFLAGS)
 USER_LD        = $(USER_CC)
 USER_LDFLAGS   = $(USER_ARCH_FLAGS)
 USER_LDFLAGS  += -nostdlib -nostartfiles
 USER_LDFLAGS  += -fno-pie -no-pie
-USER_LDFLAGS  += $(USER_RELEASE_LTO_CFLAGS)
-USER_LDFLAGS  += -Wl,-z,max-page-size=4096 -Wl,--gc-sections
+USER_LDFLAGS  += $(COMMON_LTO_CFLAGS)
+USER_LDFLAGS  += -Wl,-z,max-page-size=4096
+ifneq ($(CONFIG_CC_OPTIMIZE_O0),y)
+USER_LDFLAGS  += -Wl,--gc-sections
+endif
 USER_LDFLAGS  += -Wl,--build-id=none
 USER_LD_SCRIPT = -Wl,-T,user/user.ld
 endif
 endif
-else
-USER_CFLAGS += -O0 -g
-endif
 
 USER_OUTROOT = $(OUTROOT)/user
-USER_OUT     = $(USER_OUTROOT)/$(BUILD)
+USER_OUT     = $(USER_OUTROOT)
 
 USER_CRT_OBJS  = $(USER_OUT)/start.o
 
@@ -68,33 +81,24 @@ USER_ELFS      = $(USER_INIT_ELF) $(USER_SH_ELF) $(USER_BIN_ELFS)
 USER_INIT_OBJS = $(USER_CRT_OBJS) $(USER_OUT)/init/init.o
 USER_SH_OBJS   = $(USER_CRT_OBJS) $(USER_OUT)/init/shell.o
 
-quiet_user_CC       = CC
-quiet_user_LD       = LD
-quiet_user_AR       = AR
-quiet_user_RANLIB   = RANLIB
-quiet_user_OBJCOPY  = OBJCOPY
+$(USER_OUT)/%.o: user/%.S $(AUTOCONF_H)
+	$(Q)mkdir -p $(dir $@)
+	$(QUIET_CC)
+	$(Q)$(USER_CC) $(USER_CFLAGS) -c -o $@ $<
 
-user_cmd = $(if $(filter 1,$(V)),$(user_cmd_$(1)),$(Q)printf '  %-7s %s\n' '$(quiet_user_$(1))' '$@' && $(user_cmd_$(1)))
-
-user_cmd_CC      = $(USER_CC) $(USER_CFLAGS) -c -o $@ $<
-user_cmd_AR      = rm -f $@ && $(USER_AR) rc $@ $(filter %.o,$^)
-user_cmd_RANLIB  = $(USER_RANLIB) $@
-user_cmd_LD      = $(USER_LD) $(USER_LDFLAGS) $(USER_LD_SCRIPT) -o $@ $(filter %.o,$^) $(filter %.a,$^)
-user_cmd_OBJCOPY = $(USER_OBJCOPY) -O binary $< $@
-
-$(USER_OUT)/%.o: user/%.S
-	@mkdir -p $(dir $@)
-	$(call user_cmd,CC)
-
-$(USER_OUT)/%.o: user/%.c
-	@mkdir -p $(dir $@)
-	$(call user_cmd,CC)
+$(USER_OUT)/%.o: user/%.c $(AUTOCONF_H)
+	$(Q)mkdir -p $(dir $@)
+	$(QUIET_CC)
+	$(Q)$(USER_CC) $(USER_CFLAGS) -c -o $@ $<
 
 $(USER_INIT_ELF): $(USER_INIT_OBJS) $(USER_LIBC_A) user/user.ld
-	$(call user_cmd,LD)
+	$(QUIET_LD)
+	$(Q)$(USER_LD) $(USER_LDFLAGS) $(USER_LD_SCRIPT) -o $@ $(filter %.o,$^) $(filter %.a,$^)
 
 $(USER_SH_ELF): $(USER_SH_OBJS) $(USER_LIBC_A) user/user.ld
-	$(call user_cmd,LD)
+	$(QUIET_LD)
+	$(Q)$(USER_LD) $(USER_LDFLAGS) $(USER_LD_SCRIPT) -o $@ $(filter %.o,$^) $(filter %.a,$^)
 
 $(USER_OUT)/bin/%.elf: $(USER_CRT_OBJS) $(USER_OUT)/bin/%.o $(USER_LIBC_A) user/user.ld
-	$(call user_cmd,LD)
+	$(QUIET_LD)
+	$(Q)$(USER_LD) $(USER_LDFLAGS) $(USER_LD_SCRIPT) -o $@ $(filter %.o,$^) $(filter %.a,$^)

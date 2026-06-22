@@ -1,0 +1,11 @@
+mainmenu "cuteOS Configuration"
+
+menu "General setup"
+
+comment "cuteOS uses a single .config in the repository root."
+
+endmenu
+
+source "kernel/Kconfig"
+source "arch/riscv/Kconfig"
+source "fs/Kconfig"

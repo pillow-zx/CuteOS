@@ -1,0 +1,28 @@
+menu "Platform"
+
+config ARCH_RISCV
+	bool
+	default y
+
+config PLATFORM_QEMU_VIRT
+	bool
+	default y
+
+comment "QEMU virt is the only supported platform in this stage."
+
+config DRAM_SIZE_MB
+	int "DRAM size (MiB)"
+	range 64 1024
+	default 256
+	help
+	  Current early boot page tables cover the 1 GiB window starting at
+	  DRAM_BASE, so larger memory sizes require boot mapping changes.
+
+config QEMU_CPUS
+	int "QEMU CPU count"
+	range 1 8
+	default 1
+	help
+	  This controls QEMU -smp only. The kernel still boots hart 0 only.
+
+endmenu

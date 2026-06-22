@@ -1,0 +1,22 @@
+menu "File systems"
+
+config EXT2_FS
+	bool
+	default y
+
+choice
+	prompt "Root filesystem"
+	default ROOTFS_EXT2
+
+config ROOTFS_EXT2
+	bool "EXT2 root filesystem"
+	select EXT2_FS
+
+endchoice
+
+config ROOTFS_IMAGE_SIZE_MB
+	int "Root filesystem image size (MiB)"
+	range 8 256
+	default 16
+
+endmenu

@@ -20,6 +20,10 @@
 !fs/vfs/
 !lib/
 !mm/
+!configs/
+!tools/
+!tools/kconfig/
+!tools/kconfig/lxdialog/
 !user/
 !user/bin/
 !user/init/
@@ -31,6 +35,8 @@
 
 
 !**/*.mk
+!Kconfig
+!**/Kconfig
 !**/*.h
 !arch/**/*.c
 !arch/**/*.S
@@ -43,6 +49,15 @@
 !kernel/**/*.c
 !lib/**/*.c
 !mm/**/*.c
+!configs/**/*
+!tools/kconfig/.gitignore
+!tools/kconfig/Makefile
+!tools/kconfig/*.c
+!tools/kconfig/*.h
+!tools/kconfig/*.l
+!tools/kconfig/*.y
+!tools/kconfig/lxdialog/*.c
+!tools/kconfig/lxdialog/*.h
 !test/**/*.c
 !test/**/*.h
 !test/**/*.S
@@ -56,6 +71,7 @@
 !user/start.S
 !user/user.ld
 !.clang-format
+!.clangd
 !.editorconfig
 !.gdbinit.tmpl-riscv
 !.gitignore
@@ -63,3 +79,5 @@
 !README.md
 !mkimg.sh
 !kernel.ld
+tools/kconfig/build/
+tools/kconfig/build/**/*

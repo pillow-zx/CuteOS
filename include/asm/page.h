@@ -23,7 +23,7 @@
 
 /* 物理内存 (DRAM) 起始地址与大小 */
 #define DRAM_BASE 0x80000000
-#define DRAM_SIZE 0x10000000
+#define DRAM_SIZE ((uint64_t)CONFIG_DRAM_SIZE_MB << 20)
 
 /* 用户地址空间上限与栈布局
  *
@@ -59,7 +59,7 @@
 /*
  * kernel_pagetable_init - 初始化正式内核页表并切换 satp
  *
- * 使用 4KB 普通页映射 256MB DRAM（高地址 + 恒等映射），
+ * 使用 4KB 普通页映射 Kconfig 配置的 DRAM（高地址 + 恒等映射），
  * 使用 1GB mega page 映射 MMIO，然后切换到新页表。
  * 必须在 buddy_init 之前调用。
  */

@@ -1,0 +1,62 @@
+menu "Build & Debug"
+
+choice
+	prompt "Optimization level"
+	default CC_OPTIMIZE_O0
+
+config CC_OPTIMIZE_O0
+	bool "-O0"
+
+config CC_OPTIMIZE_O1
+	bool "-O1"
+
+config CC_OPTIMIZE_O2
+	bool "-O2"
+
+config CC_OPTIMIZE_O3
+	bool "-O3"
+
+config CC_OPTIMIZE_OZ
+	bool "-Oz"
+
+config CC_OPTIMIZE_OS
+	bool "-Os"
+
+endchoice
+
+config LTO
+	bool "Link-time optimization"
+	default n
+
+# endmenu
+
+# menu "Debug"
+
+config DEBUG_INFO
+	bool "Debug information"
+	default y
+
+config FRAME_POINTER
+	bool "Frame pointer"
+	default y
+
+config UBSAN
+	bool "Undefined behavior sanitizer"
+	default n
+	help
+	  Enable kernel-side undefined behavior sanitizer trap instrumentation.
+
+config SYSCALL_TRACE
+	bool "Syscall trace logging"
+	default n
+
+config KERNEL_TEST
+	bool "Kernel self tests"
+	default y
+
+config KSYMS
+	bool "Kernel symbol lookup table"
+	depends on !LTO
+	default y
+
+endmenu

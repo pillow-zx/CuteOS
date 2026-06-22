@@ -1,4 +1,4 @@
-# Toolchain detection and compiler feature probes.
+# Toolchain detection.
 
 ifndef TOOLPREFIX
 TOOLPREFIX := $(shell if riscv64-linux-gnu-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
@@ -24,9 +24,3 @@ OBJDUMP  = $(TOOLPREFIX)objdump
 AR       = $(TOOLPREFIX)ar
 QEMU     = qemu-system-riscv64
 MKIMG    = ./mkimg.sh
-
-cc-option = $(shell tmp=$${TMPDIR:-/tmp}/cuteos-cc-option.$$$$.o; \
-	if $(CC) $(1) -x c -c /dev/null -o $$tmp >/dev/null 2>&1; then \
-		echo "$(1)"; \
-	fi; \
-	rm -f $$tmp)
