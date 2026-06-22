@@ -34,53 +34,7 @@
 #include <asm/page.h>
 #include <asm/pte.h>
 #include <asm/trap.h>
-
-/*
- * 信号 ABI 常量。本块与 user/include/user.h 中的同名定义刻意各自独立
- * 维护：内核态与用户态是两个独立的编译单元（后续将彻底拆分），二者之间
- * 唯一的契约是此处描述的二进制 ABI（信号编号、sigaction 布局、
- * SIG_DFL/IGN 哨兵值等）。修改任一编号或字段都必须同步另一处——这是有
- * 意的边界重复，而非可消除的重复。详见 user/include/user.h 的对应注释。
- */
-#define SIGHUP		1
-#define SIGINT		2
-#define SIGQUIT		3
-#define SIGILL		4
-#define SIGTRAP		5
-#define SIGABRT		6
-#define SIGBUS		7
-#define SIGFPE		8
-#define SIGKILL		9
-#define SIGUSR1		10
-#define SIGSEGV		11
-#define SIGUSR2		12
-#define SIGPIPE		13
-#define SIGALRM		14
-#define SIGTERM		15
-#define SIGCHLD		17
-#define SIGCONT		18
-#define SIGSTOP		19
-#define SIGSYS		31
-
-#define NSIG		32
-
-typedef void (*__sighandler_t)(int);
-typedef void (*__sigrestorer_t)(void);
-
-#define SIG_DFL		((__sighandler_t)0)
-#define SIG_IGN		((__sighandler_t)1)
-#define SIG_ERR		((__sighandler_t)-1)
-
-#define SIG_BLOCK	0
-#define SIG_UNBLOCK	1
-#define SIG_SETMASK	2
-
-struct sigaction {
-	__sighandler_t sa_handler;
-	unsigned long sa_flags;
-	__sigrestorer_t sa_restorer;
-	unsigned long sa_mask;
-};
+#include <uapi/signal.h>
 
 struct sighand_struct {
 	refcount_t refcount;
@@ -94,12 +48,6 @@ struct signal_struct {
 	uint64_t shared_pending;
 	struct rlimit64 rlimits[RLIM_NLIMITS];
 };
-
-/*
- * 进程因信号被默认终止时写入 wait 状态的编码：低字节 = 128 + 信号号。
- * 必须与 user/include/user.h 的 SIGNAL_EXIT_CODE 保持一致。
- */
-#define SIGNAL_EXIT_CODE(sig) (128 + (sig))
 
 #define SIGNAL_TRAMPOLINE_ADDR (USER_STACK_BASE - PAGE_SIZE)
 

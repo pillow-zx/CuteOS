@@ -15,6 +15,7 @@
 
 #include <uapi/mman.h>
 #include <uapi/sched.h>
+#include <uapi/signal.h>
 #include <uapi/syscall.h>
 #include <uapi/tty.h>
 
@@ -251,57 +252,6 @@ struct sysinfo {
 	unsigned long freehigh;
 	unsigned int mem_unit;
 };
-
-/*
- * 信号 ABI 常量。本块与 include/kernel/signal.h 中的同名定义刻意各自
- * 独立维护：用户态不依赖任何内核源码头文件，二者之间唯一的契约是这里
- * 描述的二进制 ABI（信号编号、sigaction 布局、SIG_DFL/IGN 哨兵值等）。
- * 只要遵守同一份 ABI，用户态程序就能在内核上运行——这正是"内核与用户态
- * 是两个独立部分"这一设计的体现。修改任一编号或字段都必须同步另一处；
- * 这是有意的边界重复，而非可消除的重复。详见 include/kernel/signal.h。
- */
-#define SIGHUP	1
-#define SIGINT	2
-#define SIGQUIT 3
-#define SIGILL	4
-#define SIGTRAP 5
-#define SIGABRT 6
-#define SIGBUS	7
-#define SIGFPE	8
-#define SIGKILL 9
-#define SIGUSR1 10
-#define SIGSEGV 11
-#define SIGUSR2 12
-#define SIGPIPE 13
-#define SIGALRM 14
-#define SIGTERM 15
-#define SIGCHLD 17
-#define SIGCONT 18
-#define SIGSTOP 19
-#define SIGSYS	31
-
-#define NSIG 32
-
-typedef void (*__sighandler_t)(int);
-typedef void (*__sigrestorer_t)(void);
-
-#define SIG_DFL ((__sighandler_t)0)
-#define SIG_IGN ((__sighandler_t)1)
-#define SIG_ERR ((__sighandler_t) - 1)
-
-#define SIG_BLOCK   0
-#define SIG_UNBLOCK 1
-#define SIG_SETMASK 2
-
-struct sigaction {
-	__sighandler_t sa_handler;
-	unsigned long sa_flags;
-	__sigrestorer_t sa_restorer;
-	unsigned long sa_mask;
-};
-
-/* 因信号默认终止时的 wait 状态编码：低字节 = 128 + 信号号。 */
-#define SIGNAL_EXIT_CODE(sig) (128 + (sig))
 
 /* ---- syscallN: 底层内联汇编封装 (a0~a5, 最多 6 个参数) ---- */
 
