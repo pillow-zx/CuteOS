@@ -13,85 +13,15 @@
 #ifndef _USER_H
 #define _USER_H
 
+#include <uapi/mman.h>
+#include <uapi/sched.h>
+#include <uapi/syscall.h>
 #include <uapi/tty.h>
 
 typedef unsigned long size_t;
 
-/* Linux riscv64 系统调用号 */
-#define SYS_getcwd	   17
-#define SYS_dup		   23
-#define SYS_dup3	   24
-#define SYS_ioctl	   29
-#define SYS_mknodat	   33
-#define SYS_mkdirat	   34
-#define SYS_unlinkat	   35
-#define SYS_chdir	   49
-#define SYS_faccessat	   48
-#define SYS_openat	   56
-#define SYS_close	   57
-#define SYS_pipe2	   59
-#define SYS_getdents64	   61
-#define SYS_read	   63
-#define SYS_write	   64
-#define SYS_readv	   65
-#define SYS_writev	   66
-#define SYS_pread64	   67
-#define SYS_pwrite64	   68
-#define SYS_readlinkat	   78
-#define SYS_newfstatat	   79
-#define SYS_fstat	   80
-#define SYS_lseek	   62
-#define SYS_exit	   93
-#define SYS_exit_group	   94
-#define SYS_fsync	   82
-#define SYS_fdatasync	   83
-#define SYS_ftruncate64	   46
-#define SYS_fallocate	   47
-#define SYS_statfs64	   43
-#define SYS_fstatfs64	   44
-#define SYS_ppoll	   73
-#define SYS_set_tid_addr   96
-#define SYS_futex	   98
-#define SYS_set_robust_list 99
-#define SYS_get_robust_list 100
-#define SYS_nanosleep	   101
-#define SYS_clock_gettime  113
-#define SYS_clock_getres   114
-#define SYS_clock_nanosleep 115
-#define SYS_sched_setaffinity 122
-#define SYS_sched_getaffinity 123
-#define SYS_yield	   124
-#define SYS_kill	   129
-#define SYS_tgkill	   131
-#define SYS_rt_sigaction   134
-#define SYS_rt_sigprocmask 135
-#define SYS_sigreturn	   139
-#define SYS_setgid	   144
-#define SYS_setuid	   146
-#define SYS_times	   153
-#define SYS_getgroups	   158
-#define SYS_setgroups	   159
-#define SYS_uname	   160
-#define SYS_umask	   166
-#define SYS_gettimeofday   169
-#define SYS_getpid	   172
-#define SYS_getppid	   173
-#define SYS_getuid	   174
-#define SYS_geteuid	   175
-#define SYS_getgid	   176
-#define SYS_getegid	   177
-#define SYS_gettid	   178
-#define SYS_sysinfo	   179
-#define SYS_brk		   214
-#define SYS_munmap	   215
-#define SYS_clone	   220
+/* libc convenience alias; Linux riscv64 has clone, not a separate fork nr. */
 #define SYS_fork	   SYS_clone
-#define SYS_execve	   221
-#define SYS_mmap	   222
-#define SYS_wait4	   260
-#define SYS_prlimit64	   261
-#define SYS_getrandom	   278
-#define SYS_rseq	   293
 
 #define AT_FDCWD	    -100
 #define AT_REMOVEDIR	    0x200
@@ -191,24 +121,6 @@ typedef unsigned long size_t;
 #define RLIMIT_NPROC  6
 #define RLIMIT_NOFILE 7
 #define RLIMIT_AS     9
-
-#define PROT_READ  0x1
-#define PROT_WRITE 0x2
-#define PROT_EXEC  0x4
-
-#define MAP_PRIVATE   0x02
-#define MAP_FIXED     0x10
-#define MAP_ANONYMOUS 0x20
-
-#define CLONE_VM	     0x00000100
-#define CLONE_FS	     0x00000200
-#define CLONE_FILES	     0x00000400
-#define CLONE_SIGHAND	     0x00000800
-#define CLONE_THREAD	     0x00010000
-#define CLONE_SETTLS	     0x00080000
-#define CLONE_PARENT_SETTID  0x00100000
-#define CLONE_CHILD_CLEARTID 0x00200000
-#define CLONE_CHILD_SETTID   0x01000000
 
 #define FUTEX_WAIT	    0
 #define FUTEX_WAKE	    1
@@ -785,7 +697,7 @@ static inline long rseq(void *rseq_area, unsigned int rseq_len,
 
 static inline long yield(void)
 {
-	return syscall0(SYS_yield);
+	return syscall0(SYS_sched_yield);
 }
 
 static inline long kill(long pid, int sig)

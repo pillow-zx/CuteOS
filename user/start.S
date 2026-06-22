@@ -9,6 +9,8 @@
  * 清零帧指针后调用 main(argc, argv, envp)，返回值作为 exit 状态码。
  */
 
+#include <uapi/syscall.h>
+
 	.globl _start
 	.section .text.entry
 _start:
@@ -31,5 +33,5 @@ _start:
 	call	main
 
 	/* main 返回值作为 exit 状态码 */
-	li	a7, 93			/* SYS_exit */
+	li	a7, SYS_exit
 	ecall

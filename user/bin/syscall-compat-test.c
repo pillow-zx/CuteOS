@@ -1,13 +1,5 @@
 #include <ulib.h>
 
-#define SYS_statfs64	43
-#define SYS_fstatfs64	44
-#define SYS_ppoll	73
-#define SYS_nanosleep	101
-#define SYS_prlimit64	261
-#define SYS_getrandom	278
-#define SYS_rseq	293
-
 #define POLLIN	 0x0001
 #define POLLOUT	 0x0004
 #define POLLERR	 0x0008
