@@ -5,6 +5,7 @@ TEST_OBJS = \
 	test/bitmap_test.o \
 	test/buffer_test.o \
 	test/buddy_test.o \
+	test/hash_test.o \
 	test/kthread_test.o \
 	test/mm_test.o \
 	test/pid_test.o \

@@ -26,26 +26,25 @@
 #include <kernel/buffer.h>
 #include <kernel/blkdev.h>
 #include <kernel/errno.h>
+#include <kernel/hash.h>
 #include <kernel/list.h>
 #include <kernel/slab.h>
 #include <kernel/string.h>
 
-#define BUFFER_HASH_SIZE 128U
+#define BUFFER_HASH_BITS 7
+#define BUFFER_HASH_SIZE (1u << BUFFER_HASH_BITS)
 #define NR_BUFFERS	 512U
 
-static struct list_head buffer_hashtable[BUFFER_HASH_SIZE];
+HASH_TABLE_DECLARE_STATIC(buffer_hashtable, BUFFER_HASH_BITS);
 static uint32_t nr_buffers;
 static bool buffer_cache_ready;
 
 static void buffer_cache_init_once(void)
 {
-	uint32_t i;
-
 	if (buffer_cache_ready)
 		return;
 
-	for (i = 0; i < BUFFER_HASH_SIZE; i++)
-		INIT_LIST_HEAD(&buffer_hashtable[i]);
+	hash_table_init(&buffer_hashtable);
 	buffer_cache_ready = true;
 }
 
@@ -56,11 +55,13 @@ static uint32_t buffer_hash(dev_t dev, uint64_t block)
 
 static struct buffer_head *find_buffer(dev_t dev, uint64_t block)
 {
-	struct list_head *head;
 	struct buffer_head *bh;
+	struct list_head *pos;
+	uint32_t hash;
 
-	head = &buffer_hashtable[buffer_hash(dev, block)];
-	list_for_each_entry (bh, head, b_hash) {
+	hash = buffer_hash(dev, block);
+	hash_table_for_each_possible (pos, &buffer_hashtable, hash) {
+		bh = list_entry(pos, struct buffer_head, b_hash);
 		if (bh->b_dev == dev && bh->b_blocknr == block)
 			return bh;
 	}
@@ -87,11 +88,13 @@ static bool evict_one_buffer(void)
 	uint32_t i;
 
 	for (i = 0; i < BUFFER_HASH_SIZE; i++) {
+		struct list_head *head;
 		struct buffer_head *bh;
 
-		list_for_each_entry (bh, &buffer_hashtable[i], b_hash) {
+		head = hash_table_bucket(&buffer_hashtable, i);
+		list_for_each_entry (bh, head, b_hash) {
 			if (bh->b_refcnt == 0 && !bh->b_dirty) {
-				list_del(&bh->b_hash);
+				hash_table_del(&bh->b_hash);
 				free_buffer(bh);
 				nr_buffers--;
 				return true;
@@ -147,7 +150,7 @@ static struct buffer_head *alloc_buffer(dev_t dev, uint64_t block)
 struct buffer_head *bread(dev_t dev, uint64_t block)
 {
 	struct buffer_head *bh;
-	struct list_head *head;
+	uint32_t hash;
 
 	buffer_cache_init_once();
 
@@ -167,8 +170,8 @@ struct buffer_head *bread(dev_t dev, uint64_t block)
 		return NULL;
 	}
 
-	head = &buffer_hashtable[buffer_hash(dev, block)];
-	list_add(&bh->b_hash, head);
+	hash = buffer_hash(dev, block);
+	hash_table_add(&buffer_hashtable, hash, &bh->b_hash);
 	return bh;
 }
 

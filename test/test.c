@@ -59,6 +59,11 @@ void kernel_test(void)
 	test_bitmap_find_first_zero();
 	test_bitmap_odd_bits();
 
+	/* ---- Hash Table ---- */
+	TEST_SECTION("Hash Table");
+	test_hash_insert_lookup();
+	test_hash_collision_delete();
+
 	/* ---- PID ---- */
 	TEST_SECTION("PID");
 	test_pid_basic();

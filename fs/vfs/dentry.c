@@ -22,6 +22,7 @@
 
 #include <kernel/errno.h>
 #include <kernel/fs.h>
+#include <kernel/hash.h>
 #include <kernel/slab.h>
 #include <kernel/string.h>
 #include <kernel/vfs.h>
@@ -29,7 +30,7 @@
 #define DCACHE_HASH_BITS 7
 #define DCACHE_HASH_SIZE (1u << DCACHE_HASH_BITS)
 
-static struct list_head dentry_hashtable[DCACHE_HASH_SIZE];
+HASH_TABLE_DECLARE_STATIC(dentry_hashtable, DCACHE_HASH_BITS);
 
 static uint32_t dentry_hash(struct dentry *parent, const char *name,
 			    size_t namelen)
@@ -44,8 +45,7 @@ static uint32_t dentry_hash(struct dentry *parent, const char *name,
 
 void dcache_init(void)
 {
-	for (uint32_t i = 0; i < DCACHE_HASH_SIZE; i++)
-		INIT_LIST_HEAD(&dentry_hashtable[i]);
+	hash_table_init(&dentry_hashtable);
 }
 
 struct dentry *dentry_alloc(struct dentry *parent, const char *name,
@@ -84,7 +84,7 @@ struct dentry *dcache_lookup(struct dentry *parent, const char *name,
 	uint32_t hash = dentry_hash(parent, name, namelen);
 	struct list_head *pos;
 
-	list_for_each (pos, &dentry_hashtable[hash]) {
+	hash_table_for_each_possible (pos, &dentry_hashtable, hash) {
 		struct dentry *dentry = list_entry(pos, struct dentry, d_hash);
 
 		if (dentry->d_parent != parent || dentry->d_namelen != namelen)
@@ -107,7 +107,7 @@ void dcache_insert(struct dentry *dentry)
 	uint32_t hash = dentry_hash(dentry->d_parent, dentry->d_name,
 				    dentry->d_namelen);
 
-	list_add(&dentry->d_hash, &dentry_hashtable[hash]);
+	hash_table_add(&dentry_hashtable, hash, &dentry->d_hash);
 }
 
 void dget(struct dentry *dentry)

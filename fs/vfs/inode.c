@@ -21,6 +21,7 @@
 
 #include <kernel/errno.h>
 #include <kernel/fs.h>
+#include <kernel/hash.h>
 #include <kernel/slab.h>
 #include <kernel/stat.h>
 #include <kernel/string.h>
@@ -29,7 +30,7 @@
 #define ICACHE_HASH_BITS 6
 #define ICACHE_HASH_SIZE (1u << ICACHE_HASH_BITS)
 
-static struct list_head inode_hashtable[ICACHE_HASH_SIZE];
+HASH_TABLE_DECLARE_STATIC(inode_hashtable, ICACHE_HASH_BITS);
 
 static uint32_t inode_hash(dev_t dev, uint64_t ino)
 {
@@ -39,8 +40,7 @@ static uint32_t inode_hash(dev_t dev, uint64_t ino)
 
 void icache_init(void)
 {
-	for (uint32_t i = 0; i < ICACHE_HASH_SIZE; i++)
-		INIT_LIST_HEAD(&inode_hashtable[i]);
+	hash_table_init(&inode_hashtable);
 }
 
 struct inode *inode_alloc(struct super_block *sb, uint64_t ino)
@@ -66,7 +66,7 @@ static void inode_hash_insert(struct inode *inode)
 {
 	uint32_t hash = inode_hash(inode->i_sb->s_dev, inode->i_ino);
 
-	list_add(&inode->i_hash, &inode_hashtable[hash]);
+	hash_table_add(&inode_hashtable, hash, &inode->i_hash);
 }
 
 struct inode *iget(struct super_block *sb, uint64_t ino)
@@ -77,7 +77,7 @@ struct inode *iget(struct super_block *sb, uint64_t ino)
 	uint32_t hash = inode_hash(sb->s_dev, ino);
 	struct list_head *pos;
 
-	list_for_each (pos, &inode_hashtable[hash]) {
+	hash_table_for_each_possible (pos, &inode_hashtable, hash) {
 		struct inode *inode = list_entry(pos, struct inode, i_hash);
 
 		if (inode->i_sb == sb && inode->i_ino == ino) {
@@ -205,7 +205,7 @@ void inode_forget(struct inode *inode)
 		return;
 
 	if (inode->i_hash.next && inode->i_hash.prev)
-		list_del(&inode->i_hash);
+		hash_table_del(&inode->i_hash);
 	if (inode->i_sb_list.next && inode->i_sb_list.prev)
 		list_del(&inode->i_sb_list);
 
