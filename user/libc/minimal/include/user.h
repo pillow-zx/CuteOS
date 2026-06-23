@@ -95,6 +95,7 @@ typedef unsigned long size_t;
 #define EISDIR	21
 #define EINVAL	22
 #define ENOTTY	25
+#define EFBIG	27
 #define EAGAIN	11
 #define EFAULT	14
 #define EBADF	9
@@ -387,6 +388,11 @@ static inline long pread64(int fd, void *buf, size_t len, long offset)
 static inline long pwrite64(int fd, const void *buf, size_t len, long offset)
 {
 	return syscall(SYS_pwrite64, fd, (long)buf, (long)len, offset);
+}
+
+static inline long lseek(int fd, long offset, int whence)
+{
+	return syscall(SYS_lseek, fd, offset, whence);
 }
 
 static inline long openat(int dfd, const char *path, int flags, int mode)

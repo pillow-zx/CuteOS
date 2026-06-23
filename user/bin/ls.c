@@ -2,6 +2,8 @@
 
 struct ls_options {
 	int long_format;
+	int all;
+	int recursive;
 };
 
 static char file_type_char(unsigned int mode)
@@ -59,6 +61,11 @@ static void print_long_entry(const char *name, const struct stat *st)
 	printf("\n");
 }
 
+static int visible_entry(const char *name, const struct ls_options *opts)
+{
+	return opts->all || name[0] != '.';
+}
+
 static int list_one(const char *path, const char *name,
 		    const struct ls_options *opts)
 {
@@ -79,13 +86,18 @@ static int list_one(const char *path, const char *name,
 	return 0;
 }
 
-static int list_dir(const char *path, const struct ls_options *opts)
+static int list_dir(const char *path, const struct ls_options *opts,
+		    int print_header)
 {
 	char buf[512];
 	char full[PATH_MAX];
 	int failed = 0;
-	long fd = open(path, O_RDONLY | O_DIRECTORY);
+	long fd;
 
+	if (print_header)
+		printf("%s:\n", path);
+
+	fd = open(path, O_RDONLY | O_DIRECTORY);
 	if (fd < 0) {
 		printf("ls: %s: %s\n", path, strerror(fd));
 		return 1;
@@ -108,7 +120,7 @@ static int list_dir(const char *path, const struct ls_options *opts)
 				(struct linux_dirent64 *)(buf + off);
 
 			if (de->d_name[0] != '\0' &&
-			    !is_dot_or_dotdot(de->d_name)) {
+			    visible_entry(de->d_name, opts)) {
 				if (path_join(full, sizeof(full), path,
 					      de->d_name) < 0) {
 					printf("ls: %s/%s: path too long\n",
@@ -122,12 +134,62 @@ static int list_dir(const char *path, const struct ls_options *opts)
 			off += de->d_reclen;
 		}
 	}
+	close((int)fd);
+
+	if (!opts->recursive)
+		return failed;
+
+	fd = open(path, O_RDONLY | O_DIRECTORY);
+	if (fd < 0)
+		return 1;
+
+	while (1) {
+		long n = getdents64((int)fd, buf, sizeof(buf));
+		long off = 0;
+
+		if (n < 0) {
+			failed = 1;
+			break;
+		}
+		if (n == 0)
+			break;
+
+		while (off < n) {
+			struct linux_dirent64 *de =
+				(struct linux_dirent64 *)(buf + off);
+			struct stat st;
+
+			if (de->d_name[0] == '\0' ||
+			    is_dot_or_dotdot(de->d_name) ||
+			    !visible_entry(de->d_name, opts)) {
+				off += de->d_reclen;
+				continue;
+			}
+			if (path_join(full, sizeof(full), path, de->d_name) <
+			    0) {
+				printf("ls: %s/%s: path too long\n", path,
+				       de->d_name);
+				failed = 1;
+				off += de->d_reclen;
+				continue;
+			}
+			if (fstatat(AT_FDCWD, full, &st,
+				    AT_SYMLINK_NOFOLLOW) == 0 &&
+			    S_ISDIR(st.st_mode)) {
+				printf("\n");
+				if (list_dir(full, opts, 1) != 0)
+					failed = 1;
+			}
+			off += de->d_reclen;
+		}
+	}
 
 	close((int)fd);
 	return failed;
 }
 
-static int list_path(const char *path, const struct ls_options *opts)
+static int list_path(const char *path, const struct ls_options *opts,
+		     int print_header)
 {
 	struct stat st;
 	long ret = fstatat(AT_FDCWD, path, &st, AT_SYMLINK_NOFOLLOW);
@@ -137,7 +199,7 @@ static int list_path(const char *path, const struct ls_options *opts)
 		return 1;
 	}
 	if (S_ISDIR(st.st_mode))
-		return list_dir(path, opts);
+		return list_dir(path, opts, print_header);
 	if (opts->long_format)
 		print_long_entry(path, &st);
 	else
@@ -162,8 +224,12 @@ static int parse_options(int argc, char **argv, struct ls_options *opts,
 		for (int j = 1; arg[j] != '\0'; j++) {
 			if (arg[j] == 'l')
 				opts->long_format = 1;
+			else if (arg[j] == 'a')
+				opts->all = 1;
+			else if (arg[j] == 'R')
+				opts->recursive = 1;
 			else {
-				printf("usage: ls [-l] [FILE...]\n");
+				printf("usage: ls [-laR] [FILE...]\n");
 				return -1;
 			}
 		}
@@ -179,17 +245,19 @@ int main(int argc, char **argv)
 	struct ls_options opts;
 	int failed = 0;
 	int first_path;
+	int paths;
 
 	if (parse_options(argc, argv, &opts, &first_path) < 0)
 		return 1;
 
-	if (first_path >= argc)
-		return list_path(".", &opts);
+	paths = argc - first_path;
+	if (paths == 0)
+		return list_path(".", &opts, opts.recursive);
 
 	for (int i = first_path; i < argc; i++) {
-		if (argc - first_path > 1)
-			printf("%s:\n", argv[i]);
-		if (list_path(argv[i], &opts) != 0)
+		int header = opts.recursive || paths > 1;
+
+		if (list_path(argv[i], &opts, header) != 0)
 			failed = 1;
 		if (i + 1 < argc)
 			printf("\n");

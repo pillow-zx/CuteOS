@@ -188,10 +188,25 @@ static int copy_path(const char *src, const char *dst,
 	return copy_exact(src, dst, opts);
 }
 
+static int copy_into_dir(const char *src, const char *dir,
+			 const struct cp_options *opts)
+{
+	char target[PATH_MAX];
+
+	if (path_join(target, sizeof(target), dir, base_name(src)) < 0) {
+		printf("cp: %s/%s: path too long\n", dir, base_name(src));
+		return 1;
+	}
+	return copy_exact(src, target, opts);
+}
+
 int main(int argc, char **argv)
 {
 	struct cp_options opts = {0};
 	int first_arg = 1;
+	const char *dst;
+	struct stat dst_st;
+	int failed = 0;
 
 	while (first_arg < argc && argv[first_arg][0] == '-' &&
 	       argv[first_arg][1] != '\0') {
@@ -205,17 +220,31 @@ int main(int argc, char **argv)
 			if (arg[j] == 'r' || arg[j] == 'R')
 				opts.recursive = 1;
 			else {
-				printf("usage: cp [-r] SRC DST\n");
+				printf("usage: cp [-r] SRC... DST\n");
 				return 1;
 			}
 		}
 		first_arg++;
 	}
 
-	if (argc - first_arg != 2) {
-		printf("usage: cp [-r] SRC DST\n");
+	if (argc - first_arg < 2) {
+		printf("usage: cp [-r] SRC... DST\n");
 		return 1;
 	}
 
-	return copy_path(argv[first_arg], argv[first_arg + 1], &opts);
+	dst = argv[argc - 1];
+	if (argc - first_arg == 2)
+		return copy_path(argv[first_arg], dst, &opts);
+
+	if (fstatat(AT_FDCWD, dst, &dst_st, AT_SYMLINK_NOFOLLOW) < 0 ||
+	    !S_ISDIR(dst_st.st_mode)) {
+		printf("cp: %s: not a directory\n", dst);
+		return 1;
+	}
+
+	for (int i = first_arg; i < argc - 1; i++) {
+		if (copy_into_dir(argv[i], dst, &opts) != 0)
+			failed = 1;
+	}
+	return failed;
 }

@@ -23,7 +23,7 @@ cuteOS 不是 Linux，也不是只会打印日志的 boot demo。它是一颗尽
   约定组织；未实现系统调用返回 `-ENOSYS`。
 - 文件系统：构建时生成 ext2 镜像，默认 16 MB，内核启动后挂载为根文件系统。
 - 取舍：优先选择最小正确实现。比如 fork 目前急切复制，无 COW；virtio-blk
-  和 UART 当前为轮询；buffer cache 写穿；内核非抢占，用户态由时钟中断触发
+  和 UART 当前为轮询；元数据块写穿；内核非抢占，用户态由时钟中断触发
   时间中断触发发时间片调度。
 
 项目的目标是跑起真实 Linux riscv64 静态 ELF，达到 busybox 级的交互
@@ -85,7 +85,7 @@ hello
 | 调度 | 单核非抢占调度、4 级 MLFQ、时间片降级、周期 boost、等待队列、内核线程、单核 CPU affinity 语义 |
 | 进程与线程 | PID 分配、`task_struct`、`fork`、Linux 风格 `clone` 子集、线程组、`execve`、`exit` / `exit_group`、`wait4`、孤儿进程过继 |
 | 文件描述符 | `openat`、`close`、`read`、`write`、`readv`、`writev`、`pread64`、`pwrite64`、`lseek`、`dup`、`dup3`、`fsync`、`fdatasync`、`ftruncate64` |
-| VFS 与存储 | VFS inode/dentry/file 抽象、ext2 读写、目录遍历、路径解析、根文件系统挂载、virtio-blk 轮询驱动、buffer cache 写穿 |
+| VFS 与存储 | VFS inode/dentry/file 抽象、ext2 读写、目录遍历、路径解析、根文件系统挂载、virtio-blk 轮询驱动、page cache 文件数据与元数据块缓存 |
 | 文件系统接口 | `mkdirat`、`unlinkat`、`mknodat`、`getcwd`、`chdir`、`faccessat`、`getdents64`、`newfstatat`、`fstat`、`statfs64`、`fstatfs64`、`readlinkat` |
 | 管道 | 匿名 pipe、阻塞读写、EOF、无读者写入返回 `-EPIPE` |
 | 信号 | `kill`、`tgkill`、`rt_sigaction`、`rt_sigprocmask`、用户态信号帧、trampoline `sigreturn`、`SIGKILL` / `SIGSTOP` / `SIGCHLD` / `SIGPIPE` 等基础语义 |
@@ -93,14 +93,14 @@ hello
 | futex | `FUTEX_WAIT`、`FUTEX_WAKE`、超时等待、robust list 注册和线程退出唤醒 |
 | 用户态 | `/bin/init`、`/bin/sh`、最小 libc、`ecall` 封装、`printf` / string / stdlib 子集 |
 | 用户命令 | `cat`、`cp`、`echo`、`false`、`id`、`kill`、`ls`、`mkdir`、`pwd`、`rm`、`rmdir`、`stat`、`touch`、`true`、`uname`，以及依赖已支持 syscall 的小型命令 |
-| 测试 | `CONFIG_KERNEL_TEST=y` 时启用内核自测；覆盖 bitmap、PID、buddy、slab、trap、timer、sync、MM/VMA、task、资源复制、调度、内核线程、virtio-blk、buffer cache；另有 `thread-test` 和 `vma-test` 用户态集成测试 |
+| 测试 | `CONFIG_KERNEL_TEST=y` 时启用内核自测；覆盖 bitmap、PID、buddy、slab、trap、timer、sync、MM/VMA、task、资源复制、调度、内核线程、virtio-blk、page cache |
 
 ### 暂不支持或后置
 
 以下能力当前仍属于后置目标：
 
 - SMP、多核启动、per-CPU、IPI、真实自旋锁扩展。
-- COW fork、page cache、换页、`mlock` / `munlock` 的完整内存驻留语义。
+- COW fork、换页、`mlock` / `munlock` 的完整内存驻留语义。
 - 动态链接、完整 libc、运行任意动态 Linux 程序。
 - mount namespace、动态 `mount` / `umount`、多文件系统挂载。
 - `epoll`、完整 `poll` / `select` 族、异步 I/O。
@@ -200,7 +200,7 @@ ELF。
 | `fs/vfs/` | VFS inode/dentry/file/super/namei/read-write |
 | `fs/ext2/` | ext2 superblock、inode、目录、文件、块分配 |
 | `fs/pipe.c` | 匿名管道 |
-| `block/` | virtio-blk、块设备注册、buffer cache |
+| `block/` | virtio-blk、块设备注册、page cache |
 | `drivers/` | UART 和 virtio 设备定义 |
 | `lib/` | freestanding 内核共享库 |
 | `test/` | 内核自测 |
