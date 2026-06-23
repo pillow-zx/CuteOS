@@ -783,8 +783,6 @@ ssize_t sys_getdents64(struct trap_frame *tf)
 		dirp += ctx.written;
 		start = file->f_pos;
 		count -= ctx.written;
-		if (ret == 0)
-			break;
 	}
 
 	result = (ssize_t)((uintptr_t)dirp - tf->a1);

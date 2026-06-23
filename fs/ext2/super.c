@@ -10,9 +10,6 @@
 #include <kernel/vfs.h>
 
 #define EXT2_ROOT_DEV	 MKDEV(8, 0)
-#define EXT2_SUPER_BLOCK 1
-#define EXT2_BGDT_BLOCK	 2
-
 static struct super_block *ext2_mount(struct file_system_type *fs_type,
 				      dev_t dev, void *data);
 static void ext2_evict_inode(struct inode *inode);
@@ -100,6 +97,7 @@ static int ext2_read_bgdt(struct super_block *sb)
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
 	uint32_t desc_per_block = BLOCK_SIZE / sizeof(struct ext2_group_desc);
 	uint32_t bytes = sbi->s_groups_count * sizeof(struct ext2_group_desc);
+	uint32_t first_block = EXT2_BGDT_BLOCK(sbi->s_first_data_block);
 	uint8_t *dst;
 
 	if (bytes > 2048)
@@ -113,8 +111,7 @@ static int ext2_read_bgdt(struct super_block *sb)
 	for (uint32_t block = 0;
 	     block < div_round_up_u32(sbi->s_groups_count, desc_per_block);
 	     block++) {
-		struct buffer_head *bh =
-			bread(sb->s_dev, EXT2_BGDT_BLOCK + block);
+		struct buffer_head *bh = bread(sb->s_dev, first_block + block);
 		uint32_t copy = bytes - block * BLOCK_SIZE;
 
 		if (!bh) {
@@ -136,6 +133,8 @@ static int ext2_read_super(struct super_block *sb)
 {
 	struct ext2_sb_info *sbi;
 	struct buffer_head *bh;
+	uint32_t super_block;
+	uint32_t super_off;
 	uint32_t block_size;
 	int ret;
 
@@ -144,13 +143,15 @@ static int ext2_read_super(struct super_block *sb)
 		return -ENOMEM;
 	memset(sbi, 0, sizeof(*sbi));
 
-	bh = bread(sb->s_dev, EXT2_SUPER_BLOCK);
+	super_block = ext2_super_blocknr(BLOCK_SIZE);
+	super_off = ext2_super_offset(BLOCK_SIZE);
+	bh = bread(sb->s_dev, super_block);
 	if (!bh) {
 		kfree(sbi);
 		return -EIO;
 	}
 
-	memcpy(&sbi->s_es, bh->b_data, sizeof(sbi->s_es));
+	memcpy(&sbi->s_es, bh->b_data + super_off, sizeof(sbi->s_es));
 	brelse(bh);
 
 	if (sbi->s_es.s_magic != EXT2_SUPER_MAGIC) {

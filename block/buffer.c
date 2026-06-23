@@ -25,6 +25,7 @@
 
 #include <kernel/buffer.h>
 #include <kernel/blkdev.h>
+#include <kernel/buddy.h>
 #include <kernel/errno.h>
 #include <kernel/hash.h>
 #include <kernel/list.h>
@@ -74,7 +75,8 @@ static void free_buffer(struct buffer_head *bh)
 	if (!bh)
 		return;
 
-	kfree(bh->b_data);
+	if (bh->b_data)
+		free_page(bh->b_data, 0);
 	kfree(bh);
 }
 
@@ -131,7 +133,7 @@ static struct buffer_head *alloc_buffer(dev_t dev, uint64_t block)
 		return NULL;
 	memset(bh, 0, sizeof(*bh));
 
-	bh->b_data = kmalloc(BLOCK_SIZE);
+	bh->b_data = get_free_page(0);
 	if (!bh->b_data) {
 		kfree(bh);
 		return NULL;

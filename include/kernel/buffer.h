@@ -25,7 +25,7 @@
 #include <kernel/list.h>
 #include <kernel/blkdev.h>
 
-#define BLOCK_SIZE    1024u
+#define BLOCK_SIZE    4096u
 #define BLOCK_SECTORS (BLOCK_SIZE / SECTOR_SIZE)
 
 struct buffer_head {

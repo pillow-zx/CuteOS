@@ -4,9 +4,6 @@
 #include <kernel/errno.h>
 #include <kernel/string.h>
 
-#define EXT2_SUPER_BLOCK 1
-#define EXT2_BGDT_BLOCK	 2
-
 static bool bitmap_test_bit(uint8_t *bitmap, uint32_t bit)
 {
 	return !!(bitmap[bit / 8] & (uint8_t)(1u << (bit % 8)));
@@ -25,13 +22,15 @@ static void bitmap_clear_bit(uint8_t *bitmap, uint32_t bit)
 static int ext2_sync_super(struct super_block *sb)
 {
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
-	struct buffer_head *bh = bread(sb->s_dev, EXT2_SUPER_BLOCK);
+	uint32_t super_block = ext2_super_blocknr(BLOCK_SIZE);
+	uint32_t super_off = ext2_super_offset(BLOCK_SIZE);
+	struct buffer_head *bh = bread(sb->s_dev, super_block);
 	int ret;
 
 	if (!bh)
 		return -EIO;
 
-	memcpy(bh->b_data, &sbi->s_es, sizeof(sbi->s_es));
+	memcpy(bh->b_data + super_off, &sbi->s_es, sizeof(sbi->s_es));
 	ret = bwrite(bh);
 	brelse(bh);
 	return ret;
@@ -41,7 +40,8 @@ static int ext2_sync_group_desc(struct super_block *sb, uint32_t group)
 {
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
 	uint32_t desc_per_block = BLOCK_SIZE / sizeof(struct ext2_group_desc);
-	uint32_t block = EXT2_BGDT_BLOCK + group / desc_per_block;
+	uint32_t block =
+		EXT2_BGDT_BLOCK(sbi->s_first_data_block) + group / desc_per_block;
 	uint32_t offset =
 		(group % desc_per_block) * sizeof(struct ext2_group_desc);
 	struct buffer_head *bh = bread(sb->s_dev, block);

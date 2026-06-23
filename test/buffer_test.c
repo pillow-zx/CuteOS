@@ -2,7 +2,7 @@
  * test/buffer_test.c - Buffer Cache 自测
  *
  * 覆盖 bread 命中/未命中、引用计数、brelse，以及 bwrite 写穿透。
- * 测试写入磁盘末尾附近的 1KiB 区域，避开未来根文件系统常用区域。
+ * 测试写入磁盘末尾附近的 4KiB 区域，避开未来根文件系统常用区域。
  */
 
 #include <kernel/blkdev.h>
@@ -27,6 +27,9 @@ void test_buffer_cache_basic(void)
 
 	TEST_BEGIN("buffer cache: bread/brelse/bwrite");
 	{
+		TEST_ASSERT_EQ(BLOCK_SIZE, 4096u);
+		TEST_ASSERT_EQ(BLOCK_SECTORS, 8u);
+
 		bdev = lookup_block_device(ROOT_DEV);
 		TEST_ASSERT_NOT_NULL(bdev);
 		TEST_ASSERT(bdev->bd_sectors > BLOCK_SECTORS + 4);

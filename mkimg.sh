@@ -22,7 +22,7 @@ trap cleanup EXIT INT HUP TERM
 mkdir -p "$(dirname "$img")"
 rm -f "$img"
 dd if=/dev/zero of="$img" bs=1M count="$size_mb" 2>/dev/null
-mkfs.ext2 -q -F -b 1024 "$img"
+mkfs.ext2 -q -F -b 4096 -I 256 -O none,filetype,sparse_super "$img"
 
 cat >"$debugfs_cmds" <<EOF
 mkdir /bin

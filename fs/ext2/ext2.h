@@ -42,6 +42,9 @@
 #define EXT2_GOOD_OLD_INODE_SIZE 128
 #define EXT2_NAME_LEN		 255
 
+#define EXT2_SUPER_OFFSET	 1024u
+#define EXT2_BGDT_BLOCK(first_data_block) ((first_data_block) + 1u)
+
 #define EXT2_NDIR_BLOCKS 12
 #define EXT2_IND_BLOCK	 12
 #define EXT2_DIND_BLOCK	 13
@@ -185,6 +188,16 @@ static inline struct ext2_sb_info *EXT2_SB(struct super_block *sb)
 static inline struct ext2_inode_info *EXT2_I(struct inode *inode)
 {
 	return (struct ext2_inode_info *)inode->i_private;
+}
+
+static inline uint32_t ext2_super_blocknr(uint32_t block_size)
+{
+	return EXT2_SUPER_OFFSET / block_size;
+}
+
+static inline uint32_t ext2_super_offset(uint32_t block_size)
+{
+	return EXT2_SUPER_OFFSET % block_size;
 }
 
 int ext2_init(void);
