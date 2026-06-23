@@ -1,8 +1,8 @@
 #include "ext2.h"
 
 #include <kernel/blkdev.h>
-#include <kernel/buffer.h>
 #include <kernel/errno.h>
+#include <kernel/page_cache.h>
 #include <kernel/printk.h>
 #include <kernel/slab.h>
 #include <kernel/statfs.h>
@@ -32,6 +32,11 @@ static void ext2_evict_inode(struct inode *inode)
 	if (!inode)
 		return;
 
+	page_cache_invalidate_inode(inode);
+	if (inode->i_nlink == 0 && inode->i_private) {
+		ext2_free_inode_blocks(inode);
+		ext2_free_inode(inode->i_sb, (uint32_t)inode->i_ino);
+	}
 	kfree(inode->i_private);
 	inode->i_private = NULL;
 }
@@ -111,10 +116,11 @@ static int ext2_read_bgdt(struct super_block *sb)
 	for (uint32_t block = 0;
 	     block < div_round_up_u32(sbi->s_groups_count, desc_per_block);
 	     block++) {
-		struct buffer_head *bh = bread(sb->s_dev, first_block + block);
+		struct page_cache_page *page =
+			page_cache_get_block(sb->s_dev, first_block + block);
 		uint32_t copy = bytes - block * BLOCK_SIZE;
 
-		if (!bh) {
+		if (!page) {
 			kfree(sbi->s_group_desc);
 			sbi->s_group_desc = NULL;
 			return -EIO;
@@ -122,8 +128,8 @@ static int ext2_read_bgdt(struct super_block *sb)
 		if (copy > BLOCK_SIZE)
 			copy = BLOCK_SIZE;
 
-		memcpy(dst + block * BLOCK_SIZE, bh->b_data, copy);
-		brelse(bh);
+		memcpy(dst + block * BLOCK_SIZE, page_cache_data(page), copy);
+		page_cache_put_page(page);
 	}
 
 	return 0;
@@ -132,7 +138,7 @@ static int ext2_read_bgdt(struct super_block *sb)
 static int ext2_read_super(struct super_block *sb)
 {
 	struct ext2_sb_info *sbi;
-	struct buffer_head *bh;
+	struct page_cache_page *page;
 	uint32_t super_block;
 	uint32_t super_off;
 	uint32_t block_size;
@@ -145,14 +151,15 @@ static int ext2_read_super(struct super_block *sb)
 
 	super_block = ext2_super_blocknr(BLOCK_SIZE);
 	super_off = ext2_super_offset(BLOCK_SIZE);
-	bh = bread(sb->s_dev, super_block);
-	if (!bh) {
+	page = page_cache_get_block(sb->s_dev, super_block);
+	if (!page) {
 		kfree(sbi);
 		return -EIO;
 	}
 
-	memcpy(&sbi->s_es, bh->b_data + super_off, sizeof(sbi->s_es));
-	brelse(bh);
+	memcpy(&sbi->s_es, page_cache_data(page) + super_off,
+	       sizeof(sbi->s_es));
+	page_cache_put_page(page);
 
 	if (sbi->s_es.s_magic != EXT2_SUPER_MAGIC) {
 		kfree(sbi);

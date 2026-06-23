@@ -5,7 +5,7 @@
  *   管理块设备的注册与查找。使用 dev_table[NR_BLOCK_DEVICES] 静态数组，
  *   以主设备号（MAJOR(dev)）为索引存储已注册的 struct block_device 指针。
  *   块设备驱动在初始化时调用 register_block_device() 注册自身；
- *   文件系统 / buffer cache 通过 lookup_block_device(dev) 按设备号取得
+ *   文件系统 / page cache 通过 lookup_block_device(dev) 按设备号取得
  *   操作向量，进而发起设备无关的扇区读写。
  *
  * 数据结构：

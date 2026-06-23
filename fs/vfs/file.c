@@ -5,6 +5,7 @@
 #include <drivers/console.h>
 #include <kernel/fdtable.h>
 #include <kernel/slab.h>
+#include <kernel/page_cache.h>
 #include <kernel/stat.h>
 #include <kernel/statfs.h>
 #include <kernel/blkdev.h>
@@ -59,16 +60,16 @@ int vfs_inode_permission(struct inode *inode, uint32_t mask)
 
 int vfs_sync_file(struct file *file)
 {
-	struct super_block *sb;
+	int ret;
 
 	if (!file || !file->f_inode)
 		return -EINVAL;
 
-	sb = file->f_inode->i_sb;
-	if (!sb || !sb->s_op || !sb->s_op->sync_fs)
-		return vfs_inode_writeback(file->f_inode);
+	ret = page_cache_writeback_inode(file->f_inode);
+	if (ret < 0)
+		return ret;
 
-	return sb->s_op->sync_fs(sb);
+	return vfs_inode_writeback(file->f_inode);
 }
 
 int vfs_truncate_file(struct file *file, uint64_t size)

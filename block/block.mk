@@ -2,5 +2,5 @@
 
 BLOCK_OBJS = \
 	block/blkdev.o          \
-	block/buffer.o          \
+	block/page_cache.o      \
 	block/virtio_blk.o

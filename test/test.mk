@@ -3,11 +3,12 @@
 TEST_OBJS = \
 	test/test.o \
 	test/bitmap_test.o \
-	test/buffer_test.o \
 	test/buddy_test.o \
 	test/hash_test.o \
 	test/kthread_test.o \
 	test/mm_test.o \
+	test/page_cache_metadata_test.o \
+	test/page_cache_test.o \
 	test/pid_test.o \
 	test/resource_test.o \
 	test/sched_test.o \

@@ -4,7 +4,7 @@
 /*
  * include/kernel/blkdev.h - 块设备抽象层
  *
- * 在文件系统/buffer cache 与具体块设备驱动之间提供设备无关的扇区读写接口。
+ * 在文件系统/page cache 与具体块设备驱动之间提供设备无关的扇区读写接口。
  * 调用方通过设备号查找到 struct block_device，再经 bd_ops->read_sectors /
  * write_sectors 发起 I/O，无需感知底层是 virtio-blk 还是其它驱动。
  *
@@ -34,6 +34,10 @@
 /* 块设备扇区大小：virtio-blk 与绝大多数块设备固定 512 字节/扇区 */
 #define SECTOR_SIZE  512u
 #define SECTOR_SHIFT 9
+
+/* cuteOS 目前只支持 4KiB 文件系统块；块缓存和 EXT2 均以此为单位。 */
+#define BLOCK_SIZE    4096u
+#define BLOCK_SECTORS (BLOCK_SIZE / SECTOR_SIZE)
 
 struct block_device;
 

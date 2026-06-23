@@ -1,7 +1,7 @@
 #include "ext2.h"
 
-#include <kernel/buffer.h>
 #include <kernel/errno.h>
+#include <kernel/page_cache.h>
 #include <kernel/slab.h>
 #include <kernel/string.h>
 #include <kernel/vfs.h>
@@ -40,37 +40,38 @@ static bool ext2_match(struct ext2_dir_entry_2 *de, const char *name,
 static struct ext2_dir_entry_2 *ext2_find_entry(struct inode *dir,
 						const char *name,
 						size_t namelen,
-						struct buffer_head **res_bh)
+						struct page_cache_page **res_page)
 {
 	uint32_t blocks =
 		(uint32_t)((dir->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
 	for (uint32_t lblock = 0; lblock < blocks; lblock++) {
 		uint32_t pblock = ext2_bmap(dir, lblock, false);
-		struct buffer_head *bh;
+		struct page_cache_page *page;
+		uint8_t *data;
 		uint32_t offset = 0;
 
 		if (!pblock)
 			continue;
-		bh = bread(dir->i_sb->s_dev, pblock);
-		if (!bh)
+		page = page_cache_get_block(dir->i_sb->s_dev, pblock);
+		if (!page)
 			continue;
+		data = page_cache_data(page);
 
 		while (offset + 8 <= BLOCK_SIZE) {
 			struct ext2_dir_entry_2 *de =
-				(struct ext2_dir_entry_2 *)(bh->b_data +
-							    offset);
+				(struct ext2_dir_entry_2 *)(data + offset);
 
 			if (de->rec_len < 8 ||
 			    offset + de->rec_len > BLOCK_SIZE)
 				break;
 			if (ext2_match(de, name, namelen)) {
-				*res_bh = bh;
+				*res_page = page;
 				return de;
 			}
 			offset += de->rec_len;
 		}
-		brelse(bh);
+		page_cache_put_page(page);
 	}
 
 	return NULL;
@@ -85,19 +86,20 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 
 	for (uint32_t lblock = 0; lblock < blocks; lblock++) {
 		uint32_t pblock = ext2_bmap(dir, lblock, false);
-		struct buffer_head *bh;
+		struct page_cache_page *page;
+		uint8_t *data;
 		uint32_t offset = 0;
 
 		if (!pblock)
 			continue;
-		bh = bread(dir->i_sb->s_dev, pblock);
-		if (!bh)
+		page = page_cache_get_block(dir->i_sb->s_dev, pblock);
+		if (!page)
 			return -EIO;
+		data = page_cache_data(page);
 
 		while (offset + 8 <= BLOCK_SIZE) {
 			struct ext2_dir_entry_2 *de =
-				(struct ext2_dir_entry_2 *)(bh->b_data +
-							    offset);
+				(struct ext2_dir_entry_2 *)(data + offset);
 			uint16_t used;
 			uint16_t spare;
 
@@ -110,8 +112,8 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 				de->name_len = (uint8_t)namelen;
 				de->file_type = type;
 				memcpy(de->name, name, namelen);
-				bwrite(bh);
-				brelse(bh);
+				page_cache_sync_block(page);
+				page_cache_put_page(page);
 				return 0;
 			}
 
@@ -130,33 +132,35 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 				new_de->name_len = (uint8_t)namelen;
 				new_de->file_type = type;
 				memcpy(new_de->name, name, namelen);
-				bwrite(bh);
-				brelse(bh);
+				page_cache_sync_block(page);
+				page_cache_put_page(page);
 				return 0;
 			}
 
 			offset += de->rec_len;
 		}
-		brelse(bh);
+		page_cache_put_page(page);
 	}
 
 	uint32_t new_block = ext2_bmap(dir, blocks, true);
 	if (!new_block)
 		return -ENOSPC;
 
-	struct buffer_head *bh = bread(dir->i_sb->s_dev, new_block);
-	if (!bh)
+	struct page_cache_page *page =
+		page_cache_get_block(dir->i_sb->s_dev, new_block);
+	if (!page)
 		return -EIO;
 
-	memset(bh->b_data, 0, BLOCK_SIZE);
-	struct ext2_dir_entry_2 *de = (struct ext2_dir_entry_2 *)bh->b_data;
+	uint8_t *data = page_cache_data(page);
+	memset(data, 0, BLOCK_SIZE);
+	struct ext2_dir_entry_2 *de = (struct ext2_dir_entry_2 *)data;
 	de->inode = ino;
 	de->rec_len = BLOCK_SIZE;
 	de->name_len = (uint8_t)namelen;
 	de->file_type = type;
 	memcpy(de->name, name, namelen);
-	bwrite(bh);
-	brelse(bh);
+	page_cache_sync_block(page);
+	page_cache_put_page(page);
 
 	dir->i_size += BLOCK_SIZE;
 	ext2_write_inode(dir);
@@ -170,20 +174,21 @@ static int ext2_delete_entry(struct inode *dir, struct dentry *dentry)
 
 	for (uint32_t lblock = 0; lblock < blocks; lblock++) {
 		uint32_t pblock = ext2_bmap(dir, lblock, false);
-		struct buffer_head *bh;
+		struct page_cache_page *page;
 		struct ext2_dir_entry_2 *prev = NULL;
+		uint8_t *data;
 		uint32_t offset = 0;
 
 		if (!pblock)
 			continue;
-		bh = bread(dir->i_sb->s_dev, pblock);
-		if (!bh)
+		page = page_cache_get_block(dir->i_sb->s_dev, pblock);
+		if (!page)
 			return -EIO;
+		data = page_cache_data(page);
 
 		while (offset + 8 <= BLOCK_SIZE) {
 			struct ext2_dir_entry_2 *de =
-				(struct ext2_dir_entry_2 *)(bh->b_data +
-							    offset);
+				(struct ext2_dir_entry_2 *)(data + offset);
 
 			if (de->rec_len < 8 ||
 			    offset + de->rec_len > BLOCK_SIZE)
@@ -193,14 +198,14 @@ static int ext2_delete_entry(struct inode *dir, struct dentry *dentry)
 					prev->rec_len += de->rec_len;
 				else
 					de->inode = 0;
-				bwrite(bh);
-				brelse(bh);
+				page_cache_sync_block(page);
+				page_cache_put_page(page);
 				return 0;
 			}
 			prev = de;
 			offset += de->rec_len;
 		}
-		brelse(bh);
+		page_cache_put_page(page);
 	}
 
 	return -ENOENT;
@@ -211,15 +216,13 @@ static void ext2_rollback_new_inode(struct inode *inode)
 	if (!inode)
 		return;
 
-	ext2_truncate_inode(inode, 0);
-	ext2_write_inode(inode);
-	ext2_free_inode(inode->i_sb, (uint32_t)inode->i_ino);
+	inode->i_nlink = 0;
 	inode_forget(inode);
 }
 
 static struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
 {
-	struct buffer_head *bh = NULL;
+	struct page_cache_page *page = NULL;
 	struct ext2_dir_entry_2 *de;
 	struct inode *inode;
 
@@ -228,12 +231,12 @@ static struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
 	if ((dir->i_mode & EXT2_S_IFMT) != EXT2_S_IFDIR)
 		return NULL;
 
-	de = ext2_find_entry(dir, dentry->d_name, dentry->d_namelen, &bh);
+	de = ext2_find_entry(dir, dentry->d_name, dentry->d_namelen, &page);
 	if (!de)
 		return NULL;
 
 	inode = iget(dir->i_sb, de->inode);
-	brelse(bh);
+	page_cache_put_page(page);
 	if (!inode)
 		return NULL;
 
@@ -244,7 +247,7 @@ static struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
 
 static int ext2_create(struct inode *dir, struct dentry *dentry, uint32_t mode)
 {
-	struct buffer_head *bh = NULL;
+	struct page_cache_page *page = NULL;
 	uint32_t ino;
 	uint32_t type = mode & EXT2_S_IFMT;
 	uint32_t inode_mode;
@@ -252,8 +255,8 @@ static int ext2_create(struct inode *dir, struct dentry *dentry, uint32_t mode)
 	struct ext2_inode_info *ei;
 	int ret;
 
-	if (ext2_find_entry(dir, dentry->d_name, dentry->d_namelen, &bh)) {
-		brelse(bh);
+	if (ext2_find_entry(dir, dentry->d_name, dentry->d_namelen, &page)) {
+		page_cache_put_page(page);
 		return -EEXIST;
 	}
 
@@ -295,25 +298,27 @@ static int ext2_create(struct inode *dir, struct dentry *dentry, uint32_t mode)
 static int ext2_make_empty_dir(struct inode *inode, struct inode *parent)
 {
 	uint32_t block = ext2_bmap(inode, 0, true);
-	struct buffer_head *bh;
+	struct page_cache_page *page;
 	struct ext2_dir_entry_2 *de;
+	uint8_t *data;
 
 	if (!block)
 		return -ENOSPC;
 
-	bh = bread(inode->i_sb->s_dev, block);
-	if (!bh)
+	page = page_cache_get_block(inode->i_sb->s_dev, block);
+	if (!page)
 		return -EIO;
+	data = page_cache_data(page);
 
-	memset(bh->b_data, 0, BLOCK_SIZE);
-	de = (struct ext2_dir_entry_2 *)bh->b_data;
+	memset(data, 0, BLOCK_SIZE);
+	de = (struct ext2_dir_entry_2 *)data;
 	de->inode = (uint32_t)inode->i_ino;
 	de->rec_len = EXT2_DIR_REC_LEN(1);
 	de->name_len = 1;
 	de->file_type = EXT2_FT_DIR;
 	de->name[0] = '.';
 
-	de = (struct ext2_dir_entry_2 *)(bh->b_data + de->rec_len);
+	de = (struct ext2_dir_entry_2 *)(data + de->rec_len);
 	de->inode = (uint32_t)parent->i_ino;
 	de->rec_len = BLOCK_SIZE - EXT2_DIR_REC_LEN(1);
 	de->name_len = 2;
@@ -321,8 +326,8 @@ static int ext2_make_empty_dir(struct inode *inode, struct inode *parent)
 	de->name[0] = '.';
 	de->name[1] = '.';
 
-	bwrite(bh);
-	brelse(bh);
+	page_cache_sync_block(page);
+	page_cache_put_page(page);
 	inode->i_size = BLOCK_SIZE;
 	ext2_write_inode(inode);
 	return 0;
@@ -330,14 +335,14 @@ static int ext2_make_empty_dir(struct inode *inode, struct inode *parent)
 
 static int ext2_mkdir(struct inode *dir, struct dentry *dentry, uint32_t mode)
 {
-	struct buffer_head *bh = NULL;
+	struct page_cache_page *page = NULL;
 	uint32_t ino;
 	struct inode *inode;
 	struct ext2_inode_info *ei;
 	int ret;
 
-	if (ext2_find_entry(dir, dentry->d_name, dentry->d_namelen, &bh)) {
-		brelse(bh);
+	if (ext2_find_entry(dir, dentry->d_name, dentry->d_namelen, &page)) {
+		page_cache_put_page(page);
 		return -EEXIST;
 	}
 
@@ -386,19 +391,20 @@ static bool ext2_dir_is_empty(struct inode *inode)
 
 	for (uint32_t lblock = 0; lblock < blocks; lblock++) {
 		uint32_t pblock = ext2_bmap(inode, lblock, false);
-		struct buffer_head *bh;
+		struct page_cache_page *page;
+		uint8_t *data;
 		uint32_t offset = 0;
 
 		if (!pblock)
 			continue;
-		bh = bread(inode->i_sb->s_dev, pblock);
-		if (!bh)
+		page = page_cache_get_block(inode->i_sb->s_dev, pblock);
+		if (!page)
 			return false;
+		data = page_cache_data(page);
 
 		while (offset + 8 <= BLOCK_SIZE) {
 			struct ext2_dir_entry_2 *de =
-				(struct ext2_dir_entry_2 *)(bh->b_data +
-							    offset);
+				(struct ext2_dir_entry_2 *)(data + offset);
 			bool dot;
 
 			if (de->rec_len < 8 ||
@@ -408,12 +414,12 @@ static bool ext2_dir_is_empty(struct inode *inode)
 			      (de->name_len == 2 && de->name[0] == '.' &&
 			       de->name[1] == '.');
 			if (de->inode && !dot) {
-				brelse(bh);
+				page_cache_put_page(page);
 				return false;
 			}
 			offset += de->rec_len;
 		}
-		brelse(bh);
+		page_cache_put_page(page);
 	}
 
 	return true;
@@ -435,12 +441,9 @@ static int ext2_unlink(struct inode *dir, struct dentry *dentry)
 
 	if (inode->i_nlink > 0)
 		inode->i_nlink--;
-	if (inode->i_nlink == 0) {
-		ext2_truncate_inode(inode, 0);
-		ext2_free_inode(inode->i_sb, (uint32_t)inode->i_ino);
-	}
 	ext2_write_inode(inode);
 	dentry->d_inode = NULL;
+	iput(inode);
 	return 0;
 }
 
@@ -460,12 +463,13 @@ static int ext2_rmdir(struct inode *dir, struct dentry *dentry)
 	if (ret < 0)
 		return ret;
 
-	ext2_truncate_inode(inode, 0);
-	ext2_free_inode(inode->i_sb, (uint32_t)inode->i_ino);
 	if (dir->i_nlink > 0)
 		dir->i_nlink--;
+	inode->i_nlink = 0;
+	ext2_write_inode(inode);
 	ext2_write_inode(dir);
 	dentry->d_inode = NULL;
+	iput(inode);
 	return 0;
 }
 
@@ -479,34 +483,36 @@ static int ext2_readdir(struct file *file, void *ctx, filldir_t filldir)
 		uint32_t offset =
 			(uint32_t)((uint64_t)file->f_pos % BLOCK_SIZE);
 		uint32_t pblock = ext2_bmap(dir, lblock, false);
-		struct buffer_head *bh;
+		struct page_cache_page *page;
 		struct ext2_dir_entry_2 *de;
+		uint8_t *data;
 
 		if (!pblock) {
 			file->f_pos = (loff_t)((lblock + 1) * BLOCK_SIZE);
 			continue;
 		}
 
-		bh = bread(dir->i_sb->s_dev, pblock);
-		if (!bh)
+		page = page_cache_get_block(dir->i_sb->s_dev, pblock);
+		if (!page)
 			return -EIO;
+		data = page_cache_data(page);
 
-		de = (struct ext2_dir_entry_2 *)(bh->b_data + offset);
+		de = (struct ext2_dir_entry_2 *)(data + offset);
 		if (offset + 8 > BLOCK_SIZE || de->rec_len < 8 ||
 		    offset + de->rec_len > BLOCK_SIZE) {
-			brelse(bh);
+			page_cache_put_page(page);
 			return -EIO;
 		}
 
 		loff_t next_pos = file->f_pos + de->rec_len;
 		if (de->inode && filldir(ctx, de->name, de->name_len, de->inode,
 					 de->file_type) < 0) {
-			brelse(bh);
+			page_cache_put_page(page);
 			return 0;
 		}
 
 		file->f_pos = next_pos;
-		brelse(bh);
+		page_cache_put_page(page);
 	}
 
 	return 0;

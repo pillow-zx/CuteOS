@@ -9,7 +9,7 @@
  * 声明 virtio-blk MMIO 驱动的初始化入口，供 kernel_main 在各子系统
  * 初始化完成后调用。驱动内部以扇区（512 字节）为单位提供读写能力，
  * 并通过块设备抽象层（见 <kernel/blkdev.h>）注册到 dev_table，供
- * buffer cache / 文件系统以设备无关方式访问。
+ * page cache / 文件系统以设备无关方式访问。
  *
  * Functions:
  *   virtio_blk_init() - 探测并初始化 virtio-blk 设备，注册块设备
@@ -35,5 +35,17 @@
 #define ROOT_DEV MKDEV(VIRTIO_BLK_MAJOR, 0)
 
 void virtio_blk_init(void);
+
+#ifdef CONFIG_KERNEL_TEST
+struct virtio_blk_test_stats {
+	uint32_t read_reqs;
+	uint32_t write_reqs;
+	uint32_t max_write_nsec;
+	uint32_t last_write_nsec;
+};
+
+void virtio_blk_test_reset_stats(void);
+void virtio_blk_test_get_stats(struct virtio_blk_test_stats *stats);
+#endif
 
 #endif /* _CUTEOS_DRIVERS_VIRTIO_BLK_H */

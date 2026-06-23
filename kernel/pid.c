@@ -15,6 +15,7 @@
 
 #include <kernel/pid.h>
 #include <kernel/bitmap.h>
+#include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/string.h>
 

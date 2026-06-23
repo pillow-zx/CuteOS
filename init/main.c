@@ -32,6 +32,7 @@
 #include <kernel/printk.h>
 #include <kernel/buddy.h>
 #include <kernel/slab.h>
+#include <kernel/page_cache.h>
 #include <kernel/task.h>
 #include <kernel/sched.h>
 #include <kernel/timer.h>
@@ -100,6 +101,7 @@ void kernel_main(void)
 #endif
 
 	set_init_task(kernel_thread(init_process, NULL));
+	(void)kernel_thread(page_cache_writeback_thread, NULL);
 
 	/* 进入 idle 循环 — idle 进程的执行体 */
 	while (true) {

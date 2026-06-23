@@ -1,8 +1,8 @@
 #include "ext2.h"
 
-#include <kernel/buffer.h>
 #include <kernel/blkdev.h>
 #include <kernel/errno.h>
+#include <kernel/page_cache.h>
 #include <kernel/slab.h>
 #include <kernel/stat.h>
 #include <kernel/string.h>
@@ -46,12 +46,13 @@ static uint32_t ext2_encode_dev(dev_t dev)
 }
 
 static const struct inode_operations ext2_file_inode_operations;
+static uint32_t ext2_bmap_ro_scratch[BLOCK_SIZE / sizeof(uint32_t)];
 
 static void ext2_free_indirect_chain(struct super_block *sb, uint32_t block,
 				     int depth)
 {
 	uint32_t ptrs = BLOCK_SIZE / sizeof(uint32_t);
-	struct buffer_head *bh;
+	struct page_cache_page *page;
 	uint32_t *entries;
 
 	if (!block)
@@ -61,21 +62,21 @@ static void ext2_free_indirect_chain(struct super_block *sb, uint32_t block,
 		return;
 	}
 
-	bh = bread(sb->s_dev, block);
-	if (bh) {
-		entries = (uint32_t *)bh->b_data;
+	page = page_cache_get_block(sb->s_dev, block);
+	if (page) {
+		entries = (uint32_t *)page_cache_data(page);
 		for (uint32_t i = 0; i < ptrs; i++) {
 			if (!entries[i])
 				continue;
 			ext2_free_indirect_chain(sb, entries[i], depth - 1);
 		}
-		brelse(bh);
+		page_cache_put_page(page);
 	}
 
 	ext2_free_block(sb, block);
 }
 
-static void ext2_free_inode_blocks(struct inode *inode)
+void ext2_free_inode_blocks(struct inode *inode)
 {
 	struct ext2_inode *raw = &EXT2_I(inode)->raw_inode;
 
@@ -111,7 +112,7 @@ static uint32_t ext2_count_tree_blocks(struct super_block *sb, uint32_t block,
 				       int depth)
 {
 	uint32_t ptrs = BLOCK_SIZE / sizeof(uint32_t);
-	struct buffer_head *bh;
+	struct page_cache_page *page;
 	uint32_t *entries;
 	uint32_t total = 1;
 
@@ -120,17 +121,17 @@ static uint32_t ext2_count_tree_blocks(struct super_block *sb, uint32_t block,
 	if (depth == 0)
 		return 1;
 
-	bh = bread(sb->s_dev, block);
-	if (!bh)
+	page = page_cache_get_block(sb->s_dev, block);
+	if (!page)
 		return total;
 
-	entries = (uint32_t *)bh->b_data;
+	entries = (uint32_t *)page_cache_data(page);
 	for (uint32_t i = 0; i < ptrs; i++) {
 		if (!entries[i])
 			continue;
 		total += ext2_count_tree_blocks(sb, entries[i], depth - 1);
 	}
-	brelse(bh);
+	page_cache_put_page(page);
 	return total;
 }
 
@@ -138,7 +139,7 @@ static int ext2_truncate_branch_slot(struct inode *inode, uint32_t *slot,
 				     int depth, uint32_t keep_blocks)
 {
 	uint32_t ptrs = BLOCK_SIZE / sizeof(uint32_t);
-	struct buffer_head *bh;
+	struct page_cache_page *page;
 	uint32_t *entries;
 	uint32_t span;
 	uint32_t remaining = keep_blocks;
@@ -155,18 +156,18 @@ static int ext2_truncate_branch_slot(struct inode *inode, uint32_t *slot,
 		return 0;
 
 	span = ext2_branch_span(depth - 1);
-	bh = bread(inode->i_sb->s_dev, *slot);
-	if (!bh)
+	page = page_cache_get_block(inode->i_sb->s_dev, *slot);
+	if (!page)
 		return -EIO;
 
-	entries = (uint32_t *)bh->b_data;
+	entries = (uint32_t *)page_cache_data(page);
 	for (uint32_t i = 0; i < ptrs; i++) {
 		uint32_t child_keep = remaining > span ? span : remaining;
 		int ret = ext2_truncate_branch_slot(inode, &entries[i],
 						    depth - 1, child_keep);
 
 		if (ret < 0) {
-			brelse(bh);
+			page_cache_put_page(page);
 			return ret;
 		}
 		if (entries[i])
@@ -178,17 +179,17 @@ static int ext2_truncate_branch_slot(struct inode *inode, uint32_t *slot,
 	}
 
 	if (all_zero) {
-		brelse(bh);
+		page_cache_put_page(page);
 		ext2_free_block(inode->i_sb, *slot);
 		*slot = 0;
 		return 0;
 	}
 
-	if (bwrite(bh) < 0) {
-		brelse(bh);
+	if (page_cache_sync_block(page) < 0) {
+		page_cache_put_page(page);
 		return -EIO;
 	}
-	brelse(bh);
+	page_cache_put_page(page);
 	return 0;
 }
 
@@ -210,26 +211,64 @@ static int ext2_zero_truncate_tail(struct inode *inode, uint64_t size)
 	uint32_t offset = (uint32_t)(size % BLOCK_SIZE);
 	uint32_t lblock;
 	uint32_t pblock;
-	struct buffer_head *bh;
+	struct page_cache_page *page;
 
 	if (size == 0 || offset == 0)
 		return 0;
 
 	lblock = (uint32_t)(size / BLOCK_SIZE);
-	pblock = ext2_bmap(inode, lblock, false);
+	pblock = ext2_bmap_readonly(inode, lblock);
 	if (!pblock)
 		return 0;
 
-	bh = bread(inode->i_sb->s_dev, pblock);
-	if (!bh)
+	page = page_cache_get_block(inode->i_sb->s_dev, pblock);
+	if (!page)
 		return -EIO;
 
-	memset(bh->b_data + offset, 0, BLOCK_SIZE - offset);
-	if (bwrite(bh) < 0) {
-		brelse(bh);
+	memset(page_cache_data(page) + offset, 0, BLOCK_SIZE - offset);
+	if (page_cache_sync_block(page) < 0) {
+		page_cache_put_page(page);
 		return -EIO;
 	}
-	brelse(bh);
+	page_cache_put_page(page);
+	return 0;
+}
+
+static int ext2_zero_extend_tail(struct inode *inode, uint64_t old_size)
+{
+	struct page_cache_page *page;
+	uint32_t offset = (uint32_t)(old_size % BLOCK_SIZE);
+	uint32_t lblock;
+	uint32_t pblock;
+	int ret;
+
+	if (!inode || old_size == 0 || offset == 0)
+		return 0;
+	if (!inode->i_aops || !inode->i_aops->readpage)
+		return 0;
+
+	lblock = (uint32_t)(old_size / BLOCK_SIZE);
+	pblock = ext2_bmap_readonly(inode, lblock);
+	if (!pblock)
+		return 0;
+
+	page = page_cache_grab_file_page(inode, lblock, true, NULL);
+	if (!page)
+		return -ENOMEM;
+
+	if (!page_cache_is_uptodate(page)) {
+		ret = inode->i_aops->readpage(inode, lblock,
+					      page_cache_data(page));
+		if (ret < 0) {
+			page_cache_put_page(page);
+			return ret;
+		}
+		page_cache_set_uptodate(page, true);
+	}
+
+	memset(page_cache_data(page) + offset, 0, BLOCK_SIZE - offset);
+	page_cache_mark_dirty(page);
+	page_cache_put_page(page);
 	return 0;
 }
 
@@ -240,6 +279,7 @@ void ext2_init_inode_ops(struct inode *inode)
 
 	inode->i_op = NULL;
 	inode->i_fop = NULL;
+	inode->i_aops = NULL;
 	switch (inode->i_mode & EXT2_S_IFMT) {
 	case EXT2_S_IFDIR:
 		inode->i_op = &ext2_dir_inode_operations;
@@ -255,6 +295,7 @@ void ext2_init_inode_ops(struct inode *inode)
 	default:
 		inode->i_op = &ext2_file_inode_operations;
 		inode->i_fop = &ext2_file_operations;
+		inode->i_aops = &ext2_file_aops;
 		break;
 	}
 }
@@ -300,17 +341,17 @@ static int ext2_readlink(struct inode *inode, char *buf, size_t size)
 		memcpy(buf, raw->i_block, (size_t)len);
 	} else {
 		uint32_t pblock = ext2_bmap(inode, 0, false);
-		struct buffer_head *bh;
+		struct page_cache_page *page;
 
 		if (!pblock)
 			return -EIO;
-		bh = bread(inode->i_sb->s_dev, pblock);
-		if (!bh)
+		page = page_cache_get_block(inode->i_sb->s_dev, pblock);
+		if (!page)
 			return -EIO;
 		if (len > BLOCK_SIZE)
 			len = BLOCK_SIZE;
-		memcpy(buf, bh->b_data, (size_t)len);
-		brelse(bh);
+		memcpy(buf, page_cache_data(page), (size_t)len);
+		page_cache_put_page(page);
 	}
 
 	return (int)len;
@@ -328,7 +369,7 @@ static const struct inode_operations ext2_file_inode_operations = {
 int ext2_read_inode(struct inode *inode)
 {
 	struct ext2_inode_info *ei;
-	struct buffer_head *bh;
+	struct page_cache_page *page;
 	uint32_t block;
 	uint32_t offset;
 	int ret;
@@ -347,14 +388,15 @@ int ext2_read_inode(struct inode *inode)
 		return ret;
 	}
 
-	bh = bread(inode->i_sb->s_dev, block);
-	if (!bh) {
+	page = page_cache_get_block(inode->i_sb->s_dev, block);
+	if (!page) {
 		kfree(ei);
 		return -EIO;
 	}
 
-	memcpy(&ei->raw_inode, bh->b_data + offset, sizeof(ei->raw_inode));
-	brelse(bh);
+	memcpy(&ei->raw_inode, page_cache_data(page) + offset,
+	       sizeof(ei->raw_inode));
+	page_cache_put_page(page);
 
 	inode->i_private = ei;
 	ext2_fill_vfs_inode(inode);
@@ -365,7 +407,7 @@ int ext2_read_inode(struct inode *inode)
 int ext2_write_inode(struct inode *inode)
 {
 	struct ext2_inode_info *ei;
-	struct buffer_head *bh;
+	struct page_cache_page *page;
 	uint32_t block;
 	uint32_t offset;
 	int ret;
@@ -387,13 +429,14 @@ int ext2_write_inode(struct inode *inode)
 	if (ret < 0)
 		return ret;
 
-	bh = bread(inode->i_sb->s_dev, block);
-	if (!bh)
+	page = page_cache_get_block(inode->i_sb->s_dev, block);
+	if (!page)
 		return -EIO;
 
-	memcpy(bh->b_data + offset, &ei->raw_inode, sizeof(ei->raw_inode));
-	ret = bwrite(bh);
-	brelse(bh);
+	memcpy(page_cache_data(page) + offset, &ei->raw_inode,
+	       sizeof(ei->raw_inode));
+	ret = page_cache_sync_block(page);
+	page_cache_put_page(page);
 
 	return ret;
 }
@@ -411,30 +454,62 @@ static uint32_t ext2_alloc_bmap_block(struct inode *inode)
 static uint32_t ext2_ind_bmap(struct inode *inode, uint32_t ind_block,
 			      uint32_t index, bool create)
 {
-	struct buffer_head *bh;
+	struct page_cache_page *page;
 	uint32_t *blocks;
 	uint32_t block;
 
 	if (!ind_block)
 		return 0;
 
-	bh = bread(inode->i_sb->s_dev, ind_block);
-	if (!bh)
+	page = page_cache_get_block(inode->i_sb->s_dev, ind_block);
+	if (!page)
 		return 0;
 
-	blocks = (uint32_t *)bh->b_data;
+	blocks = (uint32_t *)page_cache_data(page);
 	block = blocks[index];
 	if (!block && create) {
 		block = ext2_alloc_bmap_block(inode);
 		if (block) {
 			blocks[index] = block;
-			bwrite(bh);
+			page_cache_sync_block(page);
 			ext2_write_inode(inode);
 		}
 	}
 
-	brelse(bh);
+	page_cache_put_page(page);
 	return block;
+}
+
+static int ext2_read_block_words(struct super_block *sb, uint32_t block,
+				 uint32_t *words)
+{
+	struct block_device *bdev;
+
+	if (!sb || !words || !block)
+		return -EINVAL;
+
+	bdev = lookup_block_device(sb->s_dev);
+	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->read_sectors)
+		return -ENXIO;
+
+	return bdev->bd_ops->read_sectors(bdev, words, block * BLOCK_SECTORS,
+					  BLOCK_SECTORS);
+}
+
+/*
+ * Used by page-cache writeback/reclaim through map_block(false).  Keep this
+ * path below the page cache so reclaim never allocates another metadata page
+ * while trying to free or flush file-data pages.
+ */
+static uint32_t ext2_ind_bmap_readonly(struct super_block *sb,
+				       uint32_t ind_block, uint32_t index)
+{
+	if (!ind_block)
+		return 0;
+	if (ext2_read_block_words(sb, ind_block, ext2_bmap_ro_scratch) < 0)
+		return 0;
+
+	return ext2_bmap_ro_scratch[index];
 }
 
 uint32_t ext2_bmap(struct inode *inode, uint32_t block, bool create)
@@ -443,7 +518,7 @@ uint32_t ext2_bmap(struct inode *inode, uint32_t block, bool create)
 	uint32_t ptrs = BLOCK_SIZE / sizeof(uint32_t);
 	uint32_t first;
 	uint32_t second;
-	struct buffer_head *bh;
+	struct page_cache_page *page;
 	uint32_t *blocks;
 
 	if (!inode || !inode->i_private)
@@ -482,25 +557,63 @@ uint32_t ext2_bmap(struct inode *inode, uint32_t block, bool create)
 
 	first = block / ptrs;
 	second = block % ptrs;
-	bh = bread(inode->i_sb->s_dev, raw->i_block[EXT2_DIND_BLOCK]);
-	if (!bh)
+	page = page_cache_get_block(inode->i_sb->s_dev,
+				    raw->i_block[EXT2_DIND_BLOCK]);
+	if (!page)
 		return 0;
 
-	blocks = (uint32_t *)bh->b_data;
+	blocks = (uint32_t *)page_cache_data(page);
 	if (!blocks[first] && create) {
 		blocks[first] = ext2_alloc_bmap_block(inode);
 		if (blocks[first])
-			bwrite(bh);
+			page_cache_sync_block(page);
 	}
 	first = blocks[first];
-	brelse(bh);
+	page_cache_put_page(page);
 
 	return ext2_ind_bmap(inode, first, second, create);
+}
+
+uint32_t ext2_bmap_readonly(struct inode *inode, uint32_t block)
+{
+	struct ext2_inode *raw;
+	uint32_t ptrs = BLOCK_SIZE / sizeof(uint32_t);
+	uint32_t first;
+	uint32_t second;
+
+	if (!inode || !inode->i_private)
+		return 0;
+
+	raw = &EXT2_I(inode)->raw_inode;
+	if (block < EXT2_NDIR_BLOCKS)
+		return raw->i_block[block];
+
+	block -= EXT2_NDIR_BLOCKS;
+	if (block < ptrs)
+		return ext2_ind_bmap_readonly(inode->i_sb,
+					      raw->i_block[EXT2_IND_BLOCK],
+					      block);
+
+	block -= ptrs;
+	if (block >= ptrs * ptrs)
+		return 0;
+	if (!raw->i_block[EXT2_DIND_BLOCK])
+		return 0;
+
+	first = block / ptrs;
+	second = block % ptrs;
+	first = ext2_ind_bmap_readonly(inode->i_sb,
+				       raw->i_block[EXT2_DIND_BLOCK], first);
+	if (!first)
+		return 0;
+
+	return ext2_ind_bmap_readonly(inode->i_sb, first, second);
 }
 
 int ext2_truncate_inode(struct inode *inode, uint64_t size)
 {
 	struct ext2_inode *raw;
+	uint64_t old_size;
 	uint32_t keep_blocks;
 	uint32_t remaining;
 	int ret;
@@ -513,12 +626,15 @@ int ext2_truncate_inode(struct inode *inode, uint64_t size)
 		return 0;
 
 	raw = &EXT2_I(inode)->raw_inode;
+	old_size = inode->i_size;
 	if (size == 0) {
+		page_cache_invalidate_inode(inode);
 		ext2_free_inode_blocks(inode);
 		return ext2_write_inode(inode);
 	}
 
 	if (size < inode->i_size) {
+		page_cache_truncate_inode(inode, size);
 		ret = ext2_zero_truncate_tail(inode, size);
 		if (ret < 0)
 			return ret;
@@ -555,6 +671,10 @@ int ext2_truncate_inode(struct inode *inode, uint64_t size)
 
 		ret = ext2_truncate_branch(inode, EXT2_TIND_BLOCK, 3,
 					   remaining);
+		if (ret < 0)
+			return ret;
+	} else {
+		ret = ext2_zero_extend_tail(inode, old_size);
 		if (ret < 0)
 			return ret;
 	}

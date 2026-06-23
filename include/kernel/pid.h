@@ -14,7 +14,6 @@
 #define _CUTEOS_KERNEL_PID_H
 
 #include <kernel/types.h>
-#include <kernel/errno.h>
 
 #define PID_MAX	  255 /* 最大 PID 值 */
 #define PID_COUNT 256 /* PID 总数 (0 ~ PID_MAX) */

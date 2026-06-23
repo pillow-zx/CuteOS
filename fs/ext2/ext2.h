@@ -30,7 +30,7 @@
  *                                   - 直接/间接块索引
  */
 
-#include <kernel/buffer.h>
+#include <kernel/blkdev.h>
 #include <kernel/compiler.h>
 #include <kernel/fs.h>
 #include <kernel/types.h>
@@ -179,6 +179,7 @@ extern const struct inode_operations ext2_dir_inode_operations;
 extern const struct inode_operations ext2_symlink_inode_operations;
 extern const struct file_operations ext2_dir_operations;
 extern const struct file_operations ext2_file_operations;
+extern const struct address_space_operations ext2_file_aops;
 
 static inline struct ext2_sb_info *EXT2_SB(struct super_block *sb)
 {
@@ -206,7 +207,9 @@ int mount_root(void);
 int ext2_read_inode(struct inode *inode);
 int ext2_write_inode(struct inode *inode);
 void ext2_init_inode_ops(struct inode *inode);
+void ext2_free_inode_blocks(struct inode *inode);
 uint32_t ext2_bmap(struct inode *inode, uint32_t block, bool create);
+uint32_t ext2_bmap_readonly(struct inode *inode, uint32_t block);
 int ext2_truncate_inode(struct inode *inode, uint64_t size);
 
 uint32_t ext2_alloc_block(struct inode *inode);

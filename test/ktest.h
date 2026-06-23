@@ -151,11 +151,24 @@ void test_virtio_blk(void);
 void test_virtio_blk_errors(void);
 
 /* ================================================================
- *  Buffer Cache 测试
+ *  Page Cache Metadata 测试
  * ================================================================ */
 
-void test_buffer_cache_basic(void);
-void test_buffer_cache_errors(void);
-void test_buffer_cache_eviction(void);
+void test_page_cache_metadata_basic(void);
+void test_page_cache_metadata_errors(void);
+void test_page_cache_metadata_eviction(void);
+
+/* ================================================================
+ *  Page Cache 测试
+ * ================================================================ */
+
+void test_page_cache_dirty_write_visibility(void);
+void test_page_cache_fsync_inode_scope(void);
+void test_page_cache_metadata_alias_after_fsync(void);
+void test_page_cache_pressure_eviction(void);
+void test_page_cache_clustered_writeback(void);
+void test_page_cache_indirect_reclaim_progress(void);
+void test_page_cache_truncate_extend_zero_fill(void);
+void test_page_cache_large_offset_rejected(void);
 
 #endif

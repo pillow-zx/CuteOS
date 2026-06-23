@@ -38,7 +38,7 @@
 /* request virtqueue 长度（2 的幂）。每次 I/O 用 3 个描述符，8 绰绰有余 */
 #define VBLK_QSIZE 8
 
-/* 单次请求最多扇区数（防御性上限，buffer cache 仅需 2） */
+/* 单次请求最多扇区数（防御性上限，metadata page 仅需 8） */
 #define VBLK_MAX_SECTORS 256u
 
 /* 轮询完成的自旋上限（仅作"设备失速"哨兵，非精确超时）。QEMU virtio-blk
@@ -75,6 +75,10 @@ static struct vblk_avail vblk_avail __aligned(VRING_AVAIL_ALIGN_SIZE);
 static struct vblk_used vblk_used __aligned(VRING_USED_ALIGN_SIZE);
 static struct virtio_blk_req vblk_req;
 static struct virtio_blk_dev vblk_dev;
+
+#ifdef CONFIG_KERNEL_TEST
+static struct virtio_blk_test_stats vblk_test_stats;
+#endif
 
 /* ---- 设备状态机辅助 ---- */
 
@@ -231,6 +235,17 @@ static int virtio_blk_rw(struct block_device *bdev, bool write, void *buf,
 	if (nsec > vd->capacity || sector > vd->capacity - nsec)
 		return -EINVAL;
 
+#ifdef CONFIG_KERNEL_TEST
+	if (write) {
+		vblk_test_stats.write_reqs++;
+		vblk_test_stats.last_write_nsec = nsec;
+		if (nsec > vblk_test_stats.max_write_nsec)
+			vblk_test_stats.max_write_nsec = nsec;
+	} else {
+		vblk_test_stats.read_reqs++;
+	}
+#endif
+
 	vblk_build_req(buf, sector, nsec, write);
 	expected = (uint16_t)(vblk_avail.idx + 1);
 	return vblk_submit_and_wait(vd->mmio_base, expected);
@@ -324,7 +339,7 @@ void virtio_blk_init(void)
 	vblk_dev.mmio_base = base;
 	vblk_dev.capacity = (uint64_t)cap_lo | ((uint64_t)cap_hi << 32);
 
-	/* 暴露容量给块设备抽象层（buffer cache / EXT2 需要） */
+	/* 暴露容量给块设备抽象层（page cache / EXT2 需要） */
 	vblk_bdev.bd_sectors = vblk_dev.capacity;
 
 	/* 注册块设备 */
@@ -337,3 +352,18 @@ void virtio_blk_init(void)
 	/* 读路径 smoke test */
 	vblk_smoke_test();
 }
+
+#ifdef CONFIG_KERNEL_TEST
+void virtio_blk_test_reset_stats(void)
+{
+	memset(&vblk_test_stats, 0, sizeof(vblk_test_stats));
+}
+
+void virtio_blk_test_get_stats(struct virtio_blk_test_stats *stats)
+{
+	if (!stats)
+		return;
+
+	*stats = vblk_test_stats;
+}
+#endif

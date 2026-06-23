@@ -158,11 +158,22 @@ void kernel_test(void)
 	test_virtio_blk();
 	test_virtio_blk_errors();
 
-	/* ---- Buffer Cache ---- */
-	TEST_SECTION("Buffer Cache");
-	test_buffer_cache_basic();
-	test_buffer_cache_errors();
-	test_buffer_cache_eviction();
+	/* ---- Page Cache Metadata ---- */
+	TEST_SECTION("Page Cache Metadata");
+	test_page_cache_metadata_basic();
+	test_page_cache_metadata_errors();
+	test_page_cache_metadata_eviction();
+
+	/* ---- Page Cache ---- */
+	TEST_SECTION("Page Cache");
+	test_page_cache_dirty_write_visibility();
+	test_page_cache_fsync_inode_scope();
+	test_page_cache_metadata_alias_after_fsync();
+	test_page_cache_pressure_eviction();
+	test_page_cache_clustered_writeback();
+	test_page_cache_indirect_reclaim_progress();
+	test_page_cache_truncate_extend_zero_fill();
+	test_page_cache_large_offset_rejected();
 
 	/* ---- 汇总 ---- */
 	pr_info("\n========================================\n");
