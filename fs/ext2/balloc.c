@@ -24,7 +24,7 @@ static int ext2_sync_super(struct super_block *sb)
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
 	uint32_t super_block = ext2_super_blocknr(BLOCK_SIZE);
 	uint32_t super_off = ext2_super_offset(BLOCK_SIZE);
-	struct page_cache_page *page = page_cache_get_block(sb->s_dev,
+	struct page_cache *page = page_cache_get_block(sb->s_dev,
 							    super_block);
 	int ret;
 
@@ -46,7 +46,7 @@ static int ext2_sync_group_desc(struct super_block *sb, uint32_t group)
 		EXT2_BGDT_BLOCK(sbi->s_first_data_block) + group / desc_per_block;
 	uint32_t offset =
 		(group % desc_per_block) * sizeof(struct ext2_group_desc);
-	struct page_cache_page *page = page_cache_get_block(sb->s_dev, block);
+	struct page_cache *page = page_cache_get_block(sb->s_dev, block);
 	int ret;
 
 	if (!page)
@@ -76,7 +76,7 @@ static uint32_t ext2_group_blocks(struct ext2_sb_info *sbi, uint32_t group)
 
 static void ext2_zero_block(struct super_block *sb, uint32_t block)
 {
-	struct page_cache_page *page = page_cache_get_block(sb->s_dev, block);
+	struct page_cache *page = page_cache_get_block(sb->s_dev, block);
 
 	if (!page)
 		return;
@@ -99,7 +99,7 @@ uint32_t ext2_alloc_block(struct inode *inode)
 	for (uint32_t pass = 0; pass < sbi->s_groups_count; pass++) {
 		uint32_t group = (preferred + pass) % sbi->s_groups_count;
 		struct ext2_group_desc *gd = &sbi->s_group_desc[group];
-		struct page_cache_page *page;
+		struct page_cache *page;
 		uint32_t group_blocks;
 		uint8_t *data;
 
@@ -142,7 +142,7 @@ void ext2_free_block(struct super_block *sb, uint32_t block)
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
 	uint32_t group;
 	uint32_t bit;
-	struct page_cache_page *page;
+	struct page_cache *page;
 	uint8_t *data;
 
 	if (block < sbi->s_first_data_block ||
@@ -178,7 +178,7 @@ uint32_t ext2_alloc_inode(struct super_block *sb, uint16_t mode)
 
 	for (uint32_t group = 0; group < sbi->s_groups_count; group++) {
 		struct ext2_group_desc *gd = &sbi->s_group_desc[group];
-		struct page_cache_page *page;
+		struct page_cache *page;
 		uint8_t *data;
 
 		if (!gd->bg_free_inodes_count)
@@ -220,7 +220,7 @@ void ext2_free_inode(struct super_block *sb, uint32_t ino)
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
 	uint32_t group;
 	uint32_t bit;
-	struct page_cache_page *page;
+	struct page_cache *page;
 	uint8_t *data;
 
 	if (!ino || ino > sbi->s_es.s_inodes_count)

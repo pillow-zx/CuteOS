@@ -156,6 +156,7 @@ void test_virtio_blk_errors(void);
 
 void test_page_cache_metadata_basic(void);
 void test_page_cache_metadata_errors(void);
+void test_page_cache_block_zero_writeback(void);
 void test_page_cache_metadata_eviction(void);
 
 /* ================================================================
@@ -164,7 +165,7 @@ void test_page_cache_metadata_eviction(void);
 
 void test_page_cache_dirty_write_visibility(void);
 void test_page_cache_fsync_inode_scope(void);
-void test_page_cache_metadata_alias_after_fsync(void);
+void test_page_cache_block_mapping_refreshed_after_fsync(void);
 void test_page_cache_pressure_eviction(void);
 void test_page_cache_clustered_writeback(void);
 void test_page_cache_indirect_reclaim_progress(void);

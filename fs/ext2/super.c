@@ -116,7 +116,7 @@ static int ext2_read_bgdt(struct super_block *sb)
 	for (uint32_t block = 0;
 	     block < div_round_up_u32(sbi->s_groups_count, desc_per_block);
 	     block++) {
-		struct page_cache_page *page =
+		struct page_cache *page =
 			page_cache_get_block(sb->s_dev, first_block + block);
 		uint32_t copy = bytes - block * BLOCK_SIZE;
 
@@ -138,7 +138,7 @@ static int ext2_read_bgdt(struct super_block *sb)
 static int ext2_read_super(struct super_block *sb)
 {
 	struct ext2_sb_info *sbi;
-	struct page_cache_page *page;
+	struct page_cache *page;
 	uint32_t super_block;
 	uint32_t super_off;
 	uint32_t block_size;

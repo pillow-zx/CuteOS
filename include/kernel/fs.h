@@ -10,7 +10,8 @@
  * Core objects:
  *   struct super_block      - Mounted filesystem instance (device, block size,
  *                             root dentry, super_operations pointer)
- *   struct inode            - File metadata (ino, mode, size, nlink, ops)
+ *   struct inode            - File metadata (ino, mode, size, nlink, ops,
+ *                             page-cache page_mapping)
  *   struct dentry           - dentry cache (name, parent inode,
  *                             child linkage, reference count)
  *   struct file             - Open file descriptor (dentry, position, flags,
@@ -29,6 +30,7 @@
  *   mount_root()            - Mount the root filesystem
  */
 
+#include <kernel/page_mapping.h>
 #include <kernel/list.h>
 #include <kernel/refcount.h>
 #include <kernel/types.h>
@@ -41,7 +43,6 @@ struct dentry;
 struct super_block;
 struct kstat;
 struct kstatfs;
-struct address_space_operations;
 
 #define VFS_NAME_MAX 255
 #define VFS_PATH_MAX 4096
@@ -124,13 +125,6 @@ struct file_system_type {
 	struct file_system_type *next;
 };
 
-struct address_space_operations {
-	int (*readpage)(struct inode *inode, uint64_t index, void *data);
-	uint32_t (*map_block)(struct inode *inode, uint64_t index, bool create);
-	int (*writepages)(struct inode *inode, uint64_t start_index,
-			  uint32_t nr_pages, const void *data);
-};
-
 struct super_block {
 	dev_t s_dev;
 	uint32_t s_blocksize;
@@ -154,12 +148,17 @@ struct inode {
 	struct super_block *i_sb;
 	const struct inode_operations *i_op;
 	const struct file_operations *i_fop;
-	const struct address_space_operations *i_aops;
+
+	/*
+	 * i_pages owns cached file logical blocks for regular files,
+	 * directories, and symlinks that store data in blocks.  Filesystems set
+	 * ops/backing according to inode type; VFS/page cache code uses this
+	 * field generically and must not know ext2 block-layout details.
+	 */
+	struct page_mapping i_pages;
 	void *i_private;
 	struct list_head i_hash;
 	struct list_head i_sb_list;
-	struct list_head i_pages;
-	struct list_head i_dirty_pages;
 };
 
 struct dentry {

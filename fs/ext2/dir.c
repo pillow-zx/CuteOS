@@ -37,23 +37,57 @@ static bool ext2_match(struct ext2_dir_entry_2 *de, const char *name,
 	return memcmp(de->name, name, namelen) == 0;
 }
 
+/*
+ * ext2 directories are ordinary inode data blocks whose payload is a sequence
+ * of ext2_dir_entry_2 records.  Read them through inode->i_pages so the
+ * page cache key is (directory inode, logical block).  Reading the raw physical
+ * block through page_cache_get_block() would create a second authoritative
+ * cache entry and make later fsync/writeback ordering ambiguous.
+ */
+static struct page_cache *ext2_read_inode_page(struct inode *inode,
+						    uint32_t lblock)
+{
+	return inode ? page_cache_read_page(&inode->i_pages, lblock) : NULL;
+}
+
+/*
+ * A freshly allocated directory block has no meaningful old contents.  Create
+ * or grab the logical inode page, zero it, and mark it uptodate before callers
+ * lay out "."/".." or a new directory entry.
+ */
+static struct page_cache *ext2_new_inode_page(struct inode *inode,
+						   uint32_t lblock)
+{
+	struct page_cache *page;
+
+	page = page_cache_grab_file_page(inode, lblock, true, NULL);
+	if (!page)
+		return NULL;
+
+	if (!page_cache_is_uptodate(page)) {
+		memset(page_cache_data(page), 0, BLOCK_SIZE);
+		page_cache_set_uptodate(page, true);
+	}
+
+	return page;
+}
+
 static struct ext2_dir_entry_2 *ext2_find_entry(struct inode *dir,
 						const char *name,
 						size_t namelen,
-						struct page_cache_page **res_page)
+						struct page_cache **res_page)
 {
 	uint32_t blocks =
 		(uint32_t)((dir->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
 	for (uint32_t lblock = 0; lblock < blocks; lblock++) {
-		uint32_t pblock = ext2_bmap(dir, lblock, false);
-		struct page_cache_page *page;
+		struct page_cache *page;
 		uint8_t *data;
 		uint32_t offset = 0;
 
-		if (!pblock)
+		if (!ext2_bmap_readonly(dir, lblock))
 			continue;
-		page = page_cache_get_block(dir->i_sb->s_dev, pblock);
+		page = ext2_read_inode_page(dir, lblock);
 		if (!page)
 			continue;
 		data = page_cache_data(page);
@@ -85,14 +119,13 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 		(uint32_t)((dir->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
 	for (uint32_t lblock = 0; lblock < blocks; lblock++) {
-		uint32_t pblock = ext2_bmap(dir, lblock, false);
-		struct page_cache_page *page;
+		struct page_cache *page;
 		uint8_t *data;
 		uint32_t offset = 0;
 
-		if (!pblock)
+		if (!ext2_bmap_readonly(dir, lblock))
 			continue;
-		page = page_cache_get_block(dir->i_sb->s_dev, pblock);
+		page = ext2_read_inode_page(dir, lblock);
 		if (!page)
 			return -EIO;
 		data = page_cache_data(page);
@@ -112,7 +145,14 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 				de->name_len = (uint8_t)namelen;
 				de->file_type = type;
 				memcpy(de->name, name, namelen);
-				page_cache_sync_block(page);
+				/*
+				 * Directory updates remain synchronous in this
+				 * teaching kernel, but they still go through the
+				 * inode mapping so block-cache aliases are
+				 * refreshed by page_cache_sync_page().
+				 */
+				page_cache_mark_dirty(page);
+				page_cache_sync_page(page);
 				page_cache_put_page(page);
 				return 0;
 			}
@@ -132,7 +172,8 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 				new_de->name_len = (uint8_t)namelen;
 				new_de->file_type = type;
 				memcpy(new_de->name, name, namelen);
-				page_cache_sync_block(page);
+				page_cache_mark_dirty(page);
+				page_cache_sync_page(page);
 				page_cache_put_page(page);
 				return 0;
 			}
@@ -146,8 +187,7 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 	if (!new_block)
 		return -ENOSPC;
 
-	struct page_cache_page *page =
-		page_cache_get_block(dir->i_sb->s_dev, new_block);
+	struct page_cache *page = ext2_new_inode_page(dir, blocks);
 	if (!page)
 		return -EIO;
 
@@ -159,7 +199,8 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 	de->name_len = (uint8_t)namelen;
 	de->file_type = type;
 	memcpy(de->name, name, namelen);
-	page_cache_sync_block(page);
+	page_cache_mark_dirty(page);
+	page_cache_sync_page(page);
 	page_cache_put_page(page);
 
 	dir->i_size += BLOCK_SIZE;
@@ -173,15 +214,14 @@ static int ext2_delete_entry(struct inode *dir, struct dentry *dentry)
 		(uint32_t)((dir->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
 	for (uint32_t lblock = 0; lblock < blocks; lblock++) {
-		uint32_t pblock = ext2_bmap(dir, lblock, false);
-		struct page_cache_page *page;
+		struct page_cache *page;
 		struct ext2_dir_entry_2 *prev = NULL;
 		uint8_t *data;
 		uint32_t offset = 0;
 
-		if (!pblock)
+		if (!ext2_bmap_readonly(dir, lblock))
 			continue;
-		page = page_cache_get_block(dir->i_sb->s_dev, pblock);
+		page = ext2_read_inode_page(dir, lblock);
 		if (!page)
 			return -EIO;
 		data = page_cache_data(page);
@@ -198,7 +238,8 @@ static int ext2_delete_entry(struct inode *dir, struct dentry *dentry)
 					prev->rec_len += de->rec_len;
 				else
 					de->inode = 0;
-				page_cache_sync_block(page);
+				page_cache_mark_dirty(page);
+				page_cache_sync_page(page);
 				page_cache_put_page(page);
 				return 0;
 			}
@@ -222,7 +263,7 @@ static void ext2_rollback_new_inode(struct inode *inode)
 
 static struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
 {
-	struct page_cache_page *page = NULL;
+	struct page_cache *page = NULL;
 	struct ext2_dir_entry_2 *de;
 	struct inode *inode;
 
@@ -247,7 +288,7 @@ static struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
 
 static int ext2_create(struct inode *dir, struct dentry *dentry, uint32_t mode)
 {
-	struct page_cache_page *page = NULL;
+	struct page_cache *page = NULL;
 	uint32_t ino;
 	uint32_t type = mode & EXT2_S_IFMT;
 	uint32_t inode_mode;
@@ -298,14 +339,14 @@ static int ext2_create(struct inode *dir, struct dentry *dentry, uint32_t mode)
 static int ext2_make_empty_dir(struct inode *inode, struct inode *parent)
 {
 	uint32_t block = ext2_bmap(inode, 0, true);
-	struct page_cache_page *page;
+	struct page_cache *page;
 	struct ext2_dir_entry_2 *de;
 	uint8_t *data;
 
 	if (!block)
 		return -ENOSPC;
 
-	page = page_cache_get_block(inode->i_sb->s_dev, block);
+	page = ext2_new_inode_page(inode, 0);
 	if (!page)
 		return -EIO;
 	data = page_cache_data(page);
@@ -326,7 +367,8 @@ static int ext2_make_empty_dir(struct inode *inode, struct inode *parent)
 	de->name[0] = '.';
 	de->name[1] = '.';
 
-	page_cache_sync_block(page);
+	page_cache_mark_dirty(page);
+	page_cache_sync_page(page);
 	page_cache_put_page(page);
 	inode->i_size = BLOCK_SIZE;
 	ext2_write_inode(inode);
@@ -335,7 +377,7 @@ static int ext2_make_empty_dir(struct inode *inode, struct inode *parent)
 
 static int ext2_mkdir(struct inode *dir, struct dentry *dentry, uint32_t mode)
 {
-	struct page_cache_page *page = NULL;
+	struct page_cache *page = NULL;
 	uint32_t ino;
 	struct inode *inode;
 	struct ext2_inode_info *ei;
@@ -360,8 +402,7 @@ static int ext2_mkdir(struct inode *dir, struct dentry *dentry, uint32_t mode)
 	memset(&ei->raw_inode, 0, sizeof(ei->raw_inode));
 	inode->i_mode = EXT2_S_IFDIR | mode;
 	inode->i_nlink = 2;
-	inode->i_op = &ext2_dir_inode_operations;
-	inode->i_fop = &ext2_dir_operations;
+	ext2_init_inode_ops(inode);
 	ext2_write_inode(inode);
 
 	ret = ext2_make_empty_dir(inode, dir);
@@ -390,14 +431,13 @@ static bool ext2_dir_is_empty(struct inode *inode)
 		(uint32_t)((inode->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
 	for (uint32_t lblock = 0; lblock < blocks; lblock++) {
-		uint32_t pblock = ext2_bmap(inode, lblock, false);
-		struct page_cache_page *page;
+		struct page_cache *page;
 		uint8_t *data;
 		uint32_t offset = 0;
 
-		if (!pblock)
+		if (!ext2_bmap_readonly(inode, lblock))
 			continue;
-		page = page_cache_get_block(inode->i_sb->s_dev, pblock);
+		page = ext2_read_inode_page(inode, lblock);
 		if (!page)
 			return false;
 		data = page_cache_data(page);
@@ -482,17 +522,16 @@ static int ext2_readdir(struct file *file, void *ctx, filldir_t filldir)
 			(uint32_t)((uint64_t)file->f_pos / BLOCK_SIZE);
 		uint32_t offset =
 			(uint32_t)((uint64_t)file->f_pos % BLOCK_SIZE);
-		uint32_t pblock = ext2_bmap(dir, lblock, false);
-		struct page_cache_page *page;
+		struct page_cache *page;
 		struct ext2_dir_entry_2 *de;
 		uint8_t *data;
 
-		if (!pblock) {
+		if (!ext2_bmap_readonly(dir, lblock)) {
 			file->f_pos = (loff_t)((lblock + 1) * BLOCK_SIZE);
 			continue;
 		}
 
-		page = page_cache_get_block(dir->i_sb->s_dev, pblock);
+		page = ext2_read_inode_page(dir, lblock);
 		if (!page)
 			return -EIO;
 		data = page_cache_data(page);

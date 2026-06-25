@@ -52,7 +52,7 @@ static void ext2_free_indirect_chain(struct super_block *sb, uint32_t block,
 				     int depth)
 {
 	uint32_t ptrs = BLOCK_SIZE / sizeof(uint32_t);
-	struct page_cache_page *page;
+	struct page_cache *page;
 	uint32_t *entries;
 
 	if (!block)
@@ -112,7 +112,7 @@ static uint32_t ext2_count_tree_blocks(struct super_block *sb, uint32_t block,
 				       int depth)
 {
 	uint32_t ptrs = BLOCK_SIZE / sizeof(uint32_t);
-	struct page_cache_page *page;
+	struct page_cache *page;
 	uint32_t *entries;
 	uint32_t total = 1;
 
@@ -139,7 +139,7 @@ static int ext2_truncate_branch_slot(struct inode *inode, uint32_t *slot,
 				     int depth, uint32_t keep_blocks)
 {
 	uint32_t ptrs = BLOCK_SIZE / sizeof(uint32_t);
-	struct page_cache_page *page;
+	struct page_cache *page;
 	uint32_t *entries;
 	uint32_t span;
 	uint32_t remaining = keep_blocks;
@@ -211,7 +211,7 @@ static int ext2_zero_truncate_tail(struct inode *inode, uint64_t size)
 	uint32_t offset = (uint32_t)(size % BLOCK_SIZE);
 	uint32_t lblock;
 	uint32_t pblock;
-	struct page_cache_page *page;
+	struct page_cache *page;
 
 	if (size == 0 || offset == 0)
 		return 0;
@@ -221,12 +221,18 @@ static int ext2_zero_truncate_tail(struct inode *inode, uint64_t size)
 	if (!pblock)
 		return 0;
 
-	page = page_cache_get_block(inode->i_sb->s_dev, pblock);
+	page = page_cache_read_page(&inode->i_pages, lblock);
 	if (!page)
 		return -EIO;
 
+	/*
+	 * Truncating inside a block must persist zeroes past the new EOF before
+	 * block pointers are released.  Otherwise a later extension could expose
+	 * stale file contents from the same allocated block.
+	 */
 	memset(page_cache_data(page) + offset, 0, BLOCK_SIZE - offset);
-	if (page_cache_sync_block(page) < 0) {
+	page_cache_mark_dirty(page);
+	if (page_cache_sync_page(page) < 0) {
 		page_cache_put_page(page);
 		return -EIO;
 	}
@@ -236,15 +242,14 @@ static int ext2_zero_truncate_tail(struct inode *inode, uint64_t size)
 
 static int ext2_zero_extend_tail(struct inode *inode, uint64_t old_size)
 {
-	struct page_cache_page *page;
+	struct page_cache *page;
 	uint32_t offset = (uint32_t)(old_size % BLOCK_SIZE);
 	uint32_t lblock;
 	uint32_t pblock;
-	int ret;
 
 	if (!inode || old_size == 0 || offset == 0)
 		return 0;
-	if (!inode->i_aops || !inode->i_aops->readpage)
+	if (!inode->i_pages.ops || !inode->i_pages.ops->readpage)
 		return 0;
 
 	lblock = (uint32_t)(old_size / BLOCK_SIZE);
@@ -252,24 +257,32 @@ static int ext2_zero_extend_tail(struct inode *inode, uint64_t old_size)
 	if (!pblock)
 		return 0;
 
-	page = page_cache_grab_file_page(inode, lblock, true, NULL);
+	page = page_cache_read_page(&inode->i_pages, lblock);
 	if (!page)
-		return -ENOMEM;
+		return -EIO;
 
-	if (!page_cache_is_uptodate(page)) {
-		ret = inode->i_aops->readpage(inode, lblock,
-					      page_cache_data(page));
-		if (ret < 0) {
-			page_cache_put_page(page);
-			return ret;
-		}
-		page_cache_set_uptodate(page, true);
-	}
-
+	/*
+	 * When extending from the middle of an existing block, Linux file
+	 * semantics require the old EOF-to-block-end range to read as zero until
+	 * userspace writes it.  Keep that invariant in the inode mapping.
+	 */
 	memset(page_cache_data(page) + offset, 0, BLOCK_SIZE - offset);
 	page_cache_mark_dirty(page);
 	page_cache_put_page(page);
 	return 0;
+}
+
+/*
+ * ext2 inode mappings are backed by the mounted block device.  The backing
+ * pointer is used only for cache-coherency refreshes after file/dir page
+ * writeback; actual block allocation and I/O still go through ext2_inode_aops.
+ */
+static struct page_mapping *ext2_inode_backing(struct inode *inode)
+{
+	if (!inode || !inode->i_sb)
+		return NULL;
+
+	return block_device_pages(inode->i_sb->s_dev);
 }
 
 void ext2_init_inode_ops(struct inode *inode)
@@ -279,14 +292,25 @@ void ext2_init_inode_ops(struct inode *inode)
 
 	inode->i_op = NULL;
 	inode->i_fop = NULL;
-	inode->i_aops = NULL;
+	inode->i_pages.ops = NULL;
+	inode->i_pages.backing = NULL;
+	/*
+	 * Directories and block-backed symlinks are file data from the page
+	 * cache's point of view, even though ext2 interprets the bytes as
+	 * records or link targets.  Device special files do not expose file
+	 * data here, so their mapping remains without a_ops.
+	 */
 	switch (inode->i_mode & EXT2_S_IFMT) {
 	case EXT2_S_IFDIR:
 		inode->i_op = &ext2_dir_inode_operations;
 		inode->i_fop = &ext2_dir_operations;
+		inode->i_pages.ops = &ext2_inode_aops;
+		inode->i_pages.backing = ext2_inode_backing(inode);
 		break;
 	case EXT2_S_IFLNK:
 		inode->i_op = &ext2_symlink_inode_operations;
+		inode->i_pages.ops = &ext2_inode_aops;
+		inode->i_pages.backing = ext2_inode_backing(inode);
 		break;
 	case EXT2_S_IFCHR:
 	case EXT2_S_IFBLK:
@@ -295,7 +319,8 @@ void ext2_init_inode_ops(struct inode *inode)
 	default:
 		inode->i_op = &ext2_file_inode_operations;
 		inode->i_fop = &ext2_file_operations;
-		inode->i_aops = &ext2_file_aops;
+		inode->i_pages.ops = &ext2_inode_aops;
+		inode->i_pages.backing = ext2_inode_backing(inode);
 		break;
 	}
 }
@@ -340,12 +365,11 @@ static int ext2_readlink(struct inode *inode, char *buf, size_t size)
 			return -EIO;
 		memcpy(buf, raw->i_block, (size_t)len);
 	} else {
-		uint32_t pblock = ext2_bmap(inode, 0, false);
-		struct page_cache_page *page;
+		struct page_cache *page;
 
-		if (!pblock)
+		if (!ext2_bmap_readonly(inode, 0))
 			return -EIO;
-		page = page_cache_get_block(inode->i_sb->s_dev, pblock);
+		page = page_cache_read_page(&inode->i_pages, 0);
 		if (!page)
 			return -EIO;
 		if (len > BLOCK_SIZE)
@@ -369,7 +393,7 @@ static const struct inode_operations ext2_file_inode_operations = {
 int ext2_read_inode(struct inode *inode)
 {
 	struct ext2_inode_info *ei;
-	struct page_cache_page *page;
+	struct page_cache *page;
 	uint32_t block;
 	uint32_t offset;
 	int ret;
@@ -407,7 +431,7 @@ int ext2_read_inode(struct inode *inode)
 int ext2_write_inode(struct inode *inode)
 {
 	struct ext2_inode_info *ei;
-	struct page_cache_page *page;
+	struct page_cache *page;
 	uint32_t block;
 	uint32_t offset;
 	int ret;
@@ -454,7 +478,7 @@ static uint32_t ext2_alloc_bmap_block(struct inode *inode)
 static uint32_t ext2_ind_bmap(struct inode *inode, uint32_t ind_block,
 			      uint32_t index, bool create)
 {
-	struct page_cache_page *page;
+	struct page_cache *page;
 	uint32_t *blocks;
 	uint32_t block;
 
@@ -497,15 +521,35 @@ static int ext2_read_block_words(struct super_block *sb, uint32_t block,
 }
 
 /*
- * Used by page-cache writeback/reclaim through map_block(false).  Keep this
- * path below the page cache so reclaim never allocates another metadata page
- * while trying to free or flush file-data pages.
+ * Used by page-cache writeback/reclaim through map_block(false).  Check the
+ * block-device page cache first so we see any dirty indirect-block data the
+ * mutable path has not yet flushed.  Use create=false so this lookup never
+ * allocates a page and cannot re-enter the eviction/writeback path.  Fall back
+ * to a direct sector read only when the page is not cached.
  */
 static uint32_t ext2_ind_bmap_readonly(struct super_block *sb,
 				       uint32_t ind_block, uint32_t index)
 {
+	struct page_mapping *mapping;
+	struct page_cache *page;
+	uint32_t block;
+
 	if (!ind_block)
 		return 0;
+
+	mapping = block_device_pages(sb->s_dev);
+	if (mapping) {
+		page = page_cache_get_page(mapping, ind_block, false, NULL);
+		if (page) {
+			if (page_cache_is_uptodate(page))
+				block = ((uint32_t *)page_cache_data(page))[index];
+			else
+				block = 0;
+			page_cache_put_page(page);
+			return block;
+		}
+	}
+
 	if (ext2_read_block_words(sb, ind_block, ext2_bmap_ro_scratch) < 0)
 		return 0;
 
@@ -518,7 +562,7 @@ uint32_t ext2_bmap(struct inode *inode, uint32_t block, bool create)
 	uint32_t ptrs = BLOCK_SIZE / sizeof(uint32_t);
 	uint32_t first;
 	uint32_t second;
-	struct page_cache_page *page;
+	struct page_cache *page;
 	uint32_t *blocks;
 
 	if (!inode || !inode->i_private)

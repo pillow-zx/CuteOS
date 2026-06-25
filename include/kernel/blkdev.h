@@ -20,6 +20,7 @@
  *   lookup_block_device(dev)    - 按设备号查找已注册的 struct block_device
  */
 
+#include <kernel/page_mapping.h>
 #include <kernel/types.h>
 
 /* 设备号编码：高 12 位主设备号，低 20 位次设备号（与 Linux 一致）。
@@ -64,12 +65,14 @@ struct block_device_operations {
  * @bd_sectors: 设备容量（512 字节扇区数），由驱动在注册前设置
  * @bd_ops:     操作向量
  * @bd_private: 驱动私有数据（如 virtio 驱动的 MMIO 基址等）
+ * @bd_pages:   块设备 page cache 命名域，index 为 4 KiB 物理块号
  */
 struct block_device {
 	dev_t bd_dev;
 	uint64_t bd_sectors;
 	const struct block_device_operations *bd_ops;
 	void *bd_private;
+	struct page_mapping bd_pages;
 };
 
 /* 以主设备号为索引注册块设备；返回 0 成功，-EINVAL 主设备号非法或越界 */
@@ -77,5 +80,8 @@ int register_block_device(struct block_device *bdev);
 
 /* 按设备号查找；未注册返回 NULL */
 struct block_device *lookup_block_device(dev_t dev);
+
+/* 返回块设备自己的 page_mapping；未注册返回 NULL */
+struct page_mapping *block_device_pages(dev_t dev);
 
 #endif /* _CUTEOS_KERNEL_BLKDEV_H */

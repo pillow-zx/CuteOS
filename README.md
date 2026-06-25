@@ -95,6 +95,23 @@ hello
 | 用户命令 | `cat`、`cp`、`echo`、`false`、`id`、`kill`、`ls`、`mkdir`、`pwd`、`rm`、`rmdir`、`stat`、`touch`、`true`、`uname`，以及依赖已支持 syscall 的小型命令 |
 | 测试 | `CONFIG_KERNEL_TEST=y` 时启用内核自测；覆盖 bitmap、PID、buddy、slab、trap、timer、sync、MM/VMA、task、资源复制、调度、内核线程、virtio-blk、page cache |
 
+### Page Cache 与 address_space
+
+page cache 以 `(struct address_space *, index)` 作为缓存键。inode 的
+`address_space` 使用文件逻辑块号作为 index；块设备的 `address_space` 使用
+4 KiB 物理块号作为 index。这样 ext2 普通文件、目录、块形式的符号链接和裸
+元数据块可以共用同一套缓存/回写代码，但不会把“文件第 0 块”和“磁盘第 0 块”
+混成同一个缓存页。
+
+文件系统布局细节留在 `address_space_operations` 后面：`readpage()` 负责读入
+一个缓存页，`map_block()` 把逻辑块翻译为物理块并用负 errno 表达失败，
+`writepages()` 写回连续页。`map_block()` 通过输出参数返回物理块号，是为了让
+物理块 0 保持有效，不再用 `0` 同时表示“没有映射”和“有效块号”。
+
+inode mapping 可以指向块设备 backing mapping。文件页或目录页回写成功后，
+page cache 会刷新同一物理块上已经存在的块设备缓存别名，避免之后从裸块路径
+读取到旧内容。
+
 ### 暂不支持或后置
 
 以下能力当前仍属于后置目标：

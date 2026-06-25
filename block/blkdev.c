@@ -25,6 +25,60 @@
 static struct block_device *dev_table[NR_BLOCK_DEVICES];
 
 /*
+ * 块设备 mapping 是 page cache 的“物理块命名域”。index 直接表示 4 KiB
+ * 物理块号，因此 readpage/writepages 只需要把块号换算成 512 字节扇区号。
+ * 这让 ext2 元数据块仍可按物理块缓存，同时复用 inode 文件页的通用回写路径。
+ */
+static int block_mapping_readpage(struct page_mapping *mapping, uint64_t index,
+				  void *data)
+{
+	struct block_device *bdev = mapping ? mapping->host : NULL;
+
+	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->read_sectors || !data)
+		return -ENXIO;
+
+	return bdev->bd_ops->read_sectors(bdev, data, index * BLOCK_SECTORS,
+					  BLOCK_SECTORS);
+}
+
+static int block_mapping_map_block(struct page_mapping *mapping,
+				   uint64_t index, bool create,
+				   uint32_t *block)
+{
+	(void)mapping;
+	(void)create;
+
+	if (!block)
+		return -EINVAL;
+	if (index > UINT32_MAX)
+		return -EFBIG;
+
+	/* 物理块 mapping 不需要分配或翻译，逻辑块号就是物理块号。 */
+	*block = (uint32_t)index;
+	return 0;
+}
+
+static int block_mapping_writepages(struct page_mapping *mapping,
+				    uint64_t start_index, uint32_t nr_pages,
+				    const void *data)
+{
+	struct block_device *bdev = mapping ? mapping->host : NULL;
+
+	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->write_sectors || !data)
+		return -ENXIO;
+
+	return bdev->bd_ops->write_sectors(bdev, data,
+					   start_index * BLOCK_SECTORS,
+					   nr_pages * BLOCK_SECTORS);
+}
+
+static const struct page_mapping_ops block_mapping_aops = {
+	.readpage = block_mapping_readpage,
+	.map_block = block_mapping_map_block,
+	.writepages = block_mapping_writepages,
+};
+
+/*
  * register_block_device - 注册块设备到 dev_table
  * @bdev: 待注册的块设备（bd_dev / bd_ops / bd_private 已就绪）
  *
@@ -40,6 +94,7 @@ int register_block_device(struct block_device *bdev)
 	if (major >= NR_BLOCK_DEVICES)
 		return -EINVAL;
 
+	page_mapping_init(&bdev->bd_pages, bdev, &block_mapping_aops, NULL);
 	dev_table[major] = bdev;
 	return 0;
 }
@@ -58,4 +113,21 @@ struct block_device *lookup_block_device(dev_t dev)
 		return NULL;
 
 	return dev_table[major];
+}
+
+struct page_mapping *block_device_pages(dev_t dev)
+{
+	struct block_device *bdev = lookup_block_device(dev);
+
+	if (!bdev)
+		return NULL;
+
+	/*
+	 * 正常路径在 register_block_device() 初始化 bd_pages。这里保留惰性
+	 * 修复，是为了兼容静态测试对象或早期初始化中手工填充的 block_device。
+	 */
+	if (!bdev->bd_pages.pages.next || !bdev->bd_pages.ops)
+		page_mapping_init(&bdev->bd_pages, bdev, &block_mapping_aops,
+				  NULL);
+	return &bdev->bd_pages;
 }

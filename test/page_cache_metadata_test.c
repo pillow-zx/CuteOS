@@ -1,8 +1,8 @@
 /*
  * test/page_cache_metadata_test.c - Page cache metadata block self-tests
  *
- * Covers metadata block lookup, write-through sync, repeated acquisition,
- * error handling, and clean metadata-page eviction under pressure.
+ * Covers raw block-device mapping lookup, write-through sync, repeated
+ * acquisition, error handling, and clean metadata-page eviction under pressure.
  */
 
 #include <drivers/virtio_blk.h>
@@ -17,8 +17,8 @@
 void test_page_cache_metadata_basic(void)
 {
 	struct block_device *bdev;
-	struct page_cache_page *page;
-	struct page_cache_page *again;
+	struct page_cache *page;
+	struct page_cache *again;
 	static uint8_t disk_buf[BLOCK_SIZE];
 	uint64_t block;
 	uint64_t sector;
@@ -69,7 +69,7 @@ fail:
 
 void test_page_cache_metadata_errors(void)
 {
-	struct page_cache_page *page;
+	struct page_cache *page;
 	int ret;
 
 	TEST_BEGIN("page cache metadata: error paths");
@@ -84,6 +84,30 @@ void test_page_cache_metadata_errors(void)
 	return;
 fail:
 	TEST_FAIL("page cache metadata: error paths", "see above");
+}
+
+void test_page_cache_block_zero_writeback(void)
+{
+	struct page_cache *page;
+
+	TEST_BEGIN("page cache metadata: block zero writeback");
+	{
+		/*
+		 * Physical block 0 is a valid block-device mapping index.
+		 * This catches regressions where map_block() uses 0 as an
+		 * implicit failure sentinel instead of returning errno.
+		 */
+		page = page_cache_get_block(ROOT_DEV, 0);
+		TEST_ASSERT_NOT_NULL(page);
+
+		page_cache_mark_dirty(page);
+		page_cache_put_page(page);
+		TEST_ASSERT_EQ(page_cache_writeback_all(), 0);
+	}
+	TEST_END("page cache metadata: block zero writeback");
+	return;
+fail:
+	TEST_FAIL("page cache metadata: block zero writeback", "see above");
 }
 
 void test_page_cache_metadata_eviction(void)
@@ -102,7 +126,7 @@ void test_page_cache_metadata_eviction(void)
 		start = blocks - 700;
 
 		for (uint32_t i = 0; i < 600; i++) {
-			struct page_cache_page *page =
+			struct page_cache *page =
 				page_cache_get_block(ROOT_DEV, start + i);
 
 			TEST_ASSERT_NOT_NULL(page);

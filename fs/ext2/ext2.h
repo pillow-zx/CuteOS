@@ -179,7 +179,7 @@ extern const struct inode_operations ext2_dir_inode_operations;
 extern const struct inode_operations ext2_symlink_inode_operations;
 extern const struct file_operations ext2_dir_operations;
 extern const struct file_operations ext2_file_operations;
-extern const struct address_space_operations ext2_file_aops;
+extern const struct page_mapping_ops ext2_inode_aops;
 
 static inline struct ext2_sb_info *EXT2_SB(struct super_block *sb)
 {

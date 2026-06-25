@@ -53,10 +53,9 @@ struct inode *inode_alloc(struct super_block *sb, uint64_t ino)
 	inode->i_ino = ino;
 	inode->i_sb = sb;
 	refcount_set(&inode->i_refcount, 1);
+	page_mapping_init(&inode->i_pages, inode, NULL, NULL);
 	INIT_LIST_HEAD(&inode->i_hash);
 	INIT_LIST_HEAD(&inode->i_sb_list);
-	INIT_LIST_HEAD(&inode->i_pages);
-	INIT_LIST_HEAD(&inode->i_dirty_pages);
 
 	if (sb)
 		list_add_tail(&inode->i_sb_list, &sb->s_inodes);

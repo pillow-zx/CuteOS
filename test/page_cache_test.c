@@ -65,10 +65,10 @@ static int read_raw_file_page(struct file *file, uint32_t index, uint8_t *buf)
 					  BLOCK_SECTORS);
 }
 
-static int read_metadata_file_page(struct file *file, uint32_t index,
-				   uint8_t *buf)
+static int read_block_mapping_file_page(struct file *file, uint32_t index,
+					uint8_t *buf)
 {
-	struct page_cache_page *page;
+	struct page_cache *page;
 	uint32_t pblock;
 
 	if (!file || !file->f_inode || !buf)
@@ -78,6 +78,11 @@ static int read_metadata_file_page(struct file *file, uint32_t index,
 	if (!pblock)
 		return -ENOENT;
 
+	/*
+	 * Deliberately read through the block-device mapping, not the inode
+	 * mapping.  The fsync test below uses this to prove file writeback
+	 * refreshes an already cached raw-block alias.
+	 */
 	page = page_cache_get_block(file->f_inode->i_sb->s_dev, pblock);
 	if (!page)
 		return -EIO;
@@ -192,41 +197,47 @@ cleanup:
 	unlink_test_path("/pcache-fsync-b");
 }
 
-void test_page_cache_metadata_alias_after_fsync(void)
+void test_page_cache_block_mapping_refreshed_after_fsync(void)
 {
 	static uint8_t wbuf[BLOCK_SIZE];
 	static uint8_t cached[BLOCK_SIZE];
 	struct file *file = NULL;
 	int fd = -1;
 
-	TEST_BEGIN("page cache: metadata alias refreshed after fsync");
+	TEST_BEGIN("page cache: block mapping refreshed after fsync");
 	{
-		unlink_test_path("/pcache-metadata-alias");
+		unlink_test_path("/pcache-block-mapping-refresh");
 		fill_pattern(wbuf, sizeof(wbuf), 0x73);
 		memset(cached, 0, sizeof(cached));
 
-		fd = open_test_file("/pcache-metadata-alias",
+		fd = open_test_file("/pcache-block-mapping-refresh",
 				    O_CREAT | O_TRUNC | O_RDWR, &file);
 		TEST_ASSERT(fd >= 0);
 		TEST_ASSERT_EQ(vfs_write(file, (const char *)wbuf, sizeof(wbuf)),
 			       (ssize_t)sizeof(wbuf));
-		TEST_ASSERT_EQ(read_metadata_file_page(file, 0, cached), 0);
+		TEST_ASSERT_EQ(read_block_mapping_file_page(file, 0, cached),
+			       0);
 		TEST_ASSERT_NE(memcmp(cached, wbuf, sizeof(wbuf)), 0);
 
+		/*
+		 * fsync writes the inode mapping and then refreshes the cached
+		 * block-device alias for the same physical block.
+		 */
 		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
 
 		memset(cached, 0, sizeof(cached));
-		TEST_ASSERT_EQ(read_metadata_file_page(file, 0, cached), 0);
+		TEST_ASSERT_EQ(read_block_mapping_file_page(file, 0, cached),
+			       0);
 		TEST_ASSERT_EQ(memcmp(cached, wbuf, sizeof(wbuf)), 0);
 	}
-	TEST_END("page cache: metadata alias refreshed after fsync");
+	TEST_END("page cache: block mapping refreshed after fsync");
 	goto cleanup;
 fail:
-	TEST_FAIL("page cache: metadata alias refreshed after fsync",
+	TEST_FAIL("page cache: block mapping refreshed after fsync",
 		  "see above");
 cleanup:
 	close_test_file(fd, file);
-	unlink_test_path("/pcache-metadata-alias");
+	unlink_test_path("/pcache-block-mapping-refresh");
 }
 
 void test_page_cache_pressure_eviction(void)
