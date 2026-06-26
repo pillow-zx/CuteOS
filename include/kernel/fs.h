@@ -65,6 +65,7 @@ struct kstatfs;
 #define O_TRUNC	    00001000
 #define O_APPEND    00002000
 #define O_DIRECTORY 00200000
+#define O_CLOEXEC   01000000
 
 #define AT_FDCWD     -100
 #define AT_REMOVEDIR 0x200

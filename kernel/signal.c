@@ -21,13 +21,14 @@
  * 主要函数：
  *   do_signal(tf)                  - 在所有 trap 返回 U-mode 前调用，
  *                                     检查并投递 pending 信号。
+ *   do_kill(pid, sig)              - kill 系统调用内部实现。
+ *   do_sigaction(sig, act, oldact) - sigaction 系统调用内部实现（注册/查询处理器）。
+ *   do_sigreturn(tf, sp)           - 从信号处理器返回，恢复 trap_frame + blocked。
  *   send_signal(sig, target)       - 向目标进程发送信号（置 pending 位）。
  *   setup_signal_frame(tf, ka)     - 在用户栈上构建 signal_frame，
  *                                     保存 trap_frame 和 blocked，
  *                                     修改 trap_frame（sepc=handler, a0=signo,
- * ra=trampoline）。 sys_sigreturn()                - 从信号处理器返回，恢复
- * trap_frame + blocked。 sys_kill(pid, sig)             - kill 系统调用实现。
- *   sys_sigaction(sig, act, oldact)- sigaction 系统调用（注册/查询处理器）。
+ *                                     ra=trampoline）。
  */
 
 #include <kernel/errno.h>
@@ -39,8 +40,8 @@
 #include <kernel/signal.h>
 #include <kernel/slab.h>
 #include <kernel/string.h>
-#include <kernel/syscall.h>
 #include <kernel/task.h>
+#include <uapi/syscall.h>
 #include <asm/csr.h>
 #include <asm/page.h>
 #include <asm/pte.h>
@@ -82,12 +83,12 @@ static bool signal_is_fatal_default(int sig)
 	}
 }
 
-static __always_inline bool signal_is_catchable(int sig)
+__always_inline bool signal_is_catchable(int sig)
 {
 	return sig != SIGKILL && sig != SIGSTOP;
 }
 
-static __always_inline uint64_t unblockable_mask(void)
+__always_inline uint64_t unblockable_mask(void)
 {
 	return signal_mask(SIGKILL) | signal_mask(SIGSTOP);
 }
@@ -567,10 +568,8 @@ void do_signal(struct trap_frame *tf)
 	}
 }
 
-ssize_t sys_kill(struct trap_frame *tf)
+int do_kill(pid_t pid, int sig)
 {
-	pid_t pid = (pid_t)tf->a0;
-	int sig = (int)tf->a1;
 	struct task_struct *task;
 
 	if (sig != 0 && !signal_is_valid(sig))
@@ -587,11 +586,8 @@ ssize_t sys_kill(struct trap_frame *tf)
 	return send_group_signal(sig, task);
 }
 
-ssize_t sys_tgkill(struct trap_frame *tf)
+int do_tgkill(pid_t tgid, pid_t tid, int sig)
 {
-	pid_t tgid = (pid_t)tf->a0;
-	pid_t tid = (pid_t)tf->a1;
-	int sig = (int)tf->a2;
 	struct task_struct *task;
 
 	if (sig != 0 && !signal_is_valid(sig))
@@ -608,22 +604,16 @@ ssize_t sys_tgkill(struct trap_frame *tf)
 	return send_signal(sig, task);
 }
 
-ssize_t sys_sigaltstack(struct trap_frame *tf)
+int do_sigaltstack(void)
 {
-	(void)tf;
-	/*
-	 * TODO(signal): 需要在 task_struct 中保存用户备用信号栈，并在
-	 * setup_signal_frame 中支持 SA_ONSTACK 后再实现。
-	 */
+	/* TODO(signal): 需要在 task_struct 中保存用户备用信号栈，并在
+	 * setup_signal_frame 中支持 SA_ONSTACK 后再实现。 */
 	return -ENOSYS;
 }
 
-ssize_t sys_sigaction(struct trap_frame *tf)
+int do_sigaction(int sig, const struct sigaction *act,
+		 struct sigaction *oldact, size_t sigsetsize)
 {
-	int sig = (int)tf->a0;
-	const struct sigaction *act = (const struct sigaction *)tf->a1;
-	struct sigaction *oldact = (struct sigaction *)tf->a2;
-	size_t sigsetsize = (size_t)tf->a3;
 	struct sigaction kact;
 
 	if (!signal_is_valid(sig))
@@ -665,12 +655,9 @@ ssize_t sys_sigaction(struct trap_frame *tf)
 	return 0;
 }
 
-ssize_t sys_sigprocmask(struct trap_frame *tf)
+int do_sigprocmask(int how, const uint64_t *set,
+		   uint64_t *oldset, size_t sigsetsize)
 {
-	int how = (int)tf->a0;
-	const uint64_t *set = (const uint64_t *)tf->a1;
-	uint64_t *oldset = (uint64_t *)tf->a2;
-	size_t sigsetsize = (size_t)tf->a3;
 	uint64_t newset;
 
 	if (sigsetsize != 0 && sigsetsize != sizeof(uint64_t))
@@ -708,10 +695,10 @@ ssize_t sys_sigprocmask(struct trap_frame *tf)
 	return 0;
 }
 
-ssize_t sys_sigreturn(struct trap_frame *tf)
+int do_sigreturn(struct trap_frame *tf, uintptr_t sp)
 {
 	struct signal_frame frame;
-	struct signal_frame *user_frame = (struct signal_frame *)tf->sp;
+	struct signal_frame *user_frame = (struct signal_frame *)sp;
 
 	if (copy_from_user(&frame, user_frame, sizeof(frame)) != 0)
 		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));

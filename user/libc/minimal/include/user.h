@@ -37,6 +37,8 @@ typedef unsigned long size_t;
 #define O_TRUNC	    00001000
 #define O_APPEND    00002000
 #define O_DIRECTORY 00200000
+#define O_CLOEXEC   01000000
+#define FD_CLOEXEC  1
 
 #define R_OK 4
 #define W_OK 2

@@ -35,6 +35,7 @@
 #include <kernel/syscall.h>
 #include <kernel/mm.h>
 #include <kernel/buddy.h>
+#include <kernel/pipe.h>
 #include <kernel/string.h>
 #include <kernel/task.h>
 #include <kernel/timer.h>
@@ -59,10 +60,7 @@
 
 #define FALLOC_FL_KEEP_SIZE 0x01
 
-struct sys_timespec {
-	int64_t tv_sec;
-	int64_t tv_nsec;
-};
+#include <kernel/time.h>
 
 struct sys_pollfd {
 	int32_t fd;
@@ -1142,10 +1140,10 @@ ssize_t sys_dup3(struct trap_frame *tf)
 	int newfd = (int)tf->a1;
 	int flags = (int)tf->a2;
 
-	if (flags != 0)
+	if (flags & ~O_CLOEXEC)
 		return -EINVAL;
 
-	return fd_dup2(oldfd, newfd);
+	return fd_dup2(oldfd, newfd, flags & O_CLOEXEC);
 }
 
 ssize_t sys_fsync(struct trap_frame *tf)
@@ -1197,4 +1195,15 @@ ssize_t sys_fallocate(struct trap_frame *tf)
 	(void)tf;
 	/* TODO(ext2): 需要真正分配/预留数据块后才能实现 fallocate 语义。 */
 	return -ENOSYS;
+}
+
+ssize_t sys_pipe2(struct trap_frame *tf)
+{
+	int *user_fds = (int *)tf->a0;
+	int flags = (int)tf->a1;
+
+	if (!access_ok(user_fds, sizeof(int[2])))
+		return -EFAULT;
+
+	return do_pipe2(user_fds, flags);
 }

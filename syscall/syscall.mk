@@ -7,4 +7,5 @@ SYSCALL_OBJS = \
 	syscall/sys_mm.o        \
 	syscall/sys_signal.o    \
 	syscall/sys_misc.o      \
-	syscall/sys_stub.o
+	syscall/sys_stub.o	\
+	syscall/sys_time.o

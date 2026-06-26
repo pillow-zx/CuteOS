@@ -237,13 +237,11 @@ static int pipe_release(struct file *file)
 	return 0;
 }
 
-ssize_t sys_pipe2(struct trap_frame *tf)
+int do_pipe2(int *user_fds, int flags)
 {
-	int *user_fds = (int *)tf->a0;
-	int flags = (int)tf->a1;
 	int fds[2];
 
-	if (flags != 0)
+	if (flags & ~O_CLOEXEC)
 		return -EINVAL;
 	if (!access_ok(user_fds, sizeof(fds)))
 		return -EFAULT;
@@ -265,14 +263,14 @@ ssize_t sys_pipe2(struct trap_frame *tf)
 		return -ENOMEM;
 	}
 
-	fds[0] = fd_alloc(read_file);
+	fds[0] = fd_alloc_flags(read_file, flags);
 	if (fds[0] < 0) {
 		file_put(read_file);
 		file_put(write_file);
 		return fds[0];
 	}
 
-	fds[1] = fd_alloc(write_file);
+	fds[1] = fd_alloc_flags(write_file, flags);
 	if (fds[1] < 0) {
 		fd_close(fds[0]);
 		file_put(write_file);

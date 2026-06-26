@@ -740,5 +740,18 @@ ssize_t sys_execve(struct trap_frame *tf)
 	 * the returned 0 into the new frame's a0 before trap return.
 	 */
 	install_exec_mm(mm, tf, entry, sp);
+
+	/* 关闭所有设置了 FD_CLOEXEC 的文件描述符 */
+	struct files_struct *efiles = current->files;
+
+	if (efiles) {
+		unsigned long cloexec = efiles->close_on_exec;
+
+		efiles->close_on_exec = 0;
+		for (int fd = 0; cloexec; fd++, cloexec >>= 1)
+			if (cloexec & 1)
+				fd_close(fd);
+	}
+
 	return 0;
 }
