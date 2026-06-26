@@ -2,6 +2,7 @@
 #define _CUTEOS_KERNEL_ATOMIC_H
 
 #include <kernel/sync.h>
+#include <compiler/compiler_builtin.h>
 
 typedef struct {
 	volatile int __aligned(sizeof(int))  counter;
@@ -11,17 +12,17 @@ typedef struct {
 
 static __always_inline int atomic_read(const atomic_t *v)
 {
-	return __atomic_load_n(&v->counter, __ATOMIC_SEQ_CST);
+	return atomic_load_n(&v->counter, ATOMIC_SEQ_CST);
 }
 
 static __always_inline void atomic_set(atomic_t *v, int i)
 {
-	__atomic_store_n(&v->counter, i, __ATOMIC_SEQ_CST);
+	atomic_store_n(&v->counter, i, ATOMIC_SEQ_CST);
 }
 
 static __always_inline int atomic_add_return(atomic_t *v, int i)
 {
-	return __atomic_add_fetch(&v->counter, i, __ATOMIC_SEQ_CST);
+	return atomic_add_fetch(&v->counter, i, ATOMIC_SEQ_CST);
 }
 
 static __always_inline void atomic_add(atomic_t *v, int i)
@@ -56,8 +57,8 @@ static __always_inline bool atomic_dec_and_test(atomic_t *v)
 
 static __always_inline int atomic_cmpxchg(atomic_t *v, int old, int new)
 {
-	__atomic_compare_exchange_n(&v->counter, &old, new, false,
-				    __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+	atomic_compare_exchange_n(&v->counter, &old, new, false,
+				  ATOMIC_SEQ_CST, ATOMIC_SEQ_CST);
 	return old;
 }
 
