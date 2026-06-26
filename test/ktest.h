@@ -172,4 +172,15 @@ void test_page_cache_indirect_reclaim_progress(void);
 void test_page_cache_truncate_extend_zero_fill(void);
 void test_page_cache_large_offset_rejected(void);
 
+/* ================================================================
+ *  fs-at 路径/fd 语义测试
+ * ================================================================ */
+
+void test_fs_at_path_lookup_basics(void);
+void test_fs_at_empty_path_error(void);
+void test_fs_at_mkdir_rmdir_cycle(void);
+void test_fs_at_readlink_not_symlink(void);
+void test_fs_at_lookup_nofollow_on_dir(void);
+void test_fs_at_openat_regular_file(void);
+
 #endif

@@ -166,7 +166,7 @@ static int futex_wait(int *uaddr, int expected, const void *timeout)
 	local_timer_wait = has_timeout && !sched_has_runnable();
 
 	list_add_tail(&waiter.node, &bucket->waiters);
-	prepare_to_wait_locked(&waiter.wait);
+	prepare_to_wait_interruptible(&waiter.wait);
 	if (has_timeout) {
 		timer_wait_init(&timer, current, expires);
 		timer_wait_start(&timer);
@@ -180,7 +180,8 @@ static int futex_wait(int *uaddr, int expected, const void *timeout)
 	}
 	if (local_timer_wait) {
 		/* No runnable peer exists, so wait here for the timer IRQ. */
-		while (!timer_wait_fired(&timer) && !waiter.woken)
+		while (!timer_wait_fired(&timer) && !waiter.woken &&
+		       !signal_pending(current))
 			wfi();
 	} else {
 		schedule();
@@ -199,6 +200,8 @@ static int futex_wait(int *uaddr, int expected, const void *timeout)
 
 	if (waiter.woken)
 		return 0;
+	if (signal_pending(current))
+		return -EINTR;
 	if (timer_started && timer_wait_fired(&timer))
 		return -ETIMEDOUT;
 

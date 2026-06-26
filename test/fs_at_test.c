@@ -1,0 +1,219 @@
+/*
+ * test/fs_at_test.c - *at 系统调用 VFS 语义回归测试
+ *
+ * 覆盖：
+ *   - path_lookupat_err 基本路径解析（NULL base = cwd）
+ *   - 空路径、不存在路径的错误码
+ *   - mkdir_at / unlink_at (AT_REMOVEDIR) 往返
+ *   - vfs_readlink 对非符号链接返回 -EINVAL
+ *   - LOOKUP_NOFOLLOW 对普通文件/目录无副作用
+ *   - vfs_openat 目录打开和文件读写
+ */
+
+#include <kernel/errno.h>
+#include <kernel/fs.h>
+#include <kernel/fdtable.h>
+#include <kernel/stat.h>
+#include <kernel/string.h>
+#include <kernel/test.h>
+#include <kernel/vfs.h>
+
+#include "ktest.h"
+
+#define FAT_DIR  "/fat_testdir"
+#define FAT_FILE "/fat_testfile"
+
+void test_fs_at_path_lookup_basics(void)
+{
+	struct dentry *d = NULL;
+
+	TEST_BEGIN("fs-at: path_lookupat_err basics");
+	{
+		/* Root lookup from cwd (NULL base) must succeed. */
+		TEST_ASSERT_EQ(path_lookupat_err(NULL, "/", 0, &d), 0);
+		TEST_ASSERT_NOT_NULL(d);
+		dput(d);
+		d = NULL;
+
+		/* Known non-existent path must return -ENOENT. */
+		TEST_ASSERT_EQ(
+			path_lookupat_err(NULL, "/no_such_entry_xyz", 0, &d),
+			-ENOENT);
+		TEST_ASSERT_NULL(d);
+
+		/* Component-based lookup through root. */
+		TEST_ASSERT_EQ(path_lookupat_err(NULL, "/.", 0, &d), 0);
+		TEST_ASSERT_NOT_NULL(d);
+		dput(d);
+		d = NULL;
+	}
+	TEST_END("fs-at: path_lookupat_err basics");
+	return;
+fail:
+	if (d)
+		dput(d);
+	TEST_FAIL("fs-at: path_lookupat_err basics", "see above");
+}
+
+void test_fs_at_empty_path_error(void)
+{
+	struct dentry *d = NULL;
+	int ret;
+
+	TEST_BEGIN("fs-at: empty path returns error");
+	{
+		/*
+		 * An empty path must not succeed for ordinary lookup; the
+		 * kernel returns either -ENOENT or -EINVAL.
+		 */
+		ret = path_lookupat_err(NULL, "", 0, &d);
+		TEST_ASSERT(ret < 0);
+		TEST_ASSERT_NULL(d);
+	}
+	TEST_END("fs-at: empty path returns error");
+	return;
+fail:
+	TEST_FAIL("fs-at: empty path returns error", "see above");
+}
+
+void test_fs_at_mkdir_rmdir_cycle(void)
+{
+	struct dentry *d = NULL;
+	int ret;
+
+	/* Clean up any leftover from a previous run. */
+	(void)vfs_unlink_at(NULL, FAT_DIR, AT_REMOVEDIR);
+
+	TEST_BEGIN("fs-at: mkdir_at / rmdir_at cycle");
+	{
+		/* Create the directory. */
+		ret = vfs_mkdir_at(NULL, FAT_DIR, 0755);
+		TEST_ASSERT_EQ(ret, 0);
+
+		/* Look it up — must exist and be a directory. */
+		ret = path_lookupat_err(NULL, FAT_DIR, 0, &d);
+		TEST_ASSERT_EQ(ret, 0);
+		TEST_ASSERT_NOT_NULL(d);
+		TEST_ASSERT_NOT_NULL(d->d_inode);
+		TEST_ASSERT(S_ISDIR(d->d_inode->i_mode));
+		dput(d);
+		d = NULL;
+
+		/* Remove the directory via AT_REMOVEDIR. */
+		ret = vfs_unlink_at(NULL, FAT_DIR, AT_REMOVEDIR);
+		TEST_ASSERT_EQ(ret, 0);
+
+		/* Must be gone now. */
+		ret = path_lookupat_err(NULL, FAT_DIR, 0, &d);
+		TEST_ASSERT_EQ(ret, -ENOENT);
+		TEST_ASSERT_NULL(d);
+	}
+	TEST_END("fs-at: mkdir_at / rmdir_at cycle");
+	return;
+fail:
+	if (d)
+		dput(d);
+	(void)vfs_unlink_at(NULL, FAT_DIR, AT_REMOVEDIR);
+	TEST_FAIL("fs-at: mkdir_at / rmdir_at cycle", "see above");
+}
+
+void test_fs_at_readlink_not_symlink(void)
+{
+	struct dentry *d = NULL;
+	char buf[64];
+	int ret;
+
+	TEST_BEGIN("fs-at: readlink on non-symlink returns -EINVAL");
+	{
+		/* Look up the root (definitely not a symlink). */
+		ret = path_lookupat_err(NULL, "/", 0, &d);
+		TEST_ASSERT_EQ(ret, 0);
+		TEST_ASSERT_NOT_NULL(d);
+
+		ret = vfs_readlink(d, buf, sizeof(buf));
+		TEST_ASSERT_EQ(ret, -EINVAL);
+
+		dput(d);
+		d = NULL;
+	}
+	TEST_END("fs-at: readlink on non-symlink returns -EINVAL");
+	return;
+fail:
+	if (d)
+		dput(d);
+	TEST_FAIL("fs-at: readlink on non-symlink returns -EINVAL", "see above");
+}
+
+void test_fs_at_lookup_nofollow_on_dir(void)
+{
+	struct dentry *d = NULL;
+
+	TEST_BEGIN("fs-at: LOOKUP_NOFOLLOW on directory is harmless");
+	{
+		/* LOOKUP_NOFOLLOW must not affect non-symlink lookups. */
+		TEST_ASSERT_EQ(
+			path_lookupat_err(NULL, "/", LOOKUP_NOFOLLOW, &d), 0);
+		TEST_ASSERT_NOT_NULL(d);
+		TEST_ASSERT(S_ISDIR(d->d_inode->i_mode));
+		dput(d);
+		d = NULL;
+	}
+	TEST_END("fs-at: LOOKUP_NOFOLLOW on directory is harmless");
+	return;
+fail:
+	if (d)
+		dput(d);
+	TEST_FAIL("fs-at: LOOKUP_NOFOLLOW on directory is harmless", "see above");
+}
+
+void test_fs_at_openat_regular_file(void)
+{
+	const char data[] = "fat-test";
+	char rbuf[16];
+	int fd = -1;
+	struct file *f = NULL;
+	ssize_t n;
+
+	/* Clean up any leftover. */
+	(void)vfs_unlink(FAT_FILE, 0);
+
+	TEST_BEGIN("fs-at: openat create, write, read, unlink");
+	{
+		fd = vfs_open(FAT_FILE, O_RDWR | O_CREAT, 0644);
+		TEST_ASSERT(fd >= 0);
+
+		f = fd_get(fd);
+		TEST_ASSERT_NOT_NULL(f);
+
+		n = vfs_write(f, data, sizeof(data) - 1);
+		TEST_ASSERT_EQ((ssize_t)(sizeof(data) - 1), n);
+
+		TEST_ASSERT(vfs_llseek(f, 0, 0 /* SEEK_SET */) >= 0);
+
+		n = vfs_read(f, rbuf, sizeof(rbuf));
+		TEST_ASSERT_EQ(n, (ssize_t)(sizeof(data) - 1));
+		TEST_ASSERT_EQ(rbuf[0], 'f');
+
+		file_put(f);
+		f = NULL;
+		fd_close(fd);
+		fd = -1;
+
+		TEST_ASSERT_EQ(vfs_unlink(FAT_FILE, 0), 0);
+
+		/* Must be gone. */
+		struct dentry *d = NULL;
+		TEST_ASSERT_EQ(
+			path_lookupat_err(NULL, FAT_FILE, 0, &d), -ENOENT);
+		TEST_ASSERT_NULL(d);
+	}
+	TEST_END("fs-at: openat create, write, read, unlink");
+	return;
+fail:
+	if (f)
+		file_put(f);
+	if (fd >= 0)
+		fd_close(fd);
+	(void)vfs_unlink(FAT_FILE, 0);
+	TEST_FAIL("fs-at: openat create, write, read, unlink", "see above");
+}

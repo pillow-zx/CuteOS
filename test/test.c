@@ -140,6 +140,15 @@ void kernel_test(void)
 	test_console_tty_line_discipline();
 	test_root_statfs_fields();
 
+	/* ---- fs-at Path/fd Semantics ---- */
+	TEST_SECTION("fs-at");
+	test_fs_at_path_lookup_basics();
+	test_fs_at_empty_path_error();
+	test_fs_at_mkdir_rmdir_cycle();
+	test_fs_at_readlink_not_symlink();
+	test_fs_at_lookup_nofollow_on_dir();
+	test_fs_at_openat_regular_file();
+
 	/* ---- Sched ---- */
 	TEST_SECTION("Sched");
 	test_sched_init();

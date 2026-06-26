@@ -22,6 +22,7 @@
 #include <kernel/errno.h>
 #include <kernel/fdtable.h>
 #include <kernel/mm.h>
+#include <kernel/sched.h>
 #include <kernel/slab.h>
 #include <kernel/signal.h>
 #include <kernel/string.h>
@@ -129,7 +130,13 @@ static ssize_t pipe_read(struct file *file, char *buf, size_t count)
 			if (pipe->writers == 0 || done > 0)
 				break;
 
-			sleep_on(&pipe->readers_wq);
+			prepare_to_wait_interruptible(&pipe->readers_wq);
+			if (signal_pending(current)) {
+				finish_wait(&pipe->readers_wq);
+				return done ? (ssize_t)done : -EINTR;
+			}
+			schedule();
+			finish_wait(&pipe->readers_wq);
 			continue;
 		}
 
@@ -169,7 +176,13 @@ static ssize_t pipe_write(struct file *file, const char *buf, size_t count)
 			if (done > 0)
 				break;
 
-			sleep_on(&pipe->writers_wq);
+			prepare_to_wait_interruptible(&pipe->writers_wq);
+			if (signal_pending(current)) {
+				finish_wait(&pipe->writers_wq);
+				return done ? (ssize_t)done : -EINTR;
+			}
+			schedule();
+			finish_wait(&pipe->writers_wq);
 			continue;
 		}
 

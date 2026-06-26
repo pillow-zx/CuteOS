@@ -4,6 +4,7 @@ TEST_OBJS = \
 	test/test.o \
 	test/bitmap_test.o \
 	test/buddy_test.o \
+	test/fs_at_test.o \
 	test/hash_test.o \
 	test/kthread_test.o \
 	test/mm_test.o \
