@@ -104,7 +104,7 @@ void test_mutex_blocking(void)
 
 		schedule();
 		TEST_ASSERT_EQ(mutex_test_stage, 1);
-		TEST_ASSERT_EQ(waiter->state, (uint32_t)TASK_SLEEPING);
+		TEST_ASSERT_EQ(waiter->state, (uint32_t)TASK_UNINTERRUPTIBLE);
 
 		mutex_unlock(&mutex_test_lock);
 		schedule();

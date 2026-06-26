@@ -289,8 +289,7 @@ static void wake_signal_target(struct task_struct *task, int sig)
 	}
 
 	if (sig == SIGKILL || sig == SIGCONT) {
-		if (task->state == TASK_STOPPED ||
-		    task->state == TASK_SLEEPING) {
+		if (task->state & (TASK_STOPPED | TASK_UNINTERRUPTIBLE)) {
 			task->state = TASK_RUNNING;
 			if (task != current)
 				sched_wakeup(task);

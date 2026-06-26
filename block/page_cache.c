@@ -59,8 +59,7 @@ static void page_cache_sleep_until(uint64_t deadline)
 		schedule();
 
 	(void)timer_wait_cancel(&wait);
-	if (current->state == TASK_INTERRUPTIBLE ||
-	    current->state == TASK_SLEEPING)
+	if (current->state & TASK_ANY_SLEEP)
 		current->state = TASK_RUNNING;
 }
 

@@ -19,7 +19,18 @@ void prepare_to_wait_locked(struct wait_queue_head *wq)
 	if (list_empty(&current->wait_list))
 		list_add_tail(&current->wait_list, &wq->task_list);
 
-	current->state = TASK_SLEEPING;
+	current->state = TASK_UNINTERRUPTIBLE;
+}
+
+void prepare_to_wait_interruptible(struct wait_queue_head *wq)
+{
+	if (!wq)
+		return;
+
+	if (list_empty(&current->wait_list))
+		list_add_tail(&current->wait_list, &wq->task_list);
+
+	current->state = TASK_INTERRUPTIBLE;
 }
 
 void finish_wait(struct wait_queue_head *wq)
@@ -32,7 +43,7 @@ void finish_wait(struct wait_queue_head *wq)
 	if (!list_empty(&current->wait_list))
 		list_del_init(&current->wait_list);
 
-	if (current->state == TASK_SLEEPING)
+	if (current->state & TASK_ANY_SLEEP)
 		current->state = TASK_RUNNING;
 }
 
@@ -44,10 +55,10 @@ struct task_struct *wake_up_locked(struct wait_queue_head *wq)
 	struct task_struct *task =
 		list_first_entry(&wq->task_list, struct task_struct, wait_list);
 
-	list_del_init(&task->wait_list);
-	if (task->state != TASK_SLEEPING)
+	if (!(task->state & TASK_ANY_SLEEP))
 		return NULL;
 
+	list_del_init(&task->wait_list);
 	task->state = TASK_RUNNING;
 	sched_wakeup(task);
 	return task;

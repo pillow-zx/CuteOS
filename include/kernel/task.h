@@ -26,10 +26,11 @@
  *   run_list   - Linkage in runqueue
  *
  * Task states:
- *   TASK_RUNNING  - Runnable or currently executing
- *   TASK_SLEEPING - Waiting for an event
- *   TASK_ZOMBIE   - Exited, waiting for parent to reap
- *   TASK_DEAD     - Fully reaped
+ *   TASK_RUNNING         - Runnable or currently executing
+ *   TASK_UNINTERRUPTIBLE - Waiting for an event, cannot be interrupted
+ *   TASK_INTERRUPTIBLE   - Waiting for an event, interrupted by signals
+ *   TASK_ZOMBIE          - Exited, waiting for parent to reap
+ *   TASK_DEAD            - Fully reaped
  *
  * Globals:
  *   idle_task   - PID 0, the idle loop task (BSS static)
@@ -54,12 +55,15 @@ struct robust_list_head;
 
 /* ---- 任务状态 ---- */
 
-#define TASK_RUNNING  0 /* 可运行或正在执行 */
-#define TASK_SLEEPING 1 /* 等待事件 */
-#define TASK_ZOMBIE   2 /* 已退出，等待父进程回收 */
-#define TASK_DEAD     3 /* 已被回收 */
-#define TASK_STOPPED  4 /* 被 SIGSTOP 暂停 */
-#define TASK_INTERRUPTIBLE 5 /* 等待事件，可被未屏蔽信号打断 */
+#define TASK_RUNNING         0x00u /* 可运行或正在执行 */
+#define TASK_UNINTERRUPTIBLE 0x01u /* 不可中断等待 */
+#define TASK_INTERRUPTIBLE   0x02u /* 可被未屏蔽信号打断的等待 */
+#define TASK_ZOMBIE          0x04u /* 已退出，等待父进程回收 */
+#define TASK_DEAD            0x08u /* 已被回收 */
+#define TASK_STOPPED         0x10u /* 被 SIGSTOP 暂停 */
+
+/* 任意睡眠状态的位掩码 */
+#define TASK_ANY_SLEEP (TASK_UNINTERRUPTIBLE | TASK_INTERRUPTIBLE)
 
 /* ---- 内核栈常量 ---- */
 
