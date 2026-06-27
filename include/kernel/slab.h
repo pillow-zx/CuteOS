@@ -23,7 +23,7 @@
 #include <kernel/compiler.h>
 
 void slab_init(void);
-void *kmalloc(size_t size) __malloc;
+void *kmalloc(size_t size) __must_check __malloc;
 void kfree(void *ptr);
 
 #endif

@@ -42,8 +42,10 @@ static int stat_empty_path(int dfd, struct kstat *ustat)
 
 		if (!cwd)
 			return -ENOENT;
-		vfs_stat_dentry(cwd, &st);
+		ret = vfs_stat_dentry(cwd, &st);
 		dput(cwd);
+		if (ret < 0)
+			return ret;
 		return copy_to_user(ustat, &st, sizeof(st)) != 0 ? -EFAULT :
 								   0;
 	} else {
@@ -51,9 +53,11 @@ static int stat_empty_path(int dfd, struct kstat *ustat)
 
 		if (!file)
 			return -EBADF;
-		vfs_stat_file(file, &st);
-		ret = copy_to_user(ustat, &st, sizeof(st)) != 0 ? -EFAULT :
-								 0;
+		ret = vfs_stat_file(file, &st);
+		if (ret == 0)
+			ret = copy_to_user(ustat, &st, sizeof(st)) != 0 ?
+				      -EFAULT :
+				      0;
 		file_put(file);
 		return ret;
 	}
@@ -74,8 +78,9 @@ ssize_t sys_fstat(struct trap_frame *tf)
 		return -EFAULT;
 	}
 
-	vfs_stat_file(file, &st);
-	ret = copy_to_user(ustat, &st, sizeof(st)) != 0 ? -EFAULT : 0;
+	ret = vfs_stat_file(file, &st);
+	if (ret == 0)
+		ret = copy_to_user(ustat, &st, sizeof(st)) != 0 ? -EFAULT : 0;
 	file_put(file);
 
 	return ret;
@@ -128,8 +133,10 @@ out_free_path:
 	if (ret < 0)
 		return ret;
 
-	vfs_stat_dentry(dentry, &st);
+	ret = vfs_stat_dentry(dentry, &st);
 	dput(dentry);
+	if (ret < 0)
+		return ret;
 	if (copy_to_user(ustat, &st, sizeof(st)) != 0)
 		return -EFAULT;
 

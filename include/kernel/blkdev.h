@@ -22,6 +22,7 @@
 
 #include <kernel/page_mapping.h>
 #include <kernel/types.h>
+#include <kernel/compiler.h>
 
 /* 设备号编码：高 12 位主设备号，低 20 位次设备号（与 Linux 一致）。
  * 用宏实现，使 MKDEV(maj,min) 成为编译期常量，可用于静态初始化。
@@ -79,9 +80,9 @@ struct block_device {
 int register_block_device(struct block_device *bdev);
 
 /* 按设备号查找；未注册返回 NULL */
-struct block_device *lookup_block_device(dev_t dev);
+struct block_device *__must_check lookup_block_device(dev_t dev);
 
 /* 返回块设备自己的 page_mapping；未注册返回 NULL */
-struct page_mapping *block_device_pages(dev_t dev);
+struct page_mapping *__must_check block_device_pages(dev_t dev);
 
 #endif /* _CUTEOS_KERNEL_BLKDEV_H */

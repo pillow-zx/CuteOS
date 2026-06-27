@@ -37,14 +37,14 @@ struct dentry *root_dentry;
 static_assert(VFS_PATH_MAX <= PAGE_SIZE,
 	      "VFS path buffers are allocated as one page");
 
-static void init_new_inode_owner(struct inode *inode)
+static int init_new_inode_owner(struct inode *inode)
 {
 	if (!inode)
-		return;
+		return 0;
 
 	inode->i_uid = task_uid(current);
 	inode->i_gid = task_gid(current);
-	vfs_inode_writeback(inode);
+	return vfs_inode_writeback(inode);
 }
 
 static bool is_dot(const char *name, size_t len)
@@ -532,10 +532,10 @@ int vfs_create_at(struct dentry *base, const char *path, uint32_t mode,
 
 	ret = parent->d_inode->i_op->create(parent->d_inode, dentry, mode);
 	if (ret == 0) {
-		init_new_inode_owner(dentry->d_inode);
-		if (new_dentry)
+		ret = init_new_inode_owner(dentry->d_inode);
+		if (ret == 0 && new_dentry)
 			dcache_insert(dentry);
-		if (res)
+		if (ret == 0 && res)
 			*res = dentry;
 		else
 			dput(dentry);
@@ -587,8 +587,8 @@ int vfs_mkdir_at(struct dentry *base, const char *path, uint32_t mode)
 
 	ret = parent->d_inode->i_op->mkdir(parent->d_inode, dentry, mode);
 	if (ret == 0) {
-		init_new_inode_owner(dentry->d_inode);
-		if (new_dentry)
+		ret = init_new_inode_owner(dentry->d_inode);
+		if (ret == 0 && new_dentry)
 			dcache_insert(dentry);
 	}
 	dput(dentry);
@@ -761,10 +761,10 @@ int vfs_mknod_at(struct dentry *base, const char *path, uint32_t mode,
 	if (dentry->d_inode) {
 		dentry->d_inode->i_mode = mode;
 		dentry->d_inode->i_rdev = dev;
-		vfs_inode_writeback(dentry->d_inode);
+		ret = vfs_inode_writeback(dentry->d_inode);
 	}
 	dput(dentry);
-	return 0;
+	return ret;
 }
 
 int vfs_mknod(const char *path, uint32_t mode, dev_t dev)

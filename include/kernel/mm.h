@@ -65,7 +65,7 @@ struct mm_struct {
  *
  * 返回初始化后的 mm_struct 指针，失败返回 NULL。
  */
-struct mm_struct *mm_alloc(void);
+struct mm_struct *__must_check mm_alloc(void);
 
 void mm_get(struct mm_struct *mm);
 void mm_put(struct mm_struct *mm);
@@ -79,7 +79,7 @@ void mm_unlock(struct mm_struct *mm);
  * 复制 mm 元数据、VMA 数组以及所有已经映射的用户物理页。未映射的
  * lazy allocation 页面保持未映射，后续访问继续走缺页处理。
  */
-struct mm_struct *dup_mm(struct mm_struct *oldmm);
+struct mm_struct *__must_check dup_mm(struct mm_struct *oldmm);
 
 /*
  * mm_destroy - 销毁用户地址空间
@@ -96,7 +96,7 @@ void mm_destroy(struct mm_struct *mm);
  * 分配 PGD 页，清零，复制内核高地址映射（PGD[256-511]），
  * 映射 UART MMIO。返回 PGD 虚拟地址，失败返回 NULL。
  */
-pte_t *mm_create_user_pgd(void);
+pte_t *__must_check mm_create_user_pgd(void);
 
 /*
  * find_vma - 查找包含指定地址的 VMA
@@ -106,7 +106,8 @@ pte_t *mm_create_user_pgd(void);
  * 线性扫描 VMA 数组，返回满足 vm_start <= addr < vm_end 的 VMA 指针。
  * 调用者必须持有 mm->mmap_lock；返回指针只在锁内有效。未找到返回 NULL。
  */
-struct vm_area_struct *find_vma(struct mm_struct *mm, uintptr_t addr);
+struct vm_area_struct *__must_check find_vma(struct mm_struct *mm,
+					     uintptr_t addr);
 
 /*
  * mm_brk - brk 内部实现

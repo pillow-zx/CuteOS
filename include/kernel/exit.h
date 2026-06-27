@@ -18,8 +18,8 @@
  * 释放当前进程私有资源，将 task_struct 保留为 zombie，等待父进程
  * wait4 回收。此函数不会返回。
  */
-void do_exit(int code);
-void do_exit_group(int code);
+void __noreturn do_exit(int code);
+void __noreturn do_exit_group(int code);
 bool exited_threads_pending(void);
 void reap_exited_threads(void);
 

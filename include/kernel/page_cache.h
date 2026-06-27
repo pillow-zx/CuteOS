@@ -18,6 +18,7 @@
 #include <kernel/page_mapping.h>
 #include <kernel/vfs.h>
 #include <kernel/types.h>
+#include <kernel/compiler.h>
 
 struct page_cache {
 	/* Stable cache identity: this page represents owner[index]. */
@@ -52,37 +53,39 @@ struct page_cache {
  * create=true 时会分配一个未 uptodate 的新页，并通过 @created 告知调用者。
  * 返回页持有一次引用，调用者必须 page_cache_put_page()。
  */
-struct page_cache *page_cache_get_page(struct page_mapping *mapping,
-					    uint64_t index, bool create,
-					    bool *created);
+struct page_cache *__must_check
+page_cache_get_page(struct page_mapping *mapping, uint64_t index, bool create,
+		    bool *created);
 
 /*
  * 查找或创建缓存页，并在页不是 uptodate 时调用 mapping->ops->readpage()
  * 读入数据。失败返回 NULL；成功返回持引用的 uptodate 页。
  */
-struct page_cache *page_cache_read_page(struct page_mapping *mapping,
-					     uint64_t index);
+struct page_cache *__must_check
+page_cache_read_page(struct page_mapping *mapping, uint64_t index);
 
 /* 读取块设备物理块缓存页；block 是 4 KiB 块号，不是 512 字节扇区号。 */
-struct page_cache *page_cache_get_block(dev_t dev, uint64_t block);
+struct page_cache *__must_check page_cache_get_block(dev_t dev,
+						     uint64_t block);
 
 /* inode 文件页兼容包装；等价于 page_cache_get_page(&inode->i_pages, ...)。 */
-struct page_cache *page_cache_grab_file_page(struct inode *inode,
-						  uint64_t index, bool create,
-						  bool *created);
+struct page_cache *__must_check page_cache_grab_file_page(struct inode *inode,
+							  uint64_t index,
+							  bool create,
+							  bool *created);
 void page_cache_put_page(struct page_cache *page);
-uint8_t *page_cache_data(struct page_cache *page);
-bool page_cache_is_uptodate(const struct page_cache *page);
+uint8_t *__must_check __pure page_cache_data(struct page_cache *page);
+bool __must_check __pure page_cache_is_uptodate(const struct page_cache *page);
 void page_cache_set_uptodate(struct page_cache *page, bool uptodate);
-bool page_cache_is_dirty(const struct page_cache *page);
+bool __must_check __pure page_cache_is_dirty(const struct page_cache *page);
 void page_cache_mark_dirty(struct page_cache *page);
 
 /* 同步单页到其 mapping 后端；成功后会清除脏标记并刷新可能存在的块设备别名。 */
 int page_cache_sync_page(struct page_cache *page);
 
 /* 回写一个 mapping、一个 inode 或全局所有脏页。 */
-int page_cache_writeback_mapping(struct page_mapping *mapping);
-int page_cache_writeback_inode(struct inode *inode);
+int __must_check page_cache_writeback_mapping(struct page_mapping *mapping);
+int __must_check page_cache_writeback_inode(struct inode *inode);
 int page_cache_writeback_all(void);
 
 /* 截断/失效某个 mapping 的缓存页；inode 版本是对 i_pages 的包装。 */

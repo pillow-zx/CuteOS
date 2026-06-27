@@ -17,20 +17,20 @@ struct fs_struct {
 	uint32_t umask;
 };
 
-struct fs_struct *fs_alloc(void);
-struct fs_struct *fs_dup(struct fs_struct *old);
+struct fs_struct *__must_check fs_alloc(void);
+struct fs_struct *__must_check fs_dup(struct fs_struct *old);
 void fs_get(struct fs_struct *fs);
 void fs_put(struct fs_struct *fs);
 
-struct dentry *fs_get_root_dentry(struct fs_struct *fs);
-struct dentry *fs_get_cwd_dentry(struct fs_struct *fs);
-int fs_set_cwd(struct fs_struct *fs, struct dentry *dentry);
-uint32_t fs_get_umask(struct fs_struct *fs);
+struct dentry *__must_check fs_get_root_dentry(struct fs_struct *fs);
+struct dentry *__must_check fs_get_cwd_dentry(struct fs_struct *fs);
+int __must_check fs_set_cwd(struct fs_struct *fs, struct dentry *dentry);
+uint32_t __must_check fs_get_umask(struct fs_struct *fs);
 uint32_t fs_set_umask(struct fs_struct *fs, uint32_t mask);
 void fs_set_root_if_empty(struct fs_struct *fs, struct dentry *root);
 
-int init_fs(struct task_struct *task);
-int copy_fs(struct task_struct *child, bool share);
+int __must_check init_fs(struct task_struct *task);
+int __must_check copy_fs(struct task_struct *child, bool share);
 void exit_fs(struct task_struct *task);
 
 #endif

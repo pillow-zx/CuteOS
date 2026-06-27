@@ -248,7 +248,7 @@ static void reap_other_threads(struct task_struct *leader, int code)
  * do_exit - 终止当前进程
  * @code: 退出码
  */
-void do_exit(int code)
+void __noreturn do_exit(int code)
 {
 	if (!task_is_group_leader(current)) {
 		finish_task_exit(current, code, false);
@@ -272,7 +272,7 @@ void do_exit(int code)
 	unreachable();
 }
 
-void do_exit_group(int code)
+void __noreturn do_exit_group(int code)
 {
 	struct task_struct *leader = current->group_leader;
 

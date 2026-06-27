@@ -21,6 +21,7 @@
 #include <kernel/types.h>
 #include <kernel/page.h>
 #include <kernel/list.h>
+#include <kernel/compiler.h>
 
 #define MAX_ORDER 9 /* 最大分配阶：2^9 = 512 页 = 2 MB */
 
@@ -55,7 +56,7 @@ void buddy_init(void);
  *
  * 返回首页的内核虚拟地址，分配失败（OOM）返回 NULL。
  */
-void *get_free_page(uint32_t order);
+void *__must_check get_free_page(uint32_t order);
 
 /**
  * free_page - 释放页块并尝试伙伴合并

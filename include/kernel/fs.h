@@ -34,6 +34,7 @@
 #include <kernel/list.h>
 #include <kernel/refcount.h>
 #include <kernel/types.h>
+#include <kernel/compiler.h>
 
 struct task_struct;
 struct trap_frame;
@@ -190,34 +191,35 @@ struct file {
 	bool static_file;
 };
 
-int vfs_open(const char *path, uint32_t flags, uint32_t mode);
-int vfs_openat(struct dentry *base, const char *path, uint32_t flags,
-	       uint32_t mode);
-ssize_t vfs_read(struct file *file, char *buf, size_t count);
-ssize_t vfs_write(struct file *file, const char *buf, size_t count);
-loff_t vfs_llseek(struct file *file, loff_t offset, int whence);
-int vfs_readdir(struct file *file, void *ctx, filldir_t filldir);
-int vfs_truncate_file(struct file *file, uint64_t size);
-int vfs_inode_truncate(struct inode *inode, uint64_t size);
-int vfs_inode_writeback(struct inode *inode);
-int vfs_sync_file(struct file *file);
-int vfs_stat_inode(const struct inode *inode, struct kstat *st);
-int vfs_stat_file(struct file *file, struct kstat *st);
-int vfs_statfs(struct super_block *sb, struct kstatfs *buf);
-uint32_t vfs_poll(struct file *file, uint32_t events);
-int vfs_ioctl(struct file *file, uint64_t cmd, uint64_t arg);
-uint64_t vfs_inode_size(const struct inode *inode);
-uint64_t vfs_inode_number(const struct inode *inode);
-uint32_t vfs_inode_mode(const struct inode *inode);
-dev_t vfs_inode_rdev(const struct inode *inode);
-uint32_t vfs_inode_uid(const struct inode *inode);
-uint32_t vfs_inode_gid(const struct inode *inode);
-uint32_t vfs_inode_nlink(const struct inode *inode);
-dev_t vfs_inode_dev(const struct inode *inode);
-struct inode *vfs_dentry_inode(struct dentry *dentry);
-struct dentry *vfs_dentry_parent(struct dentry *dentry);
-const char *vfs_dentry_name(struct dentry *dentry);
-size_t vfs_dentry_namelen(struct dentry *dentry);
-int vfs_getcwd_path(struct dentry *cwd, char *buf, size_t size);
+int __must_check vfs_open(const char *path, uint32_t flags, uint32_t mode);
+int __must_check vfs_openat(struct dentry *base, const char *path,
+			    uint32_t flags, uint32_t mode);
+ssize_t __must_check vfs_read(struct file *file, char *buf, size_t count);
+ssize_t __must_check vfs_write(struct file *file, const char *buf,
+			       size_t count);
+loff_t __must_check vfs_llseek(struct file *file, loff_t offset, int whence);
+int __must_check vfs_readdir(struct file *file, void *ctx, filldir_t filldir);
+int __must_check vfs_truncate_file(struct file *file, uint64_t size);
+int __must_check vfs_inode_truncate(struct inode *inode, uint64_t size);
+int __must_check vfs_inode_writeback(struct inode *inode);
+int __must_check vfs_sync_file(struct file *file);
+int __must_check vfs_stat_inode(const struct inode *inode, struct kstat *st);
+int __must_check vfs_stat_file(struct file *file, struct kstat *st);
+int __must_check vfs_statfs(struct super_block *sb, struct kstatfs *buf);
+uint32_t __must_check vfs_poll(struct file *file, uint32_t events);
+int __must_check vfs_ioctl(struct file *file, uint64_t cmd, uint64_t arg);
+uint64_t __must_check __pure vfs_inode_size(const struct inode *inode);
+uint64_t __must_check __pure vfs_inode_number(const struct inode *inode);
+uint32_t __must_check __pure vfs_inode_mode(const struct inode *inode);
+dev_t __must_check __pure vfs_inode_rdev(const struct inode *inode);
+uint32_t __must_check __pure vfs_inode_uid(const struct inode *inode);
+uint32_t __must_check __pure vfs_inode_gid(const struct inode *inode);
+uint32_t __must_check __pure vfs_inode_nlink(const struct inode *inode);
+dev_t __must_check __pure vfs_inode_dev(const struct inode *inode);
+struct inode *__must_check __pure vfs_dentry_inode(struct dentry *dentry);
+struct dentry *__must_check __pure vfs_dentry_parent(struct dentry *dentry);
+const char *__must_check __pure vfs_dentry_name(struct dentry *dentry);
+size_t __must_check __pure vfs_dentry_namelen(struct dentry *dentry);
+int __must_check vfs_getcwd_path(struct dentry *cwd, char *buf, size_t size);
 
 #endif

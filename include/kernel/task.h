@@ -143,28 +143,33 @@ extern struct task_struct *init_task;
 
 /* ---- 窄访问器 ---- */
 
-static __always_inline struct mm_struct *task_mm(struct task_struct *task)
+static __always_inline __must_check __pure
+struct mm_struct *task_mm(struct task_struct *task)
 {
 	return task ? task->mm : NULL;
 }
 
-static __always_inline struct files_struct *task_files(struct task_struct *task)
+static __always_inline __must_check __pure
+struct files_struct *task_files(struct task_struct *task)
 {
 	return task ? task->files : NULL;
 }
 
-static __always_inline struct fs_struct *task_fs(struct task_struct *task)
+static __always_inline __must_check __pure
+struct fs_struct *task_fs(struct task_struct *task)
 {
 	return task ? task->fs : NULL;
 }
 
-static __always_inline uid_t task_uid(const struct task_struct *task)
+static __always_inline __must_check __pure
+uid_t task_uid(const struct task_struct *task)
 {
 	BUG_ON(!task);
 	return task->uid;
 }
 
-static __always_inline gid_t task_gid(const struct task_struct *task)
+static __always_inline __must_check __pure
+gid_t task_gid(const struct task_struct *task)
 {
 	BUG_ON(!task);
 	return task->gid;
@@ -182,18 +187,19 @@ static __always_inline void task_set_gid(struct task_struct *task, gid_t gid)
 	task->gid = gid;
 }
 
-static __always_inline bool task_signal_pending(struct task_struct *task)
+static __always_inline __must_check __pure
+bool task_signal_pending(struct task_struct *task)
 {
 	return signal_pending(task);
 }
 
-static __always_inline struct signal_struct *
+static __always_inline __must_check __pure struct signal_struct *
 task_signal_state(struct task_struct *task)
 {
 	return task ? task->signal : NULL;
 }
 
-static __always_inline uint64_t
+static __always_inline __must_check __pure uint64_t
 task_blocked_mask(const struct task_struct *task)
 {
 	return task ? task->blocked : 0;
@@ -206,7 +212,8 @@ static __always_inline void task_set_blocked_mask(struct task_struct *task,
 		task->blocked = mask;
 }
 
-static __always_inline uint32_t task_state(const struct task_struct *task)
+static __always_inline __must_check __pure
+uint32_t task_state(const struct task_struct *task)
 {
 	return task ? task->state : TASK_DEAD;
 }
@@ -235,8 +242,8 @@ void task_init(void);
  * 在栈底写入 CANARY_MAGIC。返回初始化后的 task 指针，
  * 失败返回 NULL。
  */
-struct task_struct *task_alloc(void);
-int task_init_resources(struct task_struct *task);
+struct task_struct *__must_check task_alloc(void);
+int __must_check task_init_resources(struct task_struct *task);
 void task_release_resources(struct task_struct *task);
 
 /**
@@ -266,14 +273,16 @@ void check_canary(struct task_struct *task);
  *
  * 返回新创建的 task_struct，失败返回 NULL。
  */
-struct task_struct *kernel_thread(void (*fn)(void *), void *arg);
+struct task_struct *__must_check kernel_thread(void (*fn)(void *), void *arg);
 
 void set_init_task(struct task_struct *task);
 
-bool task_is_group_leader(const struct task_struct *task);
-bool task_group_has_other_threads(const struct task_struct *task);
-struct task_struct *task_find_group_leader(pid_t tgid);
-struct task_struct *task_find_thread(pid_t tid);
-bool task_in_thread_group(const struct task_struct *task, pid_t tgid);
+bool __must_check __pure task_is_group_leader(const struct task_struct *task);
+bool __must_check __pure
+task_group_has_other_threads(const struct task_struct *task);
+struct task_struct *__must_check __pure task_find_group_leader(pid_t tgid);
+struct task_struct *__must_check __pure task_find_thread(pid_t tid);
+bool __must_check __pure task_in_thread_group(const struct task_struct *task,
+					      pid_t tgid);
 
 #endif

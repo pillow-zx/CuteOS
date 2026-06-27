@@ -52,6 +52,9 @@ extern void init_process(void *arg);
 
 void kernel_main(void)
 {
+	struct task_struct *init;
+	struct task_struct *writeback;
+
 	console_init_sbi();
 
 	pr_info("\n");
@@ -100,8 +103,12 @@ void kernel_main(void)
 	kernel_test();
 #endif
 
-	set_init_task(kernel_thread(init_process, NULL));
-	(void)kernel_thread(page_cache_writeback_thread, NULL);
+	init = kernel_thread(init_process, NULL);
+	BUG_ON(!init);
+	set_init_task(init);
+
+	writeback = kernel_thread(page_cache_writeback_thread, NULL);
+	BUG_ON(!writeback);
 
 	/* 进入 idle 循环 — idle 进程的执行体 */
 	while (true) {

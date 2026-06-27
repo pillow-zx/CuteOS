@@ -32,7 +32,7 @@ void pid_init(void);
  * 在位图中查找第一个为 0 的位，置 1 并返回对应的 PID 值。
  * 若无可用 PID 则返回 -ENOSPC。
  */
-int32_t alloc_pid(void);
+int32_t __must_check alloc_pid(void);
 
 /**
  * free_pid - 释放一个 PID
@@ -42,7 +42,7 @@ void free_pid(pid_t pid);
 
 void pid_attach_task(pid_t pid, struct task_struct *task);
 void pid_detach_task(pid_t pid, const struct task_struct *task);
-struct task_struct *pid_task(pid_t pid);
-uint16_t pid_count_tasks(void);
+struct task_struct *__must_check __pure pid_task(pid_t pid);
+uint16_t __must_check __pure pid_count_tasks(void);
 
 #endif

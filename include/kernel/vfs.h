@@ -10,17 +10,17 @@
 
 #include <kernel/fs.h>
 
-struct inode *inode_alloc(struct super_block *sb, uint64_t ino);
-struct inode *iget(struct super_block *sb, uint64_t ino);
+struct inode *__must_check inode_alloc(struct super_block *sb, uint64_t ino);
+struct inode *__must_check iget(struct super_block *sb, uint64_t ino);
 void igrab(struct inode *inode);
 void iput(struct inode *inode);
 void inode_forget(struct inode *inode);
 void icache_init(void);
 
-struct dentry *dentry_alloc(struct dentry *parent, const char *name,
-			    size_t namelen);
-struct dentry *dcache_lookup(struct dentry *parent, const char *name,
-			     size_t namelen);
+struct dentry *__must_check dentry_alloc(struct dentry *parent,
+					 const char *name, size_t namelen);
+struct dentry *__must_check dcache_lookup(struct dentry *parent,
+					  const char *name, size_t namelen);
 void dcache_insert(struct dentry *dentry);
 void dcache_invalidate(struct dentry *dentry);
 void dcache_move(struct dentry *dentry, struct dentry *new_parent,
@@ -41,37 +41,44 @@ extern struct dentry *root_dentry;
 #define VFS_MAY_WRITE 0x2
 #define VFS_MAY_READ  0x4
 
-struct dentry *path_lookup(const char *path, uint32_t flags);
-int path_lookup_err(const char *path, uint32_t flags, struct dentry **res);
-int path_lookupat_err(struct dentry *base, const char *path, uint32_t flags,
-		      struct dentry **res);
-struct dentry *path_parent_lookup(const char *path, char *name,
-				  size_t *namelen);
-int path_parent_lookupat_err(struct dentry *base, const char *path, char *name,
-			     size_t *namelen, struct dentry **res);
-int vfs_inode_permission(struct inode *inode, uint32_t mask);
-int vfs_readlink(struct dentry *dentry, char *buf, size_t size);
-int vfs_create(const char *path, uint32_t mode, struct dentry **res);
-int vfs_create_at(struct dentry *base, const char *path, uint32_t mode,
-		  struct dentry **res);
-int vfs_mkdir(const char *path, uint32_t mode);
-int vfs_mkdir_at(struct dentry *base, const char *path, uint32_t mode);
+struct dentry *__must_check path_lookup(const char *path, uint32_t flags);
+int __must_check path_lookup_err(const char *path, uint32_t flags,
+				 struct dentry **res);
+int __must_check path_lookupat_err(struct dentry *base, const char *path,
+				   uint32_t flags, struct dentry **res);
+struct dentry *__must_check path_parent_lookup(const char *path, char *name,
+					       size_t *namelen);
+int __must_check path_parent_lookupat_err(struct dentry *base,
+					  const char *path, char *name,
+					  size_t *namelen,
+					  struct dentry **res);
+int __must_check vfs_inode_permission(struct inode *inode, uint32_t mask);
+int __must_check vfs_readlink(struct dentry *dentry, char *buf, size_t size);
+int __must_check vfs_create(const char *path, uint32_t mode,
+			    struct dentry **res);
+int __must_check vfs_create_at(struct dentry *base, const char *path,
+			       uint32_t mode, struct dentry **res);
+int __must_check vfs_mkdir(const char *path, uint32_t mode);
+int __must_check vfs_mkdir_at(struct dentry *base, const char *path,
+			      uint32_t mode);
 int vfs_unlink(const char *path, int flags);
 int vfs_unlink_at(struct dentry *base, const char *path, int flags);
-int vfs_rename_at(struct dentry *old_base, const char *old_path,
-		  struct dentry *new_base, const char *new_path,
-		  unsigned int flags);
-int vfs_mknod(const char *path, uint32_t mode, dev_t dev);
-int vfs_mknod_at(struct dentry *base, const char *path, uint32_t mode,
-		 dev_t dev);
-int vfs_stat_dentry(struct dentry *dentry, struct kstat *st);
-int vfs_chdir_dentry(struct dentry *dentry);
+int __must_check vfs_rename_at(struct dentry *old_base,
+			       const char *old_path,
+			       struct dentry *new_base,
+			       const char *new_path, unsigned int flags);
+int __must_check vfs_mknod(const char *path, uint32_t mode, dev_t dev);
+int __must_check vfs_mknod_at(struct dentry *base, const char *path,
+			      uint32_t mode, dev_t dev);
+int __must_check vfs_stat_dentry(struct dentry *dentry, struct kstat *st);
+int __must_check vfs_chdir_dentry(struct dentry *dentry);
 void vfs_set_root_dentry(struct dentry *dentry);
 
-int register_filesystem(struct file_system_type *fs_type);
-struct file_system_type *get_filesystem_type(const char *name);
-struct super_block *super_alloc(struct file_system_type *fs_type, dev_t dev);
+int __must_check register_filesystem(struct file_system_type *fs_type);
+struct file_system_type *__must_check get_filesystem_type(const char *name);
+struct super_block *__must_check super_alloc(struct file_system_type *fs_type,
+					     dev_t dev);
 void vfs_init(void);
-int mount_root(void);
+int __must_check mount_root(void);
 
 #endif
