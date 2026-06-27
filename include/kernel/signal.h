@@ -84,9 +84,8 @@ int do_kill(pid_t pid, int sig);
 int do_tgkill(pid_t tgid, pid_t tid, int sig);
 int do_sigaltstack(const struct stack_t *ss, struct stack_t *old_ss);
 int do_sigaction(int sig, const struct sigaction *act,
-		 struct sigaction *oldact, size_t sigsetsize);
-int do_sigprocmask(int how, const uint64_t *set,
-		   uint64_t *oldset, size_t sigsetsize);
+		 struct sigaction *oldact);
+int do_sigprocmask(int how, const uint64_t *set, uint64_t *oldset);
 int do_sigreturn(struct trap_frame *tf, uintptr_t sp);
 
 #endif

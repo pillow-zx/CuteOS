@@ -33,8 +33,6 @@ static __always_inline void user_access_end(bool had_sum)
 		csr_clear(sstatus, SSTATUS_SUM);
 }
 
-void exec_user_path(const char *path) __noreturn;
-
 void do_syscall(struct trap_frame *tf);
 void syscall_init(void);
 

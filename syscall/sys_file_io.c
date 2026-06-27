@@ -27,8 +27,7 @@
 #include <asm/trap.h>
 #include <kernel/time.h>
 
-/* 内核临时缓冲区大小，rw_user_buffer 分块拷贝使用 */
-#define WRITE_BUF_SIZE 256
+#include "sys_file_internal.h"
 
 #define SEEK_SET 0
 #define SEEK_CUR 1
@@ -42,11 +41,6 @@
  * 以及未来 extent/块分配逻辑对越界 i_size 误判。
  */
 #define MAX_FILE_SIZE (1ULL << 40) /* 1 TiB */
-
-struct sys_iovec {
-	uint64_t iov_base;
-	uint64_t iov_len;
-};
 
 static struct file *fd_get_readable(int fd)
 {
@@ -81,7 +75,7 @@ static struct file *fd_get_writable(int fd)
 static ssize_t rw_user_buffer(struct file *file, void *buf, size_t len,
 			      bool write)
 {
-	char kbuf[WRITE_BUF_SIZE];
+	char kbuf[SYS_FILE_BUF_SIZE];
 	size_t done = 0;
 
 	if (!access_ok(buf, len))
@@ -91,8 +85,8 @@ static ssize_t rw_user_buffer(struct file *file, void *buf, size_t len,
 		size_t chunk = len - done;
 		ssize_t ret;
 
-		if (chunk > WRITE_BUF_SIZE)
-			chunk = WRITE_BUF_SIZE;
+		if (chunk > SYS_FILE_BUF_SIZE)
+			chunk = SYS_FILE_BUF_SIZE;
 
 		if (write) {
 			if (copy_from_user(kbuf, (char *)buf + done, chunk) !=
@@ -156,7 +150,7 @@ static ssize_t rw_iovec(struct file *file, const struct sys_iovec *uiov,
 	struct sys_iovec iov;
 	ssize_t total = 0;
 
-	if (iovcnt > 64)
+	if (iovcnt > SYS_IOV_MAX)
 		return -EINVAL;
 
 	for (size_t i = 0; i < iovcnt; i++) {

@@ -18,6 +18,7 @@
  */
 
 #include <kernel/errno.h>
+#include <kernel/mm.h>
 #include <kernel/signal.h>
 #include <kernel/syscall.h>
 #include <kernel/types.h>
@@ -37,8 +38,24 @@ ssize_t sys_sigaltstack(struct trap_frame *tf)
 {
 	const struct stack_t *ss     = (const struct stack_t *)tf->a0;
 	struct stack_t       *old_ss = (struct stack_t *)tf->a1;
+	struct stack_t kss;
+	struct stack_t old;
+	int ret;
 
-	return do_sigaltstack(ss, old_ss);
+	if (old_ss) {
+		ret = do_sigaltstack(NULL, &old);
+		if (ret < 0)
+			return ret;
+		if (copy_to_user(old_ss, &old, sizeof(old)) != 0)
+			return -EFAULT;
+	}
+
+	if (!ss)
+		return 0;
+
+	if (copy_from_user(&kss, ss, sizeof(kss)) != 0)
+		return -EFAULT;
+	return do_sigaltstack(&kss, NULL);
 }
 
 ssize_t sys_sigaction(struct trap_frame *tf)
@@ -47,8 +64,31 @@ ssize_t sys_sigaction(struct trap_frame *tf)
 	const struct sigaction *act = (const struct sigaction *)tf->a1;
 	struct sigaction *oldact = (struct sigaction *)tf->a2;
 	size_t sigsetsize = (size_t)tf->a3;
+	struct sigaction kact;
+	struct sigaction old;
+	int ret;
 
-	return do_sigaction(sig, act, oldact, sigsetsize);
+	if (!signal_is_valid(sig))
+		return -EINVAL;
+	if (!signal_is_catchable(sig) && act)
+		return -EINVAL;
+	if (sigsetsize != 0 && sigsetsize != sizeof(uint64_t))
+		return -EINVAL;
+
+	if (oldact) {
+		ret = do_sigaction(sig, NULL, &old);
+		if (ret < 0)
+			return ret;
+		if (copy_to_user(oldact, &old, sizeof(old)) != 0)
+			return -EFAULT;
+	}
+
+	if (!act)
+		return 0;
+
+	if (copy_from_user(&kact, act, sizeof(kact)) != 0)
+		return -EFAULT;
+	return do_sigaction(sig, &kact, NULL);
 }
 
 ssize_t sys_sigprocmask(struct trap_frame *tf)
@@ -57,8 +97,27 @@ ssize_t sys_sigprocmask(struct trap_frame *tf)
 	const uint64_t *set = (const uint64_t *)tf->a1;
 	uint64_t *oldset = (uint64_t *)tf->a2;
 	size_t sigsetsize = (size_t)tf->a3;
+	uint64_t newset;
+	uint64_t old;
+	int ret;
 
-	return do_sigprocmask(how, set, oldset, sigsetsize);
+	if (sigsetsize != 0 && sigsetsize != sizeof(uint64_t))
+		return -EINVAL;
+
+	if (oldset) {
+		ret = do_sigprocmask(how, NULL, &old);
+		if (ret < 0)
+			return ret;
+		if (copy_to_user(oldset, &old, sizeof(old)) != 0)
+			return -EFAULT;
+	}
+
+	if (!set)
+		return 0;
+
+	if (copy_from_user(&newset, set, sizeof(newset)) != 0)
+		return -EFAULT;
+	return do_sigprocmask(how, &newset, NULL);
 }
 
 ssize_t sys_sigreturn(struct trap_frame *tf)

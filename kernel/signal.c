@@ -635,34 +635,25 @@ int do_tgkill(pid_t tgid, pid_t tid, int sig)
 
 int do_sigaltstack(const struct stack_t *ss, struct stack_t *old_ss)
 {
-	if (old_ss) {
-		struct stack_t cur = current->sas;
-
-		if (copy_to_user(old_ss, &cur, sizeof(cur)) != 0)
-			return -EFAULT;
-	}
+	if (old_ss)
+		*old_ss = current->sas;
 
 	if (ss) {
-		struct stack_t kss;
-
-		if (copy_from_user(&kss, ss, sizeof(kss)) != 0)
-			return -EFAULT;
-
 		/* Cannot change while running on the alternate stack. */
 		if (current->sas.ss_flags & SS_ONSTACK)
 			return -EPERM;
 
-		if (kss.ss_flags != 0 && kss.ss_flags != SS_DISABLE)
+		if (ss->ss_flags != 0 && ss->ss_flags != SS_DISABLE)
 			return -EINVAL;
 
-		if (kss.ss_flags & SS_DISABLE) {
+		if (ss->ss_flags & SS_DISABLE) {
 			current->sas.ss_sp    = NULL;
 			current->sas.ss_flags = SS_DISABLE;
 			current->sas.ss_size  = 0;
 		} else {
-			if (kss.ss_size < MINSIGSTKSZ)
+			if (ss->ss_size < MINSIGSTKSZ)
 				return -ENOMEM;
-			current->sas = kss;
+			current->sas = *ss;
 			current->sas.ss_flags &= ~SS_ONSTACK;
 		}
 	}
@@ -671,7 +662,7 @@ int do_sigaltstack(const struct stack_t *ss, struct stack_t *old_ss)
 }
 
 int do_sigaction(int sig, const struct sigaction *act,
-		 struct sigaction *oldact, size_t sigsetsize)
+		 struct sigaction *oldact)
 {
 	struct sigaction kact;
 
@@ -679,28 +670,20 @@ int do_sigaction(int sig, const struct sigaction *act,
 		return -EINVAL;
 	if (!signal_is_catchable(sig) && act)
 		return -EINVAL;
-	if (sigsetsize != 0 && sigsetsize != sizeof(uint64_t))
-		return -EINVAL;
 
 	if (oldact) {
-		struct sigaction old;
-
 		if (!current->sighand)
 			return -EINVAL;
 
 		mutex_lock(&current->sighand->lock);
-		old = current->sighand->sigactions[sig];
+		*oldact = current->sighand->sigactions[sig];
 		mutex_unlock(&current->sighand->lock);
-
-		if (copy_to_user(oldact, &old, sizeof(old)) != 0)
-			return -EFAULT;
 	}
 
 	if (!act)
 		return 0;
 
-	if (copy_from_user(&kact, act, sizeof(kact)) != 0)
-		return -EFAULT;
+	kact = *act;
 	if (kact.sa_handler == SIG_ERR)
 		return -EINVAL;
 
@@ -714,27 +697,17 @@ int do_sigaction(int sig, const struct sigaction *act,
 	return 0;
 }
 
-int do_sigprocmask(int how, const uint64_t *set,
-		   uint64_t *oldset, size_t sigsetsize)
+int do_sigprocmask(int how, const uint64_t *set, uint64_t *oldset)
 {
 	uint64_t newset;
 
-	if (sigsetsize != 0 && sigsetsize != sizeof(uint64_t))
-		return -EINVAL;
-
-	if (oldset) {
-		uint64_t old = current->blocked;
-
-		if (copy_to_user(oldset, &old, sizeof(old)) != 0)
-			return -EFAULT;
-	}
+	if (oldset)
+		*oldset = current->blocked;
 
 	if (!set)
 		return 0;
 
-	if (copy_from_user(&newset, set, sizeof(newset)) != 0)
-		return -EFAULT;
-	newset &= ~unblockable_mask();
+	newset = *set & ~unblockable_mask();
 
 	switch (how) {
 	case SIG_BLOCK:

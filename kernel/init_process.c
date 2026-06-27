@@ -14,8 +14,8 @@
  * 注意：init 通过 exec_user_path 切换到用户态后不再返回。
  */
 
+#include <kernel/exec.h>
 #include <kernel/printk.h>
-#include <kernel/syscall.h>
 #include <kernel/task.h>
 
 /**

@@ -3,10 +3,12 @@
 SYSCALL_OBJS = \
 	syscall/syscall.o        \
 	syscall/sys_proc.o       \
+	syscall/sys_file_helpers.o  \
 	syscall/sys_file_io.o    \
 	syscall/sys_file_path.o  \
 	syscall/sys_file_stat.o  \
 	syscall/sys_file_poll.o  \
+	syscall/sys_exec.o       \
 	syscall/sys_mm.o         \
 	syscall/sys_signal.o     \
 	syscall/sys_misc.o       \

@@ -26,24 +26,12 @@
 #include <asm/trap.h>
 #include <kernel/time.h>
 
-/* 内核临时缓冲区大小，sys_getdents64 分块拷贝使用 */
-#define WRITE_BUF_SIZE 256
+#include "sys_file_internal.h"
 
 #define F_OK 0
 #define R_OK 4
 #define W_OK 2
 #define X_OK 1
-
-static_assert(VFS_PATH_MAX <= PAGE_SIZE,
-	      "syscall path buffers are allocated as one page");
-
-struct linux_dirent64 {
-	uint64_t d_ino;
-	int64_t d_off;
-	uint16_t d_reclen;
-	uint8_t d_type;
-	char d_name[];
-};
 
 struct getdents_ctx {
 	char *dirp;
@@ -51,67 +39,6 @@ struct getdents_ctx {
 	size_t written;
 	loff_t pos;
 };
-
-int copy_user_path(char **pathp, const char *user)
-{
-	char *dst;
-	ssize_t len;
-
-	if (pathp)
-		*pathp = NULL;
-	if (!pathp)
-		return -EINVAL;
-	if (!user)
-		return -EFAULT;
-
-	dst = get_free_page(0);
-	if (!dst)
-		return -ENOMEM;
-
-	len = strncpy_from_user(dst, user, VFS_PATH_MAX);
-	if (len < 0) {
-		free_page(dst, 0);
-		return (int)len;
-	}
-	if (len == 0) {
-		free_page(dst, 0);
-		return -ENOENT;
-	}
-
-	*pathp = dst;
-	return 0;
-}
-
-int dirfd_path_base(int dfd, const char *path, struct dentry **basep)
-{
-	struct file *file;
-	int ret = 0;
-
-	if (basep)
-		*basep = NULL;
-	if (!basep)
-		return -EINVAL;
-	if (!path)
-		return -EFAULT;
-	if (path[0] == '/' || dfd == AT_FDCWD)
-		return 0;
-
-	file = fd_get(dfd);
-	if (!file)
-		return -EBADF;
-	if (!file->f_dentry || !file->f_inode ||
-	    !S_ISDIR(file->f_inode->i_mode)) {
-		ret = -ENOTDIR;
-		goto out;
-	}
-
-	dget(file->f_dentry);
-	*basep = file->f_dentry;
-
-out:
-	file_put(file);
-	return ret;
-}
 
 static uint32_t apply_umask(uint32_t mode)
 {
@@ -347,7 +274,7 @@ ssize_t sys_getdents64(struct trap_frame *tf)
 	char *dirp = (char *)tf->a1;
 	size_t count = tf->a2;
 	struct file *file = fd_get(fd);
-	char kbuf[WRITE_BUF_SIZE];
+	char kbuf[SYS_FILE_BUF_SIZE];
 	struct getdents_ctx ctx;
 	loff_t start;
 	int ret;

@@ -8,31 +8,19 @@
 #include <kernel/elf.h>
 #include <kernel/errno.h>
 #include <kernel/buddy.h>
+#include <kernel/exec.h>
 #include <kernel/fdtable.h>
 #include <kernel/fs.h>
 #include <kernel/mm.h>
 #include <kernel/printk.h>
 #include <kernel/slab.h>
 #include <kernel/string.h>
-#include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <kernel/vfs.h>
 #include <asm/csr.h>
 #include <asm/page.h>
 #include <asm/pte.h>
 #include <asm/trap.h>
-
-#define EXEC_MAX_ARGS	 16
-#define EXEC_MAX_ARG_LEN 128
-#define EXEC_MAX_ENVS	 16
-#define EXEC_MAX_ENV_LEN 128
-
-struct exec_args_envp {
-	int argc;
-	char argv[EXEC_MAX_ARGS][EXEC_MAX_ARG_LEN];
-	int envc;
-	char envp[EXEC_MAX_ENVS][EXEC_MAX_ENV_LEN];
-};
 
 struct exec_image {
 	struct file *file;
@@ -78,99 +66,6 @@ static uint32_t elf_flags_to_vma(uint32_t p_flags)
 		flags |= VM_EXEC;
 
 	return flags;
-}
-
-static int copy_user_string(char *dst, const char *user, size_t max_len)
-{
-	ssize_t len = strncpy_from_user(dst, user, max_len);
-
-	if (len == -ENAMETOOLONG)
-		return -E2BIG;
-	return len < 0 ? (int)len : 0;
-}
-
-static int copy_arg_array(const char *const *user_array,
-			  struct exec_args_envp *args)
-{
-	args->argc = 0;
-
-	if (!user_array)
-		return 0;
-
-	for (int i = 0; i < EXEC_MAX_ARGS; i++) {
-		const char *user_string;
-
-		if (copy_from_user(&user_string, &user_array[i],
-				   sizeof(user_string)) != 0)
-			return -EFAULT;
-		if (!user_string)
-			return 0;
-
-		int ret = copy_user_string(args->argv[i], user_string,
-					   EXEC_MAX_ARG_LEN);
-		if (ret < 0)
-			return ret;
-
-		args->argc++;
-	}
-
-	const char *extra;
-	if (copy_from_user(&extra, &user_array[EXEC_MAX_ARGS], sizeof(extra)) !=
-	    0)
-		return -EFAULT;
-	if (extra)
-		return -E2BIG;
-
-	return 0;
-}
-
-static int copy_env_array(const char *const *user_array,
-			  struct exec_args_envp *args)
-{
-	args->envc = 0;
-
-	if (!user_array)
-		return 0;
-
-	for (int i = 0; i < EXEC_MAX_ENVS; i++) {
-		const char *user_string;
-
-		if (copy_from_user(&user_string, &user_array[i],
-				   sizeof(user_string)) != 0)
-			return -EFAULT;
-		if (!user_string)
-			return 0;
-
-		int ret = copy_user_string(args->envp[i], user_string,
-					   EXEC_MAX_ENV_LEN);
-		if (ret < 0)
-			return ret;
-
-		args->envc++;
-	}
-
-	const char *extra;
-	if (copy_from_user(&extra, &user_array[EXEC_MAX_ENVS], sizeof(extra)) !=
-	    0)
-		return -EFAULT;
-	if (extra)
-		return -E2BIG;
-
-	return 0;
-}
-
-static int copy_exec_args(const char *const *uargv, const char *const *uenvp,
-			  struct exec_args_envp *args)
-{
-	int ret;
-
-	memset(args, 0, sizeof(*args));
-
-	ret = copy_arg_array(uargv, args);
-	if (ret < 0)
-		return ret;
-
-	return copy_env_array(uenvp, args);
 }
 
 static int open_exec_image(const char *path, struct exec_image *image)
@@ -669,68 +564,33 @@ void exec_user_path(const char *path)
 	strncpy(args.argv[0], path, EXEC_MAX_ARG_LEN - 1);
 	args.argv[0][EXEC_MAX_ARG_LEN - 1] = '\0';
 
-	struct exec_image image;
-	int ret = open_exec_image(path, &image);
-	if (ret < 0)
-		panic("exec: open %s failed (%d)", path, ret);
-
-	struct mm_struct *mm;
-	vaddr_t entry;
-	vaddr_t sp;
-	ret = load_elf_file(&image, &args, &mm, &entry, &sp);
-	close_exec_image(&image);
-	if (ret < 0)
-		panic("exec: load %s failed (%d)", path, ret);
-
 	struct trap_frame tf_storage;
-	install_exec_mm(mm, &tf_storage, entry, sp);
+	int ret = kernel_execve(path, &args, &tf_storage);
+	if (ret < 0)
+		panic("exec: %s failed (%d)", path, ret);
 
 	trapret_to_user(&tf_storage);
 }
 
-ssize_t sys_execve(struct trap_frame *tf)
+int kernel_execve(const char *path, const struct exec_args_envp *args,
+		  struct trap_frame *tf)
 {
-	const char *upath = (const char *)tf->a0;
-	const char *const *uargv = (const char *const *)tf->a1;
-	const char *const *uenvp = (const char *const *)tf->a2;
-	char *path;
-	ssize_t path_len;
 	int ret;
 
+	if (!path || !args || !tf)
+		return -EINVAL;
 	if (task_group_has_other_threads(current))
 		return -EINVAL;
 
-	path = get_free_page(0);
-	if (!path)
-		return -ENOMEM;
-
-	path_len = strncpy_from_user(path, upath, VFS_PATH_MAX);
-	if (path_len < 0) {
-		free_page(path, 0);
-		return (int)path_len;
-	}
-	if (path_len == 0) {
-		free_page(path, 0);
-		return -ENOENT;
-	}
-
-	struct exec_args_envp args;
-	ret = copy_exec_args(uargv, uenvp, &args);
-	if (ret < 0) {
-		free_page(path, 0);
-		return ret;
-	}
-
 	struct exec_image image;
 	ret = open_exec_image(path, &image);
-	free_page(path, 0);
 	if (ret < 0)
 		return ret;
 
 	struct mm_struct *mm;
 	vaddr_t entry;
 	vaddr_t sp;
-	ret = load_elf_file(&image, &args, &mm, &entry, &sp);
+	ret = load_elf_file(&image, args, &mm, &entry, &sp);
 	close_exec_image(&image);
 	if (ret < 0)
 		return ret;
