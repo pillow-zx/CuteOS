@@ -138,7 +138,7 @@ void test_sighand_struct_copy_and_share(void)
 
 		current = parent;
 		parent->blocked = signal_mask(SIGUSR2);
-		TEST_ASSERT_EQ(signals_clone(child, false, false), 0);
+		TEST_ASSERT_EQ(signals_clone(child, false, false, false), 0);
 		TEST_ASSERT(parent->sighand != child->sighand);
 		TEST_ASSERT(parent->signal != child->signal);
 		TEST_ASSERT_EQ(child->blocked, signal_mask(SIGUSR2));
@@ -164,7 +164,7 @@ void test_sighand_struct_copy_and_share(void)
 		TEST_ASSERT_NOT_NULL(child);
 
 		current = parent;
-		TEST_ASSERT_EQ(signals_clone(child, true, true), 0);
+		TEST_ASSERT_EQ(signals_clone(child, true, true, false), 0);
 		TEST_ASSERT_EQ(parent->sighand, child->sighand);
 		TEST_ASSERT_EQ(parent->signal, child->signal);
 
@@ -203,7 +203,7 @@ void test_signal_struct_pending(void)
 		TEST_ASSERT_NOT_NULL(child);
 
 		current = parent;
-		TEST_ASSERT_EQ(signals_clone(child, true, true), 0);
+		TEST_ASSERT_EQ(signals_clone(child, true, true, false), 0);
 		TEST_ASSERT_EQ(send_signal(SIGUSR1, child), 0);
 		TEST_ASSERT_EQ(child->pending, signal_mask(SIGUSR1));
 		TEST_ASSERT_EQ(parent->pending, (uint64_t)0);
@@ -242,7 +242,7 @@ void test_signal_struct_rlimits_copy(void)
 		current = parent;
 		parent->signal->rlimits[RLIMIT_NOFILE].rlim_cur = 16;
 		parent->signal->rlimits[RLIMIT_NOFILE].rlim_max = 16;
-		TEST_ASSERT_EQ(signals_clone(child, false, false), 0);
+		TEST_ASSERT_EQ(signals_clone(child, false, false, false), 0);
 		TEST_ASSERT(parent->signal != child->signal);
 		TEST_ASSERT_EQ(child->signal->rlimits[RLIMIT_NOFILE].rlim_cur,
 			       (uint64_t)16);
