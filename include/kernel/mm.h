@@ -142,6 +142,20 @@ ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot,
  */
 int mm_munmap(struct mm_struct *mm, uintptr_t addr, size_t length);
 
+int mm_madvise(struct mm_struct *mm, uintptr_t addr, size_t len, int advice);
+
+/*
+ * mm_mprotect - 修改地址范围内 VMA 权限并更新 PTE
+ * @mm:   进程地址空间描述符
+ * @addr: 起始地址（必须页对齐）
+ * @len:  字节长度（按页向上取整）
+ * @prot: PROT_READ | PROT_WRITE | PROT_EXEC 的组合
+ *
+ * 在边界处分裂 VMA，更新受影响 VMA 的 vm_flags，并对已映射的页
+ * 更新 PTE 权限位后刷新 TLB。
+ */
+int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot);
+
 /* ---- 用户空间安全访问（uaccess） ---- */
 
 /*

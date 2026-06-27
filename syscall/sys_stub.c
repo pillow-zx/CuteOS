@@ -116,13 +116,6 @@ ssize_t sys_mremap(struct trap_frame *tf)
 	return -ENOSYS;
 }
 
-ssize_t sys_mprotect(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(mm): 需要按 VMA 范围修改权限并刷新 TLB。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_mlock(struct trap_frame *tf)
 {
 	(void)tf;
@@ -134,27 +127,6 @@ ssize_t sys_munlock(struct trap_frame *tf)
 {
 	(void)tf;
 	/* TODO(mm): 需要 page pin/unevictable 语义；当前也没有换页。 */
-	return -ENOSYS;
-}
-
-ssize_t sys_mincore(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(mm): 需要查询用户页表和 VMA resident 状态。 */
-	return -ENOSYS;
-}
-
-ssize_t sys_madvise(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(mm): 需要 VMA advice 状态和页回收策略。 */
-	return -ENOSYS;
-}
-
-ssize_t sys_renameat2(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(vfs): 需要 VFS rename 操作和 EXT2 目录项原子更新。 */
 	return -ENOSYS;
 }
 

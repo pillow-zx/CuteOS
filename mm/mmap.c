@@ -22,6 +22,7 @@
 #include <kernel/signal.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
+#include <uapi/mman.h>
 #include <asm/page.h>
 #include <asm/pte.h>
 #include <asm/csr.h>
@@ -206,7 +207,7 @@ static void unmap_user_pages(pte_t *pgd, uintptr_t start, uintptr_t end)
 	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
 		pte_t *pte = walk_page_table(pgd, va, false);
 
-		if (!pte || !pte_present(*pte))
+		if (!pte || !pte_user_page(*pte))
 			continue;
 
 		paddr_t pa = pte_to_pa(*pte);
@@ -235,6 +236,25 @@ static int vma_munmap_slots_needed(struct mm_struct *mm, uintptr_t start,
 		unmap_end = end < vma->vm_end ? end : vma->vm_end;
 
 		if (unmap_start > vma->vm_start && unmap_end < vma->vm_end)
+			needed++;
+	}
+
+	return needed;
+}
+
+static int vma_mprotect_slots_needed(struct mm_struct *mm, uintptr_t start,
+				     uintptr_t end)
+{
+	int needed = 0;
+
+	for (int i = 0; i < NR_VMA; i++) {
+		struct vm_area_struct *vma = &mm->vma[i];
+
+		if (!vma_overlaps(vma, start, end))
+			continue;
+		if (vma_contains_split_addr(vma, start))
+			needed++;
+		if (vma_contains_split_addr(vma, end))
 			needed++;
 	}
 
@@ -304,7 +324,7 @@ static void free_user_page_tables(pte_t *pgd)
 
 			pte_t *pt = (pte_t *)__va(pte_to_pa(pmd[j]));
 			for (int k = 0; k < 512; k++) {
-				if (!pte_present(pt[k]))
+				if (!pte_user_page(pt[k]))
 					continue;
 
 				vaddr_t va = ((vaddr_t)i << 30) |
@@ -403,7 +423,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 
 		for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
 			pte_t *pte = walk_page_table(oldmm->pgd, va, false);
-			if (!pte || !pte_present(*pte))
+			if (!pte || !pte_user_page(*pte))
 				continue;
 
 			uintptr_t old_pa = pte_to_pa(*pte);
@@ -656,6 +676,185 @@ int mm_munmap(struct mm_struct *mm, uintptr_t addr, size_t length)
 		if (ret < 0)
 			goto out;
 	}
+
+out:
+	mm_unlock(mm);
+	return ret;
+}
+
+static bool vma_is_anonymous(const struct vm_area_struct *vma)
+{
+	return vma->vm_type == VMA_HEAP || vma->vm_type == VMA_STACK ||
+	       vma->vm_type == VMA_MMAP;
+}
+
+static void madvise_dontneed_range(struct mm_struct *mm, uintptr_t start,
+				   uintptr_t end)
+{
+	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
+		pte_t *pte = walk_page_table(mm->pgd, va, false);
+
+		if (!pte || !pte_user_page(*pte))
+			continue;
+
+		paddr_t pa = pte_to_pa(*pte);
+		if (pa >= DRAM_BASE && pa < DRAM_BASE + DRAM_SIZE)
+			free_page(__va(pa), 0);
+		*pte = 0;
+		sfence_vma_addr(va);
+	}
+}
+
+int mm_madvise(struct mm_struct *mm, uintptr_t addr, size_t len, int advice)
+{
+	uintptr_t end;
+	int ret = 0;
+
+	if (!mm)
+		return -EINVAL;
+	if (addr & (PAGE_SIZE - 1))
+		return -EINVAL;
+	if (len == 0)
+		return 0;
+	if (range_overflows(addr, len, &end))
+		return -EINVAL;
+	if (end > TASK_SIZE)
+		return -EINVAL;
+
+	mm_lock(mm);
+
+	for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {
+		struct vm_area_struct *vma = find_vma(mm, va);
+
+		if (!vma) {
+			ret = -ENOMEM;
+			goto out;
+		}
+		if (advice == MADV_DONTNEED && !vma_is_anonymous(vma)) {
+			ret = -EINVAL;
+			goto out;
+		}
+	}
+
+	if (advice == MADV_DONTNEED)
+		madvise_dontneed_range(mm, addr, end);
+
+out:
+	mm_unlock(mm);
+	return ret;
+}
+
+/* prot (PROT_READ | PROT_WRITE | PROT_EXEC) → vm_flags */
+static uint32_t prot_to_vm_flags(int prot)
+{
+	uint32_t flags = 0;
+
+	if (prot & PROT_READ)  flags |= VM_READ;
+	if (prot & PROT_WRITE) flags |= VM_READ | VM_WRITE;
+	if (prot & PROT_EXEC)  flags |= VM_EXEC;
+	return flags;
+}
+
+/* prot → leaf PTE permission bits (user pages) */
+static pte_t prot_to_pte_flags(int prot)
+{
+	pte_t flags = PTE_V | PTE_U | PTE_A | PTE_D;
+
+	if (prot & PROT_READ)  flags |= PTE_R;
+	if (prot & PROT_WRITE) flags |= PTE_R | PTE_W;
+	if (prot & PROT_EXEC)  flags |= PTE_X;
+	return flags;
+}
+
+/*
+ * mm_mprotect - 修改地址范围内 VMA 的访问权限并更新页表 PTE。
+ *
+ * 需要在范围边界分裂 VMA（最多 2 次），更新 vm_flags，然后对所有已映射
+ * 的页更新 PTE 权限位并刷新 TLB。
+ */
+int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
+{
+	uint32_t new_vm_flags;
+	pte_t    new_pte_flags;
+	uintptr_t end;
+	int ret = 0;
+
+	if (!mm)
+		return -EINVAL;
+	if (addr & (PAGE_SIZE - 1))
+		return -EINVAL;
+	if (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC))
+		return -EINVAL;
+	if (len == 0)
+		return 0;
+	if (len > TASK_SIZE)
+		return -EINVAL;
+
+	len = (len + PAGE_SIZE - 1) & ~(size_t)(PAGE_SIZE - 1);
+	if (range_overflows(addr, len, &end))
+		return -EINVAL;
+	if (end > TASK_SIZE)
+		return -EINVAL;
+
+	new_vm_flags  = prot_to_vm_flags(prot);
+	new_pte_flags = prot_to_pte_flags(prot);
+
+	mm_lock(mm);
+
+	/* Entire range must be backed by VMAs. */
+	for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {
+		if (!find_vma(mm, va)) {
+			ret = -ENOMEM;
+			goto out;
+		}
+	}
+
+	if (vma_mprotect_slots_needed(mm, addr, end) >
+	    vma_free_slot_count(mm)) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	/* Split at addr: any VMA that strictly contains addr gets split. */
+	for (int i = 0; i < NR_VMA; i++) {
+		ret = vma_split_at(mm, &mm->vma[i], addr);
+		if (ret < 0)
+			goto out;
+	}
+
+	/* Split at end: any VMA that strictly contains end gets split. */
+	for (int i = 0; i < NR_VMA; i++) {
+		ret = vma_split_at(mm, &mm->vma[i], end);
+		if (ret < 0)
+			goto out;
+	}
+
+	/* Update vm_flags for every VMA fully within [addr, end). */
+	for (int i = 0; i < NR_VMA; i++) {
+		struct vm_area_struct *v = &mm->vma[i];
+
+		if (!v->used)
+			continue;
+		if (v->vm_start >= addr && v->vm_end <= end)
+			v->vm_flags = new_vm_flags;
+	}
+
+	/* Update PTE permissions for already-mapped pages. */
+	for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {
+		pte_t *pte = walk_page_table(mm->pgd, va, false);
+
+		if (!pte || *pte == 0)
+			continue;
+		if (prot == PROT_NONE) {
+			*pte &= ~PTE_V;
+		} else {
+			uintptr_t pa = PTE_TO_PA(*pte);
+			*pte = PA_TO_PTE(pa) | new_pte_flags;
+		}
+	}
+
+	sfence_vma_all();
+	vma_merge_all(mm);
 
 out:
 	mm_unlock(mm);

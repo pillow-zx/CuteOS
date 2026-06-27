@@ -60,6 +60,11 @@ static __always_inline bool pte_present(pte_t pte)
 	return (pte & PTE_V) != 0;
 }
 
+static __always_inline bool pte_user_page(pte_t pte)
+{
+	return (pte & PTE_U) != 0 && PTE_TO_PA(pte) != 0;
+}
+
 static __always_inline paddr_t pte_to_pa(pte_t pte)
 {
 	return PTE_TO_PA(pte);

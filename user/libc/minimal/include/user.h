@@ -697,6 +697,16 @@ static inline long sigprocmask(int how, const unsigned long *set,
 		       sizeof(unsigned long));
 }
 
+static inline long sigaltstack(const struct stack_t *ss, struct stack_t *old_ss)
+{
+	return syscall(SYS_sigaltstack, (long)ss, (long)old_ss);
+}
+
+static inline long raise(int sig)
+{
+	return tgkill(getpid(), gettid(), sig);
+}
+
 static inline long fork(void)
 {
 	return syscall(SYS_clone, SIGCHLD, 0, 0, 0, 0);
