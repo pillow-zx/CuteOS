@@ -16,9 +16,8 @@
 #include <kernel/sync.h>
 #include <kernel/refcount.h>
 #include <kernel/types.h>
+#include <asm/trap.h>
 #include <asm/pte.h>
-
-struct trap_frame; /* 前向声明，避免循环依赖 */
 
 /* ---- VMA 权限标志 ---- */
 
@@ -117,7 +116,7 @@ struct vm_area_struct *find_vma(struct mm_struct *mm, uintptr_t addr);
  * 不允许缩小堆。仅更新 VMA，物理页由缺页处理按需分配。
  * 返回新的 brk 值，失败返回当前 brk 值。
  */
-uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr);
+uintptr_t __must_check mm_brk(struct mm_struct *mm, uintptr_t addr);
 
 /*
  * mm_mmap - 创建匿名用户映射
@@ -129,8 +128,8 @@ uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr);
  *
  * 返回映射起始地址，失败返回负 errno。
  */
-ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot,
-		int flags);
+ssize_t __must_check mm_mmap(struct mm_struct *mm, uintptr_t addr,
+			     size_t length, int prot, int flags);
 
 /*
  * mm_munmap - 解除用户映射
@@ -140,9 +139,11 @@ ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot,
  *
  * 释放范围内已经分配的物理页，并调整受影响的 VMA。
  */
-int mm_munmap(struct mm_struct *mm, uintptr_t addr, size_t length);
+int __must_check mm_munmap(struct mm_struct *mm, uintptr_t addr,
+			   size_t length);
 
-int mm_madvise(struct mm_struct *mm, uintptr_t addr, size_t len, int advice);
+int __must_check mm_madvise(struct mm_struct *mm, uintptr_t addr, size_t len,
+			    int advice);
 
 /*
  * mm_mprotect - 修改地址范围内 VMA 权限并更新 PTE
@@ -154,7 +155,8 @@ int mm_madvise(struct mm_struct *mm, uintptr_t addr, size_t len, int advice);
  * 在边界处分裂 VMA，更新受影响 VMA 的 vm_flags，并对已映射的页
  * 更新 PTE 权限位后刷新 TLB。
  */
-int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot);
+int __must_check mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len,
+			     int prot);
 
 /* ---- 用户空间安全访问（uaccess） ---- */
 
@@ -165,8 +167,26 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot);
  *
  * 返回 true 表示合法，false 表示非法。
  */
-bool access_ok(const void *addr, size_t size);
-int user_range_probe(const void *addr, size_t size, bool write);
+bool __must_check access_ok(const void *addr, size_t size);
+
+#define USER_FAULT_READ	 0
+#define USER_FAULT_WRITE 1
+#define USER_FAULT_EXEC	 2
+
+/*
+ * fault_in_user_range - 预缺页用户地址范围
+ * @mm:     目标用户地址空间
+ * @addr:   用户空间起始地址
+ * @size:   要访问的字节数
+ * @access: 预期访问类型
+ *
+ * 仅执行 VMA/PTE 校验和合法 lazy allocation。失败返回负 errno，
+ * 不发送 signal、不退出当前任务。
+ */
+int __must_check fault_in_user_range(struct mm_struct *mm, uintptr_t addr,
+				     size_t size, int access);
+
+int __must_check user_range_probe(const void *addr, size_t size, bool write);
 
 /*
  * copy_to_user - 从内核空间复制数据到用户空间
@@ -176,7 +196,7 @@ int user_range_probe(const void *addr, size_t size, bool write);
  *
  * 返回未能复制的字节数（0 表示全部成功）。
  */
-size_t copy_to_user(void *to, const void *from, size_t n);
+size_t __must_check copy_to_user(void *to, const void *from, size_t n);
 
 /*
  * copy_from_user - 从用户空间复制数据到内核空间
@@ -186,7 +206,7 @@ size_t copy_to_user(void *to, const void *from, size_t n);
  *
  * 返回未能复制的字节数（0 表示全部成功）。
  */
-size_t copy_from_user(void *to, const void *from, size_t n);
+size_t __must_check copy_from_user(void *to, const void *from, size_t n);
 
 /*
  * strncpy_from_user - 复制 NUL 结尾的用户字符串到内核缓冲区
@@ -196,11 +216,8 @@ size_t copy_from_user(void *to, const void *from, size_t n);
  *
  * 成功时返回不含 NUL 的字符串长度；失败返回负 errno。
  */
-ssize_t strncpy_from_user(char *dst, const char *src, size_t maxlen);
-
-/* ---- 缺页处理 ---- */
-
-struct trap_frame;
+ssize_t __must_check strncpy_from_user(char *dst, const char *src,
+				       size_t maxlen);
 
 /*
  * do_page_fault - 缺页异常处理总入口

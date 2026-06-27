@@ -9,8 +9,6 @@
 #include <kernel/refcount.h>
 #include <kernel/sync.h>
 
-struct task_struct;
-
 struct files_struct {
 	refcount_t refcount;
 	mutex_t lock;

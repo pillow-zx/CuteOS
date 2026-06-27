@@ -12,7 +12,6 @@
 
 #include <kernel/list.h>
 
-struct task_struct;
 
 struct wait_queue_head {
 	struct list_head task_list;

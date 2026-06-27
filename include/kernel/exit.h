@@ -9,9 +9,7 @@
  */
 
 #include <kernel/types.h>
-
-struct task_struct;
-struct trap_frame;
+#include <kernel/task.h>
 
 /*
  * do_exit - 终止当前进程

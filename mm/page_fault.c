@@ -25,6 +25,7 @@
 
 #include <kernel/mm.h>
 #include <kernel/buddy.h>
+#include <kernel/errno.h>
 #include <kernel/exit.h>
 #include <kernel/printk.h>
 #include <kernel/signal.h>
@@ -74,35 +75,52 @@ static const char *fault_type_name(uint64_t scause)
 	}
 }
 
+static int scause_to_access(uint64_t scause)
+{
+	switch (scause) {
+	case EXC_INST_PAGE_FAULT:
+		return USER_FAULT_EXEC;
+	case EXC_LOAD_PAGE_FAULT:
+		return USER_FAULT_READ;
+	case EXC_STORE_PAGE_FAULT:
+		return USER_FAULT_WRITE;
+	default:
+		return USER_FAULT_READ;
+	}
+}
+
 /*
- * check_vma_permission - 检查缺页类型是否与 VMA 权限匹配
- * @scause: 异常码（已剥离中断位）
+ * check_vma_permission - 检查访问类型是否与 VMA 权限匹配
+ * @access: 访问类型
  * @vma:    匹配到的 VMA
  *
  * 返回 true 表示权限匹配，false 表示权限冲突。
  */
-static bool check_vma_permission(uint64_t scause, struct vm_area_struct *vma)
+static bool check_vma_permission(int access, struct vm_area_struct *vma)
 {
-	switch (scause) {
-	case EXC_INST_PAGE_FAULT:
+	switch (access) {
+	case USER_FAULT_EXEC:
 		return (vma->vm_flags & VM_EXEC) != 0;
-	case EXC_LOAD_PAGE_FAULT:
+	case USER_FAULT_READ:
 		return (vma->vm_flags & VM_READ) != 0;
-	case EXC_STORE_PAGE_FAULT:
+	case USER_FAULT_WRITE:
 		return (vma->vm_flags & VM_WRITE) != 0;
 	default:
 		return false;
 	}
 }
 
-static bool pte_allows_fault(uint64_t scause, pte_t pte)
+static bool pte_allows_fault(int access, pte_t pte)
 {
-	switch (scause) {
-	case EXC_INST_PAGE_FAULT:
+	if (!pte_present(pte) || !(pte & PTE_U))
+		return false;
+
+	switch (access) {
+	case USER_FAULT_EXEC:
 		return (pte & PTE_X) != 0;
-	case EXC_LOAD_PAGE_FAULT:
+	case USER_FAULT_READ:
 		return (pte & PTE_R) != 0;
-	case EXC_STORE_PAGE_FAULT:
+	case USER_FAULT_WRITE:
 		return (pte & PTE_W) != 0;
 	default:
 		return false;
@@ -120,7 +138,103 @@ static void signal_or_exit_segv(bool from_user_mode)
 	do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 }
 
+static int fault_in_user_page_locked(struct mm_struct *mm,
+				     uintptr_t fault_addr,
+				     int access, pte_t *fault_pte)
+{
+	struct vm_area_struct *vma = find_vma(mm, fault_addr);
+
+	if (!vma)
+		return -EFAULT;
+	if (!check_vma_permission(access, vma))
+		return -EFAULT;
+
+	vaddr_t page_addr = fault_addr & PAGE_MASK;
+	pte_t *existing = walk_page_table(mm->pgd, page_addr, false);
+
+	if (existing && pte_present(*existing)) {
+		if (pte_allows_fault(access, *existing)) {
+			sfence_vma_addr(page_addr);
+			return 0;
+		}
+
+		if (fault_pte)
+			*fault_pte = *existing;
+		return -EFAULT;
+	}
+
+	void *page = get_free_page(0);
+	if (!page)
+		return -ENOMEM;
+
+	memset(page, 0, PAGE_SIZE);
+	map_page(mm->pgd, page_addr, __pa((uintptr_t)page),
+		 vma_flags_to_pte(vma->vm_flags));
+	sfence_vma_addr(page_addr);
+	return 0;
+}
+
 /* ---- 公共接口 ---- */
+
+int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size,
+			int access)
+{
+	uintptr_t range_end;
+
+	if (size == 0)
+		return 0;
+	if (!mm)
+		return -EFAULT;
+	if (!access_ok((const void *)addr, size))
+		return -EFAULT;
+
+	range_end = addr + size;
+	for (uintptr_t cursor = addr; cursor < range_end;) {
+		struct vm_area_struct *vma;
+		uintptr_t segment_end;
+		uintptr_t va;
+		uintptr_t page_end;
+		int ret = 0;
+
+		mm_lock(mm);
+		vma = find_vma(mm, cursor);
+		if (!vma) {
+			mm_unlock(mm);
+			return -EFAULT;
+		}
+		if (!check_vma_permission(access, vma)) {
+			mm_unlock(mm);
+			return -EFAULT;
+		}
+
+		segment_end = vma->vm_end < range_end ? vma->vm_end :
+						       range_end;
+		if (segment_end <= cursor) {
+			mm_unlock(mm);
+			return -EFAULT;
+		}
+
+		va = cursor & PAGE_MASK;
+		page_end = (segment_end + PAGE_SIZE - 1) & PAGE_MASK;
+		while (va < page_end) {
+			uintptr_t fault_addr = va < cursor ? cursor : va;
+
+			ret = fault_in_user_page_locked(mm, fault_addr,
+							access, NULL);
+			if (ret < 0)
+				break;
+			va += PAGE_SIZE;
+		}
+		mm_unlock(mm);
+
+		if (ret < 0)
+			return ret;
+
+		cursor = segment_end;
+	}
+
+	return 0;
+}
 
 /*
  * do_page_fault - 缺页异常处理总入口
@@ -142,6 +256,9 @@ void do_page_fault(struct trap_frame *tf)
 	uint64_t scause = tf->scause & ~SCAUSE_IRQ_FLAG;
 	bool from_user_mode = from_user(tf);
 	struct mm_struct *mm = task_mm(current);
+	int access = scause_to_access(scause);
+	pte_t fault_pte = 0;
+	int ret;
 
 	/* 内核线程没有 mm，不应发生缺页 */
 	if (!mm) {
@@ -152,9 +269,23 @@ void do_page_fault(struct trap_frame *tf)
 	}
 
 	mm_lock(mm);
+	ret = fault_in_user_page_locked(mm, fault_addr, access, &fault_pte);
+	mm_unlock(mm);
 
-	struct vm_area_struct *vma = find_vma(mm, fault_addr);
+	if (ret == 0)
+		return;
 
+	if (ret == -ENOMEM) {
+		pr_err("page fault: OOM at addr=%p pid=%d\n",
+		       (void *)fault_addr, current->pid);
+		do_exit(1);
+		unreachable();
+	}
+
+	struct vm_area_struct *vma;
+
+	mm_lock(mm);
+	vma = find_vma(mm, fault_addr);
 	if (!vma) {
 		mm_unlock(mm);
 		pr_warn("page fault: illegal access (no VMA) "
@@ -167,7 +298,7 @@ void do_page_fault(struct trap_frame *tf)
 	}
 
 	/* 检查权限 */
-	if (!check_vma_permission(scause, vma)) {
+	if (!check_vma_permission(access, vma)) {
 		uint32_t vm_flags = vma->vm_flags;
 
 		mm_unlock(mm);
@@ -180,52 +311,12 @@ void do_page_fault(struct trap_frame *tf)
 		signal_or_exit_segv(from_user_mode);
 		return;
 	}
-
-	/* 页对齐的虚拟地址 */
-	vaddr_t page_addr = fault_addr & PAGE_MASK;
-
-	/* 防御性检查：是否已映射 */
-	pte_t *existing = walk_page_table(mm->pgd, page_addr, false);
-	if (existing && (*existing & PTE_V)) {
-		if (pte_allows_fault(scause, *existing)) {
-			/*
-			 * 已有合法映射但仍然缺页，可能是 TLB 一致性问题。
-			 * 刷新 TLB 后直接返回，让指令重新执行。
-			 */
-			sfence_vma_addr(page_addr);
-			mm_unlock(mm);
-			return;
-		}
-
-		pte_t pte = *existing;
-		mm_unlock(mm);
-		pr_warn("page fault: mapped page permission denied "
-		       "type=%s addr=%p pte=0x%lx sepc=%p origin=%s pid=%d\n",
-		       fault_type_name(scause), (void *)fault_addr,
-		       (size_t)pte, (void *)tf->sepc,
-		       from_user_mode ? "user" : "kernel", current->pid);
-		signal_or_exit_segv(from_user_mode);
-		return;
-	}
-
-	/* 分配物理页 */
-	void *page = get_free_page(0);
-	if (!page) {
-		mm_unlock(mm);
-		pr_err("page fault: OOM at addr=%p pid=%d\n",
-		       (void *)fault_addr, current->pid);
-		do_exit(1);
-		unreachable();
-	}
-
-	/* 清零物理页（防止用户看到内核残留数据） */
-	memset(page, 0, PAGE_SIZE);
-
-	/* 建立映射 */
-	pte_t perm = vma_flags_to_pte(vma->vm_flags);
-	map_page(mm->pgd, page_addr, __pa((uintptr_t)page), perm);
-
-	/* 刷新 TLB 使新映射生效 */
-	sfence_vma_addr(page_addr);
 	mm_unlock(mm);
+
+	pr_warn("page fault: mapped page permission denied "
+	       "type=%s addr=%p pte=0x%lx sepc=%p origin=%s pid=%d\n",
+	       fault_type_name(scause), (void *)fault_addr, (size_t)fault_pte,
+	       (void *)tf->sepc, from_user_mode ? "user" : "kernel",
+	       current->pid);
+	signal_or_exit_segv(from_user_mode);
 }

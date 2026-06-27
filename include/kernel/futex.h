@@ -2,6 +2,7 @@
 #define _CUTEOS_KERNEL_FUTEX_H
 
 #include <kernel/types.h>
+#include <kernel/task.h>
 
 #define FUTEX_WAIT	    0
 #define FUTEX_WAKE	    1
@@ -10,10 +11,6 @@
 #define FUTEX_WAITERS	    0x80000000U
 #define FUTEX_OWNER_DIED    0x40000000U
 #define FUTEX_TID_MASK	    0x3fffffffU
-
-struct mm_struct;
-struct task_struct;
-struct trap_frame;
 
 struct robust_list {
 	struct robust_list *next;

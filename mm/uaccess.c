@@ -8,7 +8,8 @@
  *
  * 当前实现：
  *   copy_to_user / copy_from_user 先经 user_range_probe 预探整个范围：
- *   按 VMA 分段逐页校验权限，合法但未映射的页通过 do_page_fault 按需 fault-in；
+ *   按 VMA 分段逐页校验权限，合法但未映射的页通过 fault_in_user_range
+ *   按需 fault-in；
  *   范围非法（无 VMA / 权限不符 / 无法映射）时返回未拷贝字节数 n，
  *   调用方据此返回 -EFAULT，而非触发内核崩溃。
  *
@@ -29,9 +30,7 @@
 #include <kernel/string.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
-#include <asm/csr.h>
 #include <asm/page.h>
-#include <asm/trap.h>
 
 bool access_ok(const void *addr, size_t size)
 {
@@ -54,21 +53,10 @@ static size_t min_size(size_t a, size_t b)
 	return a < b ? a : b;
 }
 
-static bool pte_allows_user_access(pte_t pte, bool write)
-{
-	if (!pte_present(pte) || !(pte & PTE_U))
-		return false;
-	if (write)
-		return (pte & PTE_W) != 0;
-	return (pte & PTE_R) != 0;
-}
-
 int user_range_probe(const void *addr, size_t size, bool write)
 {
-	uintptr_t range_start;
-	uintptr_t range_end;
-	uint64_t scause;
 	struct mm_struct *mm;
+	int access;
 
 	if (size == 0)
 		return 0;
@@ -78,75 +66,8 @@ int user_range_probe(const void *addr, size_t size, bool write)
 	if (!mm)
 		return -EFAULT;
 
-	range_start = (uintptr_t)addr;
-	range_end = range_start + size;
-	scause = write ? EXC_STORE_PAGE_FAULT : EXC_LOAD_PAGE_FAULT;
-
-	for (uintptr_t cursor = range_start; cursor < range_end;) {
-		struct vm_area_struct *vma;
-		uintptr_t segment_end;
-		uintptr_t va;
-		uintptr_t page_end;
-		uintptr_t fault_addr = 0;
-		bool need_fault = false;
-
-		mm_lock(mm);
-		vma = find_vma(mm, cursor);
-
-		if (!vma) {
-			mm_unlock(mm);
-			return -EFAULT;
-		}
-		if (write) {
-			if (!(vma->vm_flags & VM_WRITE)) {
-				mm_unlock(mm);
-				return -EFAULT;
-			}
-		} else if (!(vma->vm_flags & VM_READ)) {
-			mm_unlock(mm);
-			return -EFAULT;
-		}
-
-		segment_end = vma->vm_end < range_end ? vma->vm_end : range_end;
-		if (segment_end <= cursor) {
-			mm_unlock(mm);
-			return -EFAULT;
-		}
-
-		va = cursor & PAGE_MASK;
-		page_end = (segment_end + PAGE_SIZE - 1) & PAGE_MASK;
-		while (va < page_end) {
-			pte_t *pte = walk_page_table(mm->pgd, va, false);
-
-			if (pte && pte_allows_user_access(*pte, write)) {
-				va += PAGE_SIZE;
-				continue;
-			}
-			if (pte && pte_present(*pte)) {
-				mm_unlock(mm);
-				return -EFAULT;
-			}
-
-			fault_addr = va < cursor ? cursor : va;
-			need_fault = true;
-			break;
-		}
-		mm_unlock(mm);
-
-		if (need_fault) {
-			struct trap_frame probe = {
-				.scause = scause,
-				.stval = fault_addr,
-				.sstatus = SSTATUS_SPIE,
-			};
-			do_page_fault(&probe);
-			continue;
-		}
-
-		cursor = segment_end;
-	}
-
-	return 0;
+	access = write ? USER_FAULT_WRITE : USER_FAULT_READ;
+	return fault_in_user_range(mm, (uintptr_t)addr, size, access);
 }
 
 size_t copy_to_user(void *to, const void *from, size_t n)

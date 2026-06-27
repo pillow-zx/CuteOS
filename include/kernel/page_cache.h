@@ -16,9 +16,8 @@
  */
 
 #include <kernel/page_mapping.h>
+#include <kernel/vfs.h>
 #include <kernel/types.h>
-
-struct inode;
 
 struct page_cache {
 	/* Stable cache identity: this page represents owner[index]. */

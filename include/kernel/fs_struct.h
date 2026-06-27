@@ -9,9 +9,6 @@
 #include <kernel/sync.h>
 #include <kernel/types.h>
 
-struct task_struct;
-struct dentry;
-
 struct fs_struct {
 	refcount_t refcount;
 	mutex_t lock;

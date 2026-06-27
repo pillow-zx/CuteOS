@@ -45,14 +45,6 @@
 #include <asm/page.h>
 #include <asm/trap.h>
 
-/* 前向声明，避免循环依赖 */
-struct mm_struct;
-struct files_struct;
-struct fs_struct;
-struct sighand_struct;
-struct signal_struct;
-struct robust_list_head;
-
 /* ---- 任务状态 ---- */
 
 #define TASK_RUNNING         0x00u /* 可运行或正在执行 */

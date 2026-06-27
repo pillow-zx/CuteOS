@@ -9,11 +9,10 @@
  */
 
 #include <asm/csr.h>
+#include <asm/trap.h>
 #include <kernel/syscall_table.h>
 #include <uapi/mman.h>
 #include <uapi/sched.h>
-
-struct trap_frame;
 
 #define DECLARE_SYSCALL(nr, name, fn) ssize_t fn(struct trap_frame *);
 SYSCALL_TABLE(DECLARE_SYSCALL)
