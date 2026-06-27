@@ -21,10 +21,8 @@
 #include <kernel/fs.h>
 #include <kernel/hash.h>
 #include <kernel/list.h>
-#include <kernel/sched.h>
 #include <kernel/slab.h>
 #include <kernel/string.h>
-#include <kernel/task.h>
 #include <kernel/timer.h>
 
 #define PAGE_CACHE_HASH_BITS 7
@@ -46,21 +44,7 @@ static void page_cache_refresh_block_alias(struct page_mapping *mapping,
 
 static void page_cache_sleep_until(uint64_t deadline)
 {
-	struct timer_wait wait;
-
-	if (deadline <= get_mtime() || !current)
-		return;
-
-	timer_wait_init(&wait, current, deadline);
-	current->state = TASK_INTERRUPTIBLE;
-	timer_wait_start(&wait);
-
-	while (!timer_wait_fired(&wait))
-		schedule();
-
-	(void)timer_wait_cancel(&wait);
-	if (current->state & TASK_ANY_SLEEP)
-		current->state = TASK_RUNNING;
+	(void)timer_sleep_until(deadline, false);
 }
 
 static void page_cache_init_once(void)

@@ -73,8 +73,8 @@ ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 	task = affinity_target_task(pid);
 	if (!task)
 		return -ESRCH;
-	if (task != current && current && current->uid != 0 &&
-	    current->uid != task->uid)
+	if (task != current && current && task_uid(current) != 0 &&
+	    task_uid(current) != task_uid(task))
 		return -EPERM;
 
 	copy_size = cpusetsize < sizeof(mask) ? cpusetsize : sizeof(mask);

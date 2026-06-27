@@ -38,12 +38,12 @@ int vfs_inode_permission(struct inode *inode, uint32_t mask)
 	 * 当前没有 capability 模型。root 简单放行，非 root 按
 	 * owner/group/other 三组选一组权限位检查。
 	 */
-	if (current->uid == 0)
+	if (task_uid(current) == 0)
 		return 0;
 
-	if (current->uid == inode->i_uid)
+	if (task_uid(current) == inode->i_uid)
 		perm = (inode->i_mode >> 6) & 7;
-	else if (current->gid == inode->i_gid)
+	else if (task_gid(current) == inode->i_gid)
 		perm = (inode->i_mode >> 3) & 7;
 	else
 		perm = inode->i_mode & 7;
@@ -376,7 +376,7 @@ void files_install_standard_fds(struct files_struct *files)
 
 static struct files_struct *current_files(void)
 {
-	return current ? current->files : NULL;
+	return task_files(current);
 }
 
 int fd_alloc_flags(struct file *file, int flags)
@@ -532,12 +532,12 @@ int copy_files(struct task_struct *child, bool share)
 		return -EINVAL;
 
 	if (share) {
-		files = current ? current->files : NULL;
+		files = task_files(current);
 		if (!files)
 			return init_files(child);
 		files_get(files);
 	} else {
-		files = files_dup(current ? current->files : NULL);
+		files = files_dup(task_files(current));
 		if (!files)
 			return -ENOMEM;
 	}

@@ -56,6 +56,16 @@ void sched_wakeup(struct task_struct *task)
 	mlfq_wakeup(task);
 }
 
+void sched_wake_task(struct task_struct *task)
+{
+	if (!task)
+		return;
+
+	task_set_state(task, TASK_RUNNING);
+	if (task != current)
+		sched_wakeup(task);
+}
+
 bool sched_has_runnable(void)
 {
 	return !mlfq_empty();

@@ -42,8 +42,8 @@ static void init_new_inode_owner(struct inode *inode)
 	if (!inode)
 		return;
 
-	inode->i_uid = current->uid;
-	inode->i_gid = current->gid;
+	inode->i_uid = task_uid(current);
+	inode->i_gid = task_gid(current);
 	vfs_inode_writeback(inode);
 }
 
@@ -241,7 +241,7 @@ static int follow_symlink(struct dentry *dir, struct dentry *link,
 	target[len] = '\0';
 
 	if (target[0] == '/')
-		base = fs_get_root_dentry(current ? current->fs : NULL);
+		base = fs_get_root_dentry(task_fs(current));
 	else {
 		base = dir;
 		dget(base);
@@ -337,12 +337,12 @@ int path_lookupat_err(struct dentry *base, const char *path, uint32_t flags,
 		return -ENOENT;
 
 	if (*path == '/')
-		start = fs_get_root_dentry(current ? current->fs : NULL);
+		start = fs_get_root_dentry(task_fs(current));
 	else if (base) {
 		start = base;
 		dget(start);
 	} else
-		start = fs_get_cwd_dentry(current ? current->fs : NULL);
+		start = fs_get_cwd_dentry(task_fs(current));
 
 	if (!start)
 		return -ENOENT;
@@ -386,12 +386,12 @@ int path_parent_lookupat_err(struct dentry *base, const char *path, char *name,
 		return -ENOENT;
 
 	if (absolute)
-		parent = fs_get_root_dentry(current ? current->fs : NULL);
+		parent = fs_get_root_dentry(task_fs(current));
 	else if (base) {
 		parent = base;
 		dget(parent);
 	} else
-		parent = fs_get_cwd_dentry(current ? current->fs : NULL);
+		parent = fs_get_cwd_dentry(task_fs(current));
 	if (!parent)
 		return -ENOENT;
 	last = NULL;
@@ -490,7 +490,7 @@ int vfs_chdir_dentry(struct dentry *dentry)
 		return -ENOTDIR;
 	}
 
-	return fs_set_cwd(current ? current->fs : NULL, dentry);
+	return fs_set_cwd(task_fs(current), dentry);
 }
 
 int vfs_create_at(struct dentry *base, const char *path, uint32_t mode,
@@ -787,5 +787,5 @@ void vfs_set_root_dentry(struct dentry *dentry)
 	dget(root_dentry);
 
 	if (current)
-		fs_set_root_if_empty(current->fs, root_dentry);
+		fs_set_root_if_empty(task_fs(current), root_dentry);
 }

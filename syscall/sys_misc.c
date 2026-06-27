@@ -103,10 +103,10 @@ ssize_t sys_setuid(struct trap_frame *tf)
 {
 	uint32_t uid = (uint32_t)tf->a0;
 
-	if (current->uid != 0 && current->uid != uid)
+	if (task_uid(current) != 0 && task_uid(current) != uid)
 		return -EPERM;
 
-	current->uid = uid;
+	task_set_uid(current, uid);
 	return 0;
 }
 
@@ -114,10 +114,10 @@ ssize_t sys_setgid(struct trap_frame *tf)
 {
 	uint32_t gid = (uint32_t)tf->a0;
 
-	if (current->gid != 0 && current->gid != gid)
+	if (task_gid(current) != 0 && task_gid(current) != gid)
 		return -EPERM;
 
-	current->gid = gid;
+	task_set_gid(current, gid);
 	return 0;
 }
 
@@ -163,7 +163,7 @@ ssize_t sys_umask(struct trap_frame *tf)
 {
 	uint32_t mask = (uint32_t)tf->a0 & 0777;
 
-	return fs_set_umask(current ? current->fs : NULL, mask);
+	return fs_set_umask(task_fs(current), mask);
 }
 
 ssize_t sys_sysinfo(struct trap_frame *tf)
@@ -193,6 +193,7 @@ ssize_t sys_prlimit64(struct trap_frame *tf)
 	const struct rlimit64 *unew = (const struct rlimit64 *)tf->a2;
 	struct rlimit64 *uold = (struct rlimit64 *)tf->a3;
 	struct task_struct *task;
+	struct signal_struct *signal;
 	struct rlimit64 new_limit;
 
 	if (resource < 0 || resource >= RLIM_NLIMITS)
@@ -207,7 +208,9 @@ ssize_t sys_prlimit64(struct trap_frame *tf)
 		if (!current || task->tgid != current->tgid)
 			return -EPERM;
 	}
-	if (!task || !task->signal)
+
+	signal = task_signal_state(task);
+	if (!signal)
 		return -ESRCH;
 
 	if (unew) {
@@ -217,18 +220,18 @@ ssize_t sys_prlimit64(struct trap_frame *tf)
 			return -EINVAL;
 	}
 
-	mutex_lock(&task->signal->lock);
+	mutex_lock(&signal->lock);
 	if (uold) {
-		struct rlimit64 old = task->signal->rlimits[resource];
+		struct rlimit64 old = signal->rlimits[resource];
 
-		mutex_unlock(&task->signal->lock);
+		mutex_unlock(&signal->lock);
 		if (copy_to_user(uold, &old, sizeof(old)) != 0)
 			return -EFAULT;
-		mutex_lock(&task->signal->lock);
+		mutex_lock(&signal->lock);
 	}
 	if (unew)
-		task->signal->rlimits[resource] = new_limit;
-	mutex_unlock(&task->signal->lock);
+		signal->rlimits[resource] = new_limit;
+	mutex_unlock(&signal->lock);
 
 	return 0;
 }

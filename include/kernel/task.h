@@ -149,6 +149,83 @@ extern struct task_struct *current;
 /* PID 1 init 进程。创建后保持有效，用于孤儿进程过继。 */
 extern struct task_struct *init_task;
 
+/* ---- 窄访问器 ---- */
+
+static __always_inline struct mm_struct *task_mm(struct task_struct *task)
+{
+	return task ? task->mm : NULL;
+}
+
+static __always_inline struct files_struct *task_files(struct task_struct *task)
+{
+	return task ? task->files : NULL;
+}
+
+static __always_inline struct fs_struct *task_fs(struct task_struct *task)
+{
+	return task ? task->fs : NULL;
+}
+
+static __always_inline uid_t task_uid(const struct task_struct *task)
+{
+	BUG_ON(!task);
+	return task->uid;
+}
+
+static __always_inline gid_t task_gid(const struct task_struct *task)
+{
+	BUG_ON(!task);
+	return task->gid;
+}
+
+static __always_inline void task_set_uid(struct task_struct *task, uid_t uid)
+{
+	BUG_ON(!task);
+	task->uid = uid;
+}
+
+static __always_inline void task_set_gid(struct task_struct *task, gid_t gid)
+{
+	BUG_ON(!task);
+	task->gid = gid;
+}
+
+static __always_inline bool task_signal_pending(struct task_struct *task)
+{
+	return signal_pending(task);
+}
+
+static __always_inline struct signal_struct *
+task_signal_state(struct task_struct *task)
+{
+	return task ? task->signal : NULL;
+}
+
+static __always_inline uint64_t
+task_blocked_mask(const struct task_struct *task)
+{
+	return task ? task->blocked : 0;
+}
+
+static __always_inline void task_set_blocked_mask(struct task_struct *task,
+						  uint64_t mask)
+{
+	if (task)
+		task->blocked = mask;
+}
+
+static __always_inline uint32_t task_state(const struct task_struct *task)
+{
+	return task ? task->state : TASK_DEAD;
+}
+
+static __always_inline void task_set_state(struct task_struct *task,
+					   uint32_t state)
+{
+	if (task)
+		task->state = state;
+}
+
 /* ---- 函数声明 ---- */
 
 /**

@@ -28,23 +28,23 @@
 ssize_t sys_brk(struct trap_frame *tf)
 {
 	vaddr_t addr = (vaddr_t)tf->a0;
-	return (ssize_t)mm_brk(current->mm, addr);
+	return (ssize_t)mm_brk(task_mm(current), addr);
 }
 
 ssize_t sys_mmap(struct trap_frame *tf)
 {
-	return mm_mmap(current->mm, (vaddr_t)tf->a0, (size_t)tf->a1,
+	return mm_mmap(task_mm(current), (vaddr_t)tf->a0, (size_t)tf->a1,
 		       (int)tf->a2, (int)tf->a3);
 }
 
 ssize_t sys_munmap(struct trap_frame *tf)
 {
-	return mm_munmap(current->mm, (vaddr_t)tf->a0, (size_t)tf->a1);
+	return mm_munmap(task_mm(current), (vaddr_t)tf->a0, (size_t)tf->a1);
 }
 
 ssize_t sys_mprotect(struct trap_frame *tf)
 {
-	return mm_mprotect(current->mm, (uintptr_t)tf->a0,
+	return mm_mprotect(task_mm(current), (uintptr_t)tf->a0,
 			   (size_t)tf->a1, (int)tf->a2);
 }
 
@@ -72,7 +72,7 @@ ssize_t sys_madvise(struct trap_frame *tf)
 		return -EINVAL;
 	}
 
-	return mm_madvise(current->mm, addr, len, advice);
+	return mm_madvise(task_mm(current), addr, len, advice);
 }
 
 /*
@@ -113,7 +113,7 @@ ssize_t sys_mincore(struct trap_frame *tf)
 
 	npages = len / PAGE_SIZE;
 
-	mm = current->mm;
+	mm = task_mm(current);
 	if (!mm)
 		return -EINVAL;
 

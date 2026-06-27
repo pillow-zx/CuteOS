@@ -38,7 +38,7 @@ static int stat_empty_path(int dfd, struct kstat *ustat)
 
 	if (dfd == AT_FDCWD) {
 		struct dentry *cwd =
-			fs_get_cwd_dentry(current ? current->fs : NULL);
+			fs_get_cwd_dentry(task_fs(current));
 
 		if (!cwd)
 			return -ENOENT;

@@ -118,12 +118,8 @@ void timer_run_expired(uint64_t now)
 		wait->active = false;
 		wait->fired = true;
 
-		if (wait->task &&
-		    (wait->task->state & TASK_ANY_SLEEP)) {
-			wait->task->state = TASK_RUNNING;
-			if (wait->task != current)
-				sched_wakeup(wait->task);
-		}
+		if (task_state(wait->task) & TASK_ANY_SLEEP)
+			sched_wake_task(wait->task);
 	}
 	spin_unlock_irqrestore(&timer_wait_queue.lock, flags);
 }
@@ -142,7 +138,8 @@ int timer_sleep_until(uint64_t expires, bool interruptible)
 		return 0;
 
 	local_timer_wait = !sched_has_runnable();
-	current->state = interruptible ? TASK_INTERRUPTIBLE : TASK_UNINTERRUPTIBLE;
+	task_set_state(current, interruptible ? TASK_INTERRUPTIBLE :
+					    TASK_UNINTERRUPTIBLE);
 	timer_wait_init(&wait, current, expires);
 	timer_wait_start(&wait);
 
@@ -161,8 +158,8 @@ int timer_sleep_until(uint64_t expires, bool interruptible)
 		csr_clear(sstatus, SSTATUS_SIE);
 
 	timer_wait_cancel(&wait);
-	if (current->state & TASK_ANY_SLEEP)
-		current->state = TASK_RUNNING;
+	if (task_state(current) & TASK_ANY_SLEEP)
+		task_set_state(current, TASK_RUNNING);
 
 	if (interruptible && signal_pending(current))
 		return -EINTR;

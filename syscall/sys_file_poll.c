@@ -135,8 +135,8 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 
 		if (copy_from_user(&new_mask, usigmask, sizeof(new_mask)) != 0)
 			return -EFAULT;
-		old_blocked = current->blocked;
-		current->blocked = new_mask;
+		old_blocked = task_blocked_mask(current);
+		task_set_blocked_mask(current, new_mask);
 		swapped_mask = true;
 	}
 
@@ -163,7 +163,7 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 	}
 
 	if (swapped_mask)
-		current->blocked = old_blocked;
+		task_set_blocked_mask(current, old_blocked);
 
 	if (ret >= 0 && nfds > 0 &&
 	    copy_to_user(ufds, fds, nfds * sizeof(fds[0])) != 0)

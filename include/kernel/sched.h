@@ -84,6 +84,15 @@ void sched_wakeup(struct task_struct *task);
 bool sched_has_runnable(void);
 
 /**
+ * sched_wake_task - 将睡眠任务转为可运行状态
+ * @task: 被唤醒任务
+ *
+ * 统一封装 TASK_RUNNING 状态切换和非当前任务入队。sched_wakeup()
+ * 仍保留为底层 MLFQ 入队接口。
+ */
+void sched_wake_task(struct task_struct *task);
+
+/**
  * sched_dequeue - 将进程从就绪队列中移除
  * @task: 要出队的任务
  */

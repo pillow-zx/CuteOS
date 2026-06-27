@@ -207,12 +207,12 @@ int copy_fs(struct task_struct *child, bool share)
 		return -EINVAL;
 
 	if (share) {
-		fs = current ? current->fs : NULL;
+		fs = task_fs(current);
 		if (!fs)
 			return init_fs(child);
 		fs_get(fs);
 	} else {
-		fs = fs_dup(current ? current->fs : NULL);
+		fs = fs_dup(task_fs(current));
 		if (!fs)
 			return -ENOMEM;
 	}

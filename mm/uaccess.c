@@ -74,10 +74,10 @@ int user_range_probe(const void *addr, size_t size, bool write)
 		return 0;
 	if (!access_ok(addr, size))
 		return -EFAULT;
-	if (!current || !current->mm)
+	mm = task_mm(current);
+	if (!mm)
 		return -EFAULT;
 
-	mm = current->mm;
 	range_start = (uintptr_t)addr;
 	range_end = range_start + size;
 	scause = write ? EXC_STORE_PAGE_FAULT : EXC_LOAD_PAGE_FAULT;
@@ -193,9 +193,9 @@ ssize_t strncpy_from_user(char *dst, const char *src, size_t maxlen)
 
 		if (!access_ok((const void *)addr, 1))
 			return -EFAULT;
-		if (!current || !current->mm)
+		mm = task_mm(current);
+		if (!mm)
 			return -EFAULT;
-		mm = current->mm;
 		mm_lock(mm);
 		vma = find_vma(mm, addr);
 		if (!vma || !(vma->vm_flags & VM_READ)) {

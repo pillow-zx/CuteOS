@@ -141,16 +141,16 @@ void do_page_fault(struct trap_frame *tf)
 	vaddr_t fault_addr = tf->stval;
 	uint64_t scause = tf->scause & ~SCAUSE_IRQ_FLAG;
 	bool from_user_mode = from_user(tf);
+	struct mm_struct *mm = task_mm(current);
 
 	/* 内核线程没有 mm，不应发生缺页 */
-	if (!current || !current->mm) {
+	if (!mm) {
 		panic("page fault in kernel thread: type=%s addr=%p "
 		      "sepc=%p",
 		      fault_type_name(scause), (void *)fault_addr,
 		      (void *)tf->sepc);
 	}
 
-	struct mm_struct *mm = current->mm;
 	mm_lock(mm);
 
 	struct vm_area_struct *vma = find_vma(mm, fault_addr);

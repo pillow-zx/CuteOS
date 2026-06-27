@@ -294,20 +294,15 @@ static void wake_signal_target(struct task_struct *task, int sig)
 	if (!task)
 		return;
 
-	if (task->state == TASK_INTERRUPTIBLE &&
+	if (task_state(task) == TASK_INTERRUPTIBLE &&
 	    ((signal_mask(sig) & ~task->blocked) || !signal_is_catchable(sig))) {
-		task->state = TASK_RUNNING;
-		if (task != current)
-			sched_wakeup(task);
+		sched_wake_task(task);
 		return;
 	}
 
 	if (sig == SIGKILL || sig == SIGCONT) {
-		if (task->state & (TASK_STOPPED | TASK_UNINTERRUPTIBLE)) {
-			task->state = TASK_RUNNING;
-			if (task != current)
-				sched_wakeup(task);
-		}
+		if (task_state(task) & (TASK_STOPPED | TASK_UNINTERRUPTIBLE))
+			sched_wake_task(task);
 	}
 }
 
@@ -315,7 +310,8 @@ int send_signal(int sig, struct task_struct *task)
 {
 	if (!signal_is_valid(sig))
 		return -EINVAL;
-	if (!task || task->state == TASK_DEAD || task->state == TASK_ZOMBIE)
+	if (!task || task_state(task) == TASK_DEAD ||
+	    task_state(task) == TASK_ZOMBIE)
 		return -ESRCH;
 
 	task->pending |= signal_mask(sig);
@@ -328,8 +324,8 @@ int send_group_signal(int sig, struct task_struct *leader)
 {
 	if (!signal_is_valid(sig))
 		return -EINVAL;
-	if (!leader || leader->state == TASK_DEAD ||
-	    leader->state == TASK_ZOMBIE)
+	if (!leader || task_state(leader) == TASK_DEAD ||
+	    task_state(leader) == TASK_ZOMBIE)
 		return -ESRCH;
 
 	if (!leader->signal)
@@ -437,7 +433,7 @@ int signal_map_trampoline(pte_t *pgd)
 
 static void stop_current(void)
 {
-	current->state = TASK_STOPPED;
+	task_set_state(current, TASK_STOPPED);
 	schedule();
 }
 
