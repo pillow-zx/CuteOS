@@ -10,4 +10,5 @@ ARCH_OBJS = \
 	arch/riscv/plic.o              \
 	arch/riscv/sbi.o               \
 	arch/riscv/mm/page_table.o     \
+	arch/riscv/mm/user_map.o       \
 	arch/riscv/mm/tlb.o

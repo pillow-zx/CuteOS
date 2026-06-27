@@ -41,6 +41,7 @@
 #include <kernel/slab.h>
 #include <kernel/string.h>
 #include <kernel/task.h>
+#include <kernel/user_map.h>
 #include <uapi/syscall.h>
 #include <asm/csr.h>
 #include <asm/page.h>
@@ -409,7 +410,7 @@ bool signal_trampoline_overlaps(vaddr_t start, vaddr_t end)
 	       end > signal_trampoline_start();
 }
 
-int signal_map_trampoline(pte_t *pgd)
+static int signal_map_trampoline(pte_t *pgd)
 {
 	static const uint32_t code[] = {
 		RISCV_ADDI(RISCV_REG_A7, RISCV_REG_ZERO, SYS_rt_sigreturn),
@@ -429,6 +430,14 @@ int signal_map_trampoline(pte_t *pgd)
 	map_page(pgd, SIGNAL_TRAMPOLINE_ADDR, __pa((uintptr_t)trampoline_page),
 		 PTE_USER_RX);
 	return 0;
+}
+
+void signal_user_map_init(void)
+{
+	int ret;
+
+	ret = user_map_register("signal_trampoline", signal_map_trampoline);
+	BUG_ON(ret < 0);
 }
 
 static void stop_current(void)

@@ -91,10 +91,10 @@ struct mm_struct *__must_check dup_mm(struct mm_struct *oldmm);
 void mm_destroy(struct mm_struct *mm);
 
 /*
- * mm_create_user_pgd - 创建用户页表并复制内核映射
+ * mm_create_user_pgd - 创建用户页表并应用特殊映射
  *
  * 分配 PGD 页，清零，复制内核高地址映射（PGD[256-511]），
- * 映射 UART MMIO。返回 PGD 虚拟地址，失败返回 NULL。
+ * 应用已注册的用户页表特殊映射。返回 PGD 虚拟地址，失败返回 NULL。
  */
 pte_t *__must_check mm_create_user_pgd(void);
 

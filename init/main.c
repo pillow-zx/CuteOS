@@ -37,11 +37,13 @@
 #include <kernel/sched.h>
 #include <kernel/timer.h>
 #include <kernel/syscall.h>
+#include <kernel/signal.h>
 #include <kernel/vfs.h>
 #include <drivers/virtio_blk.h>
 #include <asm/trap.h>
 #include <asm/csr.h>
 #include <asm/pte.h>
+#include <asm/user_map.h>
 
 #ifdef CONFIG_KERNEL_TEST
 #include <kernel/test.h>
@@ -75,6 +77,8 @@ void kernel_main(void)
 	buddy_init();
 	page_table_use_buddy();
 	slab_init();
+	arch_user_map_init();
+	signal_user_map_init();
 	pr_info("mm: init successfully\n");
 
 	trap_init();

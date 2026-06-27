@@ -77,7 +77,7 @@ vaddr_t signal_trampoline_end(void);
 bool signal_trampoline_contains(vaddr_t addr);
 bool signal_trampoline_overlaps(vaddr_t start, vaddr_t end);
 void do_signal(struct trap_frame *tf);
-int signal_map_trampoline(pte_t *pgd);
+void signal_user_map_init(void);
 
 /* 内部 API（供 syscall/sys_signal.c ABI 边界调用） */
 int do_kill(pid_t pid, int sig);

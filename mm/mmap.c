@@ -8,7 +8,7 @@
  * 主要函数：
  *   mm_alloc()           - 分配并初始化 mm_struct
  *   mm_destroy()         - 销毁用户地址空间
- *   mm_create_user_pgd() - 创建用户页表 + 复制内核映射 + 映射 MMIO
+ *   mm_create_user_pgd() - 创建用户页表 + 复制内核映射 + 应用注册映射
  *   find_vma()           - 查找包含指定地址的 VMA
  *   mm_brk()             - brk 内部实现（lazy allocation，不缩小）
  */
@@ -22,12 +22,11 @@
 #include <kernel/signal.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
+#include <kernel/user_map.h>
 #include <uapi/mman.h>
 #include <asm/page.h>
 #include <asm/pte.h>
 #include <asm/csr.h>
-#include <drivers/uart.h>
-#include <drivers/virtio.h>
 
 /* ---- 内部辅助函数 ---- */
 
@@ -461,6 +460,8 @@ void mm_destroy(struct mm_struct *mm)
 
 pte_t *mm_create_user_pgd(void)
 {
+	int ret;
+
 	/* 1. 分配 PGD 页 */
 	pte_t *user_pgd = (pte_t *)get_free_page(0);
 	if (!user_pgd)
@@ -473,10 +474,9 @@ pte_t *mm_create_user_pgd(void)
 	for (int i = 256; i < 512; i++)
 		user_pgd[i] = kern_pgd[i];
 
-	/* 3. 映射 trap 后仍可能访问的低地址 MMIO。 */
-	map_page(user_pgd, UART_BASE, UART_BASE, PTE_KERN_RW);
-	map_page(user_pgd, VIRTIO_MMIO_BASE, VIRTIO_MMIO_BASE, PTE_KERN_RW);
-	if (signal_map_trampoline(user_pgd) < 0) {
+	/* 3. 应用平台和子系统注册的用户页表特殊映射。 */
+	ret = user_map_apply(user_pgd);
+	if (ret < 0) {
 		free_user_page_tables(user_pgd);
 		return NULL;
 	}
