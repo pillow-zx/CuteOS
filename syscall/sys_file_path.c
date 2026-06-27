@@ -488,3 +488,50 @@ out:
 	free_page(path, 0);
 	return ret;
 }
+
+ssize_t sys_renameat2(struct trap_frame *tf)
+{
+	int old_dfd = (int)tf->a0;
+	const char *uold_path = (const char *)tf->a1;
+	int new_dfd = (int)tf->a2;
+	const char *unew_path = (const char *)tf->a3;
+	unsigned int flags = (unsigned int)tf->a4;
+	char *old_path = NULL;
+	char *new_path = NULL;
+	struct dentry *old_base, *new_base;
+	int ret;
+
+	if (flags & ~RENAME_NOREPLACE)
+		return -EINVAL;
+
+	ret = copy_user_path(&old_path, uold_path);
+	if (ret < 0)
+		return ret;
+
+	ret = copy_user_path(&new_path, unew_path);
+	if (ret < 0) {
+		free_page(old_path, 0);
+		return ret;
+	}
+
+	ret = dirfd_path_base(old_dfd, old_path, &old_base);
+	if (ret < 0)
+		goto out;
+
+	ret = dirfd_path_base(new_dfd, new_path, &new_base);
+	if (ret < 0) {
+		if (old_base)
+			dput(old_base);
+		goto out;
+	}
+
+	ret = vfs_rename_at(old_base, old_path, new_base, new_path, flags);
+	if (old_base)
+		dput(old_base);
+	if (new_base)
+		dput(new_base);
+out:
+	free_page(old_path, 0);
+	free_page(new_path, 0);
+	return ret;
+}

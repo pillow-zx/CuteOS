@@ -22,6 +22,9 @@ struct dentry *dentry_alloc(struct dentry *parent, const char *name,
 struct dentry *dcache_lookup(struct dentry *parent, const char *name,
 			     size_t namelen);
 void dcache_insert(struct dentry *dentry);
+void dcache_invalidate(struct dentry *dentry);
+void dcache_move(struct dentry *dentry, struct dentry *new_parent,
+		 const char *new_name, size_t new_namelen);
 void dget(struct dentry *dentry);
 void dput(struct dentry *dentry);
 void dcache_init(void);
@@ -30,6 +33,9 @@ extern struct dentry *root_dentry;
 
 /* path_lookup() flags */
 #define LOOKUP_NOFOLLOW 0x0001 /* 不跟随路径末端的符号链接 */
+
+/* renameat2() flags */
+#define RENAME_NOREPLACE 0x0001
 
 #define VFS_MAY_EXEC  0x1
 #define VFS_MAY_WRITE 0x2
@@ -52,6 +58,9 @@ int vfs_mkdir(const char *path, uint32_t mode);
 int vfs_mkdir_at(struct dentry *base, const char *path, uint32_t mode);
 int vfs_unlink(const char *path, int flags);
 int vfs_unlink_at(struct dentry *base, const char *path, int flags);
+int vfs_rename_at(struct dentry *old_base, const char *old_path,
+		  struct dentry *new_base, const char *new_path,
+		  unsigned int flags);
 int vfs_mknod(const char *path, uint32_t mode, dev_t dev);
 int vfs_mknod_at(struct dentry *base, const char *path, uint32_t mode,
 		 dev_t dev);

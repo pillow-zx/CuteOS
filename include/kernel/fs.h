@@ -106,6 +106,9 @@ struct inode_operations {
 	int (*rmdir)(struct inode *dir, struct dentry *dentry);
 	int (*readlink)(struct inode *inode, char *buf, size_t size);
 	int (*truncate)(struct inode *inode, uint64_t size);
+	int (*rename)(struct inode *old_dir, struct dentry *old_dentry,
+		      struct inode *new_dir, struct dentry *new_dentry,
+		      unsigned int flags);
 };
 
 struct file_operations {

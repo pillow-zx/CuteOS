@@ -114,9 +114,15 @@ static struct ext2_dir_entry_2 *ext2_find_entry(struct inode *dir,
 static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 			  uint32_t ino, uint8_t type)
 {
+	struct page_cache *found_page = NULL;
 	uint16_t need = EXT2_DIR_REC_LEN(namelen);
 	uint32_t blocks =
 		(uint32_t)((dir->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+	if (ext2_find_entry(dir, name, namelen, &found_page)) {
+		page_cache_put_page(found_page);
+		return -EEXIST;
+	}
 
 	for (uint32_t lblock = 0; lblock < blocks; lblock++) {
 		struct page_cache *page;
@@ -250,6 +256,24 @@ static int ext2_delete_entry(struct inode *dir, struct dentry *dentry)
 	}
 
 	return -ENOENT;
+}
+
+static int ext2_replace_entry(struct inode *dir, struct dentry *dentry,
+			      uint32_t ino, uint8_t type)
+{
+	struct page_cache *page = NULL;
+	struct ext2_dir_entry_2 *de;
+
+	de = ext2_find_entry(dir, dentry->d_name, dentry->d_namelen, &page);
+	if (!de)
+		return -ENOENT;
+
+	de->inode = ino;
+	de->file_type = type;
+	page_cache_mark_dirty(page);
+	page_cache_sync_page(page);
+	page_cache_put_page(page);
+	return 0;
 }
 
 static void ext2_rollback_new_inode(struct inode *inode)
@@ -557,13 +581,168 @@ static int ext2_readdir(struct file *file, void *ctx, filldir_t filldir)
 	return 0;
 }
 
+/*
+ * ext2_set_dotdot - update ".." entry in a directory to point to new parent.
+ *
+ * Called when a directory is moved to a different parent (cross-directory
+ * rename).  Scans the first blocks of @dir looking for the ".." entry and
+ * rewrites its inode number to @new_parent_ino.
+ */
+static int ext2_set_dotdot(struct inode *dir, uint32_t new_parent_ino)
+{
+	uint32_t blocks =
+		(uint32_t)((dir->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+	for (uint32_t lblock = 0; lblock < blocks; lblock++) {
+		struct page_cache *page;
+		uint8_t *data;
+		uint32_t offset = 0;
+
+		if (!ext2_bmap_readonly(dir, lblock))
+			continue;
+		page = ext2_read_inode_page(dir, lblock);
+		if (!page)
+			return -EIO;
+		data = page_cache_data(page);
+
+		while (offset + 8 <= BLOCK_SIZE) {
+			struct ext2_dir_entry_2 *de =
+				(struct ext2_dir_entry_2 *)(data + offset);
+
+			if (de->rec_len < 8 ||
+			    offset + de->rec_len > BLOCK_SIZE)
+				break;
+			if (de->name_len == 2 &&
+			    de->name[0] == '.' && de->name[1] == '.') {
+				de->inode = new_parent_ino;
+				page_cache_mark_dirty(page);
+				page_cache_sync_page(page);
+				page_cache_put_page(page);
+				return 0;
+			}
+			offset += de->rec_len;
+		}
+		page_cache_put_page(page);
+	}
+	return -ENOENT;
+}
+
+static int ext2_rename(struct inode *old_dir, struct dentry *old_dentry,
+		       struct inode *new_dir, struct dentry *new_dentry,
+		       unsigned int flags)
+{
+	struct inode *old_inode = old_dentry->d_inode;
+	struct inode *new_inode = new_dentry->d_inode;
+	bool old_is_dir;
+	bool new_is_dir = false;
+	bool cross_dir;
+	bool replacing;
+	uint8_t ftype;
+	int ret;
+
+	if (!old_inode)
+		return -ENOENT;
+	if (old_dir->i_sb != new_dir->i_sb)
+		return -EXDEV;
+	if (flags & ~RENAME_NOREPLACE)
+		return -EINVAL;
+
+	old_is_dir = (old_inode->i_mode & EXT2_S_IFMT) == EXT2_S_IFDIR;
+	cross_dir = old_is_dir && old_dir != new_dir;
+	replacing = new_inode != NULL;
+
+	if ((flags & RENAME_NOREPLACE) && new_inode)
+		return -EEXIST;
+	if (new_inode == old_inode)
+		return 0;
+
+	/* Target exists: validate replaceability before touching metadata. */
+	if (new_inode) {
+		new_is_dir =
+			(new_inode->i_mode & EXT2_S_IFMT) == EXT2_S_IFDIR;
+
+		if (!old_is_dir && new_is_dir)
+			return -EISDIR;
+		if (old_is_dir && !new_is_dir)
+			return -ENOTDIR;
+		if (new_is_dir && !ext2_dir_is_empty(new_inode))
+			return -ENOTEMPTY;
+	}
+
+	/*
+	 * Install the destination name before removing the source name.  For an
+	 * existing target, rewrite the target directory entry in place so a later
+	 * failure can restore it without losing the old target.
+	 */
+	ftype = ext2_file_type(old_inode->i_mode);
+	if (replacing)
+		ret = ext2_replace_entry(new_dir, new_dentry,
+					 (uint32_t)old_inode->i_ino, ftype);
+	else
+		ret = ext2_add_entry(new_dir, new_dentry->d_name,
+				     new_dentry->d_namelen,
+				     (uint32_t)old_inode->i_ino, ftype);
+	if (ret < 0)
+		return ret;
+
+	if (cross_dir) {
+		ret = ext2_set_dotdot(old_inode, (uint32_t)new_dir->i_ino);
+		if (ret < 0)
+			goto rollback_new;
+	}
+
+	/* Remove old entry; roll back the destination update on failure. */
+	ret = ext2_delete_entry(old_dir, old_dentry);
+	if (ret < 0) {
+		if (cross_dir)
+			ext2_set_dotdot(old_inode, (uint32_t)old_dir->i_ino);
+		goto rollback_new;
+	}
+
+	if (new_inode) {
+		if (new_is_dir) {
+			new_inode->i_nlink = 0;
+			if (new_dir->i_nlink > 0)
+				new_dir->i_nlink--;
+			ext2_write_inode(new_dir);
+		} else {
+			if (new_inode->i_nlink > 0)
+				new_inode->i_nlink--;
+		}
+		ext2_write_inode(new_inode);
+		new_dentry->d_inode = NULL;
+		iput(new_inode);
+	}
+
+	/* For cross-directory directory moves, update parent link counts. */
+	if (cross_dir) {
+		if (old_dir->i_nlink > 0)
+			old_dir->i_nlink--;
+		new_dir->i_nlink++;
+		ext2_write_inode(old_dir);
+		ext2_write_inode(new_dir);
+	}
+
+	return 0;
+
+rollback_new:
+	if (replacing)
+		ext2_replace_entry(new_dir, new_dentry,
+				   (uint32_t)new_inode->i_ino,
+				   ext2_file_type(new_inode->i_mode));
+	else
+		ext2_delete_entry(new_dir, new_dentry);
+	return ret;
+}
+
 const struct inode_operations ext2_dir_inode_operations = {
-	.lookup = ext2_lookup,
-	.create = ext2_create,
-	.unlink = ext2_unlink,
-	.mkdir = ext2_mkdir,
-	.rmdir = ext2_rmdir,
+	.lookup   = ext2_lookup,
+	.create   = ext2_create,
+	.unlink   = ext2_unlink,
+	.mkdir    = ext2_mkdir,
+	.rmdir    = ext2_rmdir,
 	.truncate = ext2_truncate_inode,
+	.rename   = ext2_rename,
 };
 
 const struct file_operations ext2_dir_operations = {

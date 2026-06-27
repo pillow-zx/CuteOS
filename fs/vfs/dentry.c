@@ -43,6 +43,12 @@ static uint32_t dentry_hash(struct dentry *parent, const char *name,
 	return (uint32_t)key & (DCACHE_HASH_SIZE - 1);
 }
 
+static bool dentry_hashed(struct dentry *dentry)
+{
+	return dentry && dentry->d_hash.next && dentry->d_hash.prev &&
+	       !list_empty(&dentry->d_hash);
+}
+
 void dcache_init(void)
 {
 	hash_table_init(&dentry_hashtable);
@@ -103,11 +109,47 @@ void dcache_insert(struct dentry *dentry)
 {
 	if (!dentry || !dentry->d_parent)
 		return;
+	if (dentry_hashed(dentry))
+		return;
 
 	uint32_t hash = dentry_hash(dentry->d_parent, dentry->d_name,
 				    dentry->d_namelen);
 
 	hash_table_add(&dentry_hashtable, hash, &dentry->d_hash);
+}
+
+void dcache_invalidate(struct dentry *dentry)
+{
+	if (!dentry)
+		return;
+	if (dentry_hashed(dentry))
+		hash_table_del(&dentry->d_hash);
+	else
+		INIT_LIST_HEAD(&dentry->d_hash);
+
+	dentry->d_inode = NULL;
+}
+
+void dcache_move(struct dentry *dentry, struct dentry *new_parent,
+		 const char *new_name, size_t new_namelen)
+{
+	if (!dentry || !new_parent || !new_name || new_namelen > VFS_NAME_MAX)
+		return;
+
+	if (dentry_hashed(dentry))
+		hash_table_del(&dentry->d_hash);
+	else
+		INIT_LIST_HEAD(&dentry->d_hash);
+
+	if (dentry->d_parent != new_parent)
+		list_move_tail(&dentry->d_child, &new_parent->d_subdirs);
+
+	memcpy(dentry->d_name, new_name, new_namelen);
+	dentry->d_name[new_namelen] = '\0';
+	dentry->d_namelen = (uint8_t)new_namelen;
+	dentry->d_parent = new_parent;
+	dentry->d_sb = new_parent->d_sb;
+	dcache_insert(dentry);
 }
 
 void dget(struct dentry *dentry)

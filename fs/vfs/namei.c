@@ -149,6 +149,38 @@ static struct dentry *lookup_one(struct dentry *parent, const char *name,
 	return found;
 }
 
+static struct dentry *lookup_one_any(struct dentry *parent, const char *name,
+				     size_t len)
+{
+	struct dentry *dentry;
+	struct dentry *found;
+
+	dentry = dcache_lookup(parent, name, len);
+	if (dentry)
+		return dentry;
+
+	if (!parent || !parent->d_inode || !parent->d_inode->i_op ||
+	    !parent->d_inode->i_op->lookup)
+		return NULL;
+
+	dentry = dentry_alloc(parent, name, len);
+	if (!dentry)
+		return NULL;
+
+	found = parent->d_inode->i_op->lookup(parent->d_inode, dentry);
+	if (!found || !found->d_inode) {
+		dcache_insert(dentry);
+		return dentry;
+	}
+
+	if (found == dentry)
+		dcache_insert(dentry);
+	else
+		dput(dentry);
+
+	return found;
+}
+
 static bool d_is_symlink(struct dentry *dentry)
 {
 	return dentry && dentry->d_inode && S_ISLNK(dentry->d_inode->i_mode);
@@ -613,6 +645,101 @@ int vfs_unlink_at(struct dentry *base, const char *path, int flags)
 int vfs_unlink(const char *path, int flags)
 {
 	return vfs_unlink_at(NULL, path, flags);
+}
+
+static bool dentry_is_ancestor(struct dentry *ancestor, struct dentry *dentry)
+{
+	while (dentry) {
+		if (dentry == ancestor)
+			return true;
+		if (dentry->d_parent == dentry)
+			break;
+		dentry = dentry->d_parent;
+	}
+
+	return false;
+}
+
+int vfs_rename_at(struct dentry *old_base, const char *old_path,
+		  struct dentry *new_base, const char *new_path,
+		  unsigned int flags)
+{
+	char old_name[VFS_NAME_MAX + 1];
+	char new_name[VFS_NAME_MAX + 1];
+	size_t old_namelen, new_namelen;
+	struct dentry *old_parent, *new_parent;
+	struct dentry *old_dentry, *new_dentry;
+	int ret;
+
+	ret = path_parent_lookupat_err(old_base, old_path,
+				       old_name, &old_namelen, &old_parent);
+	if (ret < 0)
+		return ret;
+	if (!old_parent->d_inode || !old_parent->d_inode->i_op) {
+		dput(old_parent);
+		return -ENOTDIR;
+	}
+
+	ret = path_parent_lookupat_err(new_base, new_path,
+				       new_name, &new_namelen, &new_parent);
+	if (ret < 0) {
+		dput(old_parent);
+		return ret;
+	}
+	if (!new_parent->d_inode || !new_parent->d_inode->i_op) {
+		dput(old_parent);
+		dput(new_parent);
+		return -ENOTDIR;
+	}
+
+	if (!old_parent->d_inode->i_op->rename) {
+		dput(old_parent);
+		dput(new_parent);
+		return -EINVAL;
+	}
+
+	old_dentry = lookup_one(old_parent, old_name, old_namelen);
+	if (!old_dentry) {
+		dput(old_parent);
+		dput(new_parent);
+		return -ENOENT;
+	}
+
+	new_dentry = lookup_one_any(new_parent, new_name, new_namelen);
+	if (!new_dentry) {
+		dput(old_dentry);
+		dput(old_parent);
+		dput(new_parent);
+		return -ENOMEM;
+	}
+
+	if (old_dentry == new_dentry) {
+		ret = (flags & RENAME_NOREPLACE) ? -EEXIST : 0;
+		goto out_dput;
+	}
+
+	if (old_dentry->d_inode && S_ISDIR(old_dentry->d_inode->i_mode) &&
+	    dentry_is_ancestor(old_dentry, new_parent)) {
+		ret = -EINVAL;
+		goto out_dput;
+	}
+
+	ret = old_parent->d_inode->i_op->rename(old_parent->d_inode,
+						 old_dentry,
+						 new_parent->d_inode,
+							 new_dentry,
+							 flags);
+	if (ret == 0) {
+		dcache_invalidate(new_dentry);
+		dcache_move(old_dentry, new_parent, new_name, new_namelen);
+	}
+
+out_dput:
+	dput(new_dentry);
+	dput(old_dentry);
+	dput(old_parent);
+	dput(new_parent);
+	return ret;
 }
 
 int vfs_mknod_at(struct dentry *base, const char *path, uint32_t mode,
