@@ -7,11 +7,11 @@
  *   地址转换结果。RISC-V 通过 sfence.vma 指令实现 TLB 刷新。
  *
  * 主要函数：
- *   sfence_vma_all()  - 刷新全部 TLB 条目（sfence.vma zero, zero）。
+ *   arch_tlb_flush_all()  - 刷新全部 TLB 条目（sfence.vma zero, zero）。
  *                       用于内核页表全局切换或大范围映射变更后，
- *                       如 kernel_pagetable_init() 完成后的全局刷新。
+ *                       如 arch_pt_init() 完成后的全局刷新。
  *
- *   sfence_vma_addr(va) - 刷新指定虚拟地址对应的 TLB 条目
+ *   arch_tlb_flush_page(va) - 刷新指定虚拟地址对应的 TLB 条目
  *                       （sfence.vma va, zero）。用于 unmap 或权限修改
  *                       单个页面时，性能优于全量刷新。
  *
@@ -28,26 +28,26 @@ static inline void local_sfence_vma(uintptr_t addr, uintptr_t asid)
 	asm volatile("sfence.vma %0, %1" : : "r"(addr), "r"(asid) : "memory");
 }
 
-void sfence_vma_all(void)
+void arch_tlb_flush_all(void)
 {
 	// addr=0, asid=0 => flush all mappings for current hart
 	local_sfence_vma(0, 0);
 }
 
-void sfence_vma_addr(uintptr_t va)
+void arch_tlb_flush_page(uintptr_t va)
 {
 	local_sfence_vma(va, 0);
 }
 
 /*
- * fence_i - 刷新指令缓存（I-Cache）
+ * arch_icache_flush - 刷新指令缓存（I-Cache）
  *
  * 在修改内存中的指令后调用，确保修改后的指令对取指可见。
  * 典型场景：加载 ELF 代码页后、动态代码生成后。
  *
  * fence.i 保证后续取指能观察到之前所有对指令内存的写入。
  */
-void fence_i(void)
+void arch_icache_flush(void)
 {
 	asm volatile("fence.i" : : : "memory");
 }

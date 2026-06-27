@@ -9,8 +9,8 @@
  *   - time CSR:     读取当前 mtime 计数值
  *   - stimecmp CSR: 设置下一次时钟中断的比较值
  *
- * timer_init() 仅负责设置首次 stimecmp 比较值。
- * 中断使能（SIE.STIE、sstatus.SIE）由 trap_init() 统一管理。
+ * arch_timer_init() 仅负责设置首次 stimecmp 比较值。
+ * 中断使能（SIE.STIE、sstatus.SIE）由 arch_trap_init() 统一管理。
  *
  * 常量和函数声明见 include/kernel/timer.h。
  */
@@ -34,17 +34,17 @@ static struct {
 };
 
 /*
- * get_mtime - 通过 time CSR 读取当前时间计数器
+ * arch_timer_now - 通过 time CSR 读取当前时间计数器
  */
-uint64_t get_mtime(void)
+uint64_t arch_timer_now(void)
 {
 	return csr_read(time);
 }
 
 /*
- * set_mtimecmp - 通过 stimecmp CSR 设置下一次时钟中断
+ * arch_timer_set - 通过 stimecmp CSR 设置下一次时钟中断
  */
-void set_mtimecmp(uint64_t value)
+void arch_timer_set(uint64_t value)
 {
 	csr_write(stimecmp, value);
 }
@@ -134,7 +134,7 @@ int timer_sleep_until(uint64_t expires, bool interruptible)
 		return -EINVAL;
 	if (interruptible && signal_pending(current))
 		return -EINTR;
-	if (expires <= get_mtime())
+	if (expires <= arch_timer_now())
 		return 0;
 
 	local_timer_wait = !sched_has_runnable();
@@ -167,11 +167,11 @@ int timer_sleep_until(uint64_t expires, bool interruptible)
 }
 
 /*
- * timer_init - 设置首次时钟中断超时值
+ * arch_timer_init - 设置首次时钟中断超时值
  *
- * 仅配置 stimecmp，中断使能由 trap_init() 负责。
+ * 仅配置 stimecmp，中断使能由 arch_trap_init() 负责。
  */
-void timer_init(void)
+void arch_timer_init(void)
 {
-	set_mtimecmp(get_mtime() + CLOCKS_PER_TICK);
+	arch_timer_set(arch_timer_now() + CLOCKS_PER_TICK);
 }

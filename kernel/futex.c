@@ -103,7 +103,7 @@ static int futex_timeout_deadline(const void *timeout, bool *has_timeout,
 	if (ts.tv_sec < 0 || ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000LL)
 		return -EINVAL;
 
-	now = get_mtime();
+	now = arch_timer_now();
 	max_delta = UINT64_MAX - now;
 	if ((uint64_t)ts.tv_sec > max_delta / MTIME_FREQ) {
 		delta = max_delta;
@@ -159,7 +159,7 @@ static int futex_wait(int *uaddr, int expected, const void *timeout)
 		spin_unlock_irqrestore(&bucket->lock, flags);
 		return -EAGAIN;
 	}
-	if (has_timeout && expires <= get_mtime()) {
+	if (has_timeout && expires <= arch_timer_now()) {
 		spin_unlock_irqrestore(&bucket->lock, flags);
 		return -ETIMEDOUT;
 	}

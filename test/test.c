@@ -10,7 +10,7 @@
  *   - pid     : PID 分配、释放、耗尽、PID 0 保护
  *   - buddy   : 多阶分配/释放、伙伴合并、对齐、OOM、压力循环
  *   - slab    : 多大小分配/释放、零大小处理、压力分配、跨缓存复用
- *   - trap    : trap_frame 结构布局、from_user 辅助函数
+ *   - trap    : trap_frame 结构布局、arch_from_user 辅助函数
  *              （真实 U->S trap 往返测试见 user_trap_test.c）
  *   - task    : task_alloc/free、PID 绑定、canary 完整性、进程树链接
  *   - timer   : jiffies 递增、mtime 单调性、mtimecmp 设置

@@ -45,7 +45,7 @@
  *   [34] sstatus      - Supervisor Status register
  *
  * Helper:
- *   from_user(tf) - Returns true if trap originated from user mode
+ *   arch_from_user(tf) - Returns true if trap originated from user mode
  *                   (checks SSTATUS_SPP bit in tf->sstatus)
  */
 
@@ -157,16 +157,16 @@ struct context {
 
 typedef bool (*trap_test_hook_t)(struct trap_frame *tf);
 
-static __always_inline bool from_user(const struct trap_frame *tf)
+static __always_inline bool arch_from_user(const struct trap_frame *tf)
 {
 	return (tf->sstatus & SSTATUS_SPP) == 0;
 }
 
-void trap_init(void);
+void arch_trap_init(void);
 
 void trap_handler(struct trap_frame *tf);
 
-void trap_set_test_hook(trap_test_hook_t hook);
+void arch_trap_set_hook(trap_test_hook_t hook);
 
 void __trapret(void);
 void trapret_to_user(struct trap_frame *tf) __noreturn;

@@ -131,7 +131,7 @@ ssize_t sys_mincore(struct trap_frame *tf)
 				mm_unlock(mm);
 				return -ENOMEM;
 			}
-			pte = walk_page_table(mm->pgd, va, false);
+			pte = arch_pt_walk(mm->pgd, va, false);
 			kbuf[i] = (pte && pte_user_page(*pte)) ? 1 : 0;
 		}
 		mm_unlock(mm);

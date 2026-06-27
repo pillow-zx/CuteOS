@@ -12,12 +12,12 @@
  *   2. 设置 4KB 启动栈：sp = boot_stack_top，为后续 C 调用提供栈空间。
  *   3. 清零 BSS 段：遍历 __bss_start 到 _end，按 8 字节对齐清零，
  *      确保所有全局未初始化变量为 0。
- *   4. 建立 512 项临时页表 (tmp_pgd)：
- *      - pgd[0]   → 1GB mega page 映射 MMIO 设备空间 (0x10000000 起)
- *      - pgd[2]   → 1GB mega page 恒等映射 DRAM 低地址 (0x80000000 起)
- *      - pgd[258] → 1GB mega page 高地址映射 DRAM (0xFFFFFFC000000000 起)
+ *   4. 建立 512 项临时 L2 root page table (tmp_root)：
+ *      - L2[0]   → 1GB mega page 映射 MMIO 设备空间 (0x10000000 起)
+ *      - L2[2]   → 1GB mega page 恒等映射 DRAM 低地址 (0x80000000 起)
+ *      - L2[258] → 1GB mega page 高地址映射 DRAM (0xFFFFFFC000000000 起)
  *      共 3 项有效映射，其余清零。
- *   5. 写入 satp CSR 开启 Sv39 MMU：satp = (MODE=Sv39 << 60) | (tmp_pgd >> 12)，
+ *   5. 写入 satp CSR 开启 Sv39 MMU：satp = (MODE=Sv39 << 60) | (tmp_root >> 12)，
  *      执行 sfence.vma 刷新 TLB，从此所有地址访问经过 MMU 翻译。
  *   6. 跳转至 kernel_main_virt：使用 jr 指令跳转到内核虚拟地址，
  *      进入 Supervisor 模式下的内核主初始化流程。
@@ -62,7 +62,7 @@ _start:
         bne     t0, t1, 1b
 
         
-        lla     t0, tmp_pgd
+        lla     t0, tmp_root
 
         
         li      t1, (0x80000000 >> 2) | PTE_MEGA_DRAM_FLAGS
@@ -78,7 +78,7 @@ _start:
         sd      t1, (0*8)(t0)
 
         
-        lla     t0, tmp_pgd
+        lla     t0, tmp_root
         srli    t0, t0, 12              
         li      t1, (8 << 60)           
         or      t0, t0, t1
@@ -98,7 +98,7 @@ _start:
         
         .section .bss
         .align  12
-tmp_pgd:
+tmp_root:
         .space  4096                    
 boot_stack:
         .space  4096                    

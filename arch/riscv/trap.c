@@ -1,7 +1,7 @@
 /*
  * arch/riscv/trap.c - Trap 分发（C 层）
  *
- * 在汇编层保存完 trap_frame 后，由 trap_handler() 统一接住异常和中断。
+ * 在汇编层保存完 trap_frame 后，由 trap_handler() 接住异常和中断。
  * 根据中断/异常类型分发到对应的处理函数。
  *
  * 当前分发：
@@ -31,7 +31,7 @@ static const char *trap_origin(const struct trap_frame *tf)
 	return (tf->sstatus & SSTATUS_SPP) ? "kernel" : "user";
 }
 
-void trap_set_test_hook(trap_test_hook_t hook)
+void arch_trap_set_hook(trap_test_hook_t hook)
 {
 	trap_test_hook = hook;
 }
@@ -41,14 +41,14 @@ void trap_set_test_hook(trap_test_hook_t hook)
  *
  * 每次时钟中断时调用：
  *   1. 递增全局 jiffies 计数器
- *   2. 通过 set_mtimecmp 设置下一次时钟中断
+ *   2. 通过 arch_timer_set 设置下一次时钟中断
  */
 static void handle_timer_irq(void)
 {
-	uint64_t now = get_mtime();
+	uint64_t now = arch_timer_now();
 
 	jiffies++;
-	set_mtimecmp(now + CLOCKS_PER_TICK);
+	arch_timer_set(now + CLOCKS_PER_TICK);
 	timer_run_expired(now);
 
 	sched_tick();
@@ -65,7 +65,7 @@ void trap_handler(struct trap_frame *tf)
 	uint64_t scause = tf->scause;
 	bool is_interrupt = (scause & SCAUSE_IRQ_FLAG) != 0;
 	uint64_t code = scause & ~SCAUSE_IRQ_FLAG;
-	bool user = from_user(tf);
+	bool user = arch_from_user(tf);
 
 	if (current)
 		current->tf = tf;

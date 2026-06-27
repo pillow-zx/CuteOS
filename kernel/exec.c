@@ -138,7 +138,7 @@ static int setup_user_stack(struct mm_struct *mm,
 		return -ENOMEM;
 	memset(stack_page, 0, PAGE_SIZE);
 
-	map_page(mm->pgd, USER_STACK_BASE, __pa((uintptr_t)stack_page),
+	arch_map_page(mm->pgd, USER_STACK_BASE, __pa((uintptr_t)stack_page),
 		 PTE_USER_RW);
 
 	uintptr_t user_argv[EXEC_MAX_ARGS + 1];
@@ -353,7 +353,7 @@ static int map_segment_page(struct exec_image *image, struct mm_struct *mm,
 		return ret;
 	}
 
-	map_page(mm->pgd, va, __pa((uintptr_t)page),
+	arch_map_page(mm->pgd, va, __pa((uintptr_t)page),
 		 elf_flags_to_pte(ph->p_flags));
 	return 0;
 }
@@ -464,7 +464,7 @@ static int finish_exec_mm(struct mm_struct *mm,
 {
 	int ret;
 
-	fence_i();
+	arch_icache_flush();
 
 	mm->code_start = layout->first_vaddr;
 	mm->code_end = PFN_UP(layout->last_end) << PAGE_SHIFT;
@@ -528,8 +528,8 @@ static void flush_old_exec(struct mm_struct *oldmm)
 	if (!oldmm)
 		return;
 
-	csr_write(satp, kernel_satp());
-	sfence_vma_all();
+	csr_write(satp, arch_kernel_satp());
+	arch_tlb_flush_all();
 	mm_put(oldmm);
 }
 

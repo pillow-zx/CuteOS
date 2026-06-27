@@ -90,7 +90,8 @@ static bool user_trap_test_hook(struct trap_frame *tf)
 
 	user_trap_test_trapped = true;
 
-	USER_TRAP_CHECK(from_user(tf), "trap did not originate from user mode");
+	USER_TRAP_CHECK(arch_from_user(tf),
+			"trap did not originate from user mode");
 	USER_TRAP_CHECK(tf->scause == EXC_ECALL_U,
 			"unexpected trap cause while running user test");
 	USER_TRAP_CHECK(tf->stval == 0, "ecall stval should be zero");
@@ -232,8 +233,8 @@ void test_trap_user_return_task_setup(void)
 		 * 复用现有 DRAM identity mapping：临时把测试页改成用户页。
 		 * 这样无需在 3.1 阶段就引入完整的用户页表分配逻辑。
 		 */
-		page_table_write_current(code_pa, code_pa, PTE_USER_RX);
-		page_table_write_current(stack_pa, stack_pa, PTE_USER_RW);
+		arch_pt_write_current(code_pa, code_pa, PTE_USER_RX);
+		arch_pt_write_current(stack_pa, stack_pa, PTE_USER_RW);
 
 		t = forge_user_return_task(user_pc, user_sp, 0);
 		TEST_ASSERT_NOT_NULL(t);
@@ -247,7 +248,7 @@ void test_trap_user_return_task_setup(void)
 			user_pc + (uintptr_t)(user_trap_test_ecall -
 					      user_trap_test_start);
 
-		trap_set_test_hook(user_trap_test_hook);
+		arch_trap_set_hook(user_trap_test_hook);
 		hook_installed = true;
 
 		/*
@@ -272,7 +273,7 @@ void test_trap_user_return_task_setup(void)
 		csr_write(sie, saved_sie);
 		timer_quiesced = false;
 
-		trap_set_test_hook(NULL);
+		arch_trap_set_hook(NULL);
 		hook_installed = false;
 
 		TEST_ASSERT_EQ((size_t)current, (size_t)&idle_task);
@@ -288,7 +289,7 @@ fail:
 	TEST_FAIL("trap: runtime user entry and return", "see above");
 cleanup:
 	if (hook_installed)
-		trap_set_test_hook(NULL);
+		arch_trap_set_hook(NULL);
 	if (timer_quiesced) {
 		csr_write(sie, saved_sie);
 		timer_quiesced = false;
@@ -298,9 +299,9 @@ cleanup:
 	if (t)
 		task_free(t);
 	if (code_pa)
-		page_table_write_current(code_pa, code_pa, PTE_KERN_RWX);
+		arch_pt_write_current(code_pa, code_pa, PTE_KERN_RWX);
 	if (stack_pa)
-		page_table_write_current(stack_pa, stack_pa, PTE_KERN_RWX);
+		arch_pt_write_current(stack_pa, stack_pa, PTE_KERN_RWX);
 	if (code_page)
 		free_page(code_page, 0);
 	if (stack_page)

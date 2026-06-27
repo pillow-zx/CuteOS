@@ -667,7 +667,7 @@ void page_cache_writeback_thread(void *arg)
 	(void)arg;
 
 	for (;;) {
-		uint64_t deadline = get_mtime() + 5 * MTIME_FREQ;
+		uint64_t deadline = arch_timer_now() + 5 * MTIME_FREQ;
 
 		page_cache_sleep_until(deadline);
 		(void)page_cache_writeback_all();

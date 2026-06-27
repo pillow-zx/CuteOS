@@ -424,10 +424,10 @@ static int signal_map_trampoline(pte_t *pgd)
 			return -ENOMEM;
 		memset(trampoline_page, 0, PAGE_SIZE);
 		memcpy(trampoline_page, code, sizeof(code));
-		fence_i();
+		arch_icache_flush();
 	}
 
-	map_page(pgd, SIGNAL_TRAMPOLINE_ADDR, __pa((uintptr_t)trampoline_page),
+	arch_map_page(pgd, SIGNAL_TRAMPOLINE_ADDR, __pa((uintptr_t)trampoline_page),
 		 PTE_USER_RX);
 	return 0;
 }

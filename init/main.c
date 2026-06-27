@@ -9,13 +9,13 @@
  * 初始化流程（严格按依赖顺序）：
  *   1. console_init_sbi()       — SBI ecall 控制台，printk 可用
  *   2. pr_info("cuteOS starting...")
- *   3. kernel_pagetable_init()  — 建立正式内核页表（4KB 页 + MMIO mega page）
+ *   3. arch_pt_init()  — 建立正式内核页表（4KB 页 + MMIO mega page）
  *   4. console_init_mmio()      — 切换到 UART MMIO 轮询模式
  *   5. buddy_init()             — 物理页分配器（从 _end 到 DRAM 结束）
  *   6. slab_init()              — kmalloc 可用（8 组 size class）
- *   7. trap_init()              — stvec = __alltraps, sscratch = 0, SIE.STIE
+ *   7. arch_trap_init()              — stvec, sscratch, SIE.STIE
  *   8. task_init()              — 创建 idle (PID 0, BSS 静态), 设置 current
- *   9. timer_init()             — Sstc stimecmp 设置首次时钟中断
+ *   9. arch_timer_init()             — Sstc stimecmp 设置首次时钟中断
  *  10. sched_init()             — 初始化全局就绪队列
  *  11. kernel_test()            — DEBUG 构建运行内核自测
  *  12. kernel_thread(init_process, NULL) — 创建 init (PID 1)
@@ -70,24 +70,24 @@ void kernel_main(void)
 	pr_info(" \\______/  \\______/    \\___/   \\_______/ \\______/  \\______/ \n");
 	pr_info("\n");
 
-	kernel_pagetable_init();
+	arch_pt_init();
 	console_init_mmio();
 	pr_info("uart: init successfully\n");
 
 	buddy_init();
-	page_table_use_buddy();
+	arch_pt_use_buddy();
 	slab_init();
 	arch_user_map_init();
 	signal_user_map_init();
 	pr_info("mm: init successfully\n");
 
-	trap_init();
+	arch_trap_init();
 	pr_info("trap: init successfully\n");
 
 	task_init();
 	pr_info("task: init successfully\n");
 
-	timer_init();
+	arch_timer_init();
 	pr_info("timer: init successfully\n");
 
 	sched_init();

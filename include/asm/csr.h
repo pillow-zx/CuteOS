@@ -62,8 +62,8 @@
 
 #define wfi() ({ asm volatile("wfi"); })
 
-void sfence_vma_all(void);
-void sfence_vma_addr(uintptr_t va);
-void fence_i(void);
+void arch_tlb_flush_all(void);
+void arch_tlb_flush_page(uintptr_t va);
+void arch_icache_flush(void);
 
 #endif

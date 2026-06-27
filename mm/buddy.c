@@ -13,7 +13,7 @@
  *   mem_map[]  - 全局 struct page 数组，紧接 early allocator 结束位置
  *
  * 主要函数：
- *   buddy_init()             - 从 page_table_mem_end() 到 DRAM 末尾初始化，
+ *   buddy_init()             - 从 arch_bootmem_end() 到 DRAM 末尾初始化，
  *                               将可用物理内存区域按最大可能阶数加入空闲链表。
  *   get_free_page(order)     - 分配 2^order 个连续物理页，返回首页虚拟地址。
  *   free_page(addr, order)   - 释放指定地址的页块，并尝试伙伴合并。
@@ -79,19 +79,19 @@ static inline size_t virt_to_pfn(void *addr)
  *
  * 内存布局（物理视角）：
  *   DRAM_BASE				← 内核映像 + 页表
- *   page_table_mem_end()		← mem_map 起始
+ *   arch_bootmem_end()		← mem_map 起始
  *   mem_map + total_pages*sizeof(page) ← 可用页起始（4KB 对齐）
  *   DRAM_BASE + DRAM_SIZE		← DRAM 结束
  *
  * 步骤：
- *   1. 在 page_table_mem_end() 处放置 mem_map 数组
+ *   1. 在 arch_bootmem_end() 处放置 mem_map 数组
  *   2. 将所有页标记为 PRESERVED（不可分配）
  *   3. 初始化 free_area 空闲链表
  *   4. 从首个可用页开始，按最大对齐阶数将连续块加入空闲链表
  */
 void buddy_init(void)
 {
-	void *mem_start = page_table_mem_end();
+	void *mem_start = arch_bootmem_end();
 
 	total_pages = DRAM_SIZE / PAGE_SIZE;
 

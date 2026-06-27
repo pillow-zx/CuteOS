@@ -14,9 +14,9 @@
  *   jiffies - 自启动以来的时钟中断总次数
  *
  * 函数：
- *   get_mtime()    - 读取 time CSR 获取当前时间计数器
- *   set_mtimecmp() - 写入 stimecmp CSR 设置下一次时钟中断
- *   timer_init()   - 设置首次时钟中断超时值
+ *   arch_timer_now()    - 读取 time CSR 获取当前时间计数器
+ *   arch_timer_set() - 写入 stimecmp CSR 设置下一次时钟中断
+ *   arch_timer_init()   - 设置首次时钟中断超时值
  */
 
 #ifndef _CUTEOS_KERNEL_TIMER_H
@@ -48,15 +48,15 @@ struct timer_wait {
 /* ---- 函数声明 ---- */
 
 /**
- * get_mtime - 读取 time CSR 获取当前 mtime 计数值
+ * arch_timer_now - 读取 time CSR 获取当前 mtime 计数值
  */
-uint64_t get_mtime(void);
+uint64_t arch_timer_now(void);
 
 /**
- * set_mtimecmp - 写入 stimecmp CSR 设置下一次时钟中断
+ * arch_timer_set - 写入 stimecmp CSR 设置下一次时钟中断
  * @value: mtime 目标值，当 mtime >= value 时触发中断
  */
-void set_mtimecmp(uint64_t value);
+void arch_timer_set(uint64_t value);
 
 void timer_wait_init(struct timer_wait *wait, struct task_struct *task,
 		     uint64_t expires);
@@ -67,11 +67,11 @@ void timer_run_expired(uint64_t now);
 int timer_sleep_until(uint64_t expires, bool interruptible);
 
 /**
- * timer_init - 设置首次时钟中断超时值
+ * arch_timer_init - 设置首次时钟中断超时值
  *
  * 仅配置 stimecmp，中断使能（SIE.STIE、sstatus.SIE）
- * 由 trap_init() 统一管理。
+ * 由 arch_trap_init() 统一管理。
  */
-void timer_init(void);
+void arch_timer_init(void);
 
 #endif

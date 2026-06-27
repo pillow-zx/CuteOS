@@ -15,7 +15,7 @@ volatile int preempt_count;
 
 static __always_inline uintptr_t task_satp(const struct task_struct *task)
 {
-	return task && task->satp ? task->satp : kernel_satp();
+	return task && task->satp ? task->satp : arch_kernel_satp();
 }
 
 static __always_inline void switch_address_space(const struct task_struct *prev,
@@ -27,7 +27,7 @@ static __always_inline void switch_address_space(const struct task_struct *prev,
 		return;
 
 	csr_write(satp, satp_val);
-	sfence_vma_all();
+	arch_tlb_flush_all();
 }
 
 void sched_init(void)
@@ -76,7 +76,7 @@ static void sched_account_tick(void)
 	if (!current || current == &idle_task)
 		return;
 
-	if (current->tf && from_user(current->tf))
+	if (current->tf && arch_from_user(current->tf))
 		current->utime_ticks++;
 	else
 		current->stime_ticks++;

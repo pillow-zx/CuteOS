@@ -41,7 +41,7 @@ static int sys_timespec_to_deadline(const struct sys_timespec *ts,
 	    ts->tv_nsec >= 1000000000LL)
 		return -EINVAL;
 
-	now = get_mtime();
+	now = arch_timer_now();
 	if ((uint64_t)ts->tv_sec > (UINT64_MAX - now) / MTIME_FREQ) {
 		*deadline = UINT64_MAX;
 		*has_timeout = true;
@@ -144,14 +144,14 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 		ret = ppoll_scan(fds, nfds);
 		if (ret != 0)
 			break;
-		if (has_timeout && deadline <= get_mtime())
+		if (has_timeout && deadline <= arch_timer_now())
 			break;
 		if (signal_pending(current)) {
 			ret = -EINTR;
 			break;
 		}
 
-		uint64_t now = get_mtime();
+		uint64_t now = arch_timer_now();
 		uint64_t next = now + CLOCKS_PER_TICK;
 
 		if (has_timeout && deadline < next)

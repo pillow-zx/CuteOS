@@ -11,10 +11,10 @@
 #include <drivers/uart.h>
 #include <drivers/virtio.h>
 
-static int riscv_user_mmio_map(pte_t *pgd)
+static int riscv_user_mmio_map(pte_t *root)
 {
-	map_page(pgd, UART_BASE, UART_BASE, PTE_KERN_RW);
-	map_page(pgd, VIRTIO_MMIO_BASE, VIRTIO_MMIO_BASE, PTE_KERN_RW);
+	arch_map_page(root, UART_BASE, UART_BASE, PTE_KERN_RW);
+	arch_map_page(root, VIRTIO_MMIO_BASE, VIRTIO_MMIO_BASE, PTE_KERN_RW);
 	return 0;
 }
 

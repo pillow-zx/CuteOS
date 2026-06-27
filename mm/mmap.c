@@ -204,7 +204,7 @@ static uintptr_t find_unmapped_area(struct mm_struct *mm, size_t length)
 static void unmap_user_pages(pte_t *pgd, uintptr_t start, uintptr_t end)
 {
 	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-		pte_t *pte = walk_page_table(pgd, va, false);
+		pte_t *pte = arch_pt_walk(pgd, va, false);
 
 		if (!pte || !pte_user_page(*pte))
 			continue;
@@ -214,7 +214,7 @@ static void unmap_user_pages(pte_t *pgd, uintptr_t start, uintptr_t end)
 			free_page(__va(pa), 0);
 
 		*pte = 0;
-		sfence_vma_addr(va);
+		arch_tlb_flush_page(va);
 	}
 }
 
@@ -421,7 +421,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 		uintptr_t end = oldmm->vma[i].vm_end;
 
 		for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-			pte_t *pte = walk_page_table(oldmm->pgd, va, false);
+			pte_t *pte = arch_pt_walk(oldmm->pgd, va, false);
 			if (!pte || !pte_user_page(*pte))
 				continue;
 
@@ -437,7 +437,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 
 			pte_t perm = *pte & (PTE_V | PTE_R | PTE_W | PTE_X |
 					     PTE_U | PTE_A | PTE_D | PTE_G);
-			map_page(newmm->pgd, va, __pa((uintptr_t)new_page),
+			arch_map_page(newmm->pgd, va, __pa((uintptr_t)new_page),
 				 perm);
 		}
 	}
@@ -470,9 +470,9 @@ pte_t *mm_create_user_pgd(void)
 
 	/* 2. 复制内核高地址映射（PGD[256-511]）
 	 *    确保 trap 进内核后内核代码/数据仍可访问 */
-	pte_t *kern_pgd = current_pgd();
+	pte_t *kern_root = arch_current_pt();
 	for (int i = 256; i < 512; i++)
-		user_pgd[i] = kern_pgd[i];
+		user_pgd[i] = kern_root[i];
 
 	/* 3. 应用平台和子系统注册的用户页表特殊映射。 */
 	ret = user_map_apply(user_pgd);
@@ -692,7 +692,7 @@ static void madvise_dontneed_range(struct mm_struct *mm, uintptr_t start,
 				   uintptr_t end)
 {
 	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-		pte_t *pte = walk_page_table(mm->pgd, va, false);
+		pte_t *pte = arch_pt_walk(mm->pgd, va, false);
 
 		if (!pte || !pte_user_page(*pte))
 			continue;
@@ -701,7 +701,7 @@ static void madvise_dontneed_range(struct mm_struct *mm, uintptr_t start,
 		if (pa >= DRAM_BASE && pa < DRAM_BASE + DRAM_SIZE)
 			free_page(__va(pa), 0);
 		*pte = 0;
-		sfence_vma_addr(va);
+		arch_tlb_flush_page(va);
 	}
 }
 
@@ -841,7 +841,7 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 
 	/* Update PTE permissions for already-mapped pages. */
 	for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {
-		pte_t *pte = walk_page_table(mm->pgd, va, false);
+		pte_t *pte = arch_pt_walk(mm->pgd, va, false);
 
 		if (!pte || *pte == 0)
 			continue;
@@ -853,7 +853,7 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 		}
 	}
 
-	sfence_vma_all();
+	arch_tlb_flush_all();
 	vma_merge_all(mm);
 
 out:

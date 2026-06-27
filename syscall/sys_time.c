@@ -49,7 +49,7 @@ ssize_t sys_gettimeofday(struct trap_frame *tf)
 {
 	struct sys_timeval *utv = (struct sys_timeval *)tf->a0;
 	struct sys_timezone *utz = (struct sys_timezone *)tf->a1;
-	uint64_t ticks = get_mtime();
+	uint64_t ticks = arch_timer_now();
 	struct sys_timeval ktv;
 
 	if (utv) {
@@ -89,7 +89,7 @@ ssize_t sys_clock_gettime(struct trap_frame *tf)
 	 * TODO(time): CLOCK_REALTIME 需要 RTC 或启动时 wall-clock offset。
 	 * 在当前平台上 REALTIME/MONOTONIC/BOOTTIME 都基于 mtime。
 	 */
-	mtime_to_timespec(get_mtime(), &kts);
+	mtime_to_timespec(arch_timer_now(), &kts);
 	if (copy_to_user(uts, &kts, sizeof(kts)) != 0)
 		return -EFAULT;
 
@@ -134,13 +134,13 @@ ssize_t sys_nanosleep(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	now = get_mtime();
+	now = arch_timer_now();
 	deadline = mtime_deadline_after(now, delta);
 
 	ret = timer_sleep_until(deadline, true);
 	if (ret == -EINTR && urem) {
 		struct sys_timespec rem = {0};
-		uint64_t after = get_mtime();
+		uint64_t after = arch_timer_now();
 
 		if (deadline > after)
 			mtime_to_timespec(deadline - after, &rem);
@@ -177,7 +177,7 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 	if (flags == TIMER_ABSTIME) {
 		deadline = delta;
 	} else if (flags == 0) {
-		now = get_mtime();
+		now = arch_timer_now();
 		deadline = mtime_deadline_after(now, delta);
 	} else {
 		return -EINVAL;
@@ -186,7 +186,7 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 	ret = timer_sleep_until(deadline, true);
 	if (ret == -EINTR && flags == 0 && urem) {
 		struct sys_timespec rem = {0};
-		uint64_t after = get_mtime();
+		uint64_t after = arch_timer_now();
 
 		if (deadline > after)
 			mtime_to_timespec(deadline - after, &rem);

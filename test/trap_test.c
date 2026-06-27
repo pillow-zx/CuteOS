@@ -40,28 +40,28 @@ fail:
 
 void test_trap_from_user(void)
 {
-	TEST_BEGIN("trap: from_user helper");
+	TEST_BEGIN("trap: arch_from_user helper");
 	{
 		struct trap_frame tf;
 
 		memset(&tf, 0, sizeof(tf));
 
-		/* SPP=0 (用户模式) → from_user 返回 true */
+		/* SPP=0 (用户模式) → arch_from_user 返回 true */
 		tf.sstatus = 0;
-		TEST_ASSERT(from_user(&tf) == true);
+		TEST_ASSERT(arch_from_user(&tf) == true);
 
-		/* SPP=1 (内核模式) → from_user 返回 false */
+		/* SPP=1 (内核模式) → arch_from_user 返回 false */
 		tf.sstatus = SSTATUS_SPP;
-		TEST_ASSERT(from_user(&tf) == false);
+		TEST_ASSERT(arch_from_user(&tf) == false);
 
-		/* SPP=0 但其他位有值 → from_user 仍返回 true */
+		/* SPP=0 但其他位有值 → arch_from_user 仍返回 true */
 		tf.sstatus = SSTATUS_SIE;
-		TEST_ASSERT(from_user(&tf) == true);
+		TEST_ASSERT(arch_from_user(&tf) == true);
 	}
-	TEST_END("trap: from_user helper");
+	TEST_END("trap: arch_from_user helper");
 	return;
 fail:
-	TEST_FAIL("trap: from_user helper", "see above");
+	TEST_FAIL("trap: arch_from_user helper", "see above");
 }
 
 void test_trap_context_layout(void)

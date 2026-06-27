@@ -243,7 +243,7 @@ static uint64_t random_next_u64(void)
 	uint64_t x = random_state;
 
 	if (x == 0)
-		x = get_mtime() ^ ((uintptr_t)current << 17) ^
+		x = arch_timer_now() ^ ((uintptr_t)current << 17) ^
 		    0x9e3779b97f4a7c15ULL;
 
 	x ^= x << 13;

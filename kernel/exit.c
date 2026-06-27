@@ -149,8 +149,8 @@ static void release_task_mm(struct task_struct *task)
 	task->satp = 0;
 
 	if (task == current) {
-		csr_write(satp, kernel_satp());
-		sfence_vma_all();
+		csr_write(satp, arch_kernel_satp());
+		arch_tlb_flush_all();
 	}
 
 	mm_put(mm);

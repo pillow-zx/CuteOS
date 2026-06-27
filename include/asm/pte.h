@@ -43,11 +43,11 @@ typedef uint64_t pte_t;
 
 #define PTE_KERN_RW  (PTE_V | PTE_R | PTE_W | PTE_G | PTE_A | PTE_D)
 #define PTE_KERN_RWX (PTE_V | PTE_R | PTE_W | PTE_X | PTE_G | PTE_A | PTE_D)
-#define PTE_USER_RWX (PTE_V | PTE_R | PTE_W | PTE_X | PTE_U | PTE_A | PTE_D)
 
-#define PTE_USER_R  (PTE_V | PTE_R | PTE_U | PTE_A | PTE_D)
-#define PTE_USER_RX (PTE_V | PTE_R | PTE_X | PTE_U | PTE_A | PTE_D)
-#define PTE_USER_RW (PTE_V | PTE_R | PTE_W | PTE_U | PTE_A | PTE_D)
+#define PTE_USER_R   (PTE_V | PTE_R | PTE_U | PTE_A | PTE_D)
+#define PTE_USER_RX  (PTE_V | PTE_R | PTE_X | PTE_U | PTE_A | PTE_D)
+#define PTE_USER_RW  (PTE_V | PTE_R | PTE_W | PTE_U | PTE_A | PTE_D)
+#define PTE_USER_RWX (PTE_V | PTE_R | PTE_W | PTE_X | PTE_U | PTE_A | PTE_D)
 
 #define PTE_PPN_SHIFT	       10
 #define PTE_PPN(pte)	       ((pte) >> PTE_PPN_SHIFT)
@@ -70,10 +70,10 @@ static __always_inline paddr_t pte_to_pa(pte_t pte)
 	return PTE_TO_PA(pte);
 }
 
-pte_t *page_table_lookup_current(uintptr_t va);
+pte_t *arch_pt_lookup_current(uintptr_t va);
 
 /*
- * page_table_write_current - 修改当前 SATP 页表中的已有映射
+ * arch_pt_write_current - 修改当前 SATP 页表中的已有映射
  * @va:   虚拟地址（必须已存在有效 PTE 映射）
  * @pa:   新的物理地址
  * @perm: 新的 PTE 权限位
@@ -82,40 +82,40 @@ pte_t *page_table_lookup_current(uintptr_t va);
  * 若 @va 无有效映射则 panic。仅适用于内核恒等映射页表；
  * 引入进程独立地址空间后需重新设计。
  */
-void page_table_write_current(uintptr_t va, uintptr_t pa, pte_t perm);
+void arch_pt_write_current(uintptr_t va, uintptr_t pa, pte_t perm);
 
 /*
- * map_page - 建立单个 4KB 页的映射
- * @pgd:  PGD 页虚拟地址
+ * arch_map_page - 建立单个 4KB 页的映射
+ * @root: root page table 页虚拟地址
  * @va:   虚拟地址（必须页对齐）
  * @pa:   物理地址（必须页对齐）
  * @perm: 叶子 PTE 权限位
  */
-void map_page(pte_t *pgd, uintptr_t va, uintptr_t pa, pte_t perm);
+void arch_map_page(pte_t *root, uintptr_t va, uintptr_t pa, pte_t perm);
 
 /*
- * page_table_use_buddy - 将页表分配器切换到 buddy
+ * arch_pt_use_buddy - 将页表分配器切换到 buddy
  *
  * 在 buddy_init() 之后调用一次。
  */
-void page_table_use_buddy(void);
+void arch_pt_use_buddy(void);
 
-pte_t *current_pgd(void);
+pte_t *arch_current_pt(void);
 
 /*
- * kernel_satp - 返回全局内核页表的 satp 值
+ * arch_kernel_satp - 返回全局内核页表的 satp 值
  *
  * 退出当前用户进程并销毁其 mm 之前，必须切回此页表，避免释放当前
- * satp 正在引用的用户 PGD 后继续执行。
+ * satp 正在引用的用户 root page table 后继续执行。
  */
-uintptr_t kernel_satp(void);
+uintptr_t arch_kernel_satp(void);
 
 /*
- * walk_page_table - 遍历/创建 Sv39 三级页表，返回叶子 PTE 指针
- * @pgd:   PGD 页的虚拟地址
+ * arch_pt_walk - 遍历/创建 Sv39 三级页表，返回叶子 PTE 指针
+ * @root:  root page table 页的虚拟地址
  * @va:    虚拟地址
  * @alloc: 是否允许分配缺失的中间页表页
  */
-pte_t *walk_page_table(pte_t *pgd, uintptr_t va, bool alloc);
+pte_t *arch_pt_walk(pte_t *root, uintptr_t va, bool alloc);
 
 #endif

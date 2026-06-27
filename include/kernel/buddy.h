@@ -10,7 +10,7 @@
  * struct free_area - 每阶一个，含空闲链表和计数器
  *
  * Functions:
- *   buddy_init()                 - 从 page_table_mem_end() 到 DRAM 末尾初始化
+ *   buddy_init()                 - 从 arch_bootmem_end() 到 DRAM 末尾初始化
  *   get_free_page(order)         - 分配 2^order 连续物理页，返回内核虚拟地址
  *   free_page(addr, order)       - 释放指定地址的页块，尝试伙伴合并
  */
@@ -44,7 +44,7 @@ extern struct free_area free_area[];
 /**
  * buddy_init - 初始化伙伴系统
  *
- * 在 page_table_mem_end() 之后放置 mem_map 数组，然后将可用页
+ * 在 arch_bootmem_end() 之后放置 mem_map 数组，然后将可用页
  * 按最大可能的连续块加入空闲链表。内核映像和页表占用的页标记为
  * PG_reserved。
  */

@@ -150,11 +150,11 @@ static int fault_in_user_page_locked(struct mm_struct *mm,
 		return -EFAULT;
 
 	vaddr_t page_addr = fault_addr & PAGE_MASK;
-	pte_t *existing = walk_page_table(mm->pgd, page_addr, false);
+	pte_t *existing = arch_pt_walk(mm->pgd, page_addr, false);
 
 	if (existing && pte_present(*existing)) {
 		if (pte_allows_fault(access, *existing)) {
-			sfence_vma_addr(page_addr);
+			arch_tlb_flush_page(page_addr);
 			return 0;
 		}
 
@@ -168,9 +168,9 @@ static int fault_in_user_page_locked(struct mm_struct *mm,
 		return -ENOMEM;
 
 	memset(page, 0, PAGE_SIZE);
-	map_page(mm->pgd, page_addr, __pa((uintptr_t)page),
+	arch_map_page(mm->pgd, page_addr, __pa((uintptr_t)page),
 		 vma_flags_to_pte(vma->vm_flags));
-	sfence_vma_addr(page_addr);
+	arch_tlb_flush_page(page_addr);
 	return 0;
 }
 
@@ -254,7 +254,7 @@ void do_page_fault(struct trap_frame *tf)
 {
 	vaddr_t fault_addr = tf->stval;
 	uint64_t scause = tf->scause & ~SCAUSE_IRQ_FLAG;
-	bool from_user_mode = from_user(tf);
+	bool from_user_mode = arch_from_user(tf);
 	struct mm_struct *mm = task_mm(current);
 	int access = scause_to_access(scause);
 	pte_t fault_pte = 0;
