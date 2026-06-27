@@ -130,6 +130,7 @@ static void clone_setup_frame(struct task_struct *child, struct trap_frame *tf,
 
 static int clone_copy_resources(struct task_struct *child, unsigned long flags)
 {
+	bool disable_altstack;
 	int ret = copy_files(child, (bool)(flags & CLONE_FILES));
 	if (ret < 0)
 		return ret;
@@ -140,8 +141,9 @@ static int clone_copy_resources(struct task_struct *child, unsigned long flags)
 
 	child->uid = current->uid;
 	child->gid = current->gid;
+	disable_altstack = (flags & CLONE_VM) && !(flags & CLONE_VFORK);
 	ret = signals_clone(child, (bool)(flags & CLONE_SIGHAND),
-			    clone_wants_thread(flags));
+			    clone_wants_thread(flags), disable_altstack);
 	if (ret < 0)
 		return ret;
 

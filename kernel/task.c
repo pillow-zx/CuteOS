@@ -107,6 +107,7 @@ struct task_struct *task_alloc(void)
 	task->exit_signal = SIGCHLD;
 	task->uid = 0;
 	task->gid = 0;
+	task->sas.ss_flags = SS_DISABLE;
 	sched_task_init(task);
 
 	INIT_LIST_HEAD(&task->children);
@@ -199,6 +200,7 @@ void task_init(void)
 	idle_task.exit_signal = SIGCHLD;
 	idle_task.uid = 0;
 	idle_task.gid = 0;
+	idle_task.sas.ss_flags = SS_DISABLE;
 	sched_task_init(&idle_task);
 
 	INIT_LIST_HEAD(&idle_task.children);

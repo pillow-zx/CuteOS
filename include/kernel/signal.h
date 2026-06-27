@@ -55,6 +55,7 @@ struct signal_frame {
 	struct trap_frame tf;
 	uint64_t blocked;
 	uint64_t sig; /* 本帧投递的信号号；sys_sigreturn 据此清 in_handler */
+	uint64_t on_altstack;
 };
 
 struct task_struct;
@@ -69,7 +70,7 @@ int force_signal(int sig, struct task_struct *task);
 bool signal_pending(struct task_struct *task);
 int signals_init(struct task_struct *task);
 int signals_clone(struct task_struct *child, bool share_sighand,
-		  bool share_signal);
+		  bool share_signal, bool disable_altstack);
 void signals_release(struct task_struct *task);
 vaddr_t signal_trampoline_start(void);
 vaddr_t signal_trampoline_end(void);
@@ -81,7 +82,7 @@ int signal_map_trampoline(pte_t *pgd);
 /* 内部 API（供 syscall/sys_signal.c ABI 边界调用） */
 int do_kill(pid_t pid, int sig);
 int do_tgkill(pid_t tgid, pid_t tid, int sig);
-int do_sigaltstack(void);
+int do_sigaltstack(const struct stack_t *ss, struct stack_t *old_ss);
 int do_sigaction(int sig, const struct sigaction *act,
 		 struct sigaction *oldact, size_t sigsetsize);
 int do_sigprocmask(int how, const uint64_t *set,

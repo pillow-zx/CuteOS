@@ -109,6 +109,7 @@ struct task_struct {
 	uint64_t blocked;		   /* 被屏蔽的信号掩码 */
 	uint64_t pending;		   /* 待处理的信号掩码 */
 	uint64_t in_handler; /* 当前正在运行其 handler 的信号掩码（防重入） */
+	struct stack_t sas;		   /* 备用信号栈（sigaltstack） */
 
 	/* 进程树 */
 	struct task_struct *parent; /* 父进程 */

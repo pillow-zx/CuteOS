@@ -461,6 +461,21 @@ static inline long unlinkat(int dfd, const char *path, int flags)
 	return syscall(SYS_unlinkat, dfd, (long)path, flags);
 }
 
+static inline long renameat2(int old_dfd, const char *old_path,
+			     int new_dfd, const char *new_path,
+			     unsigned int flags)
+{
+	return syscall(SYS_renameat2, old_dfd, (long)old_path,
+		       new_dfd, (long)new_path, (long)flags);
+}
+
+#define RENAME_NOREPLACE 1
+
+static inline long rename(const char *old_path, const char *new_path)
+{
+	return renameat2(AT_FDCWD, old_path, AT_FDCWD, new_path, 0);
+}
+
 static inline long chdir(const char *path)
 {
 	return syscall(SYS_chdir, (long)path);
@@ -800,6 +815,21 @@ static inline void *mmap(void *addr, size_t length, int prot, int flags, int fd,
 static inline long munmap(void *addr, size_t length)
 {
 	return syscall(SYS_munmap, (long)addr, (long)length);
+}
+
+static inline long madvise(void *addr, size_t length, int advice)
+{
+	return syscall(SYS_madvise, (long)addr, (long)length, advice);
+}
+
+static inline long mincore(void *addr, size_t length, unsigned char *vec)
+{
+	return syscall(SYS_mincore, (long)addr, (long)length, (long)vec);
+}
+
+static inline long mprotect(void *addr, size_t length, int prot)
+{
+	return syscall(SYS_mprotect, (long)addr, (long)length, prot);
 }
 
 /*

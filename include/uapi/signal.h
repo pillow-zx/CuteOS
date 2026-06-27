@@ -45,6 +45,25 @@ struct sigaction {
 	unsigned long sa_mask;
 };
 
+/* sa_flags */
+#define SA_ONSTACK	0x08000000
+#define SA_RESTART	0x10000000
+#define SA_NODEFER	0x40000000
+#define SA_SIGINFO	0x00000004
+
+/* alternate signal stack */
+struct stack_t {
+	void          *ss_sp;
+	int            ss_flags;
+	unsigned long  ss_size;
+};
+
+#define SS_ONSTACK	1
+#define SS_DISABLE	2
+
+#define MINSIGSTKSZ	2048
+#define SIGSTKSZ	8192
+
 #define SIGNAL_EXIT_CODE(sig) (128 + (sig))
 
 #endif

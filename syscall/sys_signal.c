@@ -35,8 +35,10 @@ ssize_t sys_tgkill(struct trap_frame *tf)
 
 ssize_t sys_sigaltstack(struct trap_frame *tf)
 {
-	(void)tf;
-	return do_sigaltstack();
+	const struct stack_t *ss     = (const struct stack_t *)tf->a0;
+	struct stack_t       *old_ss = (struct stack_t *)tf->a1;
+
+	return do_sigaltstack(ss, old_ss);
 }
 
 ssize_t sys_sigaction(struct trap_frame *tf)

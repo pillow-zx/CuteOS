@@ -185,6 +185,9 @@ int signals_init(struct task_struct *task)
 	task->blocked = 0;
 	task->pending = 0;
 	task->in_handler = 0;
+	task->sas.ss_sp = NULL;
+	task->sas.ss_flags = SS_DISABLE;
+	task->sas.ss_size = 0;
 	return 0;
 }
 
@@ -200,10 +203,13 @@ void signals_release(struct task_struct *task)
 	task->blocked = 0;
 	task->pending = 0;
 	task->in_handler = 0;
+	task->sas.ss_sp = NULL;
+	task->sas.ss_flags = SS_DISABLE;
+	task->sas.ss_size = 0;
 }
 
 int signals_clone(struct task_struct *child, bool share_sighand,
-		  bool share_signal)
+		  bool share_signal, bool disable_altstack)
 {
 	struct sighand_struct *sighand;
 	struct signal_struct *signal;
@@ -249,6 +255,14 @@ int signals_clone(struct task_struct *child, bool share_sighand,
 	child->blocked = current ? current->blocked : 0;
 	child->pending = 0;
 	child->in_handler = 0;
+	if (current && !disable_altstack) {
+		child->sas = current->sas;
+		child->sas.ss_flags &= ~SS_ONSTACK;
+	} else {
+		child->sas.ss_sp    = NULL;
+		child->sas.ss_flags = SS_DISABLE;
+		child->sas.ss_size  = 0;
+	}
 	return 0;
 }
 
@@ -430,8 +444,20 @@ static void stop_current(void)
 static int setup_signal_frame(struct trap_frame *tf, int sig,
 			      const struct sigaction *action)
 {
-	uintptr_t sp = (tf->sp - sizeof(struct signal_frame)) & ~(uintptr_t)0xf;
+	uintptr_t sp;
 	struct signal_frame frame;
+	bool on_altstack = false;
+
+	/* SA_ONSTACK: use the alternate signal stack if installed. */
+	if ((action->sa_flags & SA_ONSTACK) &&
+	    !(current->sas.ss_flags & (SS_DISABLE | SS_ONSTACK))) {
+		uintptr_t top = (uintptr_t)current->sas.ss_sp +
+				current->sas.ss_size;
+		sp = (top - sizeof(struct signal_frame)) & ~(uintptr_t)0xf;
+		on_altstack = true;
+	} else {
+		sp = (tf->sp - sizeof(struct signal_frame)) & ~(uintptr_t)0xf;
+	}
 
 	if (!access_ok((void *)sp, sizeof(frame)))
 		return -EFAULT;
@@ -439,9 +465,13 @@ static int setup_signal_frame(struct trap_frame *tf, int sig,
 	frame.tf = *tf;
 	frame.blocked = current->blocked;
 	frame.sig = sig;
+	frame.on_altstack = on_altstack;
 
 	if (copy_to_user((void *)sp, &frame, sizeof(frame)) != 0)
 		return -EFAULT;
+
+	if (on_altstack)
+		current->sas.ss_flags |= SS_ONSTACK;
 
 	/*
 	 * 投递不变量：handler 运行期间本信号必须被屏蔽，且 in_handler 置位。
@@ -603,11 +633,41 @@ int do_tgkill(pid_t tgid, pid_t tid, int sig)
 	return send_signal(sig, task);
 }
 
-int do_sigaltstack(void)
+int do_sigaltstack(const struct stack_t *ss, struct stack_t *old_ss)
 {
-	/* TODO(signal): 需要在 task_struct 中保存用户备用信号栈，并在
-	 * setup_signal_frame 中支持 SA_ONSTACK 后再实现。 */
-	return -ENOSYS;
+	if (old_ss) {
+		struct stack_t cur = current->sas;
+
+		if (copy_to_user(old_ss, &cur, sizeof(cur)) != 0)
+			return -EFAULT;
+	}
+
+	if (ss) {
+		struct stack_t kss;
+
+		if (copy_from_user(&kss, ss, sizeof(kss)) != 0)
+			return -EFAULT;
+
+		/* Cannot change while running on the alternate stack. */
+		if (current->sas.ss_flags & SS_ONSTACK)
+			return -EPERM;
+
+		if (kss.ss_flags != 0 && kss.ss_flags != SS_DISABLE)
+			return -EINVAL;
+
+		if (kss.ss_flags & SS_DISABLE) {
+			current->sas.ss_sp    = NULL;
+			current->sas.ss_flags = SS_DISABLE;
+			current->sas.ss_size  = 0;
+		} else {
+			if (kss.ss_size < MINSIGSTKSZ)
+				return -ENOMEM;
+			current->sas = kss;
+			current->sas.ss_flags &= ~SS_ONSTACK;
+		}
+	}
+
+	return 0;
 }
 
 int do_sigaction(int sig, const struct sigaction *act,
@@ -707,6 +767,8 @@ int do_sigreturn(struct trap_frame *tf, uintptr_t sp)
 	*tf = frame.tf;
 	current->blocked = frame.blocked & ~unblockable_mask();
 	current->in_handler &= ~signal_mask(frame.sig);
+	if (frame.on_altstack)
+		current->sas.ss_flags &= ~SS_ONSTACK;
 	current->tf = tf;
 	return (ssize_t)tf->a0;
 }
