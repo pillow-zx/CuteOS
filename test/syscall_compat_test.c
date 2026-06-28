@@ -1,5 +1,6 @@
 #include <kernel/fs.h>
 #include <kernel/errno.h>
+#include <kernel/pipe.h>
 #include <kernel/resource.h>
 #include <kernel/signal.h>
 #include <kernel/statfs.h>
@@ -229,4 +230,30 @@ void test_root_statfs_fields(void)
 	return;
 fail:
 	TEST_FAIL("syscall compat: root statfs fields", "see above");
+}
+
+void test_pipe2_file_alloc_failure_cleanup(void)
+{
+	uint32_t live_before;
+	uint32_t live_after;
+	int fds[2] = {-1, -1};
+
+	TEST_BEGIN("syscall compat: pipe2 allocation failure cleanup");
+	{
+		live_before = pipe_test_live_buffers();
+		pipe_test_set_file_alloc_fail_at(2);
+		TEST_ASSERT_EQ(do_pipe2(fds, 0), -ENOMEM);
+		pipe_test_set_file_alloc_fail_at(0);
+		live_after = pipe_test_live_buffers();
+
+		TEST_ASSERT_EQ(live_after, live_before);
+		TEST_ASSERT_EQ(fds[0], -1);
+		TEST_ASSERT_EQ(fds[1], -1);
+	}
+	TEST_END("syscall compat: pipe2 allocation failure cleanup");
+	return;
+fail:
+	pipe_test_set_file_alloc_fail_at(0);
+	TEST_FAIL("syscall compat: pipe2 allocation failure cleanup",
+		  "see above");
 }

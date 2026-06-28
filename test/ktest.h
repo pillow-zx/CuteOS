@@ -129,6 +129,7 @@ void test_console_tty_line_discipline(void);
 void test_tty_signal_delivery_policy(void);
 void test_signal_rt_sigsetsize_validation(void);
 void test_root_statfs_fields(void);
+void test_pipe2_file_alloc_failure_cleanup(void);
 
 /* ================================================================
  *  Sched 调度器测试

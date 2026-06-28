@@ -37,7 +37,6 @@ struct getdents_ctx {
 	char *dirp;
 	size_t count;
 	size_t written;
-	loff_t pos;
 };
 
 static uint32_t apply_umask(uint32_t mode)
@@ -71,7 +70,7 @@ static uint8_t vfs_type_to_dirent(uint8_t type)
 }
 
 static int filldir64(void *arg, const char *name, size_t namelen, uint64_t ino,
-		     uint8_t type)
+		     uint8_t type, loff_t off)
 {
 	struct getdents_ctx *ctx = arg;
 	size_t reclen;
@@ -87,7 +86,7 @@ static int filldir64(void *arg, const char *name, size_t namelen, uint64_t ino,
 
 	dirent = (struct linux_dirent64 *)(ctx->dirp + ctx->written);
 	dirent->d_ino = ino;
-	dirent->d_off = ctx->pos;
+	dirent->d_off = off;
 	dirent->d_reclen = (uint16_t)reclen;
 	dirent->d_type = vfs_type_to_dirent(type);
 	memcpy(dirent->d_name, name, namelen);
@@ -261,7 +260,6 @@ ssize_t sys_getcwd(struct trap_frame *tf)
 		ret = -EFAULT;
 		goto out;
 	}
-	ret = (ssize_t)(uintptr_t)ubuf;
 
 out:
 	free_page(path, 0);
@@ -282,6 +280,10 @@ ssize_t sys_getdents64(struct trap_frame *tf)
 
 	if (!file)
 		return -EBADF;
+	if (count == 0) {
+		file_put(file);
+		return -EINVAL;
+	}
 	if (!access_ok(dirp, count)) {
 		file_put(file);
 		return -EFAULT;
@@ -292,8 +294,9 @@ ssize_t sys_getdents64(struct trap_frame *tf)
 	ctx.dirp = kbuf;
 	ctx.count = sizeof(kbuf);
 
-	while (ctx.written < count) {
-		size_t chunk = count - ctx.written;
+	while ((size_t)((uintptr_t)dirp - tf->a1) < count) {
+		size_t done = (size_t)((uintptr_t)dirp - tf->a1);
+		size_t chunk = count - done;
 		if (chunk > sizeof(kbuf))
 			chunk = sizeof(kbuf);
 
@@ -301,13 +304,14 @@ ssize_t sys_getdents64(struct trap_frame *tf)
 		ctx.dirp = kbuf;
 		ctx.count = chunk;
 		ctx.written = 0;
-		ctx.pos = file->f_pos;
 
 		ret = vfs_readdir(file, &ctx, filldir64);
 		if (ret < 0) {
-			file->f_pos = start;
-			result = ret;
-			goto out_put;
+			if (ctx.written == 0) {
+				file->f_pos = start;
+				result = done ? (ssize_t)done : ret;
+				goto out_put;
+			}
 		}
 		if (ctx.written == 0)
 			break;
@@ -320,7 +324,8 @@ ssize_t sys_getdents64(struct trap_frame *tf)
 
 		dirp += ctx.written;
 		start = file->f_pos;
-		count -= ctx.written;
+		if (ret < 0)
+			break;
 	}
 
 	result = (ssize_t)((uintptr_t)dirp - tf->a1);

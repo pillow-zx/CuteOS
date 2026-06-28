@@ -8,6 +8,13 @@
  * 中实现，只返回内核态 fd 数组，不触碰用户指针。
  */
 
+#include <kernel/types.h>
+
 int do_pipe2(int fds[2], int flags);
+
+#ifdef CONFIG_KERNEL_TEST
+void pipe_test_set_file_alloc_fail_at(int fail_at);
+uint32_t pipe_test_live_buffers(void);
+#endif
 
 #endif /* _CUTEOS_KERNEL_PIPE_H */

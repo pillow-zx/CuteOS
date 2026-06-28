@@ -568,10 +568,14 @@ static int ext2_readdir(struct file *file, void *ctx, filldir_t filldir)
 		}
 
 		loff_t next_pos = file->f_pos + de->rec_len;
-		if (de->inode && filldir(ctx, de->name, de->name_len, de->inode,
-					 de->file_type) < 0) {
-			page_cache_put_page(page);
-			return 0;
+		if (de->inode) {
+			int ret = filldir(ctx, de->name, de->name_len,
+					  de->inode, de->file_type, next_pos);
+
+			if (ret < 0) {
+				page_cache_put_page(page);
+				return ret;
+			}
 		}
 
 		file->f_pos = next_pos;

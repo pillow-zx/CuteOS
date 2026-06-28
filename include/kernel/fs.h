@@ -87,7 +87,7 @@ struct kstatfs;
 #define DT_SOCK	   12
 
 typedef int (*filldir_t)(void *ctx, const char *name, size_t namelen,
-			 uint64_t ino, uint8_t type);
+			 uint64_t ino, uint8_t type, loff_t off);
 
 struct super_operations {
 	int (*read_inode)(struct inode *inode);

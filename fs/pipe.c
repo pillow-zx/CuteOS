@@ -62,6 +62,36 @@ static const struct file_operations pipe_write_fops = {
 	.release = pipe_release,
 };
 
+#ifdef CONFIG_KERNEL_TEST
+static int pipe_test_file_alloc_fail_at;
+static int pipe_test_file_alloc_calls;
+static uint32_t pipe_test_live_buffer_count;
+
+void pipe_test_set_file_alloc_fail_at(int fail_at)
+{
+	pipe_test_file_alloc_fail_at = fail_at;
+	pipe_test_file_alloc_calls = 0;
+}
+
+uint32_t pipe_test_live_buffers(void)
+{
+	return pipe_test_live_buffer_count;
+}
+#endif
+
+static struct file *pipe_file_alloc(const struct file_operations *f_op,
+				    uint32_t mode, void *private_data)
+{
+#ifdef CONFIG_KERNEL_TEST
+	pipe_test_file_alloc_calls++;
+	if (pipe_test_file_alloc_fail_at > 0 &&
+	    pipe_test_file_alloc_calls == pipe_test_file_alloc_fail_at)
+		return NULL;
+#endif
+
+	return file_alloc(f_op, mode, private_data);
+}
+
 static size_t pipe_linear_tail(struct pipe_buffer *pipe)
 {
 	size_t until_end = PIPE_SIZE - pipe->tail;
@@ -108,10 +138,12 @@ static struct pipe_buffer *pipe_buffer_alloc(void)
 		return NULL;
 	}
 
-	pipe->readers = 1;
-	pipe->writers = 1;
 	init_waitqueue_head(&pipe->readers_wq);
 	init_waitqueue_head(&pipe->writers_wq);
+
+#ifdef CONFIG_KERNEL_TEST
+	pipe_test_live_buffer_count++;
+#endif
 
 	return pipe;
 }
@@ -124,6 +156,9 @@ static void pipe_buffer_free(struct pipe_buffer *pipe)
 	if (pipe->data)
 		free_page(pipe->data, 0);
 	kfree(pipe);
+#ifdef CONFIG_KERNEL_TEST
+	pipe_test_live_buffer_count--;
+#endif
 }
 
 static ssize_t pipe_read(struct file *file, char *buf, size_t count)
@@ -264,18 +299,22 @@ int do_pipe2(int fds[2], int flags)
 	if (!pipe)
 		return -ENOMEM;
 
-	struct file *read_file = file_alloc(&pipe_read_fops, FMODE_READ, pipe);
+	struct file *read_file =
+		pipe_file_alloc(&pipe_read_fops, FMODE_READ, pipe);
 	if (!read_file) {
 		pipe_buffer_free(pipe);
 		return -ENOMEM;
 	}
 
 	struct file *write_file =
-		file_alloc(&pipe_write_fops, FMODE_WRITE, pipe);
+		pipe_file_alloc(&pipe_write_fops, FMODE_WRITE, pipe);
 	if (!write_file) {
 		file_put(read_file);
 		return -ENOMEM;
 	}
+
+	pipe->readers = 1;
+	pipe->writers = 1;
 
 	fds[0] = fd_alloc_flags(read_file, flags);
 	if (fds[0] < 0) {
