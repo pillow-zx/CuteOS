@@ -23,6 +23,14 @@ struct wait_queue_head {
 typedef bool (*wait_condition_t)(void *arg);
 
 void init_waitqueue_head(struct wait_queue_head *wq);
+void wait_prepare_current_uninterruptible(void);
+void wait_prepare_current_interruptible(void);
+void wait_finish_current_state(void);
+bool wait_task_is_interruptible(struct task_struct *task);
+bool wait_task_is_uninterruptible(struct task_struct *task);
+bool wait_task_is_stopped(struct task_struct *task);
+bool wait_task_is_sleeping(struct task_struct *task);
+void wait_wake_task(struct task_struct *task);
 void prepare_to_wait_locked(struct wait_queue_head *wq);
 void prepare_to_wait_interruptible(struct wait_queue_head *wq);
 void finish_wait(struct wait_queue_head *wq);

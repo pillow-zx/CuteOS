@@ -42,6 +42,7 @@
 #include <kernel/string.h>
 #include <kernel/task.h>
 #include <kernel/user_map.h>
+#include <kernel/wait.h>
 #include <uapi/syscall.h>
 #include <asm/csr.h>
 #include <asm/page.h>
@@ -365,16 +366,17 @@ static void wake_signal_target(struct task_struct *task, int sig)
 	if (!task)
 		return;
 
-	if (task_state(task) == TASK_INTERRUPTIBLE &&
+	if (wait_task_is_interruptible(task) &&
 	    ((signal_mask(sig) & ~task_blocked_mask(task)) ||
 	     !signal_is_catchable(sig))) {
-		sched_wake_task(task);
+		wait_wake_task(task);
 		return;
 	}
 
 	if (sig == SIGKILL || sig == SIGCONT) {
-		if (task_state(task) & (TASK_STOPPED | TASK_UNINTERRUPTIBLE))
-			sched_wake_task(task);
+		if (wait_task_is_stopped(task) ||
+		    wait_task_is_uninterruptible(task))
+			wait_wake_task(task);
 	}
 }
 
