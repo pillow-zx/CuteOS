@@ -24,40 +24,6 @@ static const struct file_operations null_fops = {
 	.poll = null_poll,
 };
 
-int vfs_inode_permission(struct inode *inode, uint32_t mask)
-{
-	uint32_t perm;
-	uint32_t want = 0;
-
-	if (!inode)
-		return -ENOENT;
-	if (!mask)
-		return 0;
-
-	/*
-	 * 当前没有 capability 模型。root 简单放行，非 root 按
-	 * owner/group/other 三组选一组权限位检查。
-	 */
-	if (task_uid(current) == 0)
-		return 0;
-
-	if (task_uid(current) == inode->i_uid)
-		perm = (inode->i_mode >> 6) & 7;
-	else if (task_gid(current) == inode->i_gid)
-		perm = (inode->i_mode >> 3) & 7;
-	else
-		perm = inode->i_mode & 7;
-
-	if (mask & VFS_MAY_READ)
-		want |= 4;
-	if (mask & VFS_MAY_WRITE)
-		want |= 2;
-	if (mask & VFS_MAY_EXEC)
-		want |= 1;
-
-	return (perm & want) == want ? 0 : -EACCES;
-}
-
 int vfs_sync_file(struct file *file)
 {
 	int ret;

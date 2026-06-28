@@ -208,18 +208,78 @@ int __must_check vfs_stat_file(struct file *file, struct kstat *st);
 int __must_check vfs_statfs(struct super_block *sb, struct kstatfs *buf);
 uint32_t __must_check vfs_poll(struct file *file, uint32_t events);
 int __must_check vfs_ioctl(struct file *file, uint64_t cmd, uint64_t arg);
-uint64_t __must_check __pure vfs_inode_size(const struct inode *inode);
-uint64_t __must_check __pure vfs_inode_number(const struct inode *inode);
-uint32_t __must_check __pure vfs_inode_mode(const struct inode *inode);
-dev_t __must_check __pure vfs_inode_rdev(const struct inode *inode);
-uint32_t __must_check __pure vfs_inode_uid(const struct inode *inode);
-uint32_t __must_check __pure vfs_inode_gid(const struct inode *inode);
-uint32_t __must_check __pure vfs_inode_nlink(const struct inode *inode);
-dev_t __must_check __pure vfs_inode_dev(const struct inode *inode);
-struct inode *__must_check __pure vfs_dentry_inode(struct dentry *dentry);
-struct dentry *__must_check __pure vfs_dentry_parent(struct dentry *dentry);
-const char *__must_check __pure vfs_dentry_name(struct dentry *dentry);
-size_t __must_check __pure vfs_dentry_namelen(struct dentry *dentry);
 int __must_check vfs_getcwd_path(struct dentry *cwd, char *buf, size_t size);
+
+static __always_inline __must_check __pure uint64_t
+vfs_inode_size(const struct inode *inode)
+{
+	return inode ? inode->i_size : 0;
+}
+
+static __always_inline __must_check __pure uint64_t
+vfs_inode_number(const struct inode *inode)
+{
+	return inode ? inode->i_ino : 0;
+}
+
+static __always_inline __must_check __pure uint32_t
+vfs_inode_mode(const struct inode *inode)
+{
+	return inode ? inode->i_mode : 0;
+}
+
+static __always_inline __must_check __pure dev_t
+vfs_inode_rdev(const struct inode *inode)
+{
+	return inode ? inode->i_rdev : 0;
+}
+
+static __always_inline __must_check __pure uint32_t
+vfs_inode_uid(const struct inode *inode)
+{
+	return inode ? inode->i_uid : 0;
+}
+
+static __always_inline __must_check __pure uint32_t
+vfs_inode_gid(const struct inode *inode)
+{
+	return inode ? inode->i_gid : 0;
+}
+
+static __always_inline __must_check __pure uint32_t
+vfs_inode_nlink(const struct inode *inode)
+{
+	return inode ? inode->i_nlink : 0;
+}
+
+static __always_inline __must_check __pure dev_t
+vfs_inode_dev(const struct inode *inode)
+{
+	return inode && inode->i_sb ? inode->i_sb->s_dev : 0;
+}
+
+static __always_inline __must_check __pure struct inode *
+vfs_dentry_inode(struct dentry *dentry)
+{
+	return dentry ? dentry->d_inode : NULL;
+}
+
+static __always_inline __must_check __pure struct dentry *
+vfs_dentry_parent(struct dentry *dentry)
+{
+	return dentry ? dentry->d_parent : NULL;
+}
+
+static __always_inline __must_check __pure const char *
+vfs_dentry_name(struct dentry *dentry)
+{
+	return dentry ? dentry->d_name : NULL;
+}
+
+static __always_inline __must_check __pure size_t
+vfs_dentry_namelen(struct dentry *dentry)
+{
+	return dentry ? dentry->d_namelen : 0;
+}
 
 #endif

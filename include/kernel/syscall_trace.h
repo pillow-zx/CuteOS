@@ -10,8 +10,7 @@
 #if CONFIG_SYSCALL_TRACE
 #define SYSCALL_NAME(nr, name, fn) [nr] = name,
 static const char *const syscall_names[NR_SYSCALL] = {
-	SYSCALL_TABLE(SYSCALL_NAME)
-};
+	SYSCALL_TABLE(SYSCALL_NAME)};
 
 static __always_inline const char *syscall_trace_name(size_t nr)
 {
@@ -31,14 +30,14 @@ static __always_inline void syscall_trace_log(size_t nr, const size_t args[6],
 }
 
 #else
-static inline const char *syscall_trace_name(size_t nr)
+static __always_inline const char *syscall_trace_name(size_t nr)
 {
 	(void)nr;
 	return "unknown";
 }
 
-static inline void syscall_trace_log(size_t nr, const size_t args[6],
-				     ssize_t ret)
+static __always_inline void syscall_trace_log(size_t nr, const size_t args[6],
+					      ssize_t ret)
 {
 	(void)nr;
 	(void)args;

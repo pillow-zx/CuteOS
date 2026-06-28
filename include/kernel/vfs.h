@@ -48,10 +48,10 @@ int __must_check path_lookupat_err(struct dentry *base, const char *path,
 				   uint32_t flags, struct dentry **res);
 struct dentry *__must_check path_parent_lookup(const char *path, char *name,
 					       size_t *namelen);
-int __must_check path_parent_lookupat_err(struct dentry *base,
-					  const char *path, char *name,
-					  size_t *namelen,
+int __must_check path_parent_lookupat_err(struct dentry *base, const char *path,
+					  char *name, size_t *namelen,
 					  struct dentry **res);
+int __must_check vfs_init_inode_owner(struct inode *inode);
 int __must_check vfs_inode_permission(struct inode *inode, uint32_t mask);
 int __must_check vfs_readlink(struct dentry *dentry, char *buf, size_t size);
 int __must_check vfs_create(const char *path, uint32_t mode,
@@ -63,10 +63,9 @@ int __must_check vfs_mkdir_at(struct dentry *base, const char *path,
 			      uint32_t mode);
 int vfs_unlink(const char *path, int flags);
 int vfs_unlink_at(struct dentry *base, const char *path, int flags);
-int __must_check vfs_rename_at(struct dentry *old_base,
-			       const char *old_path,
-			       struct dentry *new_base,
-			       const char *new_path, unsigned int flags);
+int __must_check vfs_rename_at(struct dentry *old_base, const char *old_path,
+			       struct dentry *new_base, const char *new_path,
+			       unsigned int flags);
 int __must_check vfs_mknod(const char *path, uint32_t mode, dev_t dev);
 int __must_check vfs_mknod_at(struct dentry *base, const char *path,
 			      uint32_t mode, dev_t dev);

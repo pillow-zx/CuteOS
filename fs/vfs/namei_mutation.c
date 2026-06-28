@@ -9,7 +9,6 @@
 #include <kernel/errno.h>
 #include <kernel/fs.h>
 #include <kernel/stat.h>
-#include <kernel/task.h>
 #include <kernel/vfs.h>
 
 #include "namei_internal.h"
@@ -19,16 +18,6 @@ struct create_target {
 	struct dentry *dentry;
 	bool new_dentry;
 };
-
-static int init_new_inode_owner(struct inode *inode)
-{
-	if (!inode)
-		return 0;
-
-	inode->i_uid = task_uid(current);
-	inode->i_gid = task_gid(current);
-	return vfs_inode_writeback(inode);
-}
 
 static int prepare_create_target(struct dentry *base, const char *path,
 				 bool require_mkdir,
@@ -98,7 +87,7 @@ int vfs_create_at(struct dentry *base, const char *path, uint32_t mode,
 	ret = target.parent->d_inode->i_op->create(target.parent->d_inode,
 						   target.dentry, mode);
 	if (ret == 0) {
-		ret = init_new_inode_owner(target.dentry->d_inode);
+		ret = vfs_init_inode_owner(target.dentry->d_inode);
 		if (ret == 0 && target.new_dentry)
 			dcache_insert(target.dentry);
 		if (ret == 0 && res) {
@@ -128,7 +117,7 @@ int vfs_mkdir_at(struct dentry *base, const char *path, uint32_t mode)
 	ret = target.parent->d_inode->i_op->mkdir(target.parent->d_inode,
 						  target.dentry, mode);
 	if (ret == 0) {
-		ret = init_new_inode_owner(target.dentry->d_inode);
+		ret = vfs_init_inode_owner(target.dentry->d_inode);
 		if (ret == 0 && target.new_dentry)
 			dcache_insert(target.dentry);
 	}

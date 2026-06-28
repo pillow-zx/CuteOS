@@ -25,6 +25,7 @@
 #include <kernel/slab.h>
 #include <kernel/stat.h>
 #include <kernel/string.h>
+#include <kernel/task.h>
 #include <kernel/vfs.h>
 
 #define ICACHE_HASH_BITS 6
@@ -131,12 +132,56 @@ int vfs_inode_writeback(struct inode *inode)
 	return inode->i_sb->s_op->write_inode(inode);
 }
 
+int vfs_init_inode_owner(struct inode *inode)
+{
+	if (!inode)
+		return 0;
+
+	inode->i_uid = task_uid(current);
+	inode->i_gid = task_gid(current);
+	return vfs_inode_writeback(inode);
+}
+
 int vfs_inode_truncate(struct inode *inode, uint64_t size)
 {
 	if (!inode || !inode->i_op || !inode->i_op->truncate)
 		return -EINVAL;
 
 	return inode->i_op->truncate(inode, size);
+}
+
+int vfs_inode_permission(struct inode *inode, uint32_t mask)
+{
+	uint32_t perm;
+	uint32_t want = 0;
+
+	if (!inode)
+		return -ENOENT;
+	if (!mask)
+		return 0;
+
+	/*
+	 * 当前没有 capability 模型。root 简单放行，非 root 按
+	 * owner/group/other 三组选一组权限位检查。
+	 */
+	if (task_uid(current) == 0)
+		return 0;
+
+	if (task_uid(current) == inode->i_uid)
+		perm = (inode->i_mode >> 6) & 7;
+	else if (task_gid(current) == inode->i_gid)
+		perm = (inode->i_mode >> 3) & 7;
+	else
+		perm = inode->i_mode & 7;
+
+	if (mask & VFS_MAY_READ)
+		want |= 4;
+	if (mask & VFS_MAY_WRITE)
+		want |= 2;
+	if (mask & VFS_MAY_EXEC)
+		want |= 1;
+
+	return (perm & want) == want ? 0 : -EACCES;
 }
 
 int vfs_stat_inode(const struct inode *inode, struct kstat *st)
@@ -164,45 +209,6 @@ int vfs_stat_inode(const struct inode *inode, struct kstat *st)
 	return 0;
 }
 
-uint64_t vfs_inode_size(const struct inode *inode)
-{
-	return inode ? inode->i_size : 0;
-}
-
-uint64_t vfs_inode_number(const struct inode *inode)
-{
-	return inode ? inode->i_ino : 0;
-}
-
-uint32_t vfs_inode_mode(const struct inode *inode)
-{
-	return inode ? inode->i_mode : 0;
-}
-
-dev_t vfs_inode_rdev(const struct inode *inode)
-{
-	return inode ? inode->i_rdev : 0;
-}
-
-uint32_t vfs_inode_uid(const struct inode *inode)
-{
-	return inode ? inode->i_uid : 0;
-}
-
-uint32_t vfs_inode_gid(const struct inode *inode)
-{
-	return inode ? inode->i_gid : 0;
-}
-
-uint32_t vfs_inode_nlink(const struct inode *inode)
-{
-	return inode ? inode->i_nlink : 0;
-}
-
-dev_t vfs_inode_dev(const struct inode *inode)
-{
-	return inode && inode->i_sb ? inode->i_sb->s_dev : 0;
-}
 
 void inode_forget(struct inode *inode)
 {
