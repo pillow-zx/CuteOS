@@ -9,10 +9,12 @@
  * 自己的 mapping 缓存"磁盘物理块"。page cache 通过 ops 回调完成读、
  * 映射和回写，不感知调用者是 ext2 文件数据、目录数据还是裸块设备元数据。
  *
- * backing 用于描述别名关系。例如 ext2 inode mapping 的 index 是文件逻辑
- * 块号，最终落到块设备 mapping 的物理块号。文件页回写成功后，page cache
- * 可以用 map_block() 找到物理块，并刷新 backing mapping 中已经存在的块
- * 设备缓存页，避免"同一磁盘块在两个 mapping 中内容不同"。
+ * backing 只描述 page cache coherency 关系，不改变 I/O 路由或所有权。
+ * 例如 ext2 inode mapping 的 index 是文件逻辑块号，最终落到块设备
+ * mapping 的物理块号。inode 页是 authoritative mapping；文件/目录页
+ * 回写成功后，page cache 可以用 map_block() 找到物理块，并刷新 backing
+ * mapping 中已经存在的 raw block alias。裸块设备 mapping 没有 backing，
+ * metadata 写入也不会反向扫描 inode aliases。
  */
 
 #include <kernel/list.h>
@@ -27,8 +29,8 @@ struct page_mapping {
 	const struct page_mapping_ops *ops;
 
 	/*
-	 * backing 指向下层命名域。当前主要用于 inode mapping -> blockdev
-	 * mapping 的缓存别名刷新；裸块设备 mapping 没有 backing。
+	 * backing 指向下层 raw block 命名域，仅用于 page cache alias
+	 * refresh/invalidate。裸块设备 mapping 没有 backing。
 	 */
 	struct page_mapping *backing;
 

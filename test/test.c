@@ -181,6 +181,8 @@ void kernel_test(void)
 	test_page_cache_dirty_write_visibility();
 	test_page_cache_fsync_inode_scope();
 	test_page_cache_block_mapping_refreshed_after_fsync();
+	test_page_cache_directory_alias_refresh();
+	test_page_cache_alias_invalidate_after_inode_drop();
 	test_page_cache_pressure_eviction();
 	test_page_cache_clustered_writeback();
 	test_page_cache_indirect_reclaim_progress();

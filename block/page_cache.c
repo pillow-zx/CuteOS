@@ -102,6 +102,7 @@ static void page_cache_drop_page(struct page_cache *page)
 	 * A caller may still be using page->data, so actual memory release waits
 	 * until the reference count reaches zero.
 	 */
+	page_cache_alias_invalidate_after_drop(page);
 	page_cache_remove_dirty(page);
 	page->writeback = false;
 	page->uptodate = false;

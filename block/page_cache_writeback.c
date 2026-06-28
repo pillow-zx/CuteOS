@@ -37,38 +37,6 @@ static void page_cache_sleep_until(uint64_t deadline)
 	(void)timer_sleep_until(deadline, false);
 }
 
-static void page_cache_refresh_block_alias(struct page_mapping *mapping,
-					   uint32_t blocknr,
-					   const void *data)
-{
-	struct page_mapping *block_mapping;
-	struct page_cache *alias;
-
-	if (!mapping || !data)
-		return;
-
-	/*
-	 * Only mappings with a lower block-device mapping can have aliases.
-	 * A raw block-device mapping has no backing and therefore nothing to
-	 * refresh.
-	 */
-	block_mapping = mapping->backing;
-	if (!block_mapping)
-		return;
-
-	alias = page_cache_find(block_mapping, blocknr);
-	if (!alias)
-		return;
-
-	/*
-	 * The just-written higher-level page is now the freshest copy.  The
-	 * block alias must become clean because its bytes are already on disk.
-	 */
-	memcpy(alias->data, data, BLOCK_SIZE);
-	alias->uptodate = true;
-	page_cache_remove_dirty(alias);
-}
-
 int page_cache_sync_page(struct page_cache *page)
 {
 	struct page_mapping *mapping;
@@ -97,8 +65,9 @@ int page_cache_sync_page(struct page_cache *page)
 		if (mapping->ops->map_block &&
 		    mapping->ops->map_block(mapping, page->index, false,
 					    &blocknr) == 0)
-			page_cache_refresh_block_alias(mapping, blocknr,
-						       page->data);
+			page_cache_alias_refresh_after_writeback(mapping,
+								 blocknr,
+								 page->data);
 	}
 	return ret;
 }
@@ -178,8 +147,8 @@ int page_cache_writeback_run(struct page_cache *start)
 	for (uint32_t i = 0; i < nr_pages; i++) {
 		pages[i]->writeback = false;
 		if (ret == 0) {
-			page_cache_refresh_block_alias(mapping, pblocks[i],
-						       pages[i]->data);
+			page_cache_alias_refresh_after_writeback(
+				mapping, pblocks[i], pages[i]->data);
 			page_cache_remove_dirty(pages[i]);
 		}
 	}

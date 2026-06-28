@@ -113,6 +113,26 @@ static int write_raw_file_page(struct file *file, uint32_t index,
 					   BLOCK_SECTORS);
 }
 
+static bool dir_page_has_entry(const uint8_t *data, const char *name)
+{
+	size_t namelen = strlen(name);
+	uint32_t offset = 0;
+
+	while (offset + 8 <= BLOCK_SIZE) {
+		const struct ext2_dir_entry_2 *de =
+			(const struct ext2_dir_entry_2 *)(data + offset);
+
+		if (de->rec_len < 8 || offset + de->rec_len > BLOCK_SIZE)
+			break;
+		if (de->inode && de->name_len == namelen &&
+		    memcmp(de->name, name, namelen) == 0)
+			return true;
+		offset += de->rec_len;
+	}
+
+	return false;
+}
+
 void test_page_cache_dirty_write_visibility(void)
 {
 	static uint8_t wbuf[BLOCK_SIZE];
@@ -238,6 +258,104 @@ fail:
 cleanup:
 	close_test_file(fd, file);
 	unlink_test_path("/pcache-block-mapping-refresh");
+}
+
+void test_page_cache_directory_alias_refresh(void)
+{
+	static uint8_t cached[BLOCK_SIZE];
+	struct dentry *dir_dentry = NULL;
+	struct dentry *file_dentry = NULL;
+	struct page_cache *raw_page = NULL;
+	uint32_t pblock;
+	int ret;
+
+	TEST_BEGIN("page cache: directory alias refresh after create");
+	{
+		(void)vfs_unlink("/pcache-alias-dir/child", 0);
+		(void)vfs_unlink("/pcache-alias-dir", AT_REMOVEDIR);
+
+		TEST_ASSERT_EQ(vfs_mkdir("/pcache-alias-dir", 0755), 0);
+		TEST_ASSERT_EQ(path_lookupat_err(NULL, "/pcache-alias-dir",
+						 0, &dir_dentry),
+			       0);
+		TEST_ASSERT_NOT_NULL(dir_dentry);
+		TEST_ASSERT_NOT_NULL(dir_dentry->d_inode);
+
+		pblock = ext2_bmap(dir_dentry->d_inode, 0, false);
+		TEST_ASSERT_NE(pblock, 0u);
+		raw_page = page_cache_get_block(dir_dentry->d_inode->i_sb->s_dev,
+						pblock);
+		TEST_ASSERT_NOT_NULL(raw_page);
+		TEST_ASSERT(!dir_page_has_entry(page_cache_data(raw_page),
+						"child"));
+
+		ret = vfs_create("/pcache-alias-dir/child", 0644,
+				 &file_dentry);
+		TEST_ASSERT_EQ(ret, 0);
+		TEST_ASSERT_NOT_NULL(file_dentry);
+		dput(file_dentry);
+		file_dentry = NULL;
+
+		memset(cached, 0, sizeof(cached));
+		memcpy(cached, page_cache_data(raw_page), BLOCK_SIZE);
+		TEST_ASSERT(dir_page_has_entry(cached, "child"));
+	}
+	TEST_END("page cache: directory alias refresh after create");
+	goto cleanup;
+fail:
+	TEST_FAIL("page cache: directory alias refresh after create",
+		  "see above");
+cleanup:
+	if (raw_page)
+		page_cache_put_page(raw_page);
+	if (file_dentry)
+		dput(file_dentry);
+	if (dir_dentry)
+		dput(dir_dentry);
+	(void)vfs_unlink("/pcache-alias-dir/child", 0);
+	(void)vfs_unlink("/pcache-alias-dir", AT_REMOVEDIR);
+}
+
+void test_page_cache_alias_invalidate_after_inode_drop(void)
+{
+	static uint8_t old_buf[BLOCK_SIZE];
+	static uint8_t new_buf[BLOCK_SIZE];
+	static uint8_t cached[BLOCK_SIZE];
+	struct file *file = NULL;
+	int fd = -1;
+
+	TEST_BEGIN("page cache: alias invalidate reloads raw block");
+	{
+		unlink_test_path("/pcache-alias-invalidate");
+		fill_pattern(old_buf, sizeof(old_buf), 0x19);
+		fill_pattern(new_buf, sizeof(new_buf), 0xe3);
+
+		fd = open_test_file("/pcache-alias-invalidate",
+				    O_CREAT | O_TRUNC | O_RDWR, &file);
+		TEST_ASSERT(fd >= 0);
+		TEST_ASSERT_EQ(vfs_write(file, (const char *)old_buf,
+					 sizeof(old_buf)),
+			       (ssize_t)sizeof(old_buf));
+		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
+		TEST_ASSERT_EQ(read_block_mapping_file_page(file, 0, cached),
+			       0);
+		TEST_ASSERT_EQ(memcmp(cached, old_buf, sizeof(cached)), 0);
+
+		TEST_ASSERT_EQ(write_raw_file_page(file, 0, new_buf), 0);
+		page_cache_invalidate_inode(file->f_inode);
+
+		memset(cached, 0, sizeof(cached));
+		TEST_ASSERT_EQ(read_block_mapping_file_page(file, 0, cached),
+			       0);
+		TEST_ASSERT_EQ(memcmp(cached, new_buf, sizeof(cached)), 0);
+	}
+	TEST_END("page cache: alias invalidate reloads raw block");
+	goto cleanup;
+fail:
+	TEST_FAIL("page cache: alias invalidate reloads raw block", "see above");
+cleanup:
+	close_test_file(fd, file);
+	unlink_test_path("/pcache-alias-invalidate");
 }
 
 void test_page_cache_pressure_eviction(void)

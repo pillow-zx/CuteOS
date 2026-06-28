@@ -13,6 +13,11 @@ void page_cache_remove_dirty(struct page_cache *page);
 struct page_cache *page_cache_first_dirty_mapping(struct page_mapping *mapping);
 struct page_cache *page_cache_first_dirty_global(void);
 
+void page_cache_alias_refresh_after_writeback(struct page_mapping *mapping,
+					      uint32_t blocknr,
+					      const void *data);
+void page_cache_alias_invalidate_after_drop(struct page_cache *page);
+
 int page_cache_writeback_run(struct page_cache *start);
 
 #endif
