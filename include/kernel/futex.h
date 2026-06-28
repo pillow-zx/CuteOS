@@ -25,6 +25,10 @@ struct robust_list_head {
 void futex_init(void);
 int futex_wake_mm(struct mm_struct *mm, int *uaddr, int nr);
 void futex_exit_robust_list(struct task_struct *task);
-ssize_t sys_futex(struct trap_frame *tf);
+int kernel_futex(int *uaddr, int op, int val, const void *timeout);
+int futex_set_robust_list(struct task_struct *task,
+			  struct robust_list_head *head, size_t len);
+int futex_get_robust_list(struct task_struct *task,
+			  struct robust_list_head **head, size_t *len);
 
 #endif

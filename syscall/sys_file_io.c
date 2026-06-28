@@ -393,9 +393,23 @@ ssize_t sys_pipe2(struct trap_frame *tf)
 {
 	int *user_fds = (int *)tf->a0;
 	int flags = (int)tf->a1;
+	int fds[2];
+	int ret;
 
 	if (!access_ok(user_fds, sizeof(int[2])))
 		return -EFAULT;
+	if (flags & ~O_CLOEXEC)
+		return -EINVAL;
 
-	return do_pipe2(user_fds, flags);
+	ret = do_pipe2(fds, flags);
+	if (ret < 0)
+		return ret;
+
+	if (copy_to_user(user_fds, fds, sizeof(fds)) != 0) {
+		fd_close(fds[0]);
+		fd_close(fds[1]);
+		return -EFAULT;
+	}
+
+	return 0;
 }

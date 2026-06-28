@@ -3,13 +3,13 @@
  *
  * 功能：
  *   实现进程间通信的匿名管道。pipe_buffer 使用一页 4KB 循环缓冲区，
- *   并维护读者/写者计数以及两端等待队列。sys_pipe2 创建两个匿名
- *   file 对象共享同一个 pipe_buffer。pipe_read 在缓冲区为空且仍有
+ *   并维护读者/写者计数以及两端等待队列。do_pipe2 创建两个匿名 file
+ *   对象共享同一个 pipe_buffer。pipe_read 在缓冲区为空且仍有
  *   写端时睡眠；pipe_write 在缓冲区满且仍有读端时睡眠。最后一个
  *   读端关闭后写返回 -EPIPE；最后一个写端关闭后读完剩余数据返回 0。
  *
  * 主要函数：
- *   sys_pipe2(fd, flags)      - 创建两个 file 共享一个 pipe_buffer
+ *   do_pipe2(fds, flags)      - 创建两个 file 共享一个 pipe_buffer
  *   pipe_read(buf, count)     - 读数据，缓冲区空时在 readers_wq 睡眠
  *   pipe_write(buf, count)    - 写数据，缓冲区满时在 writers_wq 睡眠
  *
@@ -21,13 +21,11 @@
 #include <kernel/buddy.h>
 #include <kernel/errno.h>
 #include <kernel/fdtable.h>
-#include <kernel/mm.h>
 #include <kernel/slab.h>
 #include <kernel/signal.h>
 #include <kernel/string.h>
 #include <kernel/wait.h>
 #include <asm/page.h>
-#include <asm/trap.h>
 
 #define PIPE_SIZE PAGE_SIZE
 
@@ -255,14 +253,12 @@ static int pipe_release(struct file *file)
 	return 0;
 }
 
-int do_pipe2(int *user_fds, int flags)
+int do_pipe2(int fds[2], int flags)
 {
-	int fds[2];
-
 	if (flags & ~O_CLOEXEC)
 		return -EINVAL;
-	if (!access_ok(user_fds, sizeof(fds)))
-		return -EFAULT;
+	if (!fds)
+		return -EINVAL;
 
 	struct pipe_buffer *pipe = pipe_buffer_alloc();
 	if (!pipe)
@@ -293,12 +289,6 @@ int do_pipe2(int *user_fds, int flags)
 		fd_close(fds[0]);
 		file_put(write_file);
 		return fds[1];
-	}
-
-	if (copy_to_user(user_fds, fds, sizeof(fds)) != 0) {
-		fd_close(fds[0]);
-		fd_close(fds[1]);
-		return -EFAULT;
 	}
 
 	return 0;

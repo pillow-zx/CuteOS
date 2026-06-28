@@ -14,7 +14,7 @@
  *     5. 向父进程发送 SIGCHLD 信号通知。
  *     6. 调用 schedule() 切换到下一个可运行进程，永不返回。
  *
- *   sys_wait4 支持：
+ *   kernel_wait4 支持：
  *     - pid > 0 ：等待指定 PID 的子进程。
  *     - pid == -1：等待任意子进程（等价于 waitpid(-1, ...)）。
  *     - 使用 sleep_on/wake_up 在子进程等待队列上睡眠/唤醒。
@@ -24,9 +24,9 @@
  *                                 关闭所有 fd，释放用户空间，
  *                                 过继孤儿给 init，发送 SIGCHLD 给父进程，
  *                                 调用 schedule() 永不返回。
- *   sys_wait4(pid, wstatus, options, rusage) - 等待子进程状态变化，
- *                                 支持 pid>0 和 pid==-1，
- *                                 使用 sleep_on 在子进程等待队列上阻塞。
+ *   kernel_wait4(pid, options, result) - 等待子进程状态变化，支持 pid>0
+ *                                 和 pid==-1，使用 sleep_on 在子进程
+ *                                 等待队列上阻塞。
  *   release_task(task)          - 最终的 task_struct 回收（供 wait4 调用）。
  *   reparent_children(dead_task)- 将死进程的子进程过继给 init 进程。
  */
@@ -41,12 +41,10 @@
 #include <kernel/printk.h>
 #include <kernel/sched.h>
 #include <kernel/signal.h>
-#include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <kernel/wait.h>
 #include <asm/csr.h>
 #include <asm/pte.h>
-#include <asm/trap.h>
 
 #define WEXITCODE(code) ((code) << 8)
 
@@ -57,10 +55,10 @@ static struct task_struct *find_child(pid_t pid)
 {
 	struct task_struct *child;
 
-	list_for_each_entry (child, &current->children, sibling) {
+	list_for_each_entry (child, task_children(current), sibling) {
 		if (!task_is_group_leader(child))
 			continue;
-		if (child->pid == pid)
+		if (task_pid(child) == pid)
 			return child;
 	}
 
@@ -71,10 +69,10 @@ static struct task_struct *find_any_zombie_child(void)
 {
 	struct task_struct *child;
 
-	list_for_each_entry (child, &current->children, sibling) {
+	list_for_each_entry (child, task_children(current), sibling) {
 		if (!task_is_group_leader(child))
 			continue;
-		if (child->state == TASK_ZOMBIE)
+		if (task_state(child) == TASK_ZOMBIE)
 			return child;
 	}
 
@@ -87,7 +85,7 @@ static struct task_struct *find_waitable_child(pid_t pid)
 		return find_any_zombie_child();
 
 	struct task_struct *child = find_child(pid);
-	if (child && child->state == TASK_ZOMBIE)
+	if (child && task_state(child) == TASK_ZOMBIE)
 		return child;
 
 	return NULL;
@@ -98,7 +96,7 @@ static bool has_wait_target(pid_t pid)
 	struct task_struct *child;
 
 	if (pid == (pid_t)-1) {
-		list_for_each_entry (child, &current->children, sibling) {
+		list_for_each_entry (child, task_children(current), sibling) {
 			if (task_is_group_leader(child))
 				return true;
 		}
@@ -128,25 +126,26 @@ static void reparent_children(struct task_struct *dead)
 
 static void clear_child_tid(struct task_struct *task)
 {
+	int *clear_tid = task_clear_child_tid(task);
 	int zero = 0;
 
-	if (!task->clear_child_tid)
+	if (!clear_tid)
 		return;
 
-	if (copy_to_user(task->clear_child_tid, &zero, sizeof(zero)) == 0)
-		futex_wake_mm(task->mm, task->clear_child_tid, 1);
-	task->clear_child_tid = NULL;
+	if (copy_to_user(clear_tid, &zero, sizeof(zero)) == 0)
+		futex_wake_mm(task_mm(task), clear_tid, 1);
+	task_set_clear_child_tid(task, NULL);
 }
 
 static void release_task_mm(struct task_struct *task)
 {
-	struct mm_struct *mm = task->mm;
+	struct mm_struct *mm = task_mm(task);
 
 	if (!mm)
 		return;
 
-	task->mm = NULL;
-	task->satp = 0;
+	task_set_mm(task, NULL);
+	task_set_satp(task, 0);
 
 	if (task == current) {
 		csr_write(satp, arch_kernel_satp());
@@ -170,7 +169,8 @@ static void detach_task_queues(struct task_struct *task)
 static void finish_task_exit(struct task_struct *task, int code,
 			     bool notify_parent)
 {
-	if (!task || task->state == TASK_ZOMBIE || task->state == TASK_DEAD)
+	if (!task || task_state(task) == TASK_ZOMBIE ||
+	    task_state(task) == TASK_DEAD)
 		return;
 
 	detach_task_queues(task);
@@ -188,7 +188,7 @@ static void finish_task_exit(struct task_struct *task, int code,
 	else if (!list_empty(&task->thread_node))
 		list_del_init(&task->thread_node);
 
-	task->state = TASK_ZOMBIE;
+	task_set_state(task, TASK_ZOMBIE);
 	if (!task_is_group_leader(task) && task == current) {
 		list_add_tail(&task->thread_node, &exited_threads);
 		exited_threads_reap_pending = true;
@@ -259,8 +259,8 @@ void __noreturn do_exit(int code)
 
 	/*
 	 * From here until schedule() switches away, current is a zombie with
-	 * current->mm == NULL and current->satp == 0. Do not add code here
-	 * that dereferences current->mm or assumes a user address space exists.
+	 * no mm and satp == 0. Do not add code here that dereferences a user
+	 * address space.
 	 *
 	 * 运行中的进程不在 runqueue 中（schedule 在取队首时已 dequeue），
 	 * 无需再次 sched_dequeue。schedule() 也不会把 ZOMBIE 进程重新入队。
@@ -274,10 +274,10 @@ void __noreturn do_exit(int code)
 
 void __noreturn do_exit_group(int code)
 {
-	struct task_struct *leader = current->group_leader;
+	struct task_struct *leader = task_group_leader(current);
 
-	pr_info("exit_group: pid=%d tgid=%d exit_code=%d\n", current->pid,
-	       current->tgid, code);
+	pr_info("exit_group: pid=%d tgid=%d exit_code=%d\n",
+	       task_pid(current), task_tgid(current), code);
 
 	if (leader && leader != current) {
 		finish_task_exit(leader, code, true);
@@ -299,7 +299,7 @@ void release_task(struct task_struct *task)
 
 	BUG_ON(task == current);
 	BUG_ON(task == &idle_task);
-	BUG_ON(task->state != TASK_ZOMBIE);
+	BUG_ON(task_state(task) != TASK_ZOMBIE);
 	BUG_ON(!list_empty(&task->children));
 	BUG_ON(task_is_group_leader(task) && !list_empty(&task->thread_group));
 
@@ -312,22 +312,18 @@ void release_task(struct task_struct *task)
 	if (!list_empty(&task->wait_list))
 		list_del_init(&task->wait_list);
 
-	task->state = TASK_DEAD;
+	task_set_state(task, TASK_DEAD);
 	task_free(task);
 }
 
-ssize_t sys_wait4(struct trap_frame *tf)
+int kernel_wait4(pid_t pid, int options, struct wait4_result *result)
 {
-	pid_t pid = (pid_t)tf->a0;
-	int *wstatus = (int *)tf->a1;
-	int options = (int)tf->a2;
-
 	if (pid != (pid_t)-1 && pid <= 0)
 		return -EINVAL;
 	if (options != 0)
 		return -EINVAL;
-	if (wstatus && !access_ok(wstatus, sizeof(*wstatus)))
-		return -EFAULT;
+	if (!result)
+		return -EINVAL;
 
 	while (true) {
 		if (!has_wait_target(pid))
@@ -335,19 +331,25 @@ ssize_t sys_wait4(struct trap_frame *tf)
 
 		struct task_struct *child = find_waitable_child(pid);
 		if (!child) {
-			sleep_on(&current->wait_child_queue);
+			sleep_on(task_wait_child_queue(current));
 			continue;
 		}
 
-		pid_t child_pid = child->pid;
+		pid_t child_pid = task_pid(child);
 		int status = WEXITCODE(child->exit_code);
 
-		if (wstatus) {
-			if (copy_to_user(wstatus, &status, sizeof(status)) != 0)
-				return -EFAULT;
-		}
-
-		release_task(child);
-		return child_pid;
+		result->task = child;
+		result->pid = child_pid;
+		result->status = status;
+		return 0;
 	}
+}
+
+void kernel_wait4_finish(struct wait4_result *result)
+{
+	if (!result || !result->task)
+		return;
+
+	release_task(result->task);
+	result->task = NULL;
 }

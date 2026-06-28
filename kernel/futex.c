@@ -5,12 +5,11 @@
 #include <kernel/sched.h>
 #include <kernel/string.h>
 #include <kernel/sync.h>
-#include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <kernel/timer.h>
 #include <kernel/wait.h>
 #include <asm/csr.h>
-#include <asm/trap.h>
+#include <asm/uaccess.h>
 
 #define FUTEX_BUCKETS 32
 #define ROBUST_LIST_LIMIT 2048
@@ -42,7 +41,8 @@ void futex_init(void)
 	}
 }
 
-static bool futex_key_equal(const struct futex_key *a, const struct futex_key *b)
+static bool futex_key_equal(const struct futex_key *a,
+			    const struct futex_key *b)
 {
 	return a->mm == b->mm && a->uaddr == b->uaddr;
 }
@@ -138,7 +138,7 @@ static int futex_wait(int *uaddr, int expected, const void *timeout)
 	bool enabled_irq_for_sleep = false;
 	uint64_t expires;
 
-	ret = futex_make_key(current ? current->mm : NULL, uaddr, &key);
+	ret = futex_make_key(task_mm(current), uaddr, &key);
 	if (ret < 0)
 		return ret;
 	if (user_range_probe(uaddr, sizeof(*uaddr), false) < 0)
@@ -181,7 +181,7 @@ static int futex_wait(int *uaddr, int expected, const void *timeout)
 	if (local_timer_wait) {
 		/* No runnable peer exists, so wait here for the timer IRQ. */
 		while (!timer_wait_fired(&timer) && !waiter.woken &&
-		       !signal_pending(current))
+		       !task_signal_pending(current))
 			wfi();
 	} else {
 		schedule();
@@ -200,7 +200,7 @@ static int futex_wait(int *uaddr, int expected, const void *timeout)
 
 	if (waiter.woken)
 		return 0;
-	if (signal_pending(current))
+	if (task_signal_pending(current))
 		return -EINTR;
 	if (timer_started && timer_wait_fired(&timer))
 		return -ETIMEDOUT;
@@ -250,7 +250,7 @@ static int futex_wake(int *uaddr, int nr)
 	struct futex_key key;
 	int ret;
 
-	ret = futex_make_key(current ? current->mm : NULL, uaddr, &key);
+	ret = futex_make_key(task_mm(current), uaddr, &key);
 	if (ret < 0)
 		return ret;
 	if (!access_ok(uaddr, sizeof(*uaddr)))
@@ -259,14 +259,14 @@ static int futex_wake(int *uaddr, int nr)
 	return futex_wake_mm(key.mm, uaddr, nr);
 }
 
-static void robust_wake_owner(struct task_struct *task, struct robust_list *node,
-			      long futex_offset)
+static void robust_wake_owner(struct task_struct *task,
+			      struct robust_list *node, long futex_offset)
 {
 	int old_value;
 	int new_value;
 	int *uaddr;
 
-	if (!task || !task->mm || !node)
+	if (!task || !task_mm(task) || !node)
 		return;
 
 	uaddr = (int *)((char *)node + futex_offset);
@@ -274,32 +274,33 @@ static void robust_wake_owner(struct task_struct *task, struct robust_list *node
 		return;
 	if (copy_from_user(&old_value, uaddr, sizeof(old_value)) != 0)
 		return;
-	if ((old_value & FUTEX_TID_MASK) != (int)task->pid)
+	if ((old_value & FUTEX_TID_MASK) != (int)task_pid(task))
 		return;
 
 	new_value = (old_value & FUTEX_WAITERS) | FUTEX_OWNER_DIED;
 	if (copy_to_user(uaddr, &new_value, sizeof(new_value)) != 0)
 		return;
 
-	(void)futex_wake_mm(task->mm, uaddr, 1);
+	(void)futex_wake_mm(task_mm(task), uaddr, 1);
 }
 
 void futex_exit_robust_list(struct task_struct *task)
 {
 	struct robust_list_head head;
+	struct robust_list_head *head_ptr;
 	struct robust_list *entry;
 	struct robust_list *pending;
 
-	if (!task || !task->robust_list)
+	head_ptr = task_robust_list(task);
+	if (!task || !head_ptr)
 		return;
-	if (task->robust_list_len != sizeof(struct robust_list_head))
+	if (task_robust_list_len(task) != sizeof(struct robust_list_head))
 		return;
-	if (copy_from_user(&head, task->robust_list, sizeof(head)) != 0)
+	if (copy_from_user(&head, head_ptr, sizeof(head)) != 0)
 		return;
 
 	entry = head.list.next;
-	for (int i = 0; entry && entry != &task->robust_list->list &&
-			i < ROBUST_LIST_LIMIT;
+	for (int i = 0; entry && entry != &head_ptr->list && i < ROBUST_LIST_LIMIT;
 	     i++) {
 		struct robust_list current;
 
@@ -310,59 +311,35 @@ void futex_exit_robust_list(struct task_struct *task)
 	}
 
 	pending = head.list_op_pending;
-	if (pending && pending != &task->robust_list->list)
+	if (pending && pending != &head_ptr->list)
 		robust_wake_owner(task, pending, head.futex_offset);
 }
 
-ssize_t sys_set_robust_list(struct trap_frame *tf)
+int futex_set_robust_list(struct task_struct *task,
+			  struct robust_list_head *head, size_t len)
 {
-	struct robust_list_head *head = (struct robust_list_head *)tf->a0;
-	size_t len = (size_t)tf->a1;
-
 	if (len != sizeof(struct robust_list_head))
 		return -EINVAL;
-	if (!current)
-		return -EFAULT;
-
-	current->robust_list = head;
-	current->robust_list_len = len;
-	return 0;
-}
-
-ssize_t sys_get_robust_list(struct trap_frame *tf)
-{
-	long pid = (long)tf->a0;
-	struct robust_list_head **uhead = (struct robust_list_head **)tf->a1;
-	size_t *ulen = (size_t *)tf->a2;
-	struct task_struct *task;
-	struct robust_list_head *head;
-	size_t len;
-
-	if (!uhead || !ulen)
-		return -EFAULT;
-	if (pid < 0)
-		return -EINVAL;
-
-	task = pid == 0 ? current : task_find_thread((pid_t)pid);
 	if (!task)
-		return -ESRCH;
-
-	head = task->robust_list;
-	len = task->robust_list_len;
-	if (copy_to_user(uhead, &head, sizeof(head)) != 0)
-		return -EFAULT;
-	if (copy_to_user(ulen, &len, sizeof(len)) != 0)
 		return -EFAULT;
 
+	task_set_robust_list(task, head, len);
 	return 0;
 }
 
-ssize_t sys_futex(struct trap_frame *tf)
+int futex_get_robust_list(struct task_struct *task,
+			  struct robust_list_head **head, size_t *len)
 {
-	int *uaddr = (int *)tf->a0;
-	int op = (int)tf->a1;
-	int val = (int)tf->a2;
-	const void *timeout = (const void *)tf->a3;
+	if (!task || !head || !len)
+		return -EFAULT;
+
+	*head = task_robust_list(task);
+	*len = task_robust_list_len(task);
+	return 0;
+}
+
+int kernel_futex(int *uaddr, int op, int val, const void *timeout)
+{
 	int cmd = op & FUTEX_CMD_MASK;
 
 	switch (cmd) {

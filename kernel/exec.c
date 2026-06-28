@@ -536,13 +536,13 @@ static void flush_old_exec(struct mm_struct *oldmm)
 static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
 			    vaddr_t entry, vaddr_t sp)
 {
-	struct mm_struct *oldmm = current->mm;
+	struct mm_struct *oldmm = task_mm(current);
 	paddr_t user_pgd_pa = __pa((uintptr_t)mm->pgd);
 	uintptr_t satp_val = SATP_MODE_SV39 | (user_pgd_pa >> PAGE_SHIFT);
 
-	current->mm = mm;
-	current->satp = satp_val;
-	current->tf = tf;
+	task_set_mm(current, mm);
+	task_set_satp(current, satp_val);
+	task_set_trap_frame(current, tf);
 
 	flush_old_exec(oldmm);
 
@@ -602,7 +602,7 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 	install_exec_mm(mm, tf, entry, sp);
 
 	/* 关闭所有设置了 FD_CLOEXEC 的文件描述符 */
-	struct files_struct *efiles = current->files;
+	struct files_struct *efiles = task_files(current);
 
 	if (efiles) {
 		unsigned long cloexec = efiles->close_on_exec;

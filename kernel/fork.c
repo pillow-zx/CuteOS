@@ -4,14 +4,15 @@
 
 #include <kernel/errno.h>
 #include <kernel/fdtable.h>
+#include <kernel/fork.h>
 #include <kernel/fs_struct.h>
 #include <kernel/mm.h>
 #include <kernel/printk.h>
 #include <kernel/sched.h>
 #include <kernel/signal.h>
 #include <kernel/string.h>
-#include <kernel/syscall.h>
 #include <kernel/task.h>
+#include <uapi/sched.h>
 #include <asm/csr.h>
 #include <asm/page.h>
 #include <asm/trap.h>
@@ -76,33 +77,40 @@ static int write_user_tid(int *uaddr, pid_t tid)
 
 static void child_cleanup(struct task_struct *child)
 {
+	struct mm_struct *mm;
+
 	if (!child)
 		return;
 
 	close_files(child);
 	exit_fs(child);
 	signals_release(child);
-	if (child->mm) {
-		mm_put(child->mm);
-		child->mm = NULL;
+	mm = task_mm(child);
+	if (mm) {
+		mm_put(mm);
+		task_set_mm(child, NULL);
 	}
 	task_free(child);
 }
 
 static int clone_setup_mm(struct task_struct *child, unsigned long flags)
 {
+	struct mm_struct *mm;
+	struct mm_struct *parent_mm = task_mm(current);
+
 	if (flags & CLONE_VM) {
-		child->mm = current->mm;
-		mm_get(child->mm);
+		task_set_mm(child, parent_mm);
+		mm_get(parent_mm);
 	} else {
-		child->mm = dup_mm(current->mm);
-		if (!child->mm && current->mm)
+		task_set_mm(child, dup_mm(parent_mm));
+		if (!task_mm(child) && parent_mm)
 			return -ENOMEM;
 	}
 
-	if (child->mm) {
-		paddr_t pgd_pa = __pa((uintptr_t)child->mm->pgd);
-		child->satp = SATP_MODE_SV39 | (pgd_pa >> PAGE_SHIFT);
+	mm = task_mm(child);
+	if (mm) {
+		paddr_t pgd_pa = __pa((uintptr_t)mm->pgd);
+		task_set_satp(child, SATP_MODE_SV39 | (pgd_pa >> PAGE_SHIFT));
 	}
 
 	return 0;
@@ -123,7 +131,7 @@ static void clone_setup_frame(struct task_struct *child, struct trap_frame *tf,
 	if (flags & CLONE_SETTLS)
 		child_tf->tp = tls;
 
-	child->tf = child_tf;
+	task_set_trap_frame(child, child_tf);
 	child->ctx.ra = (size_t)__trapret;
 	child->ctx.sp = (size_t)child_tf;
 }
@@ -139,8 +147,8 @@ static int clone_copy_resources(struct task_struct *child, unsigned long flags)
 	if (ret < 0)
 		return ret;
 
-	child->uid = current->uid;
-	child->gid = current->gid;
+	task_set_uid(child, task_uid(current));
+	task_set_gid(child, task_gid(current));
 	disable_altstack = (flags & CLONE_VM) && !(flags & CLONE_VFORK);
 	ret = signals_clone(child, (bool)(flags & CLONE_SIGHAND),
 			    clone_wants_thread(flags), disable_altstack);
@@ -154,9 +162,9 @@ static void clone_link_task(struct task_struct *child, unsigned long flags)
 {
 	child->exit_signal = (int)(flags & CLONE_EXIT_SIGNAL_MASK);
 	if (clone_wants_thread(flags)) {
-		struct task_struct *leader = current->group_leader;
+		struct task_struct *leader = task_group_leader(current);
 
-		child->tgid = current->tgid;
+		child->tgid = task_tgid(current);
 		child->group_leader = leader;
 		child->exit_signal = 0;
 		child->parent = leader;
@@ -167,7 +175,7 @@ static void clone_link_task(struct task_struct *child, unsigned long flags)
 	child->tgid = child->pid;
 	child->group_leader = child;
 	child->parent = current;
-	list_add(&child->sibling, &current->children);
+	list_add(&child->sibling, task_children(current));
 }
 
 static void clone_unlink_task(struct task_struct *child)
@@ -185,14 +193,14 @@ static int clone_write_tid_results(struct task_struct *child,
 	int ret;
 
 	if (flags & CLONE_CHILD_CLEARTID)
-		child->clear_child_tid = child_tid;
+		task_set_clear_child_tid(child, child_tid);
 	if (flags & CLONE_PARENT_SETTID) {
-		ret = write_user_tid(parent_tid, child->pid);
+		ret = write_user_tid(parent_tid, task_pid(child));
 		if (ret < 0)
 			return ret;
 	}
 	if (flags & CLONE_CHILD_SETTID) {
-		ret = write_user_tid(child_tid, child->pid);
+		ret = write_user_tid(child_tid, task_pid(child));
 		if (ret < 0)
 			return ret;
 	}
@@ -200,9 +208,9 @@ static int clone_write_tid_results(struct task_struct *child,
 	return 0;
 }
 
-static ssize_t do_clone(struct trap_frame *tf, unsigned long flags,
-			uintptr_t child_stack, int *parent_tid, uintptr_t tls,
-			int *child_tid)
+ssize_t kernel_clone_from_frame(struct trap_frame *tf, unsigned long flags,
+				uintptr_t child_stack, int *parent_tid,
+				uintptr_t tls, int *child_tid)
 {
 	int ret = validate_clone_flags(flags, child_stack);
 	if (ret < 0)
@@ -232,26 +240,10 @@ static ssize_t do_clone(struct trap_frame *tf, unsigned long flags,
 		goto fail_after_link;
 
 	sched_enqueue(child);
-	return child->pid;
+	return task_pid(child);
 
 fail_after_link:
 	clone_unlink_task(child);
 	child_cleanup(child);
 	return ret;
-}
-
-ssize_t sys_fork(struct trap_frame *tf)
-{
-	return do_clone(tf, SIGCHLD, 0, NULL, 0, NULL);
-}
-
-ssize_t sys_clone(struct trap_frame *tf)
-{
-	unsigned long flags = (unsigned long)tf->a0;
-	uintptr_t child_stack = (uintptr_t)tf->a1;
-	int *parent_tid = (int *)tf->a2;
-	uintptr_t tls = (uintptr_t)tf->a3;
-	int *child_tid = (int *)tf->a4;
-
-	return do_clone(tf, flags, child_stack, parent_tid, tls, child_tid);
 }

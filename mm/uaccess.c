@@ -28,9 +28,9 @@
 #include <kernel/mm.h>
 #include <kernel/errno.h>
 #include <kernel/string.h>
-#include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <asm/page.h>
+#include <asm/uaccess.h>
 
 bool access_ok(const void *addr, size_t size)
 {

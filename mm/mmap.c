@@ -20,7 +20,6 @@
 #include <kernel/slab.h>
 #include <kernel/buddy.h>
 #include <kernel/signal.h>
-#include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <kernel/user_map.h>
 #include <uapi/mman.h>
