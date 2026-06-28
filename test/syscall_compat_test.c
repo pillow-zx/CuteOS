@@ -1,8 +1,11 @@
 #include <kernel/fs.h>
 #include <kernel/errno.h>
 #include <kernel/resource.h>
+#include <kernel/signal.h>
 #include <kernel/statfs.h>
+#include <kernel/task.h>
 #include <kernel/test.h>
+#include <kernel/tty.h>
 #include <kernel/vfs.h>
 #include <uapi/tty.h>
 
@@ -137,6 +140,35 @@ void test_console_tty_line_discipline(void)
 	return;
 fail:
 	TEST_FAIL("syscall compat: console tty line discipline", "see above");
+}
+
+void test_tty_signal_delivery_policy(void)
+{
+	struct task_struct *saved = current;
+	struct task_struct *task = NULL;
+
+	TEST_BEGIN("syscall compat: tty signal delivery");
+	{
+		TEST_ASSERT_EQ(tty_deliver_signal(NSIG), -EINVAL);
+
+		task = task_alloc();
+		TEST_ASSERT_NOT_NULL(task);
+		TEST_ASSERT_EQ(task_init_resources(task), 0);
+		current = task;
+
+		TEST_ASSERT_EQ(tty_deliver_signal(SIGINT), 0);
+		TEST_ASSERT_EQ(task->signal->shared_pending,
+			       signal_mask(SIGINT));
+		TEST_ASSERT_EQ(task->pending, (uint64_t)0);
+	}
+	TEST_END("syscall compat: tty signal delivery");
+	goto cleanup;
+fail:
+	TEST_FAIL("syscall compat: tty signal delivery", "see above");
+cleanup:
+	current = saved;
+	if (task)
+		task_free(task);
 }
 
 void test_root_statfs_fields(void)

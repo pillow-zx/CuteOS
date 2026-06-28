@@ -140,6 +140,7 @@ void kernel_test(void)
 	test_vfs_default_poll_masks();
 	test_vfs_default_ioctl_enotty();
 	test_console_tty_line_discipline();
+	test_tty_signal_delivery_policy();
 	test_root_statfs_fields();
 
 	/* ---- fs-at Path/fd Semantics ---- */

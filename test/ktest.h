@@ -124,6 +124,7 @@ void test_rlimit_defaults(void);
 void test_vfs_default_poll_masks(void);
 void test_vfs_default_ioctl_enotty(void);
 void test_console_tty_line_discipline(void);
+void test_tty_signal_delivery_policy(void);
 void test_root_statfs_fields(void);
 
 /* ================================================================

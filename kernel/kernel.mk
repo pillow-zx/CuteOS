@@ -12,6 +12,7 @@ KERNEL_OBJS = \
 	kernel/exit.o           \
 	kernel/pid.o            \
 	kernel/signal.o         \
+	kernel/tty.o            \
 	kernel/wait.o           \
 	kernel/time.o           \
 	kernel/worker.o         \

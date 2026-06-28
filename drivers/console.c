@@ -6,9 +6,9 @@
 #include <drivers/uart.h>
 #include <kernel/errno.h>
 #include <kernel/mm.h>
-#include <kernel/signal.h>
 #include <kernel/string.h>
-#include <kernel/task.h>
+#include <kernel/tty.h>
+#include <uapi/signal.h>
 #include <uapi/tty.h>
 
 #define CONSOLE_INPUT_SIZE 256
@@ -249,7 +249,7 @@ static ssize_t console_read(struct file *file, char *buf, size_t count)
 
 			if (event == TTY_INPUT_SIGNAL) {
 				if (signal)
-					send_signal(signal, current);
+					(void)tty_deliver_signal(signal);
 				return done ? (ssize_t)done : -EINTR;
 			}
 		}
@@ -276,7 +276,7 @@ static ssize_t console_read(struct file *file, char *buf, size_t count)
 				continue;
 			if (event == TTY_INPUT_SIGNAL) {
 				if (signal)
-					send_signal(signal, current);
+					(void)tty_deliver_signal(signal);
 				return -EINTR;
 			}
 			if (event == TTY_INPUT_EOF)
