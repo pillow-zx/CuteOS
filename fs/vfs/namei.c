@@ -36,6 +36,10 @@ struct dentry *root_dentry;
 /* 单次路径解析中允许跟随的符号链接最大深度，防止符号链接环路。 */
 #define MAXSYMLINKS 8
 
+struct namei_context {
+	int symlink_depth;
+};
+
 static_assert(VFS_PATH_MAX <= PAGE_SIZE,
 	      "VFS path buffers are allocated as one page");
 
@@ -193,7 +197,7 @@ int vfs_readlink(struct dentry *dentry, char *buf, size_t size)
 }
 
 static int walk_path(struct dentry *base, const char *path, uint32_t flags,
-		     int depth, struct dentry **res);
+		     struct namei_context *ctx, struct dentry **res);
 
 /*
  * 跟随符号链接：读取 link 指向的目标路径，并从合适的起点解析出目标
@@ -202,17 +206,19 @@ static int walk_path(struct dentry *base, const char *path, uint32_t flags,
  * dget），失败返回负错误码。
  */
 static int follow_symlink(struct dentry *dir, struct dentry *link,
-			  uint32_t flags, int depth, struct dentry **res)
+			  uint32_t flags, struct namei_context *ctx,
+			  struct dentry **res)
 {
 	char *target;
 	struct dentry *base;
 	int len;
 	int ret;
 
-	if (depth >= MAXSYMLINKS) {
+	if (ctx->symlink_depth >= MAXSYMLINKS) {
 		dput(link);
 		return -ELOOP;
 	}
+	ctx->symlink_depth++;
 
 	target = get_free_page(0);
 	if (!target) {
@@ -242,7 +248,7 @@ static int follow_symlink(struct dentry *dir, struct dentry *link,
 		free_page(target, 0);
 		return -ENOENT;
 	}
-	ret = walk_path(base, target, flags, depth + 1, res);
+	ret = walk_path(base, target, flags, ctx, res);
 	free_page(target, 0);
 	return ret;
 }
@@ -253,7 +259,7 @@ static int follow_symlink(struct dentry *dir, struct dentry *link,
  * 符号链接；末端分量在未设置 LOOKUP_NOFOLLOW 时也跟随。
  */
 static int walk_path(struct dentry *base, const char *path, uint32_t flags,
-		     int depth, struct dentry **res)
+		     struct namei_context *ctx, struct dentry **res)
 {
 	struct dentry *dentry = base;
 
@@ -298,7 +304,7 @@ static int walk_path(struct dentry *base, const char *path, uint32_t flags,
 		if (d_is_symlink(next) &&
 		    !(is_last && (flags & LOOKUP_NOFOLLOW))) {
 			struct dentry *target;
-			int ret = follow_symlink(dentry, next, flags, depth,
+			int ret = follow_symlink(dentry, next, flags, ctx,
 						 &target);
 
 			dput(dentry);
@@ -319,6 +325,7 @@ static int walk_path(struct dentry *base, const char *path, uint32_t flags,
 int path_lookupat_err(struct dentry *base, const char *path, uint32_t flags,
 		      struct dentry **res)
 {
+	struct namei_context ctx = { 0 };
 	struct dentry *start;
 
 	if (res)
@@ -339,7 +346,7 @@ int path_lookupat_err(struct dentry *base, const char *path, uint32_t flags,
 	if (!start)
 		return -ENOENT;
 
-	return walk_path(start, path, flags, 0, res);
+	return walk_path(start, path, flags, &ctx, res);
 }
 
 int path_lookup_err(const char *path, uint32_t flags, struct dentry **res)
@@ -359,6 +366,7 @@ struct dentry *path_lookup(const char *path, uint32_t flags)
 int path_parent_lookupat_err(struct dentry *base, const char *path, char *name,
 			     size_t *namelen, struct dentry **res)
 {
+	struct namei_context ctx = { 0 };
 	struct dentry *parent;
 	const char *last;
 	size_t last_len;
@@ -429,7 +437,8 @@ int path_parent_lookupat_err(struct dentry *base, const char *path, char *name,
 
 		if (d_is_symlink(next)) {
 			struct dentry *target;
-			int ret = follow_symlink(parent, next, 0, 0, &target);
+			int ret = follow_symlink(parent, next, 0, &ctx,
+						 &target);
 
 			dput(parent);
 			if (ret < 0)

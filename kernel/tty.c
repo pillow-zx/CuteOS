@@ -9,10 +9,14 @@
 
 static struct task_struct *tty_signal_target(void)
 {
+	struct task_struct *leader;
+
 	if (!current)
 		return NULL;
-	if (current->group_leader)
-		return current->group_leader;
+
+	leader = task_group_leader(current);
+	if (leader)
+		return leader;
 	return current;
 }
 

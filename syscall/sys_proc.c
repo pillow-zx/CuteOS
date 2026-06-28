@@ -21,16 +21,18 @@
 ssize_t sys_getpid(struct trap_frame *tf)
 {
 	(void)tf;
-	return (ssize_t)current->tgid;
+	return (ssize_t)task_tgid(current);
 }
 
 ssize_t sys_getppid(struct trap_frame *tf)
 {
+	struct task_struct *parent = task_parent(current);
+
 	(void)tf;
-	if (!current->parent)
+	if (!parent)
 		return 0;
 
-	return (ssize_t)current->parent->pid;
+	return (ssize_t)task_pid(parent);
 }
 
 ssize_t sys_getuid(struct trap_frame *tf)
@@ -60,7 +62,7 @@ ssize_t sys_getegid(struct trap_frame *tf)
 ssize_t sys_gettid(struct trap_frame *tf)
 {
 	(void)tf;
-	return (ssize_t)current->pid;
+	return (ssize_t)task_pid(current);
 }
 
 ssize_t sys_exit(struct trap_frame *tf)

@@ -132,6 +132,12 @@ static void clear_child_tid(struct task_struct *task)
 	if (!clear_tid)
 		return;
 
+	/*
+	 * CLONE_CHILD_CLEARTID is a Linux exit-time ABI side effect: the
+	 * exiting thread clears a user TID word and wakes futex waiters. Keep
+	 * this uaccess here because it is tied to task teardown, not syscall
+	 * argument copying.
+	 */
 	if (copy_to_user(clear_tid, &zero, sizeof(zero)) == 0)
 		futex_wake_mm(task_mm(task), clear_tid, 1);
 	task_set_clear_child_tid(task, NULL);

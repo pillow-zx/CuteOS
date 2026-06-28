@@ -2,10 +2,10 @@
  * fs/vfs/file.c - Stage 4 最小 file/fd 层
  */
 
-#include <drivers/console.h>
 #include <kernel/fdtable.h>
 #include <kernel/slab.h>
 #include <kernel/page_cache.h>
+#include <kernel/printk.h>
 #include <kernel/stat.h>
 #include <kernel/statfs.h>
 #include <kernel/blkdev.h>
@@ -18,11 +18,54 @@ static ssize_t null_read(struct file *file, char *buf, size_t count);
 static ssize_t null_write(struct file *file, const char *buf, size_t count);
 static uint32_t null_poll(struct file *file, uint32_t events);
 
+#define VFS_CHRDEV_MAX 8
+
+struct vfs_chrdev {
+	dev_t dev;
+	const struct file_operations *fops;
+};
+
 static const struct file_operations null_fops = {
 	.read = null_read,
 	.write = null_write,
 	.poll = null_poll,
 };
+
+static struct vfs_chrdev vfs_chrdevs[VFS_CHRDEV_MAX] = {
+	{ .dev = MKDEV(1, 3), .fops = &null_fops },
+};
+
+int vfs_register_chrdev(dev_t dev, const struct file_operations *fops)
+{
+	int free_slot = -1;
+
+	if (!fops)
+		return -EINVAL;
+
+	for (int i = 0; i < VFS_CHRDEV_MAX; i++) {
+		if (vfs_chrdevs[i].fops && vfs_chrdevs[i].dev == dev)
+			return -EEXIST;
+		if (!vfs_chrdevs[i].fops && free_slot < 0)
+			free_slot = i;
+	}
+
+	if (free_slot < 0)
+		return -ENOMEM;
+
+	vfs_chrdevs[free_slot].dev = dev;
+	vfs_chrdevs[free_slot].fops = fops;
+	return 0;
+}
+
+const struct file_operations *vfs_chrdev_fops(dev_t dev)
+{
+	for (int i = 0; i < VFS_CHRDEV_MAX; i++) {
+		if (vfs_chrdevs[i].fops && vfs_chrdevs[i].dev == dev)
+			return vfs_chrdevs[i].fops;
+	}
+
+	return NULL;
+}
 
 int vfs_sync_file(struct file *file)
 {
@@ -91,21 +134,18 @@ int vfs_ioctl(struct file *file, uint64_t cmd, uint64_t arg)
 }
 
 static struct file console_stdin = {
-	.f_op = &console_fops,
 	.f_mode = FMODE_READ,
 	.refcount = REFCOUNT_INIT(1),
 	.static_file = true,
 };
 
 static struct file console_stdout = {
-	.f_op = &console_fops,
 	.f_mode = FMODE_WRITE,
 	.refcount = REFCOUNT_INIT(1),
 	.static_file = true,
 };
 
 static struct file console_stderr = {
-	.f_op = &console_fops,
 	.f_mode = FMODE_WRITE,
 	.refcount = REFCOUNT_INIT(1),
 	.static_file = true,
@@ -136,16 +176,9 @@ struct file *file_alloc_dentry(struct dentry *dentry, uint32_t flags,
 	const struct file_operations *f_op = dentry->d_inode->i_fop;
 
 	if ((dentry->d_inode->i_mode & S_IFMT) == S_IFCHR) {
-		switch (dentry->d_inode->i_rdev) {
-		case MKDEV(5, 1):
-			f_op = &console_fops;
-			break;
-		case MKDEV(1, 3):
-			f_op = &null_fops;
-			break;
-		default:
+		f_op = vfs_chrdev_fops(dentry->d_inode->i_rdev);
+		if (!f_op)
 			return NULL;
-		}
 	}
 
 	struct file *file = file_alloc(f_op, mode, NULL);
@@ -332,8 +365,17 @@ void files_put(struct files_struct *files)
 
 void files_install_standard_fds(struct files_struct *files)
 {
+	const struct file_operations *fops;
+
 	if (!files)
 		return;
+
+	fops = vfs_chrdev_fops(MKDEV(5, 1));
+	BUG_ON(!fops);
+
+	console_stdin.f_op = fops;
+	console_stdout.f_op = fops;
+	console_stderr.f_op = fops;
 
 	files->fd[KERN_STDIN] = &console_stdin;
 	files->fd[KERN_STDOUT] = &console_stdout;

@@ -7,16 +7,55 @@
 #include <kernel/mm.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
+#include <kernel/time.h>
+#include <kernel/timer.h>
 #include <asm/trap.h>
+
+static int futex_copy_timeout(const struct sys_timespec *utimeout,
+			      struct futex_deadline *deadline)
+{
+	struct sys_timespec timeout;
+	uint64_t delta;
+	int ret;
+
+	if (!deadline)
+		return -EINVAL;
+
+	deadline->active = false;
+	deadline->expires = 0;
+	if (!utimeout)
+		return 0;
+
+	if (copy_from_user(&timeout, utimeout, sizeof(timeout)) != 0)
+		return -EFAULT;
+
+	ret = timespec_to_mtime_delta(&timeout, &delta);
+	if (ret < 0)
+		return ret;
+
+	deadline->active = true;
+	deadline->expires = mtime_deadline_after(arch_timer_now(), delta);
+	return 0;
+}
 
 ssize_t sys_futex(struct trap_frame *tf)
 {
 	int *uaddr = (int *)tf->a0;
 	int op = (int)tf->a1;
 	int val = (int)tf->a2;
-	const void *timeout = (const void *)tf->a3;
+	const struct sys_timespec *timeout = (const struct sys_timespec *)tf->a3;
+	struct futex_deadline deadline;
+	int ret;
 
-	return kernel_futex(uaddr, op, val, timeout);
+	deadline.active = false;
+	deadline.expires = 0;
+	if ((op & FUTEX_CMD_MASK) == FUTEX_WAIT) {
+		ret = futex_copy_timeout(timeout, &deadline);
+		if (ret < 0)
+			return ret;
+	}
+
+	return kernel_futex(uaddr, op, val, &deadline);
 }
 
 ssize_t sys_set_robust_list(struct trap_frame *tf)

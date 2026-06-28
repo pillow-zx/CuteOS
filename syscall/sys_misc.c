@@ -95,8 +95,8 @@ ssize_t sys_uname(struct trap_frame *tf)
 
 ssize_t sys_set_tid_addr(struct trap_frame *tf)
 {
-	current->clear_child_tid = (int *)tf->a0;
-	return (ssize_t)current->pid;
+	task_set_clear_child_tid(current, (int *)tf->a0);
+	return (ssize_t)task_pid(current);
 }
 
 ssize_t sys_setuid(struct trap_frame *tf)
@@ -205,7 +205,7 @@ ssize_t sys_prlimit64(struct trap_frame *tf)
 		task = task_find_group_leader(pid);
 		if (!task)
 			return -ESRCH;
-		if (!current || task->tgid != current->tgid)
+		if (!current || task_tgid(task) != task_tgid(current))
 			return -EPERM;
 	}
 

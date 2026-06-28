@@ -3,6 +3,8 @@
 #include <kernel/resource.h>
 #include <kernel/signal.h>
 #include <kernel/statfs.h>
+#include <kernel/string.h>
+#include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <kernel/test.h>
 #include <kernel/tty.h>
@@ -169,6 +171,44 @@ cleanup:
 	current = saved;
 	if (task)
 		task_free(task);
+}
+
+void test_signal_rt_sigsetsize_validation(void)
+{
+	struct trap_frame tf = {0};
+
+	TEST_BEGIN("syscall compat: rt signal sigsetsize validation");
+	{
+		tf.a0 = SIGUSR1;
+		tf.a1 = 0;
+		tf.a2 = 0;
+		tf.a3 = 0;
+		TEST_ASSERT_EQ(sys_sigaction(&tf), -EINVAL);
+
+		tf.a3 = sizeof(unsigned long) + 1;
+		TEST_ASSERT_EQ(sys_sigaction(&tf), -EINVAL);
+
+		tf.a3 = sizeof(unsigned long);
+		TEST_ASSERT_EQ(sys_sigaction(&tf), 0);
+
+		memset(&tf, 0, sizeof(tf));
+		tf.a0 = SIG_BLOCK;
+		tf.a1 = 0;
+		tf.a2 = 0;
+		tf.a3 = 0;
+		TEST_ASSERT_EQ(sys_sigprocmask(&tf), -EINVAL);
+
+		tf.a3 = sizeof(unsigned long) + 1;
+		TEST_ASSERT_EQ(sys_sigprocmask(&tf), -EINVAL);
+
+		tf.a3 = sizeof(unsigned long);
+		TEST_ASSERT_EQ(sys_sigprocmask(&tf), 0);
+	}
+	TEST_END("syscall compat: rt signal sigsetsize validation");
+	return;
+fail:
+	TEST_FAIL("syscall compat: rt signal sigsetsize validation",
+		  "see above");
 }
 
 void test_root_statfs_fields(void)

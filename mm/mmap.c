@@ -19,7 +19,6 @@
 #include <kernel/string.h>
 #include <kernel/slab.h>
 #include <kernel/buddy.h>
-#include <kernel/signal.h>
 #include <kernel/task.h>
 #include <kernel/user_map.h>
 #include <uapi/mman.h>
@@ -41,16 +40,16 @@ static uintptr_t find_unmapped_area(struct mm_struct *mm, size_t length)
 		return 0;
 
 	len = mm_align_up_page(length);
-	if (len == 0 || len >= signal_trampoline_start())
+	if (len == 0 || len >= USER_STACK_BASE)
 		return 0;
 
 	if (low < PAGE_SIZE)
 		low = PAGE_SIZE;
 
-	start = (signal_trampoline_start() - len) & PAGE_MASK;
+	start = (USER_STACK_BASE - len) & PAGE_MASK;
 
 	while (start >= low) {
-		if (!signal_trampoline_overlaps(start, start + len) &&
+		if (!user_map_reserved_overlaps(start, start + len) &&
 		    !vma_range_overlaps(mm, start, start + len))
 			return start;
 		if (start < low + PAGE_SIZE)
@@ -106,7 +105,7 @@ static void free_user_page_tables(pte_t *pgd)
 					     ((vaddr_t)j << 21) |
 					     ((vaddr_t)k << 12);
 				paddr_t pa = pte_to_pa(pt[k]);
-				if (signal_trampoline_contains(va))
+				if (user_map_reserved_contains(va))
 					continue;
 				/*
 				 * mm_create_user_pgd() currently injects a low
@@ -397,7 +396,7 @@ ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot,
 		goto out;
 	}
 
-	if (signal_trampoline_overlaps(start, end)) {
+	if (user_map_reserved_overlaps(start, end)) {
 		ret = -EINVAL;
 		goto out;
 	}

@@ -66,15 +66,6 @@ static int validate_clone_flags(unsigned long flags, uintptr_t child_stack)
 	return 0;
 }
 
-static int write_user_tid(int *uaddr, pid_t tid)
-{
-	if (!uaddr)
-		return -EFAULT;
-	if (copy_to_user(uaddr, &tid, sizeof(tid)) != 0)
-		return -EFAULT;
-	return 0;
-}
-
 static void child_cleanup(struct task_struct *child)
 {
 	struct mm_struct *mm;
@@ -158,7 +149,8 @@ static int clone_copy_resources(struct task_struct *child, unsigned long flags)
 	return 0;
 }
 
-static void clone_link_task(struct task_struct *child, unsigned long flags)
+static void clone_setup_task_links(struct task_struct *child,
+				   unsigned long flags)
 {
 	child->exit_signal = (int)(flags & CLONE_EXIT_SIGNAL_MASK);
 	if (clone_wants_thread(flags)) {
@@ -168,55 +160,40 @@ static void clone_link_task(struct task_struct *child, unsigned long flags)
 		child->group_leader = leader;
 		child->exit_signal = 0;
 		child->parent = leader;
-		list_add_tail(&child->thread_node, &leader->thread_group);
 		return;
 	}
 
 	child->tgid = child->pid;
 	child->group_leader = child;
 	child->parent = current;
-	list_add(&child->sibling, task_children(current));
 }
 
-static void clone_unlink_task(struct task_struct *child)
+static void clone_link_task(struct task_struct *child, unsigned long flags)
 {
-	if (!list_empty(&child->thread_node))
-		list_del_init(&child->thread_node);
-	if (!list_empty(&child->sibling))
-		list_del_init(&child->sibling);
+	if (clone_wants_thread(flags))
+		list_add_tail(&child->thread_node,
+			      &task_group_leader(current)->thread_group);
+	else
+		list_add(&child->sibling, task_children(current));
 }
 
-static int clone_write_tid_results(struct task_struct *child,
-				   unsigned long flags, int *parent_tid,
-				   int *child_tid)
+int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
+			 uintptr_t child_stack, uintptr_t tls,
+			 int *clear_child_tid,
+			 struct kernel_clone *clone)
 {
+	struct task_struct *child;
 	int ret;
 
-	if (flags & CLONE_CHILD_CLEARTID)
-		task_set_clear_child_tid(child, child_tid);
-	if (flags & CLONE_PARENT_SETTID) {
-		ret = write_user_tid(parent_tid, task_pid(child));
-		if (ret < 0)
-			return ret;
-	}
-	if (flags & CLONE_CHILD_SETTID) {
-		ret = write_user_tid(child_tid, task_pid(child));
-		if (ret < 0)
-			return ret;
-	}
+	if (!clone)
+		return -EINVAL;
+	memset(clone, 0, sizeof(*clone));
 
-	return 0;
-}
-
-ssize_t kernel_clone_from_frame(struct trap_frame *tf, unsigned long flags,
-				uintptr_t child_stack, int *parent_tid,
-				uintptr_t tls, int *child_tid)
-{
-	int ret = validate_clone_flags(flags, child_stack);
+	ret = validate_clone_flags(flags, child_stack);
 	if (ret < 0)
 		return ret;
 
-	struct task_struct *child = task_alloc();
+	child = task_alloc();
 	if (!child)
 		return -ENOMEM;
 
@@ -234,16 +211,52 @@ ssize_t kernel_clone_from_frame(struct trap_frame *tf, unsigned long flags,
 		return ret;
 	}
 
-	clone_link_task(child, flags);
-	ret = clone_write_tid_results(child, flags, parent_tid, child_tid);
-	if (ret < 0)
-		goto fail_after_link;
+	if (flags & CLONE_CHILD_CLEARTID)
+		task_set_clear_child_tid(child, clear_child_tid);
 
+	clone_setup_task_links(child, flags);
+	clone->task = child;
+	clone->flags = flags;
+	clone->pid = task_pid(child);
+	return 0;
+}
+
+pid_t kernel_clone_commit(struct kernel_clone *clone)
+{
+	struct task_struct *child;
+
+	if (!clone || !clone->task)
+		return -EINVAL;
+
+	child = clone->task;
+	clone_link_task(child, clone->flags);
 	sched_enqueue(child);
-	return task_pid(child);
+	clone->task = NULL;
+	return clone->pid;
+}
 
-fail_after_link:
-	clone_unlink_task(child);
-	child_cleanup(child);
-	return ret;
+void kernel_clone_abort(struct kernel_clone *clone)
+{
+	if (!clone || !clone->task)
+		return;
+
+	child_cleanup(clone->task);
+	clone->task = NULL;
+}
+
+ssize_t kernel_clone_from_frame(struct trap_frame *tf, unsigned long flags,
+				uintptr_t child_stack, int *parent_tid,
+				uintptr_t tls, int *child_tid)
+{
+	struct kernel_clone clone;
+	int ret;
+
+	(void)parent_tid;
+	(void)child_tid;
+
+	ret = kernel_clone_prepare(tf, flags, child_stack, tls, NULL, &clone);
+	if (ret < 0)
+		return ret;
+
+	return kernel_clone_commit(&clone);
 }

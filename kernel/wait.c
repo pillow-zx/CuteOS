@@ -21,7 +21,7 @@ void prepare_to_wait_locked(struct wait_queue_head *wq)
 	if (list_empty(&current->wait_list))
 		list_add_tail(&current->wait_list, &wq->task_list);
 
-	task_set_state(current, TASK_UNINTERRUPTIBLE);
+	task_mark_uninterruptible_sleep(current);
 }
 
 void prepare_to_wait_interruptible(struct wait_queue_head *wq)
@@ -32,7 +32,7 @@ void prepare_to_wait_interruptible(struct wait_queue_head *wq)
 	if (list_empty(&current->wait_list))
 		list_add_tail(&current->wait_list, &wq->task_list);
 
-	task_set_state(current, TASK_INTERRUPTIBLE);
+	task_mark_interruptible_sleep(current);
 }
 
 void finish_wait(struct wait_queue_head *wq)
@@ -46,7 +46,7 @@ void finish_wait(struct wait_queue_head *wq)
 		list_del_init(&current->wait_list);
 
 	if (task_state(current) & TASK_ANY_SLEEP)
-		task_set_state(current, TASK_RUNNING);
+		task_mark_running(current);
 }
 
 int wait_event_interruptible(struct wait_queue_head *wq,

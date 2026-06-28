@@ -72,6 +72,9 @@ int __must_check vfs_mknod_at(struct dentry *base, const char *path,
 int __must_check vfs_stat_dentry(struct dentry *dentry, struct kstat *st);
 int __must_check vfs_chdir_dentry(struct dentry *dentry);
 void vfs_set_root_dentry(struct dentry *dentry);
+int __must_check vfs_register_chrdev(dev_t dev,
+				     const struct file_operations *fops);
+const struct file_operations *__must_check vfs_chrdev_fops(dev_t dev);
 
 int __must_check register_filesystem(struct file_system_type *fs_type);
 struct file_system_type *__must_check get_filesystem_type(const char *name);

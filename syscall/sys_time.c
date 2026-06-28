@@ -33,8 +33,8 @@ ssize_t sys_times(struct trap_frame *tf)
 {
 	struct sys_tms *utms = (struct sys_tms *)tf->a0;
 	struct sys_tms ktms = {
-		.tms_utime = current ? (int64_t)current->utime_ticks : 0,
-		.tms_stime = current ? (int64_t)current->stime_ticks : 0,
+		.tms_utime = (int64_t)task_user_ticks(current),
+		.tms_stime = (int64_t)task_system_ticks(current),
 		.tms_cutime = 0,
 		.tms_cstime = 0,
 	};

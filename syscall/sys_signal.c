@@ -72,7 +72,7 @@ ssize_t sys_sigaction(struct trap_frame *tf)
 		return -EINVAL;
 	if (!signal_is_catchable(sig) && act)
 		return -EINVAL;
-	if (sigsetsize != 0 && sigsetsize != sizeof(uint64_t))
+	if (sigsetsize != sizeof(unsigned long))
 		return -EINVAL;
 
 	if (oldact) {
@@ -101,7 +101,7 @@ ssize_t sys_sigprocmask(struct trap_frame *tf)
 	uint64_t old;
 	int ret;
 
-	if (sigsetsize != 0 && sigsetsize != sizeof(uint64_t))
+	if (sigsetsize != sizeof(unsigned long))
 		return -EINVAL;
 
 	if (oldset) {

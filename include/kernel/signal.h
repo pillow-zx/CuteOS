@@ -64,6 +64,15 @@ bool signal_is_valid(int sig);
 uint64_t signal_mask(int sig);
 bool signal_is_catchable(int sig);
 uint64_t unblockable_mask(void);
+uint64_t signal_blocked_mask(struct task_struct *task);
+void signal_block_mask(struct task_struct *task, uint64_t mask);
+void signal_unblock_mask(struct task_struct *task, uint64_t mask);
+void signal_set_blocked_mask(struct task_struct *task, uint64_t mask);
+void signal_mark_pending(struct task_struct *task, uint64_t mask);
+void signal_clear_pending(struct task_struct *task, uint64_t mask);
+void signal_enter_handler(struct task_struct *task, int sig);
+void signal_leave_handler(struct task_struct *task, int sig);
+void signal_clear_handlers(struct task_struct *task);
 int send_signal(int sig, struct task_struct *task);
 int send_group_signal(int sig, struct task_struct *leader);
 int send_current_signal(int sig);
@@ -73,10 +82,6 @@ int signals_init(struct task_struct *task);
 int signals_clone(struct task_struct *child, bool share_sighand,
 		  bool share_signal, bool disable_altstack);
 void signals_release(struct task_struct *task);
-vaddr_t signal_trampoline_start(void);
-vaddr_t signal_trampoline_end(void);
-bool signal_trampoline_contains(vaddr_t addr);
-bool signal_trampoline_overlaps(vaddr_t start, vaddr_t end);
 void do_signal(struct trap_frame *tf);
 void signal_user_map_init(void);
 

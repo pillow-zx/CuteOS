@@ -12,6 +12,11 @@
 #define FUTEX_OWNER_DIED    0x40000000U
 #define FUTEX_TID_MASK	    0x3fffffffU
 
+struct futex_deadline {
+	bool active;
+	uint64_t expires;
+};
+
 struct robust_list {
 	struct robust_list *next;
 };
@@ -25,7 +30,8 @@ struct robust_list_head {
 void futex_init(void);
 int futex_wake_mm(struct mm_struct *mm, int *uaddr, int nr);
 void futex_exit_robust_list(struct task_struct *task);
-int kernel_futex(int *uaddr, int op, int val, const void *timeout);
+int kernel_futex(int *uaddr, int op, int val,
+		 const struct futex_deadline *deadline);
 int futex_set_robust_list(struct task_struct *task,
 			  struct robust_list_head *head, size_t len);
 int futex_get_robust_list(struct task_struct *task,

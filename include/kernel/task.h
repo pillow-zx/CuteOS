@@ -358,6 +358,26 @@ static inline void task_set_state(struct task_struct *task, uint32_t state)
 		task->state = state;
 }
 
+static inline void task_mark_running(struct task_struct *task)
+{
+	task_set_state(task, TASK_RUNNING);
+}
+
+static inline void task_mark_interruptible_sleep(struct task_struct *task)
+{
+	task_set_state(task, TASK_INTERRUPTIBLE);
+}
+
+static inline void task_mark_uninterruptible_sleep(struct task_struct *task)
+{
+	task_set_state(task, TASK_UNINTERRUPTIBLE);
+}
+
+static inline void task_mark_stopped(struct task_struct *task)
+{
+	task_set_state(task, TASK_STOPPED);
+}
+
 static inline __must_check __pure struct task_struct *
 task_group_leader(struct task_struct *task)
 {
@@ -392,6 +412,18 @@ static inline void task_set_clear_child_tid(struct task_struct *task,
 {
 	if (task)
 		task->clear_child_tid = uaddr;
+}
+
+static inline __must_check __pure uint64_t
+task_user_ticks(const struct task_struct *task)
+{
+	return task ? task->utime_ticks : 0;
+}
+
+static inline __must_check __pure uint64_t
+task_system_ticks(const struct task_struct *task)
+{
+	return task ? task->stime_ticks : 0;
 }
 
 static inline __must_check __pure struct robust_list_head *

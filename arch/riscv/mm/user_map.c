@@ -7,9 +7,13 @@
 
 #include <kernel/printk.h>
 #include <kernel/user_map.h>
+#include <asm/page.h>
 #include <asm/pte.h>
 #include <drivers/uart.h>
 #include <drivers/virtio.h>
+
+#define RISCV_MMIO_USER_START UART_BASE
+#define RISCV_MMIO_USER_END	(VIRTIO_MMIO_BASE + PAGE_SIZE)
 
 static int riscv_user_mmio_map(pte_t *root)
 {
@@ -22,6 +26,8 @@ void arch_user_map_init(void)
 {
 	int ret;
 
-	ret = user_map_register("riscv_mmio", riscv_user_mmio_map);
+	ret = user_map_register_reserved("riscv_mmio", RISCV_MMIO_USER_START,
+					 RISCV_MMIO_USER_END,
+					 riscv_user_mmio_map);
 	BUG_ON(ret < 0);
 }

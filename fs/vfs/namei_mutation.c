@@ -71,6 +71,32 @@ static void put_create_target(struct create_target *target)
 		dput(target->parent);
 }
 
+static void rollback_create_target(struct create_target *target,
+				   bool directory)
+{
+	int ret;
+
+	if (!target->parent || !target->parent->d_inode ||
+	    !target->parent->d_inode->i_op || !target->dentry ||
+	    !target->dentry->d_inode)
+		return;
+
+	if (directory) {
+		if (!target->parent->d_inode->i_op->rmdir)
+			return;
+		ret = target->parent->d_inode->i_op->rmdir(
+			target->parent->d_inode, target->dentry);
+	} else {
+		if (!target->parent->d_inode->i_op->unlink)
+			return;
+		ret = target->parent->d_inode->i_op->unlink(
+			target->parent->d_inode, target->dentry);
+	}
+
+	if (ret == 0)
+		dcache_invalidate(target->dentry);
+}
+
 int vfs_create_at(struct dentry *base, const char *path, uint32_t mode,
 		  struct dentry **res)
 {
@@ -88,11 +114,15 @@ int vfs_create_at(struct dentry *base, const char *path, uint32_t mode,
 						   target.dentry, mode);
 	if (ret == 0) {
 		ret = vfs_init_inode_owner(target.dentry->d_inode);
-		if (ret == 0 && target.new_dentry)
-			dcache_insert(target.dentry);
-		if (ret == 0 && res) {
-			*res = target.dentry;
-			target.dentry = NULL;
+		if (ret < 0) {
+			rollback_create_target(&target, false);
+		} else {
+			if (target.new_dentry)
+				dcache_insert(target.dentry);
+			if (res) {
+				*res = target.dentry;
+				target.dentry = NULL;
+			}
 		}
 	}
 
@@ -118,8 +148,11 @@ int vfs_mkdir_at(struct dentry *base, const char *path, uint32_t mode)
 						  target.dentry, mode);
 	if (ret == 0) {
 		ret = vfs_init_inode_owner(target.dentry->d_inode);
-		if (ret == 0 && target.new_dentry)
+		if (ret < 0) {
+			rollback_create_target(&target, true);
+		} else if (target.new_dentry) {
 			dcache_insert(target.dentry);
+		}
 	}
 
 	put_create_target(&target);

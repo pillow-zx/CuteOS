@@ -8,7 +8,17 @@
 #include <kernel/mm.h>
 #include <kernel/signal.h>
 #include <kernel/syscall.h>
+#include <uapi/sched.h>
 #include <asm/trap.h>
+
+static int sys_write_tid(int *uaddr, pid_t tid)
+{
+	if (!uaddr)
+		return -EFAULT;
+	if (copy_to_user(uaddr, &tid, sizeof(tid)) != 0)
+		return -EFAULT;
+	return 0;
+}
 
 ssize_t sys_fork(struct trap_frame *tf)
 {
@@ -22,9 +32,30 @@ ssize_t sys_clone(struct trap_frame *tf)
 	int *parent_tid = (int *)tf->a2;
 	uintptr_t tls = (uintptr_t)tf->a3;
 	int *child_tid = (int *)tf->a4;
+	struct kernel_clone clone;
+	int ret;
 
-	return kernel_clone_from_frame(tf, flags, child_stack, parent_tid, tls,
-				       child_tid);
+	ret = kernel_clone_prepare(tf, flags, child_stack, tls, child_tid,
+				   &clone);
+	if (ret < 0)
+		return ret;
+
+	if (flags & CLONE_PARENT_SETTID) {
+		ret = sys_write_tid(parent_tid, clone.pid);
+		if (ret < 0)
+			goto abort;
+	}
+	if (flags & CLONE_CHILD_SETTID) {
+		ret = sys_write_tid(child_tid, clone.pid);
+		if (ret < 0)
+			goto abort;
+	}
+
+	return kernel_clone_commit(&clone);
+
+abort:
+	kernel_clone_abort(&clone);
+	return ret;
 }
 
 ssize_t sys_wait4(struct trap_frame *tf)

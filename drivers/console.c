@@ -4,10 +4,13 @@
 
 #include <drivers/console.h>
 #include <drivers/uart.h>
+#include <kernel/blkdev.h>
 #include <kernel/errno.h>
 #include <kernel/mm.h>
+#include <kernel/printk.h>
 #include <kernel/string.h>
 #include <kernel/tty.h>
+#include <kernel/vfs.h>
 #include <uapi/signal.h>
 #include <uapi/tty.h>
 
@@ -60,12 +63,20 @@ static size_t console_input_len;
 static size_t console_input_pos;
 static bool console_input_eof;
 
-const struct file_operations console_fops = {
+static const struct file_operations console_fops = {
 	.read = console_read,
 	.write = console_write,
 	.poll = console_poll,
 	.ioctl = console_ioctl,
 };
+
+void console_chrdev_init(void)
+{
+	int ret;
+
+	ret = vfs_register_chrdev(MKDEV(5, 1), &console_fops);
+	BUG_ON(ret < 0);
+}
 
 static void console_uart_emit(char ch, void *ctx)
 {

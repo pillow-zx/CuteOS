@@ -67,8 +67,11 @@ static int futex_make_key(struct mm_struct *mm, int *uaddr,
 	return 0;
 }
 
-static int futex_read_user_value(int *uaddr, int *value)
+static int futex_read_user_value_checked(int *uaddr, int *value)
 {
+	if (!access_ok(uaddr, sizeof(*uaddr)))
+		return -EFAULT;
+
 	bool had_sum = user_access_begin();
 
 	*value = *(volatile int *)uaddr;
@@ -76,54 +79,8 @@ static int futex_read_user_value(int *uaddr, int *value)
 	return 0;
 }
 
-struct futex_timespec {
-	int64_t tv_sec;
-	int64_t tv_nsec;
-};
-
-static int futex_timeout_deadline(const void *timeout, bool *has_timeout,
-				  uint64_t *expires)
-{
-	struct futex_timespec ts;
-	uint64_t now;
-	uint64_t max_delta;
-	uint64_t delta;
-	uint64_t nsec_delta;
-
-	BUG_ON(!has_timeout);
-	BUG_ON(!expires);
-
-	*has_timeout = false;
-	*expires = 0;
-	if (!timeout)
-		return 0;
-
-	if (copy_from_user(&ts, timeout, sizeof(ts)) != 0)
-		return -EFAULT;
-	if (ts.tv_sec < 0 || ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000LL)
-		return -EINVAL;
-
-	now = arch_timer_now();
-	max_delta = UINT64_MAX - now;
-	if ((uint64_t)ts.tv_sec > max_delta / MTIME_FREQ) {
-		delta = max_delta;
-	} else {
-		delta = (uint64_t)ts.tv_sec * MTIME_FREQ;
-		nsec_delta =
-			((uint64_t)ts.tv_nsec * MTIME_FREQ + 999999999ULL) /
-			1000000000ULL;
-		if (nsec_delta > max_delta - delta)
-			delta = max_delta;
-		else
-			delta += nsec_delta;
-	}
-
-	*has_timeout = true;
-	*expires = now + delta;
-	return 0;
-}
-
-static int futex_wait(int *uaddr, int expected, const void *timeout)
+static int futex_wait(int *uaddr, int expected,
+		      const struct futex_deadline *deadline)
 {
 	struct futex_key key;
 	struct futex_bucket *bucket;
@@ -143,9 +100,8 @@ static int futex_wait(int *uaddr, int expected, const void *timeout)
 		return ret;
 	if (user_range_probe(uaddr, sizeof(*uaddr), false) < 0)
 		return -EFAULT;
-	ret = futex_timeout_deadline(timeout, &has_timeout, &expires);
-	if (ret < 0)
-		return ret;
+	has_timeout = deadline && deadline->active;
+	expires = has_timeout ? deadline->expires : 0;
 
 	bucket = futex_bucket_for(&key);
 	memset(&waiter, 0, sizeof(waiter));
@@ -154,7 +110,11 @@ static int futex_wait(int *uaddr, int expected, const void *timeout)
 	INIT_LIST_HEAD(&waiter.node);
 
 	spin_lock_irqsave(&bucket->lock, &flags);
-	futex_read_user_value(uaddr, &value);
+	ret = futex_read_user_value_checked(uaddr, &value);
+	if (ret < 0) {
+		spin_unlock_irqrestore(&bucket->lock, flags);
+		return ret;
+	}
 	if (value != expected) {
 		spin_unlock_irqrestore(&bucket->lock, flags);
 		return -EAGAIN;
@@ -291,6 +251,11 @@ void futex_exit_robust_list(struct task_struct *task)
 	struct robust_list *entry;
 	struct robust_list *pending;
 
+	/*
+	 * Linux robust futex ABI requires exit-time traversal of a user-owned
+	 * linked list, then OWNER_DIED writeback and futex wake. This is an
+	 * explicit ABI side effect, not ordinary syscall argument copying.
+	 */
 	head_ptr = task_robust_list(task);
 	if (!task || !head_ptr)
 		return;
@@ -338,13 +303,14 @@ int futex_get_robust_list(struct task_struct *task,
 	return 0;
 }
 
-int kernel_futex(int *uaddr, int op, int val, const void *timeout)
+int kernel_futex(int *uaddr, int op, int val,
+		 const struct futex_deadline *deadline)
 {
 	int cmd = op & FUTEX_CMD_MASK;
 
 	switch (cmd) {
 	case FUTEX_WAIT:
-		return futex_wait(uaddr, val, timeout);
+		return futex_wait(uaddr, val, deadline);
 	case FUTEX_WAKE:
 		return futex_wake(uaddr, val);
 	default:

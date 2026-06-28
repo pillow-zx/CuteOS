@@ -199,9 +199,9 @@ int signals_init(struct task_struct *task)
 	}
 	task_set_signal_state(task, signal);
 
-	task_set_blocked_mask(task, 0);
-	task_set_pending_mask(task, 0);
-	task_set_in_handler_mask(task, 0);
+	signal_set_blocked_mask(task, 0);
+	signal_clear_pending(task, ~0UL);
+	signal_clear_handlers(task);
 	reset_task_altstack(task);
 	return 0;
 }
@@ -215,9 +215,9 @@ void signals_release(struct task_struct *task)
 	signal_state_put(task_signal_state(task));
 	task_set_sighand(task, NULL);
 	task_set_signal_state(task, NULL);
-	task_set_blocked_mask(task, 0);
-	task_set_pending_mask(task, 0);
-	task_set_in_handler_mask(task, 0);
+	signal_set_blocked_mask(task, 0);
+	signal_clear_pending(task, ~0UL);
+	signal_clear_handlers(task);
 	reset_task_altstack(task);
 }
 
@@ -268,9 +268,9 @@ int signals_clone(struct task_struct *child, bool share_sighand,
 	signals_release(child);
 	task_set_sighand(child, sighand);
 	task_set_signal_state(child, signal);
-	task_set_blocked_mask(child, task_blocked_mask(current));
-	task_set_pending_mask(child, 0);
-	task_set_in_handler_mask(child, 0);
+	signal_set_blocked_mask(child, signal_blocked_mask(current));
+	signal_clear_pending(child, ~0UL);
+	signal_clear_handlers(child);
 	if (current && !disable_altstack) {
 		struct stack_t *child_sas = task_altstack(child);
 
@@ -307,6 +307,59 @@ bool signal_pending(struct task_struct *task)
 	return (pending & ~blocked) != 0;
 }
 
+uint64_t signal_blocked_mask(struct task_struct *task)
+{
+	return task_blocked_mask(task);
+}
+
+void signal_block_mask(struct task_struct *task, uint64_t mask)
+{
+	task_or_blocked_mask(task, mask);
+	task_and_blocked_mask(task, ~unblockable_mask());
+}
+
+void signal_unblock_mask(struct task_struct *task, uint64_t mask)
+{
+	task_and_blocked_mask(task, ~mask);
+	task_and_blocked_mask(task, ~unblockable_mask());
+}
+
+void signal_set_blocked_mask(struct task_struct *task, uint64_t mask)
+{
+	task_set_blocked_mask(task, mask & ~unblockable_mask());
+}
+
+void signal_mark_pending(struct task_struct *task, uint64_t mask)
+{
+	task_or_pending_mask(task, mask);
+}
+
+void signal_clear_pending(struct task_struct *task, uint64_t mask)
+{
+	task_and_pending_mask(task, ~mask);
+}
+
+void signal_enter_handler(struct task_struct *task, int sig)
+{
+	if (!signal_is_valid(sig))
+		return;
+
+	task_or_in_handler_mask(task, signal_mask(sig));
+}
+
+void signal_leave_handler(struct task_struct *task, int sig)
+{
+	if (!signal_is_valid(sig))
+		return;
+
+	task_and_in_handler_mask(task, ~signal_mask(sig));
+}
+
+void signal_clear_handlers(struct task_struct *task)
+{
+	task_set_in_handler_mask(task, 0);
+}
+
 static void wake_signal_target(struct task_struct *task, int sig)
 {
 	if (!task)
@@ -333,7 +386,7 @@ int send_signal(int sig, struct task_struct *task)
 	    task_state(task) == TASK_ZOMBIE)
 		return -ESRCH;
 
-	task_or_pending_mask(task, signal_mask(sig));
+	signal_mark_pending(task, signal_mask(sig));
 	wake_signal_target(task, sig);
 
 	return 0;
@@ -398,7 +451,7 @@ int force_signal(int sig, struct task_struct *task)
 		return 0;
 	}
 
-	task_and_blocked_mask(task, ~signal_mask(sig));
+	signal_unblock_mask(task, signal_mask(sig));
 	if (task_sighand(task)) {
 		struct sighand_struct *sighand = task_sighand(task);
 
@@ -413,28 +466,6 @@ int force_signal(int sig, struct task_struct *task)
 		return ret;
 
 	return 0;
-}
-
-vaddr_t signal_trampoline_start(void)
-{
-	return SIGNAL_TRAMPOLINE_ADDR;
-}
-
-vaddr_t signal_trampoline_end(void)
-{
-	return SIGNAL_TRAMPOLINE_ADDR + PAGE_SIZE;
-}
-
-bool signal_trampoline_contains(vaddr_t addr)
-{
-	return addr >= signal_trampoline_start() &&
-	       addr < signal_trampoline_end();
-}
-
-bool signal_trampoline_overlaps(vaddr_t start, vaddr_t end)
-{
-	return start < signal_trampoline_end() &&
-	       end > signal_trampoline_start();
 }
 
 static int signal_map_trampoline(pte_t *pgd)
@@ -463,13 +494,16 @@ void signal_user_map_init(void)
 {
 	int ret;
 
-	ret = user_map_register("signal_trampoline", signal_map_trampoline);
+	ret = user_map_register_reserved("signal_trampoline",
+					 SIGNAL_TRAMPOLINE_ADDR,
+					 SIGNAL_TRAMPOLINE_ADDR + PAGE_SIZE,
+					 signal_map_trampoline);
 	BUG_ON(ret < 0);
 }
 
 static void stop_current(void)
 {
-	task_set_state(current, TASK_STOPPED);
+	task_mark_stopped(current);
 	schedule();
 }
 
@@ -495,7 +529,7 @@ static int setup_signal_frame(struct trap_frame *tf, int sig,
 		return -EFAULT;
 
 	frame.tf = *tf;
-	frame.blocked = task_blocked_mask(current);
+	frame.blocked = signal_blocked_mask(current);
 	frame.sig = sig;
 	frame.on_altstack = on_altstack;
 
@@ -511,10 +545,9 @@ static int setup_signal_frame(struct trap_frame *tf, int sig,
 	 * frame.sig 清除。force_signal 依赖 in_handler 判断是否重入，故二者
 	 * 必须成对维护。详见 force_signal 的重入护栏注释。
 	 */
-	task_or_blocked_mask(current, signal_mask(sig));
-	task_or_blocked_mask(current, action->sa_mask);
-	task_and_blocked_mask(current, ~unblockable_mask());
-	task_or_in_handler_mask(current, signal_mask(sig));
+	signal_block_mask(current, signal_mask(sig));
+	signal_block_mask(current, action->sa_mask);
+	signal_enter_handler(current, sig);
 
 	tf->sepc = (uintptr_t)action->sa_handler;
 	tf->ra = SIGNAL_TRAMPOLINE_ADDR;
@@ -557,7 +590,8 @@ static int next_signal(bool *shared)
 
 	*shared = false;
 	pending &= (1UL << (NSIG - 1)) - 1;
-	deliverable = pending & ~(task_blocked_mask(current) & ~unblockable_mask());
+	deliverable = pending & ~(signal_blocked_mask(current) &
+				  ~unblockable_mask());
 	if (!deliverable)
 		return 0;
 
@@ -603,7 +637,7 @@ void do_signal(struct trap_frame *tf)
 		if (shared)
 			clear_shared_pending(sig);
 		else
-			task_and_pending_mask(current, ~mask);
+			signal_clear_pending(current, mask);
 
 		if (sig == SIGCONT) {
 			if (handler == SIG_DFL || handler == SIG_IGN)
@@ -739,7 +773,7 @@ int do_sigprocmask(int how, const uint64_t *set, uint64_t *oldset)
 	uint64_t newset;
 
 	if (oldset)
-		*oldset = task_blocked_mask(current);
+		*oldset = signal_blocked_mask(current);
 
 	if (!set)
 		return 0;
@@ -748,19 +782,18 @@ int do_sigprocmask(int how, const uint64_t *set, uint64_t *oldset)
 
 	switch (how) {
 	case SIG_BLOCK:
-		task_or_blocked_mask(current, newset);
+		signal_block_mask(current, newset);
 		break;
 	case SIG_UNBLOCK:
-		task_and_blocked_mask(current, ~newset);
+		signal_unblock_mask(current, newset);
 		break;
 	case SIG_SETMASK:
-		task_set_blocked_mask(current, newset);
+		signal_set_blocked_mask(current, newset);
 		break;
 	default:
 		return -EINVAL;
 	}
 
-	task_and_blocked_mask(current, ~unblockable_mask());
 	return 0;
 }
 
@@ -775,8 +808,8 @@ int do_sigreturn(struct trap_frame *tf, uintptr_t sp)
 		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 
 	*tf = frame.tf;
-	task_set_blocked_mask(current, frame.blocked & ~unblockable_mask());
-	task_and_in_handler_mask(current, ~signal_mask(frame.sig));
+	signal_set_blocked_mask(current, frame.blocked);
+	signal_leave_handler(current, (int)frame.sig);
 	if (frame.on_altstack) {
 		struct stack_t *sas = task_altstack(current);
 

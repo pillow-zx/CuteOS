@@ -11,15 +11,16 @@
  *   2. pr_info("cuteOS starting...")
  *   3. arch_pt_init()  — 建立正式内核页表（4KB 页 + MMIO mega page）
  *   4. console_init_mmio()      — 切换到 UART MMIO 轮询模式
- *   5. buddy_init()             — 物理页分配器（从 _end 到 DRAM 结束）
- *   6. slab_init()              — kmalloc 可用（8 组 size class）
- *   7. arch_trap_init()              — stvec, sscratch, SIE.STIE
- *   8. task_init()              — 创建 idle (PID 0, BSS 静态), 设置 current
- *   9. arch_timer_init()             — Sstc stimecmp 设置首次时钟中断
- *  10. sched_init()             — 初始化全局就绪队列
- *  11. kernel_test()            — DEBUG 构建运行内核自测
- *  12. kernel_thread(init_process, NULL) — 创建 init (PID 1)
- *  13. while(1) { wfi(); schedule(); }   — idle 循环
+ *   5. console_chrdev_init()    — 注册 /dev/console 字符设备操作
+ *   6. buddy_init()             — 物理页分配器（从 _end 到 DRAM 结束）
+ *   7. slab_init()              — kmalloc 可用（8 组 size class）
+ *   8. arch_trap_init()              — stvec, sscratch, SIE.STIE
+ *   9. task_init()              — 创建 idle (PID 0, BSS 静态), 设置 current
+ *  10. arch_timer_init()             — Sstc stimecmp 设置首次时钟中断
+ *  11. sched_init()             — 初始化全局就绪队列
+ *  12. kernel_test()            — DEBUG 构建运行内核自测
+ *  13. kernel_thread(init_process, NULL) — 创建 init (PID 1)
+ *  14. while(1) { wfi(); schedule(); }   — idle 循环
  *
  * 依赖关系：
  *   console → pagetable → buddy → slab → trap → task → timer → sched → thread
@@ -39,6 +40,7 @@
 #include <kernel/syscall.h>
 #include <kernel/signal.h>
 #include <kernel/vfs.h>
+#include <drivers/console.h>
 #include <drivers/virtio_blk.h>
 #include <asm/trap.h>
 #include <asm/csr.h>
@@ -72,6 +74,7 @@ void kernel_main(void)
 
 	arch_pt_init();
 	console_init_mmio();
+	console_chrdev_init();
 	pr_info("uart: init successfully\n");
 
 	buddy_init();
