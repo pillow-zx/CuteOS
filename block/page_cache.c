@@ -84,12 +84,24 @@ static void page_cache_free_page(struct page_cache *page)
 		list_del_init(&page->lru_node);
 	if (!list_empty(&page->mapping_node))
 		list_del_init(&page->mapping_node);
-
 	if (page->data)
 		free_page(page->data, 0);
 	kfree(page);
 	if (page_cache_pages > 0)
 		page_cache_pages--;
+}
+
+static void page_cache_unlink_page(struct page_cache *page)
+{
+	if (!page)
+		return;
+
+	if (!list_empty(&page->hash_node))
+		list_del_init(&page->hash_node);
+	if (!list_empty(&page->lru_node))
+		list_del_init(&page->lru_node);
+	if (!list_empty(&page->mapping_node))
+		list_del_init(&page->mapping_node);
 }
 
 static void page_cache_drop_page(struct page_cache *page)
@@ -108,12 +120,7 @@ static void page_cache_drop_page(struct page_cache *page)
 	page->uptodate = false;
 	page->dropped = true;
 	page->owner = NULL;
-	if (!list_empty(&page->hash_node))
-		list_del_init(&page->hash_node);
-	if (!list_empty(&page->lru_node))
-		list_del_init(&page->lru_node);
-	if (!list_empty(&page->mapping_node))
-		list_del_init(&page->mapping_node);
+	page_cache_unlink_page(page);
 	memset(page->data, 0, BLOCK_SIZE);
 
 	if (page->refcount == 0)

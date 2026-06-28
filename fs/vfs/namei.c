@@ -107,6 +107,29 @@ static struct dentry *follow_dotdot(struct dentry *dentry)
 	return parent;
 }
 
+static int ensure_directory_dentry(struct dentry *dentry)
+{
+	if (!dentry || !dentry->d_inode)
+		return -ENOENT;
+	if (!S_ISDIR(dentry->d_inode->i_mode))
+		return -ENOTDIR;
+
+	return 0;
+}
+
+static struct dentry *lookup_start_dentry(struct dentry *base,
+					  const char *path)
+{
+	if (*path == '/')
+		return fs_get_root_dentry(task_fs(current));
+	if (base) {
+		dget(base);
+		return base;
+	}
+
+	return fs_get_cwd_dentry(task_fs(current));
+}
+
 struct dentry *vfs_lookup_one(struct dentry *parent, const char *name,
 			      size_t len)
 {
@@ -295,6 +318,12 @@ static int walk_path(struct dentry *base, const char *path, uint32_t flags,
 			continue;
 		}
 
+		int ret = ensure_directory_dentry(dentry);
+		if (ret < 0) {
+			dput(dentry);
+			return ret;
+		}
+
 		next = vfs_lookup_one(dentry, name, len);
 		if (!next) {
 			dput(dentry);
@@ -335,14 +364,7 @@ int path_lookupat_err(struct dentry *base, const char *path, uint32_t flags,
 	if (!path || !*path)
 		return -ENOENT;
 
-	if (*path == '/')
-		start = fs_get_root_dentry(task_fs(current));
-	else if (base) {
-		start = base;
-		dget(start);
-	} else
-		start = fs_get_cwd_dentry(task_fs(current));
-
+	start = lookup_start_dentry(base, path);
 	if (!start)
 		return -ENOENT;
 
@@ -415,9 +437,10 @@ int path_parent_lookupat_err(struct dentry *base, const char *path, char *name,
 			break;
 		}
 
-		if (!parent->d_inode || !S_ISDIR(parent->d_inode->i_mode)) {
+		int ret = ensure_directory_dentry(parent);
+		if (ret < 0) {
 			dput(parent);
-			return -ENOTDIR;
+			return ret;
 		}
 
 		if (is_dotdot(component, len)) {
@@ -437,8 +460,7 @@ int path_parent_lookupat_err(struct dentry *base, const char *path, char *name,
 
 		if (d_is_symlink(next)) {
 			struct dentry *target;
-			int ret = follow_symlink(parent, next, 0, &ctx,
-						 &target);
+			ret = follow_symlink(parent, next, 0, &ctx, &target);
 
 			dput(parent);
 			if (ret < 0)
@@ -457,9 +479,10 @@ int path_parent_lookupat_err(struct dentry *base, const char *path, char *name,
 		return last_len > VFS_NAME_MAX ? -ENAMETOOLONG : -ENOENT;
 	}
 
-	if (!parent->d_inode || !S_ISDIR(parent->d_inode->i_mode)) {
+	int ret = ensure_directory_dentry(parent);
+	if (ret < 0) {
 		dput(parent);
-		return -ENOTDIR;
+		return ret;
 	}
 
 	memcpy(name, last, last_len);

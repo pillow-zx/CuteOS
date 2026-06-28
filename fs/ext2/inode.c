@@ -7,6 +7,37 @@
 #include <kernel/stat.h>
 #include <kernel/string.h>
 
+static inline uint32_t ext2_encode_dev(dev_t dev)
+{
+	return (MAJOR(dev) << 8) | (dev & 0xff);
+}
+
+static inline int ext2_sync_metadata_page(struct page_cache *page)
+{
+	return page_cache_sync_block(page) < 0 ? -EIO : 0;
+}
+
+static inline dev_t ext2_decode_dev(uint32_t raw)
+{
+	uint32_t major = (raw >> 8) & 0xff;
+	uint32_t minor = raw & 0xff;
+
+	return MKDEV(major, minor);
+}
+
+static inline uint32_t ext2_branch_span(int depth)
+{
+	uint32_t ptrs = BLOCK_SIZE / sizeof(uint32_t);
+	uint32_t span = 1;
+
+	for (int i = 0; i < depth; i++)
+		span *= ptrs;
+	return span;
+}
+
+static const struct inode_operations ext2_file_inode_operations;
+static uint32_t ext2_bmap_ro_scratch[BLOCK_SIZE / sizeof(uint32_t)];
+
 static int ext2_inode_location(struct inode *inode, uint32_t *block,
 			       uint32_t *offset)
 {
@@ -31,22 +62,6 @@ static int ext2_inode_location(struct inode *inode, uint32_t *block,
 
 	return 0;
 }
-
-static dev_t ext2_decode_dev(uint32_t raw)
-{
-	uint32_t major = (raw >> 8) & 0xff;
-	uint32_t minor = raw & 0xff;
-
-	return MKDEV(major, minor);
-}
-
-static uint32_t ext2_encode_dev(dev_t dev)
-{
-	return (MAJOR(dev) << 8) | (dev & 0xff);
-}
-
-static const struct inode_operations ext2_file_inode_operations;
-static uint32_t ext2_bmap_ro_scratch[BLOCK_SIZE / sizeof(uint32_t)];
 
 static void ext2_free_indirect_chain(struct super_block *sb, uint32_t block,
 				     int depth)
@@ -96,16 +111,6 @@ void ext2_free_inode_blocks(struct inode *inode)
 	raw->i_blocks = 0;
 	raw->i_size = 0;
 	inode->i_size = 0;
-}
-
-static uint32_t ext2_branch_span(int depth)
-{
-	uint32_t ptrs = BLOCK_SIZE / sizeof(uint32_t);
-	uint32_t span = 1;
-
-	for (int i = 0; i < depth; i++)
-		span *= ptrs;
-	return span;
 }
 
 static uint32_t ext2_count_tree_blocks(struct super_block *sb, uint32_t block,
@@ -185,7 +190,7 @@ static int ext2_truncate_branch_slot(struct inode *inode, uint32_t *slot,
 		return 0;
 	}
 
-	if (page_cache_sync_block(page) < 0) {
+	if (ext2_sync_metadata_page(page) < 0) {
 		page_cache_put_page(page);
 		return -EIO;
 	}
@@ -227,8 +232,8 @@ static int ext2_zero_truncate_tail(struct inode *inode, uint64_t size)
 
 	/*
 	 * Truncating inside a block must persist zeroes past the new EOF before
-	 * block pointers are released.  Otherwise a later extension could expose
-	 * stale file contents from the same allocated block.
+	 * block pointers are released.  Otherwise a later extension could
+	 * expose stale file contents from the same allocated block.
 	 */
 	memset(page_cache_data(page) + offset, 0, BLOCK_SIZE - offset);
 	page_cache_mark_dirty(page);
@@ -263,8 +268,8 @@ static int ext2_zero_extend_tail(struct inode *inode, uint64_t old_size)
 
 	/*
 	 * When extending from the middle of an existing block, Linux file
-	 * semantics require the old EOF-to-block-end range to read as zero until
-	 * userspace writes it.  Keep that invariant in the inode mapping.
+	 * semantics require the old EOF-to-block-end range to read as zero
+	 * until userspace writes it.  Keep that invariant in the inode mapping.
 	 */
 	memset(page_cache_data(page) + offset, 0, BLOCK_SIZE - offset);
 	page_cache_mark_dirty(page);
@@ -459,7 +464,7 @@ int ext2_write_inode(struct inode *inode)
 
 	memcpy(page_cache_data(page) + offset, &ei->raw_inode,
 	       sizeof(ei->raw_inode));
-	ret = page_cache_sync_block(page);
+	ret = ext2_sync_metadata_page(page);
 	page_cache_put_page(page);
 
 	return ret;
@@ -542,7 +547,8 @@ static uint32_t ext2_ind_bmap_readonly(struct super_block *sb,
 		page = page_cache_get_page(mapping, ind_block, false, NULL);
 		if (page) {
 			if (page_cache_is_uptodate(page))
-				block = ((uint32_t *)page_cache_data(page))[index];
+				block = ((uint32_t *)page_cache_data(
+					page))[index];
 			else
 				block = 0;
 			page_cache_put_page(page);
@@ -554,6 +560,25 @@ static uint32_t ext2_ind_bmap_readonly(struct super_block *sb,
 		return 0;
 
 	return ext2_bmap_ro_scratch[index];
+}
+
+static uint32_t ext2_inode_tree_blocks(const struct inode *inode)
+{
+	const struct ext2_inode_info *ei =
+		(const struct ext2_inode_info *)inode->i_private;
+	const struct ext2_inode *raw = &ei->raw_inode;
+	uint32_t total = 0;
+
+	for (uint32_t i = 0; i < EXT2_NDIR_BLOCKS; i++)
+		total +=
+			ext2_count_tree_blocks(inode->i_sb, raw->i_block[i], 0);
+	total += ext2_count_tree_blocks(inode->i_sb,
+					raw->i_block[EXT2_IND_BLOCK], 1);
+	total += ext2_count_tree_blocks(inode->i_sb,
+					raw->i_block[EXT2_DIND_BLOCK], 2);
+	total += ext2_count_tree_blocks(inode->i_sb,
+					raw->i_block[EXT2_TIND_BLOCK], 3);
+	return total;
 }
 
 uint32_t ext2_bmap(struct inode *inode, uint32_t block, bool create)
@@ -634,9 +659,8 @@ uint32_t ext2_bmap_readonly(struct inode *inode, uint32_t block)
 
 	block -= EXT2_NDIR_BLOCKS;
 	if (block < ptrs)
-		return ext2_ind_bmap_readonly(inode->i_sb,
-					      raw->i_block[EXT2_IND_BLOCK],
-					      block);
+		return ext2_ind_bmap_readonly(
+			inode->i_sb, raw->i_block[EXT2_IND_BLOCK], block);
 
 	block -= ptrs;
 	if (block >= ptrs * ptrs)
@@ -725,25 +749,7 @@ int ext2_truncate_inode(struct inode *inode, uint64_t size)
 
 	inode->i_size = size;
 	raw->i_blocks =
-		(ext2_count_tree_blocks(inode->i_sb, raw->i_block[0], 0) +
-		 ext2_count_tree_blocks(inode->i_sb, raw->i_block[1], 0) +
-		 ext2_count_tree_blocks(inode->i_sb, raw->i_block[2], 0) +
-		 ext2_count_tree_blocks(inode->i_sb, raw->i_block[3], 0) +
-		 ext2_count_tree_blocks(inode->i_sb, raw->i_block[4], 0) +
-		 ext2_count_tree_blocks(inode->i_sb, raw->i_block[5], 0) +
-		 ext2_count_tree_blocks(inode->i_sb, raw->i_block[6], 0) +
-		 ext2_count_tree_blocks(inode->i_sb, raw->i_block[7], 0) +
-		 ext2_count_tree_blocks(inode->i_sb, raw->i_block[8], 0) +
-		 ext2_count_tree_blocks(inode->i_sb, raw->i_block[9], 0) +
-		 ext2_count_tree_blocks(inode->i_sb, raw->i_block[10], 0) +
-		 ext2_count_tree_blocks(inode->i_sb, raw->i_block[11], 0) +
-		 ext2_count_tree_blocks(inode->i_sb,
-					raw->i_block[EXT2_IND_BLOCK], 1) +
-		 ext2_count_tree_blocks(inode->i_sb,
-					raw->i_block[EXT2_DIND_BLOCK], 2) +
-		 ext2_count_tree_blocks(inode->i_sb,
-					raw->i_block[EXT2_TIND_BLOCK], 3)) *
-		(BLOCK_SIZE / SECTOR_SIZE);
+		ext2_inode_tree_blocks(inode) * (BLOCK_SIZE / SECTOR_SIZE);
 
 	return ext2_write_inode(inode);
 }

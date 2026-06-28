@@ -127,6 +127,20 @@ static void *stack_sp_to_kernel(void *stack_page, vaddr_t sp)
 	return (uint8_t *)stack_page + (sp - USER_STACK_BASE);
 }
 
+static int push_user_string(void *stack_page, uintptr_t *sp, const char *src,
+			    uintptr_t *user_ptr)
+{
+	size_t len = strlen(src) + 1;
+
+	if (*sp < USER_STACK_BASE + len)
+		return -E2BIG;
+
+	*sp -= len;
+	memcpy(stack_sp_to_kernel(stack_page, *sp), src, len);
+	*user_ptr = *sp;
+	return 0;
+}
+
 static int setup_user_stack(struct mm_struct *mm,
 			    const struct exec_args_envp *args, vaddr_t *sp_out)
 {
@@ -144,26 +158,21 @@ static int setup_user_stack(struct mm_struct *mm,
 	uintptr_t user_argv[EXEC_MAX_ARGS + 1];
 	uintptr_t user_envp[EXEC_MAX_ENVS + 1];
 	uintptr_t sp = USER_STACK_TOP;
+	int ret;
 
 	for (int i = args->envc - 1; i >= 0; i--) {
-		size_t len = strlen(args->envp[i]) + 1;
-		if (sp < USER_STACK_BASE + len)
-			return -E2BIG;
-
-		sp -= len;
-		memcpy(stack_sp_to_kernel(stack_page, sp), args->envp[i], len);
-		user_envp[i] = sp;
+		ret = push_user_string(stack_page, &sp, args->envp[i],
+				       &user_envp[i]);
+		if (ret < 0)
+			return ret;
 	}
 	user_envp[args->envc] = 0;
 
 	for (int i = args->argc - 1; i >= 0; i--) {
-		size_t len = strlen(args->argv[i]) + 1;
-		if (sp < USER_STACK_BASE + len)
-			return -E2BIG;
-
-		sp -= len;
-		memcpy(stack_sp_to_kernel(stack_page, sp), args->argv[i], len);
-		user_argv[i] = sp;
+		ret = push_user_string(stack_page, &sp, args->argv[i],
+				       &user_argv[i]);
+		if (ret < 0)
+			return ret;
 	}
 	user_argv[args->argc] = 0;
 
@@ -483,7 +492,7 @@ static int load_elf_file(struct exec_image *image,
 			 vaddr_t *sp_out)
 {
 	Elf64_Ehdr ehdr;
-	struct elf_phdr_table phdrs;
+	struct elf_phdr_table phdrs = { 0 };
 	struct elf_load_layout layout = { 0 };
 	struct mm_struct *mm = NULL;
 	vaddr_t user_sp = 0;
@@ -552,6 +561,21 @@ static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
 	tf->sstatus = SSTATUS_SPIE;
 }
 
+static void close_cloexec_fds(struct files_struct *files)
+{
+	unsigned long cloexec;
+
+	if (!files)
+		return;
+
+	cloexec = files->close_on_exec;
+	files->close_on_exec = 0;
+	for (int fd = 0; cloexec; fd++, cloexec >>= 1) {
+		if (cloexec & 1)
+			fd_close(fd);
+	}
+}
+
 void exec_user_path(const char *path)
 {
 	struct exec_args_envp args;
@@ -602,16 +626,7 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 	install_exec_mm(mm, tf, entry, sp);
 
 	/* 关闭所有设置了 FD_CLOEXEC 的文件描述符 */
-	struct files_struct *efiles = task_files(current);
-
-	if (efiles) {
-		unsigned long cloexec = efiles->close_on_exec;
-
-		efiles->close_on_exec = 0;
-		for (int fd = 0; cloexec; fd++, cloexec >>= 1)
-			if (cloexec & 1)
-				fd_close(fd);
-	}
+	close_cloexec_fds(task_files(current));
 
 	return 0;
 }

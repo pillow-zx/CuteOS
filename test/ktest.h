@@ -93,6 +93,7 @@ void test_mm_vma_munmap_full_table_edge_trim(void);
 void test_mm_dup_split_vmas(void);
 void test_mm_vma_mprotect_split_merge(void);
 void test_mm_vma_mprotect_enospc_preserves_layout(void);
+void test_mm_madvise_supported_hints_are_noop(void);
 
 /* ================================================================
  *  Task 管理测试
@@ -190,6 +191,7 @@ void test_fs_at_empty_path_error(void);
 void test_fs_at_mkdir_rmdir_cycle(void);
 void test_fs_at_readlink_not_symlink(void);
 void test_fs_at_lookup_nofollow_on_dir(void);
+void test_fs_at_non_directory_parent_error(void);
 void test_fs_at_openat_regular_file(void);
 
 #endif

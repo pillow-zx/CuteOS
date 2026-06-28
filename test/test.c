@@ -118,6 +118,7 @@ void kernel_test(void)
 	test_mm_dup_split_vmas();
 	test_mm_vma_mprotect_split_merge();
 	test_mm_vma_mprotect_enospc_preserves_layout();
+	test_mm_madvise_supported_hints_are_noop();
 
 	/* ---- Task ---- */
 	TEST_SECTION("Task");
@@ -154,6 +155,7 @@ void kernel_test(void)
 	test_fs_at_mkdir_rmdir_cycle();
 	test_fs_at_readlink_not_symlink();
 	test_fs_at_lookup_nofollow_on_dir();
+	test_fs_at_non_directory_parent_error();
 	test_fs_at_openat_regular_file();
 
 	/* ---- Sched ---- */

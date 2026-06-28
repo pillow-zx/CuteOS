@@ -60,6 +60,11 @@ static uintptr_t find_unmapped_area(struct mm_struct *mm, size_t length)
 	return 0;
 }
 
+static bool mm_owns_page_frame(paddr_t pa)
+{
+	return pa >= DRAM_BASE && pa < DRAM_BASE + DRAM_SIZE;
+}
+
 static void unmap_user_pages(pte_t *pgd, uintptr_t start, uintptr_t end)
 {
 	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
@@ -69,7 +74,7 @@ static void unmap_user_pages(pte_t *pgd, uintptr_t start, uintptr_t end)
 			continue;
 
 		paddr_t pa = pte_to_pa(*pte);
-		if (pa >= DRAM_BASE && pa < DRAM_BASE + DRAM_SIZE)
+		if (mm_owns_page_frame(pa))
 			free_page(__va(pa), 0);
 
 		*pte = 0;
@@ -115,8 +120,7 @@ static void free_user_page_tables(pte_t *pgd)
 				 * and other shared mappings must not be
 				 * returned to the buddy allocator.
 				 */
-				if (pa >= DRAM_BASE &&
-				    pa < DRAM_BASE + DRAM_SIZE)
+				if (mm_owns_page_frame(pa))
 					free_page(__va(pa), 0);
 			}
 			free_page(pt, 0);
@@ -481,7 +485,7 @@ static void madvise_dontneed_range(struct mm_struct *mm, uintptr_t start,
 			continue;
 
 		paddr_t pa = pte_to_pa(*pte);
-		if (pa >= DRAM_BASE && pa < DRAM_BASE + DRAM_SIZE)
+		if (mm_owns_page_frame(pa))
 			free_page(__va(pa), 0);
 		*pte = 0;
 		arch_tlb_flush_page(va);
@@ -492,6 +496,7 @@ int mm_madvise(struct mm_struct *mm, uintptr_t addr, size_t len, int advice)
 {
 	uintptr_t end;
 	int ret = 0;
+	bool drop_resident = false;
 
 	if (!mm)
 		return -EINVAL;
@@ -499,6 +504,21 @@ int mm_madvise(struct mm_struct *mm, uintptr_t addr, size_t len, int advice)
 		return -EINVAL;
 	if (len == 0)
 		return 0;
+
+	switch (advice) {
+	case MADV_NORMAL:
+	case MADV_RANDOM:
+	case MADV_SEQUENTIAL:
+	case MADV_WILLNEED:
+	case MADV_FREE:
+		break;
+	case MADV_DONTNEED:
+		drop_resident = true;
+		break;
+	default:
+		return -EINVAL;
+	}
+
 	ret = mm_range_end_page_aligned(addr, len, &end);
 	if (ret < 0)
 		return ret;
@@ -512,13 +532,13 @@ int mm_madvise(struct mm_struct *mm, uintptr_t addr, size_t len, int advice)
 			ret = -ENOMEM;
 			goto out;
 		}
-		if (advice == MADV_DONTNEED && !vma_is_anonymous(vma)) {
+		if (drop_resident && !vma_is_anonymous(vma)) {
 			ret = -EINVAL;
 			goto out;
 		}
 	}
 
-	if (advice == MADV_DONTNEED)
+	if (drop_resident)
 		madvise_dontneed_range(mm, addr, end);
 
 out:

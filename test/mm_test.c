@@ -440,3 +440,36 @@ cleanup:
 	if (mm)
 		mm_destroy(mm);
 }
+
+void test_mm_madvise_supported_hints_are_noop(void)
+{
+	struct mm_struct *mm = NULL;
+	uintptr_t base = MM_TEST_BASE + 8 * MM_TEST_GAP;
+
+	TEST_BEGIN("mm: madvise supported hints return 0");
+	{
+		mm = mm_test_alloc();
+		TEST_ASSERT_NOT_NULL(mm);
+
+		TEST_ASSERT_EQ(mm_mmap(mm, base, PAGE_SIZE,
+				       PROT_READ | PROT_WRITE,
+				       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED),
+			       (ssize_t)base);
+		TEST_ASSERT_EQ(mm_madvise(mm, base, PAGE_SIZE, MADV_NORMAL), 0);
+		TEST_ASSERT_EQ(mm_madvise(mm, base, PAGE_SIZE, MADV_RANDOM), 0);
+		TEST_ASSERT_EQ(mm_madvise(mm, base, PAGE_SIZE, MADV_SEQUENTIAL),
+			       0);
+		TEST_ASSERT_EQ(mm_madvise(mm, base, PAGE_SIZE, MADV_WILLNEED),
+			       0);
+		TEST_ASSERT_EQ(mm_madvise(mm, base, PAGE_SIZE, MADV_FREE), 0);
+		TEST_ASSERT_EQ(mm_madvise(mm, base, PAGE_SIZE, 0x7fff),
+			       -EINVAL);
+	}
+	TEST_END("mm: madvise supported hints return 0");
+	goto cleanup;
+fail:
+	TEST_FAIL("mm: madvise supported hints return 0", "see above");
+cleanup:
+	if (mm)
+		mm_destroy(mm);
+}

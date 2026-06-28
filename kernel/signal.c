@@ -168,6 +168,15 @@ static void signal_state_put(struct signal_struct *signal)
 		kfree(signal);
 }
 
+static bool task_signal_target_dead(struct task_struct *task)
+{
+	if (!task)
+		return true;
+
+	return task_state(task) == TASK_DEAD ||
+	       task_state(task) == TASK_ZOMBIE;
+}
+
 static void reset_task_altstack(struct task_struct *task)
 {
 	struct stack_t *sas = task_altstack(task);
@@ -222,6 +231,17 @@ void signals_release(struct task_struct *task)
 	reset_task_altstack(task);
 }
 
+static void signal_copy_rlimits(struct signal_struct *dst,
+				struct signal_struct *src)
+{
+	if (!dst || !src)
+		return;
+
+	mutex_lock(&src->lock);
+	memcpy(dst->rlimits, src->rlimits, sizeof(dst->rlimits));
+	mutex_unlock(&src->lock);
+}
+
 int signals_clone(struct task_struct *child, bool share_sighand,
 		  bool share_signal, bool disable_altstack)
 {
@@ -255,15 +275,7 @@ int signals_clone(struct task_struct *child, bool share_sighand,
 			sighand_put(sighand);
 			return -ENOMEM;
 		}
-		if (task_signal_state(current)) {
-			struct signal_struct *current_signal =
-				task_signal_state(current);
-
-			mutex_lock(&current_signal->lock);
-			memcpy(signal->rlimits, current_signal->rlimits,
-			       sizeof(signal->rlimits));
-			mutex_unlock(&current_signal->lock);
-		}
+		signal_copy_rlimits(signal, task_signal_state(current));
 	}
 
 	signals_release(child);
@@ -384,8 +396,7 @@ int send_signal(int sig, struct task_struct *task)
 {
 	if (!signal_is_valid(sig))
 		return -EINVAL;
-	if (!task || task_state(task) == TASK_DEAD ||
-	    task_state(task) == TASK_ZOMBIE)
+	if (task_signal_target_dead(task))
 		return -ESRCH;
 
 	signal_mark_pending(task, signal_mask(sig));
@@ -403,8 +414,7 @@ int send_group_signal(int sig, struct task_struct *leader)
 {
 	if (!signal_is_valid(sig))
 		return -EINVAL;
-	if (!leader || task_state(leader) == TASK_DEAD ||
-	    task_state(leader) == TASK_ZOMBIE)
+	if (task_signal_target_dead(leader))
 		return -ESRCH;
 
 	if (!task_signal_state(leader))

@@ -37,6 +37,22 @@ static bool ext2_match(struct ext2_dir_entry_2 *de, const char *name,
 	return memcmp(de->name, name, namelen) == 0;
 }
 
+static void ext2_dirent_init(struct ext2_dir_entry_2 *de, uint32_t ino,
+			     uint16_t rec_len, const char *name,
+			     size_t namelen, uint8_t type)
+{
+	de->inode = ino;
+	de->rec_len = rec_len;
+	de->name_len = (uint8_t)namelen;
+	de->file_type = type;
+	memcpy(de->name, name, namelen);
+}
+
+static int ext2_sync_dir_page(struct page_cache *page)
+{
+	return page_cache_sync_page(page) < 0 ? -EIO : 0;
+}
+
 /*
  * ext2 directories are ordinary inode data blocks whose payload is a sequence
  * of ext2_dir_entry_2 records.  Read them through inode->i_pages so the
@@ -147,10 +163,8 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 				break;
 
 			if (!de->inode && de->rec_len >= need) {
-				de->inode = ino;
-				de->name_len = (uint8_t)namelen;
-				de->file_type = type;
-				memcpy(de->name, name, namelen);
+				ext2_dirent_init(de, ino, de->rec_len, name,
+						 namelen, type);
 				/*
 				 * Directory updates remain synchronous in this
 				 * teaching kernel, but they still go through the
@@ -158,7 +172,10 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 				 * refreshed by page_cache_sync_page().
 				 */
 				page_cache_mark_dirty(page);
-				page_cache_sync_page(page);
+				if (ext2_sync_dir_page(page) < 0) {
+					page_cache_put_page(page);
+					return -EIO;
+				}
 				page_cache_put_page(page);
 				return 0;
 			}
@@ -173,13 +190,13 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 					(struct ext2_dir_entry_2 *)((uint8_t *)
 									    de +
 								    used);
-				new_de->inode = ino;
-				new_de->rec_len = spare;
-				new_de->name_len = (uint8_t)namelen;
-				new_de->file_type = type;
-				memcpy(new_de->name, name, namelen);
+				ext2_dirent_init(new_de, ino, spare, name,
+						 namelen, type);
 				page_cache_mark_dirty(page);
-				page_cache_sync_page(page);
+				if (ext2_sync_dir_page(page) < 0) {
+					page_cache_put_page(page);
+					return -EIO;
+				}
 				page_cache_put_page(page);
 				return 0;
 			}
@@ -200,13 +217,12 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 	uint8_t *data = page_cache_data(page);
 	memset(data, 0, BLOCK_SIZE);
 	struct ext2_dir_entry_2 *de = (struct ext2_dir_entry_2 *)data;
-	de->inode = ino;
-	de->rec_len = BLOCK_SIZE;
-	de->name_len = (uint8_t)namelen;
-	de->file_type = type;
-	memcpy(de->name, name, namelen);
+	ext2_dirent_init(de, ino, BLOCK_SIZE, name, namelen, type);
 	page_cache_mark_dirty(page);
-	page_cache_sync_page(page);
+	if (ext2_sync_dir_page(page) < 0) {
+		page_cache_put_page(page);
+		return -EIO;
+	}
 	page_cache_put_page(page);
 
 	dir->i_size += BLOCK_SIZE;
@@ -245,7 +261,10 @@ static int ext2_delete_entry(struct inode *dir, struct dentry *dentry)
 				else
 					de->inode = 0;
 				page_cache_mark_dirty(page);
-				page_cache_sync_page(page);
+				if (ext2_sync_dir_page(page) < 0) {
+					page_cache_put_page(page);
+					return -EIO;
+				}
 				page_cache_put_page(page);
 				return 0;
 			}
@@ -271,7 +290,10 @@ static int ext2_replace_entry(struct inode *dir, struct dentry *dentry,
 	de->inode = ino;
 	de->file_type = type;
 	page_cache_mark_dirty(page);
-	page_cache_sync_page(page);
+	if (ext2_sync_dir_page(page) < 0) {
+		page_cache_put_page(page);
+		return -EIO;
+	}
 	page_cache_put_page(page);
 	return 0;
 }
@@ -377,22 +399,19 @@ static int ext2_make_empty_dir(struct inode *inode, struct inode *parent)
 
 	memset(data, 0, BLOCK_SIZE);
 	de = (struct ext2_dir_entry_2 *)data;
-	de->inode = (uint32_t)inode->i_ino;
-	de->rec_len = EXT2_DIR_REC_LEN(1);
-	de->name_len = 1;
-	de->file_type = EXT2_FT_DIR;
-	de->name[0] = '.';
+	ext2_dirent_init(de, (uint32_t)inode->i_ino, EXT2_DIR_REC_LEN(1), ".",
+			 1, EXT2_FT_DIR);
 
 	de = (struct ext2_dir_entry_2 *)(data + de->rec_len);
-	de->inode = (uint32_t)parent->i_ino;
-	de->rec_len = BLOCK_SIZE - EXT2_DIR_REC_LEN(1);
-	de->name_len = 2;
-	de->file_type = EXT2_FT_DIR;
-	de->name[0] = '.';
-	de->name[1] = '.';
+	ext2_dirent_init(de, (uint32_t)parent->i_ino,
+			 BLOCK_SIZE - EXT2_DIR_REC_LEN(1), "..", 2,
+			 EXT2_FT_DIR);
 
 	page_cache_mark_dirty(page);
-	page_cache_sync_page(page);
+	if (ext2_sync_dir_page(page) < 0) {
+		page_cache_put_page(page);
+		return -EIO;
+	}
 	page_cache_put_page(page);
 	inode->i_size = BLOCK_SIZE;
 	ext2_write_inode(inode);
@@ -620,7 +639,10 @@ static int ext2_set_dotdot(struct inode *dir, uint32_t new_parent_ino)
 			    de->name[0] == '.' && de->name[1] == '.') {
 				de->inode = new_parent_ino;
 				page_cache_mark_dirty(page);
-				page_cache_sync_page(page);
+				if (ext2_sync_dir_page(page) < 0) {
+					page_cache_put_page(page);
+					return -EIO;
+				}
 				page_cache_put_page(page);
 				return 0;
 			}

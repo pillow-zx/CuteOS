@@ -166,6 +166,26 @@ fail:
 	TEST_FAIL("fs-at: LOOKUP_NOFOLLOW on directory is harmless", "see above");
 }
 
+void test_fs_at_non_directory_parent_error(void)
+{
+	struct dentry *d = NULL;
+	int ret;
+
+	TEST_BEGIN("fs-at: non-directory parent returns -ENOTDIR");
+	{
+		ret = path_lookupat_err(NULL, "/bin/sh/child", 0, &d);
+		TEST_ASSERT_EQ(ret, -ENOTDIR);
+		TEST_ASSERT_NULL(d);
+	}
+	TEST_END("fs-at: non-directory parent returns -ENOTDIR");
+	return;
+fail:
+	if (d)
+		dput(d);
+	TEST_FAIL("fs-at: non-directory parent returns -ENOTDIR",
+		  "see above");
+}
+
 void test_fs_at_openat_regular_file(void)
 {
 	const char data[] = "fat-test";
