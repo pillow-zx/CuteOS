@@ -89,6 +89,8 @@ void test_mm_vma_munmap_head_tail_trim(void);
 void test_mm_vma_split_enospc_preserves_layout(void);
 void test_mm_vma_munmap_full_table_edge_trim(void);
 void test_mm_dup_split_vmas(void);
+void test_mm_vma_mprotect_split_merge(void);
+void test_mm_vma_mprotect_enospc_preserves_layout(void);
 
 /* ================================================================
  *  Task 管理测试

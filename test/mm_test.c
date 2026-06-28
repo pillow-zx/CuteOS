@@ -58,9 +58,10 @@ static int mm_test_count_type(struct mm_struct *mm, uint32_t type)
 	return count;
 }
 
-static struct vma_snapshot mm_test_snapshot(struct mm_struct *mm, uintptr_t addr)
+static struct vma_snapshot mm_test_snapshot(struct mm_struct *mm,
+					    uintptr_t addr)
 {
-	struct vma_snapshot snapshot = { 0 };
+	struct vma_snapshot snapshot = {0};
 
 	mm_lock(mm);
 	struct vm_area_struct *vma = find_vma(mm, addr);
@@ -86,7 +87,8 @@ void test_mm_vma_merge_adjacent(void)
 		mm = mm_test_alloc();
 		TEST_ASSERT_NOT_NULL(mm);
 
-		TEST_ASSERT_EQ(mm_mmap(mm, base, PAGE_SIZE, PROT_READ | PROT_WRITE,
+		TEST_ASSERT_EQ(mm_mmap(mm, base, PAGE_SIZE,
+				       PROT_READ | PROT_WRITE,
 				       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED),
 			       (ssize_t)base);
 		TEST_ASSERT_EQ(mm_mmap(mm, base + PAGE_SIZE, PAGE_SIZE,
@@ -127,7 +129,8 @@ void test_mm_vma_munmap_middle_split(void)
 		TEST_ASSERT_EQ(mm_munmap(mm, base + PAGE_SIZE, PAGE_SIZE), 0);
 
 		struct vma_snapshot head = mm_test_snapshot(mm, base);
-		struct vma_snapshot hole = mm_test_snapshot(mm, base + PAGE_SIZE);
+		struct vma_snapshot hole =
+			mm_test_snapshot(mm, base + PAGE_SIZE);
 		struct vma_snapshot tail =
 			mm_test_snapshot(mm, base + 2 * PAGE_SIZE);
 
@@ -172,7 +175,8 @@ void test_mm_vma_munmap_head_tail_trim(void)
 		TEST_ASSERT_EQ(after_head.start, base + PAGE_SIZE);
 		TEST_ASSERT_EQ(after_head.end, base + 3 * PAGE_SIZE);
 
-		TEST_ASSERT_EQ(mm_munmap(mm, base + 2 * PAGE_SIZE, PAGE_SIZE), 0);
+		TEST_ASSERT_EQ(mm_munmap(mm, base + 2 * PAGE_SIZE, PAGE_SIZE),
+			       0);
 
 		struct vma_snapshot after_tail =
 			mm_test_snapshot(mm, base + PAGE_SIZE);
@@ -218,7 +222,8 @@ void test_mm_vma_split_enospc_preserves_layout(void)
 		TEST_ASSERT_EQ(mm_munmap(mm, base + PAGE_SIZE, PAGE_SIZE),
 			       -ENOMEM);
 
-		struct vma_snapshot vma = mm_test_snapshot(mm, base + PAGE_SIZE);
+		struct vma_snapshot vma =
+			mm_test_snapshot(mm, base + PAGE_SIZE);
 		TEST_ASSERT(vma.found);
 		TEST_ASSERT_EQ(mm_test_count_vmas(mm), NR_VMA);
 		TEST_ASSERT_EQ(vma.start, base);
@@ -307,7 +312,8 @@ void test_mm_dup_split_vmas(void)
 		TEST_ASSERT_NOT_NULL(copy);
 
 		struct vma_snapshot head = mm_test_snapshot(copy, base);
-		struct vma_snapshot hole = mm_test_snapshot(copy, base + PAGE_SIZE);
+		struct vma_snapshot hole =
+			mm_test_snapshot(copy, base + PAGE_SIZE);
 		struct vma_snapshot tail =
 			mm_test_snapshot(copy, base + 2 * PAGE_SIZE);
 
@@ -327,6 +333,110 @@ fail:
 cleanup:
 	if (copy)
 		mm_destroy(copy);
+	if (mm)
+		mm_destroy(mm);
+}
+
+void test_mm_vma_mprotect_split_merge(void)
+{
+	struct mm_struct *mm = NULL;
+	uintptr_t base = MM_TEST_BASE + 6 * MM_TEST_GAP;
+
+	TEST_BEGIN("mm: mprotect split and merge");
+	{
+		mm = mm_test_alloc();
+		TEST_ASSERT_NOT_NULL(mm);
+
+		TEST_ASSERT_EQ(mm_mmap(mm, base, 3 * PAGE_SIZE,
+				       PROT_READ | PROT_WRITE,
+				       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED),
+			       (ssize_t)base);
+		TEST_ASSERT_EQ(
+			mm_mprotect(mm, base + PAGE_SIZE, PAGE_SIZE, PROT_READ),
+			0);
+
+		struct vma_snapshot head = mm_test_snapshot(mm, base);
+		struct vma_snapshot middle =
+			mm_test_snapshot(mm, base + PAGE_SIZE);
+		struct vma_snapshot tail =
+			mm_test_snapshot(mm, base + 2 * PAGE_SIZE);
+
+		TEST_ASSERT_EQ(mm_test_count_type(mm, VMA_MMAP), 3);
+		TEST_ASSERT(head.found);
+		TEST_ASSERT(middle.found);
+		TEST_ASSERT(tail.found);
+		TEST_ASSERT_EQ(head.start, base);
+		TEST_ASSERT_EQ(head.end, base + PAGE_SIZE);
+		TEST_ASSERT_EQ(head.flags, (uint32_t)(VM_READ | VM_WRITE));
+		TEST_ASSERT_EQ(middle.start, base + PAGE_SIZE);
+		TEST_ASSERT_EQ(middle.end, base + 2 * PAGE_SIZE);
+		TEST_ASSERT_EQ(middle.flags, (uint32_t)VM_READ);
+		TEST_ASSERT_EQ(tail.start, base + 2 * PAGE_SIZE);
+		TEST_ASSERT_EQ(tail.end, base + 3 * PAGE_SIZE);
+		TEST_ASSERT_EQ(tail.flags, (uint32_t)(VM_READ | VM_WRITE));
+
+		TEST_ASSERT_EQ(mm_mprotect(mm, base + PAGE_SIZE, PAGE_SIZE,
+					   PROT_READ | PROT_WRITE),
+			       0);
+
+		struct vma_snapshot merged = mm_test_snapshot(mm, base);
+		TEST_ASSERT_EQ(mm_test_count_type(mm, VMA_MMAP), 1);
+		TEST_ASSERT(merged.found);
+		TEST_ASSERT_EQ(merged.start, base);
+		TEST_ASSERT_EQ(merged.end, base + 3 * PAGE_SIZE);
+		TEST_ASSERT_EQ(merged.flags, (uint32_t)(VM_READ | VM_WRITE));
+	}
+	TEST_END("mm: mprotect split and merge");
+	goto cleanup;
+fail:
+	TEST_FAIL("mm: mprotect split and merge", "see above");
+cleanup:
+	if (mm)
+		mm_destroy(mm);
+}
+
+void test_mm_vma_mprotect_enospc_preserves_layout(void)
+{
+	struct mm_struct *mm = NULL;
+	uintptr_t base = MM_TEST_BASE + 7 * MM_TEST_GAP;
+
+	TEST_BEGIN("mm: mprotect ENOMEM preserves layout");
+	{
+		mm = mm_test_alloc();
+		TEST_ASSERT_NOT_NULL(mm);
+
+		TEST_ASSERT_EQ(mm_mmap(mm, base, 3 * PAGE_SIZE,
+				       PROT_READ | PROT_WRITE,
+				       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED),
+			       (ssize_t)base);
+
+		for (int i = 0; i < NR_VMA - 1; i++) {
+			uintptr_t addr = base + MM_TEST_GAP +
+					 (uintptr_t)i * 2 * PAGE_SIZE;
+			TEST_ASSERT_EQ(mm_mmap(mm, addr, PAGE_SIZE, PROT_READ,
+					       MAP_PRIVATE | MAP_ANONYMOUS |
+						       MAP_FIXED),
+				       (ssize_t)addr);
+		}
+
+		TEST_ASSERT_EQ(mm_test_count_vmas(mm), NR_VMA);
+		TEST_ASSERT_EQ(
+			mm_mprotect(mm, base + PAGE_SIZE, PAGE_SIZE, PROT_READ),
+			-ENOMEM);
+
+		struct vma_snapshot vma =
+			mm_test_snapshot(mm, base + PAGE_SIZE);
+		TEST_ASSERT(vma.found);
+		TEST_ASSERT_EQ(mm_test_count_vmas(mm), NR_VMA);
+		TEST_ASSERT_EQ(vma.start, base);
+		TEST_ASSERT_EQ(vma.end, base + 3 * PAGE_SIZE);
+		TEST_ASSERT_EQ(vma.flags, (uint32_t)(VM_READ | VM_WRITE));
+	}
+	TEST_END("mm: mprotect ENOMEM preserves layout");
+	goto cleanup;
+fail:
+	TEST_FAIL("mm: mprotect ENOMEM preserves layout", "see above");
+cleanup:
 	if (mm)
 		mm_destroy(mm);
 }

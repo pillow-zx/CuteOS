@@ -114,6 +114,8 @@ void kernel_test(void)
 	test_mm_vma_split_enospc_preserves_layout();
 	test_mm_vma_munmap_full_table_edge_trim();
 	test_mm_dup_split_vmas();
+	test_mm_vma_mprotect_split_merge();
+	test_mm_vma_mprotect_enospc_preserves_layout();
 
 	/* ---- Task ---- */
 	TEST_SECTION("Task");
@@ -187,8 +189,8 @@ void kernel_test(void)
 
 	/* ---- 汇总 ---- */
 	pr_info("\n========================================\n");
-	pr_info("  Total: %d  |  Passed: %d  |  Failed: %d\n", (int)__test_total,
-	       (int)__test_passed, (int)__test_failed);
+	pr_info("  Total: %d  |  Passed: %d  |  Failed: %d\n",
+		(int)__test_total, (int)__test_passed, (int)__test_failed);
 	pr_info("========================================\n");
 
 	if (__test_failed > 0)

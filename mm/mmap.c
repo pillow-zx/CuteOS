@@ -28,159 +28,20 @@
 #include <asm/pte.h>
 #include <asm/csr.h>
 
+#include "internal.h"
+
 /* ---- 内部辅助函数 ---- */
-
-/*
- * vma_alloc_slot - 在 mm->vma[] 中找一个空闲槽位
- *
- * 线性扫描，返回空闲槽位指针，满则返回 NULL。
- */
-static struct vm_area_struct *vma_alloc_slot(struct mm_struct *mm)
-{
-	for (int i = 0; i < NR_VMA; i++) {
-		if (!mm->vma[i].used)
-			return &mm->vma[i];
-	}
-	return NULL;
-}
-
-static void vma_free_slot(struct vm_area_struct *vma)
-{
-	memset(vma, 0, sizeof(*vma));
-}
-
-static int vma_free_slot_count(struct mm_struct *mm)
-{
-	int count = 0;
-
-	for (int i = 0; i < NR_VMA; i++) {
-		if (!mm->vma[i].used)
-			count++;
-	}
-
-	return count;
-}
-
-static uintptr_t align_up_page(uintptr_t addr)
-{
-	return (addr + PAGE_SIZE - 1) & PAGE_MASK;
-}
-
-static bool range_overflows(uintptr_t start, size_t length, uintptr_t *end)
-{
-	uintptr_t aligned_len;
-
-	if (length > TASK_SIZE)
-		return true;
-
-	aligned_len = align_up_page(length);
-
-	if (aligned_len == 0 || start + aligned_len < start)
-		return true;
-
-	*end = start + aligned_len;
-	return false;
-}
-
-static bool vma_overlaps(struct vm_area_struct *vma, uintptr_t start,
-			 uintptr_t end)
-{
-	return vma->used && start < vma->vm_end && end > vma->vm_start;
-}
-
-static bool vma_contains_split_addr(struct vm_area_struct *vma, uintptr_t addr)
-{
-	return vma->used && addr > vma->vm_start && addr < vma->vm_end;
-}
-
-static bool vma_can_merge(const struct vm_area_struct *a,
-			  const struct vm_area_struct *b)
-{
-	if (!a->used || !b->used || a == b)
-		return false;
-	if (a->vm_flags != b->vm_flags || a->vm_type != b->vm_type)
-		return false;
-	return a->vm_end == b->vm_start || b->vm_end == a->vm_start;
-}
-
-static void vma_merge_all(struct mm_struct *mm)
-{
-	bool merged;
-
-	do {
-		merged = false;
-		for (int i = 0; i < NR_VMA && !merged; i++) {
-			for (int j = 0; j < NR_VMA; j++) {
-				if (i == j || !vma_can_merge(&mm->vma[i],
-							     &mm->vma[j]))
-					continue;
-
-				if (mm->vma[i].vm_end == mm->vma[j].vm_start)
-					mm->vma[i].vm_end = mm->vma[j].vm_end;
-				else
-					mm->vma[i].vm_start =
-						mm->vma[j].vm_start;
-				vma_free_slot(&mm->vma[j]);
-				merged = true;
-				break;
-			}
-		}
-	} while (merged);
-}
-
-static int vma_split_at(struct mm_struct *mm, struct vm_area_struct *vma,
-			uintptr_t addr)
-{
-	struct vm_area_struct *tail;
-
-	if (!vma_contains_split_addr(vma, addr))
-		return 0;
-
-	tail = vma_alloc_slot(mm);
-	if (!tail)
-		return -ENOMEM;
-
-	*tail = *vma;
-	tail->vm_start = addr;
-	vma->vm_end = addr;
-	return 0;
-}
-
-static bool range_overlaps_other_vma(struct mm_struct *mm,
-				     struct vm_area_struct *skip,
-				     uintptr_t start, uintptr_t end)
-{
-	for (int i = 0; i < NR_VMA; i++) {
-		if (&mm->vma[i] == skip)
-			continue;
-		if (vma_overlaps(&mm->vma[i], start, end))
-			return true;
-	}
-
-	return false;
-}
-
-static bool range_overlaps_vma(struct mm_struct *mm, uintptr_t start,
-			       uintptr_t end)
-{
-	for (int i = 0; i < NR_VMA; i++) {
-		if (vma_overlaps(&mm->vma[i], start, end))
-			return true;
-	}
-
-	return false;
-}
 
 static uintptr_t find_unmapped_area(struct mm_struct *mm, size_t length)
 {
 	uintptr_t len;
-	uintptr_t low = align_up_page(mm->brk);
+	uintptr_t low = mm_align_up_page(mm->brk);
 	uintptr_t start;
 
 	if (length > TASK_SIZE)
 		return 0;
 
-	len = align_up_page(length);
+	len = mm_align_up_page(length);
 	if (len == 0 || len >= signal_trampoline_start())
 		return 0;
 
@@ -191,7 +52,7 @@ static uintptr_t find_unmapped_area(struct mm_struct *mm, size_t length)
 
 	while (start >= low) {
 		if (!signal_trampoline_overlaps(start, start + len) &&
-		    !range_overlaps_vma(mm, start, start + len))
+		    !vma_range_overlaps(mm, start, start + len))
 			return start;
 		if (start < low + PAGE_SIZE)
 			break;
@@ -216,90 +77,6 @@ static void unmap_user_pages(pte_t *pgd, uintptr_t start, uintptr_t end)
 		*pte = 0;
 		arch_tlb_flush_page(va);
 	}
-}
-
-static int vma_munmap_slots_needed(struct mm_struct *mm, uintptr_t start,
-				   uintptr_t end)
-{
-	int needed = 0;
-
-	for (int i = 0; i < NR_VMA; i++) {
-		struct vm_area_struct *vma = &mm->vma[i];
-		uintptr_t unmap_start;
-		uintptr_t unmap_end;
-
-		if (!vma_overlaps(vma, start, end))
-			continue;
-
-		unmap_start = start > vma->vm_start ? start : vma->vm_start;
-		unmap_end = end < vma->vm_end ? end : vma->vm_end;
-
-		if (unmap_start > vma->vm_start && unmap_end < vma->vm_end)
-			needed++;
-	}
-
-	return needed;
-}
-
-static int vma_mprotect_slots_needed(struct mm_struct *mm, uintptr_t start,
-				     uintptr_t end)
-{
-	int needed = 0;
-
-	for (int i = 0; i < NR_VMA; i++) {
-		struct vm_area_struct *vma = &mm->vma[i];
-
-		if (!vma_overlaps(vma, start, end))
-			continue;
-		if (vma_contains_split_addr(vma, start))
-			needed++;
-		if (vma_contains_split_addr(vma, end))
-			needed++;
-	}
-
-	return needed;
-}
-
-static int unmap_vma_range(struct mm_struct *mm, struct vm_area_struct *vma,
-			   uintptr_t start, uintptr_t end)
-{
-	uintptr_t unmap_start;
-	uintptr_t unmap_end;
-
-	if (!vma_overlaps(vma, start, end))
-		return 0;
-
-	unmap_start = start > vma->vm_start ? start : vma->vm_start;
-	unmap_end = end < vma->vm_end ? end : vma->vm_end;
-
-	if (unmap_start == vma->vm_start && unmap_end == vma->vm_end) {
-		unmap_user_pages(mm->pgd, unmap_start, unmap_end);
-		vma_free_slot(vma);
-		return 0;
-	}
-
-	if (unmap_start == vma->vm_start) {
-		unmap_user_pages(mm->pgd, unmap_start, unmap_end);
-		vma->vm_start = unmap_end;
-		return 0;
-	}
-
-	if (unmap_end == vma->vm_end) {
-		unmap_user_pages(mm->pgd, unmap_start, unmap_end);
-		vma->vm_end = unmap_start;
-		return 0;
-	}
-
-	int ret = vma_split_at(mm, vma, unmap_start);
-	if (ret < 0)
-		return ret;
-
-	struct vm_area_struct *right = find_vma(mm, unmap_start);
-	BUG_ON(!right || right == vma);
-
-	unmap_user_pages(mm->pgd, unmap_start, unmap_end);
-	right->vm_start = unmap_end;
-	return 0;
 }
 
 /*
@@ -438,7 +215,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 			pte_t perm = *pte & (PTE_V | PTE_R | PTE_W | PTE_X |
 					     PTE_U | PTE_A | PTE_D | PTE_G);
 			arch_map_page(newmm->pgd, va, __pa((uintptr_t)new_page),
-				 perm);
+				      perm);
 		}
 	}
 	mm_unlock(oldmm);
@@ -534,7 +311,7 @@ uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr)
 	}
 
 	if (!heap_vma) {
-		if (range_overlaps_vma(mm, old_brk, addr))
+		if (vma_range_overlaps(mm, old_brk, addr))
 			goto out;
 
 		heap_vma = vma_alloc_slot(mm);
@@ -546,7 +323,7 @@ uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr)
 		heap_vma->vm_type = VMA_HEAP;
 		heap_vma->used = true;
 	} else {
-		if (range_overlaps_other_vma(mm, heap_vma, heap_vma->vm_start,
+		if (vma_range_overlaps_other(mm, heap_vma, heap_vma->vm_start,
 					     addr))
 			goto out;
 
@@ -595,12 +372,15 @@ ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot,
 	if (prot & PROT_EXEC)
 		vm_flags |= VM_EXEC;
 
+	if (length == 0 || length > TASK_SIZE)
+		return -EINVAL;
+
 	mm_lock(mm);
 
 	if (flags & MAP_FIXED) {
 		start = addr;
 	} else if (addr != 0) {
-		start = align_up_page(addr);
+		start = mm_align_up_page(addr);
 	} else {
 		start = find_unmapped_area(mm, length);
 		if (!start) {
@@ -609,12 +389,11 @@ ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot,
 		}
 	}
 
-	if (range_overflows(start, length, &end)) {
-		ret = -EINVAL;
+	ret = mm_range_end_page_aligned(start, length, &end);
+	if (ret < 0)
 		goto out;
-	}
 
-	if (end > TASK_SIZE || end > USER_STACK_BASE) {
+	if (end > USER_STACK_BASE) {
 		ret = -EINVAL;
 		goto out;
 	}
@@ -624,7 +403,7 @@ ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot,
 		goto out;
 	}
 
-	if (range_overlaps_vma(mm, start, end)) {
+	if (vma_range_overlaps(mm, start, end)) {
 		ret = -EINVAL;
 		goto out;
 	}
@@ -659,11 +438,9 @@ int mm_munmap(struct mm_struct *mm, uintptr_t addr, size_t length)
 	if (addr & (PAGE_SIZE - 1))
 		return -EINVAL;
 
-	if (range_overflows(addr, length, &end))
-		return -EINVAL;
-
-	if (end > TASK_SIZE)
-		return -EINVAL;
+	ret = mm_range_end_page_aligned(addr, length, &end);
+	if (ret < 0)
+		return ret;
 
 	mm_lock(mm);
 	if (vma_munmap_slots_needed(mm, addr, end) > vma_free_slot_count(mm)) {
@@ -672,9 +449,17 @@ int mm_munmap(struct mm_struct *mm, uintptr_t addr, size_t length)
 	}
 
 	for (int i = 0; i < NR_VMA; i++) {
-		ret = unmap_vma_range(mm, &mm->vma[i], addr, end);
+		uintptr_t unmap_start = 0;
+		uintptr_t unmap_end = 0;
+
+		ret = vma_unmap_range(mm, &mm->vma[i], addr, end, &unmap_start,
+				      &unmap_end);
 		if (ret < 0)
 			goto out;
+		if (ret > 0) {
+			unmap_user_pages(mm->pgd, unmap_start, unmap_end);
+			ret = 0;
+		}
 	}
 
 out:
@@ -716,10 +501,9 @@ int mm_madvise(struct mm_struct *mm, uintptr_t addr, size_t len, int advice)
 		return -EINVAL;
 	if (len == 0)
 		return 0;
-	if (range_overflows(addr, len, &end))
-		return -EINVAL;
-	if (end > TASK_SIZE)
-		return -EINVAL;
+	ret = mm_range_end_page_aligned(addr, len, &end);
+	if (ret < 0)
+		return ret;
 
 	mm_lock(mm);
 
@@ -749,9 +533,12 @@ static uint32_t prot_to_vm_flags(int prot)
 {
 	uint32_t flags = 0;
 
-	if (prot & PROT_READ)  flags |= VM_READ;
-	if (prot & PROT_WRITE) flags |= VM_READ | VM_WRITE;
-	if (prot & PROT_EXEC)  flags |= VM_EXEC;
+	if (prot & PROT_READ)
+		flags |= VM_READ;
+	if (prot & PROT_WRITE)
+		flags |= VM_READ | VM_WRITE;
+	if (prot & PROT_EXEC)
+		flags |= VM_EXEC;
 	return flags;
 }
 
@@ -760,9 +547,12 @@ static pte_t prot_to_pte_flags(int prot)
 {
 	pte_t flags = PTE_V | PTE_U | PTE_A | PTE_D;
 
-	if (prot & PROT_READ)  flags |= PTE_R;
-	if (prot & PROT_WRITE) flags |= PTE_R | PTE_W;
-	if (prot & PROT_EXEC)  flags |= PTE_X;
+	if (prot & PROT_READ)
+		flags |= PTE_R;
+	if (prot & PROT_WRITE)
+		flags |= PTE_R | PTE_W;
+	if (prot & PROT_EXEC)
+		flags |= PTE_X;
 	return flags;
 }
 
@@ -775,7 +565,7 @@ static pte_t prot_to_pte_flags(int prot)
 int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 {
 	uint32_t new_vm_flags;
-	pte_t    new_pte_flags;
+	pte_t new_pte_flags;
 	uintptr_t end;
 	int ret = 0;
 
@@ -787,26 +577,18 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 		return -EINVAL;
 	if (len == 0)
 		return 0;
-	if (len > TASK_SIZE)
-		return -EINVAL;
+	ret = mm_range_end_page_aligned(addr, len, &end);
+	if (ret < 0)
+		return ret;
 
-	len = (len + PAGE_SIZE - 1) & ~(size_t)(PAGE_SIZE - 1);
-	if (range_overflows(addr, len, &end))
-		return -EINVAL;
-	if (end > TASK_SIZE)
-		return -EINVAL;
-
-	new_vm_flags  = prot_to_vm_flags(prot);
+	new_vm_flags = prot_to_vm_flags(prot);
 	new_pte_flags = prot_to_pte_flags(prot);
 
 	mm_lock(mm);
 
-	/* Entire range must be backed by VMAs. */
-	for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {
-		if (!find_vma(mm, va)) {
-			ret = -ENOMEM;
-			goto out;
-		}
+	if (!vma_range_is_mapped(mm, addr, end)) {
+		ret = -ENOMEM;
+		goto out;
 	}
 
 	if (vma_mprotect_slots_needed(mm, addr, end) >
@@ -815,29 +597,11 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 		goto out;
 	}
 
-	/* Split at addr: any VMA that strictly contains addr gets split. */
-	for (int i = 0; i < NR_VMA; i++) {
-		ret = vma_split_at(mm, &mm->vma[i], addr);
-		if (ret < 0)
-			goto out;
-	}
+	ret = vma_split_range(mm, addr, end);
+	if (ret < 0)
+		goto out;
 
-	/* Split at end: any VMA that strictly contains end gets split. */
-	for (int i = 0; i < NR_VMA; i++) {
-		ret = vma_split_at(mm, &mm->vma[i], end);
-		if (ret < 0)
-			goto out;
-	}
-
-	/* Update vm_flags for every VMA fully within [addr, end). */
-	for (int i = 0; i < NR_VMA; i++) {
-		struct vm_area_struct *v = &mm->vma[i];
-
-		if (!v->used)
-			continue;
-		if (v->vm_start >= addr && v->vm_end <= end)
-			v->vm_flags = new_vm_flags;
-	}
+	vma_update_flags_range(mm, addr, end, new_vm_flags);
 
 	/* Update PTE permissions for already-mapped pages. */
 	for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {

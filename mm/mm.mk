@@ -5,6 +5,7 @@ MM_OBJS = \
 	mm/slab.o           \
 	mm/vmalloc.o        \
 	mm/user_map.o       \
+	mm/vma.o            \
 	mm/mmap.o           \
 	mm/page_fault.o     \
 	mm/uaccess.o
