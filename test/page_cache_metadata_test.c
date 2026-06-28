@@ -102,7 +102,7 @@ void test_page_cache_block_zero_writeback(void)
 
 		page_cache_mark_dirty(page);
 		page_cache_put_page(page);
-		TEST_ASSERT_EQ(page_cache_writeback_all(), 0);
+		TEST_ASSERT_EQ(page_cache_sync_all(), 0);
 	}
 	TEST_END("page cache metadata: block zero writeback");
 	return;

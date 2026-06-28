@@ -13,8 +13,8 @@ static uint64_t worker_interval_ticks(unsigned int interval_sec)
 	return (uint64_t)interval_sec * MTIME_FREQ;
 }
 
-void kernel_periodic_worker_run(unsigned int interval_sec,
-				void (*work)(void *), void *arg)
+void worker_run_periodic(unsigned int interval_sec, void (*work)(void *),
+			 void *arg)
 {
 	uint64_t interval;
 

@@ -9,7 +9,7 @@
  * without introducing an async I/O subsystem or worker pool.
  */
 
-void kernel_periodic_worker_run(unsigned int interval_sec,
-				void (*work)(void *), void *arg);
+void worker_run_periodic(unsigned int interval_sec, void (*work)(void *),
+			 void *arg);
 
 #endif

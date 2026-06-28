@@ -12,24 +12,24 @@
 
 #define PAGE_CACHE_WB_ORDER 5U
 
-static uint8_t *page_cache_wb_buf;
-static uint32_t page_cache_wb_pages = 1;
-static bool page_cache_wb_ready;
+static uint8_t *wb_buf;
+static uint32_t wb_pages = 1;
+static bool wb_ready;
 
-void page_cache_writeback_init_once(void)
+void page_cache_wb_init(void)
 {
-	if (page_cache_wb_ready)
+	if (wb_ready)
 		return;
 
-	page_cache_wb_buf = get_free_page(PAGE_CACHE_WB_ORDER);
-	if (page_cache_wb_buf)
-		page_cache_wb_pages = 1u << PAGE_CACHE_WB_ORDER;
+	wb_buf = get_free_page(PAGE_CACHE_WB_ORDER);
+	if (wb_buf)
+		wb_pages = 1u << PAGE_CACHE_WB_ORDER;
 	else {
-		page_cache_wb_buf = get_free_page(0);
-		page_cache_wb_pages = page_cache_wb_buf ? 1u : 0u;
+		wb_buf = get_free_page(0);
+		wb_pages = wb_buf ? 1u : 0u;
 	}
 
-	page_cache_wb_ready = true;
+	wb_ready = true;
 }
 
 int page_cache_sync_page(struct page_cache *page)
@@ -55,14 +55,12 @@ int page_cache_sync_page(struct page_cache *page)
 		 * raw block cache alias so later metadata reads see the same
 		 * bytes without forcing an invalidate.
 		 */
-		page_cache_remove_dirty(page);
+		page_cache_clear_dirty(page);
 		page->uptodate = true;
 		if (mapping->ops->map_block &&
 		    mapping->ops->map_block(mapping, page->index, false,
 					    &blocknr) == 0)
-			page_cache_alias_refresh_after_writeback(mapping,
-								 blocknr,
-								 page->data);
+			page_cache_alias_refresh(mapping, blocknr, page->data);
 	}
 	return ret;
 }
@@ -72,15 +70,15 @@ int page_cache_sync_block(struct page_cache *page)
 	return page_cache_sync_page(page);
 }
 
-int page_cache_writeback_run(struct page_cache *start)
+int page_cache_wb_run(struct page_cache *start)
 {
 	struct page_mapping *mapping;
 	struct page_cache *pages[32];
 	uint32_t pblocks[32];
-	uint32_t nr_pages = 0;
-	uint32_t run_pages;
-	uint64_t start_index;
-	uint32_t prev_block;
+	uint32_t nr = 0;
+	uint32_t limit;
+	uint64_t index;
+	uint32_t prev;
 	int ret;
 
 	if (!start || !start->owner || !start->dirty)
@@ -90,8 +88,8 @@ int page_cache_writeback_run(struct page_cache *start)
 	    !mapping->ops->writepages)
 		return -EINVAL;
 
-	page_cache_writeback_init_once();
-	if (!page_cache_wb_buf || page_cache_wb_pages == 0)
+	page_cache_wb_init();
+	if (!wb_buf || wb_pages == 0)
 		return -ENOMEM;
 
 	/*
@@ -100,58 +98,55 @@ int page_cache_writeback_run(struct page_cache *start)
 	 * blocks are adjacent.  That lets writepages() issue one contiguous
 	 * device write without requiring the filesystem to handle scatter/gather.
 	 */
-	start_index = start->index;
-	run_pages = page_cache_wb_pages;
-	if (run_pages > 32u)
-		run_pages = 32u;
+	index = start->index;
+	limit = wb_pages;
+	if (limit > 32u)
+		limit = 32u;
 
-	ret = mapping->ops->map_block(mapping, start_index, false,
-				      &prev_block);
+	ret = mapping->ops->map_block(mapping, index, false, &prev);
 	if (ret < 0)
 		return ret;
 
-	pblocks[0] = prev_block;
-	pages[nr_pages++] = start;
-	while (nr_pages < run_pages) {
+	pblocks[0] = prev;
+	pages[nr++] = start;
+	while (nr < limit) {
 		struct page_cache *next;
-		uint32_t next_block;
-		uint64_t next_index = start_index + nr_pages;
+		uint32_t block;
+		uint64_t next_index = index + nr;
 
 		next = page_cache_find(mapping, next_index);
 		if (!next || !next->dirty || next->writeback)
 			break;
 
 		ret = mapping->ops->map_block(mapping, next_index, false,
-					      &next_block);
-		if (ret < 0 || next_block != prev_block + 1)
+					      &block);
+		if (ret < 0 || block != prev + 1)
 			break;
 
-		pblocks[nr_pages] = next_block;
-		pages[nr_pages++] = next;
-		prev_block = next_block;
+		pblocks[nr] = block;
+		pages[nr++] = next;
+		prev = block;
 	}
 
-	for (uint32_t i = 0; i < nr_pages; i++) {
+	for (uint32_t i = 0; i < nr; i++) {
 		pages[i]->writeback = true;
-		memcpy(page_cache_wb_buf + i * BLOCK_SIZE, pages[i]->data,
-		       BLOCK_SIZE);
+		memcpy(wb_buf + i * BLOCK_SIZE, pages[i]->data, BLOCK_SIZE);
 	}
 
-	ret = mapping->ops->writepages(mapping, start_index, nr_pages,
-				       page_cache_wb_buf);
-	for (uint32_t i = 0; i < nr_pages; i++) {
+	ret = mapping->ops->writepages(mapping, index, nr, wb_buf);
+	for (uint32_t i = 0; i < nr; i++) {
 		pages[i]->writeback = false;
 		if (ret == 0) {
-			page_cache_alias_refresh_after_writeback(
-				mapping, pblocks[i], pages[i]->data);
-			page_cache_remove_dirty(pages[i]);
+			page_cache_alias_refresh(mapping, pblocks[i],
+						 pages[i]->data);
+			page_cache_clear_dirty(pages[i]);
 		}
 	}
 
 	return ret;
 }
 
-int page_cache_writeback_mapping(struct page_mapping *mapping)
+int page_cache_sync_mapping(struct page_mapping *mapping)
 {
 	int ret = 0;
 
@@ -160,12 +155,12 @@ int page_cache_writeback_mapping(struct page_mapping *mapping)
 
 	for (;;) {
 		struct page_cache *page =
-			page_cache_first_dirty_mapping(mapping);
+			page_cache_dirty_first(mapping);
 
 		if (!page)
 			break;
 
-		ret = page_cache_writeback_run(page);
+		ret = page_cache_wb_run(page);
 		if (ret < 0)
 			return ret;
 	}
@@ -173,25 +168,25 @@ int page_cache_writeback_mapping(struct page_mapping *mapping)
 	return 0;
 }
 
-int page_cache_writeback_inode(struct inode *inode)
+int page_cache_sync_inode(struct inode *inode)
 {
 	if (!inode)
 		return -EINVAL;
 
-	return page_cache_writeback_mapping(&inode->i_pages);
+	return page_cache_sync_mapping(&inode->i_pages);
 }
 
-int page_cache_writeback_all(void)
+int page_cache_sync_all(void)
 {
 	int ret = 0;
 
 	for (;;) {
-		struct page_cache *page = page_cache_first_dirty_global();
+		struct page_cache *page = page_cache_dirty_any();
 
 		if (!page)
 			break;
 
-		ret = page_cache_writeback_run(page);
+		ret = page_cache_wb_run(page);
 		if (ret < 0)
 			return ret;
 	}
@@ -199,13 +194,13 @@ int page_cache_writeback_all(void)
 	return 0;
 }
 
-static void page_cache_writeback_once(void *arg)
+static void page_cache_wb_once(void *arg)
 {
 	(void)arg;
-	(void)page_cache_writeback_all();
+	(void)page_cache_sync_all();
 }
 
-void page_cache_writeback_thread(void *arg)
+void page_cache_wb_thread(void *arg)
 {
-	kernel_periodic_worker_run(5, page_cache_writeback_once, arg);
+	worker_run_periodic(5, page_cache_wb_once, arg);
 }

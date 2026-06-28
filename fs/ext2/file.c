@@ -101,7 +101,7 @@ static int ext2_writepages(struct page_mapping *mapping, uint64_t start_index,
 		return -EFBIG;
 
 	/*
-	 * page_cache_writeback_run() only batches pages whose physical blocks
+	 * page_cache_wb_run() only batches pages whose physical blocks
 	 * are contiguous, so a single sector-range write is sufficient here.
 	 */
 	pblock = ext2_bmap_readonly(inode, (uint32_t)start_index);

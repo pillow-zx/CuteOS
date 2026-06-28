@@ -12,21 +12,20 @@
 #include <kernel/blkdev.h>
 #include <kernel/string.h>
 
-void page_cache_alias_refresh_after_writeback(struct page_mapping *mapping,
-					      uint32_t blocknr,
-					      const void *data)
+void page_cache_alias_refresh(struct page_mapping *mapping, uint32_t blocknr,
+			      const void *data)
 {
-	struct page_mapping *block_mapping;
+	struct page_mapping *backing;
 	struct page_cache *alias;
 
 	if (!mapping || !data)
 		return;
 
-	block_mapping = mapping->backing;
-	if (!block_mapping)
+	backing = mapping->backing;
+	if (!backing)
 		return;
 
-	alias = page_cache_find(block_mapping, blocknr);
+	alias = page_cache_find(backing, blocknr);
 	if (!alias)
 		return;
 
@@ -36,13 +35,13 @@ void page_cache_alias_refresh_after_writeback(struct page_mapping *mapping,
 	 */
 	memcpy(alias->data, data, BLOCK_SIZE);
 	alias->uptodate = true;
-	page_cache_remove_dirty(alias);
+	page_cache_clear_dirty(alias);
 }
 
-void page_cache_alias_invalidate_after_drop(struct page_cache *page)
+void page_cache_alias_invalidate(struct page_cache *page)
 {
 	struct page_mapping *mapping;
-	struct page_mapping *block_mapping;
+	struct page_mapping *backing;
 	struct page_cache *alias;
 	uint32_t blocknr;
 
@@ -50,13 +49,13 @@ void page_cache_alias_invalidate_after_drop(struct page_cache *page)
 		return;
 
 	mapping = page->owner;
-	block_mapping = mapping->backing;
-	if (!block_mapping || !mapping->ops || !mapping->ops->map_block)
+	backing = mapping->backing;
+	if (!backing || !mapping->ops || !mapping->ops->map_block)
 		return;
 	if (mapping->ops->map_block(mapping, page->index, false, &blocknr) < 0)
 		return;
 
-	alias = page_cache_find(block_mapping, blocknr);
+	alias = page_cache_find(backing, blocknr);
 	if (!alias)
 		return;
 
@@ -66,5 +65,5 @@ void page_cache_alias_invalidate_after_drop(struct page_cache *page)
 	 * to fetch from the block device.
 	 */
 	alias->uptodate = false;
-	page_cache_remove_dirty(alias);
+	page_cache_clear_dirty(alias);
 }

@@ -43,7 +43,7 @@ struct page_cache {
 	/* Per-mapping page and dirty-page membership. */
 	struct list_head mapping_node;
 	struct list_head dirty_node;
-	struct list_head mapping_dirty_node;
+	struct list_head dirty_map_node;
 };
 
 
@@ -83,10 +83,10 @@ void page_cache_mark_dirty(struct page_cache *page);
 /* 同步单页到其 mapping 后端；成功后会清除脏标记并刷新可能存在的块设备别名。 */
 int page_cache_sync_page(struct page_cache *page);
 
-/* 回写一个 mapping、一个 inode 或全局所有脏页。 */
-int __must_check page_cache_writeback_mapping(struct page_mapping *mapping);
-int __must_check page_cache_writeback_inode(struct inode *inode);
-int page_cache_writeback_all(void);
+/* 同步一个 mapping、一个 inode 或全局所有脏页。 */
+int __must_check page_cache_sync_mapping(struct page_mapping *mapping);
+int __must_check page_cache_sync_inode(struct inode *inode);
+int page_cache_sync_all(void);
 
 /* 截断/失效某个 mapping 的缓存页；inode 版本是对 i_pages 的包装。 */
 void page_cache_truncate_mapping(struct page_mapping *mapping, uint64_t size);
@@ -97,6 +97,6 @@ void page_cache_invalidate_inode(struct inode *inode);
 /* 块设备页的旧接口名，保留给 ext2 元数据路径使用。 */
 int page_cache_sync_block(struct page_cache *page);
 
-void page_cache_writeback_thread(void *arg);
+void page_cache_wb_thread(void *arg);
 
 #endif

@@ -65,7 +65,7 @@ int vfs_sync_file(struct file *file)
 	if (!file || !file->f_inode)
 		return -EINVAL;
 
-	ret = page_cache_writeback_inode(file->f_inode);
+	ret = page_cache_sync_inode(file->f_inode);
 	if (ret < 0)
 		return ret;
 

@@ -167,9 +167,9 @@ void test_page_cache_metadata_eviction(void);
 
 void test_page_cache_dirty_write_visibility(void);
 void test_page_cache_fsync_inode_scope(void);
-void test_page_cache_block_mapping_refreshed_after_fsync(void);
+void test_page_cache_raw_alias_fsync(void);
 void test_page_cache_directory_alias_refresh(void);
-void test_page_cache_alias_invalidate_after_inode_drop(void);
+void test_page_cache_raw_alias_drop(void);
 void test_page_cache_pressure_eviction(void);
 void test_page_cache_clustered_writeback(void);
 void test_page_cache_indirect_reclaim_progress(void);

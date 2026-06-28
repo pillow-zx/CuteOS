@@ -38,7 +38,7 @@ void page_cache_init_once(void)
 
 	hash_table_init(&page_cache_hashtable);
 	INIT_LIST_HEAD(&page_cache_lru);
-	page_cache_writeback_init_once();
+	page_cache_wb_init();
 
 	page_cache_ready = true;
 }
@@ -77,7 +77,7 @@ static void page_cache_free_page(struct page_cache *page)
 	if (!page)
 		return;
 
-	page_cache_remove_dirty(page);
+	page_cache_clear_dirty(page);
 	if (!list_empty(&page->hash_node))
 		list_del_init(&page->hash_node);
 	if (!list_empty(&page->lru_node))
@@ -102,8 +102,8 @@ static void page_cache_drop_page(struct page_cache *page)
 	 * A caller may still be using page->data, so actual memory release waits
 	 * until the reference count reaches zero.
 	 */
-	page_cache_alias_invalidate_after_drop(page);
-	page_cache_remove_dirty(page);
+	page_cache_alias_invalidate(page);
+	page_cache_clear_dirty(page);
 	page->writeback = false;
 	page->uptodate = false;
 	page->dropped = true;
@@ -145,7 +145,7 @@ static bool page_cache_flush_one_victim(void)
 
 	/*
 	 * If the cache is full and no clean page can be evicted, write one dirty
-	 * unreferenced page first.  writeback_run() may also flush adjacent pages,
+	 * unreferenced page first.  wb_run() may also flush adjacent pages,
 	 * after which a clean victim should be available.
 	 */
 	list_for_each_safe (pos, next, &page_cache_lru) {
@@ -154,7 +154,7 @@ static bool page_cache_flush_one_victim(void)
 
 		if (page->refcount != 0 || !page->dirty || page->writeback)
 			continue;
-		if (page_cache_writeback_run(page) < 0)
+		if (page_cache_wb_run(page) < 0)
 			return false;
 		return page_cache_evict_one_clean();
 	}
@@ -199,7 +199,7 @@ static struct page_cache *page_cache_alloc_page(void)
 	INIT_LIST_HEAD(&page->lru_node);
 	INIT_LIST_HEAD(&page->mapping_node);
 	INIT_LIST_HEAD(&page->dirty_node);
-	INIT_LIST_HEAD(&page->mapping_dirty_node);
+	INIT_LIST_HEAD(&page->dirty_map_node);
 	page_cache_pages++;
 
 	return page;

@@ -65,8 +65,7 @@ static int read_raw_file_page(struct file *file, uint32_t index, uint8_t *buf)
 					  BLOCK_SECTORS);
 }
 
-static int read_block_mapping_file_page(struct file *file, uint32_t index,
-					uint8_t *buf)
+static int read_block_alias(struct file *file, uint32_t index, uint8_t *buf)
 {
 	struct page_cache *page;
 	uint32_t pblock;
@@ -217,7 +216,7 @@ cleanup:
 	unlink_test_path("/pcache-fsync-b");
 }
 
-void test_page_cache_block_mapping_refreshed_after_fsync(void)
+void test_page_cache_raw_alias_fsync(void)
 {
 	static uint8_t wbuf[BLOCK_SIZE];
 	static uint8_t cached[BLOCK_SIZE];
@@ -235,8 +234,7 @@ void test_page_cache_block_mapping_refreshed_after_fsync(void)
 		TEST_ASSERT(fd >= 0);
 		TEST_ASSERT_EQ(vfs_write(file, (const char *)wbuf, sizeof(wbuf)),
 			       (ssize_t)sizeof(wbuf));
-		TEST_ASSERT_EQ(read_block_mapping_file_page(file, 0, cached),
-			       0);
+		TEST_ASSERT_EQ(read_block_alias(file, 0, cached), 0);
 		TEST_ASSERT_NE(memcmp(cached, wbuf, sizeof(wbuf)), 0);
 
 		/*
@@ -246,8 +244,7 @@ void test_page_cache_block_mapping_refreshed_after_fsync(void)
 		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
 
 		memset(cached, 0, sizeof(cached));
-		TEST_ASSERT_EQ(read_block_mapping_file_page(file, 0, cached),
-			       0);
+		TEST_ASSERT_EQ(read_block_alias(file, 0, cached), 0);
 		TEST_ASSERT_EQ(memcmp(cached, wbuf, sizeof(wbuf)), 0);
 	}
 	TEST_END("page cache: block mapping refreshed after fsync");
@@ -316,7 +313,7 @@ cleanup:
 	(void)vfs_unlink("/pcache-alias-dir", AT_REMOVEDIR);
 }
 
-void test_page_cache_alias_invalidate_after_inode_drop(void)
+void test_page_cache_raw_alias_drop(void)
 {
 	static uint8_t old_buf[BLOCK_SIZE];
 	static uint8_t new_buf[BLOCK_SIZE];
@@ -337,16 +334,14 @@ void test_page_cache_alias_invalidate_after_inode_drop(void)
 					 sizeof(old_buf)),
 			       (ssize_t)sizeof(old_buf));
 		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
-		TEST_ASSERT_EQ(read_block_mapping_file_page(file, 0, cached),
-			       0);
+		TEST_ASSERT_EQ(read_block_alias(file, 0, cached), 0);
 		TEST_ASSERT_EQ(memcmp(cached, old_buf, sizeof(cached)), 0);
 
 		TEST_ASSERT_EQ(write_raw_file_page(file, 0, new_buf), 0);
 		page_cache_invalidate_inode(file->f_inode);
 
 		memset(cached, 0, sizeof(cached));
-		TEST_ASSERT_EQ(read_block_mapping_file_page(file, 0, cached),
-			       0);
+		TEST_ASSERT_EQ(read_block_alias(file, 0, cached), 0);
 		TEST_ASSERT_EQ(memcmp(cached, new_buf, sizeof(cached)), 0);
 	}
 	TEST_END("page cache: alias invalidate reloads raw block");

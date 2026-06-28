@@ -111,7 +111,7 @@ void kernel_main(void)
 	BUG_ON(!init);
 	set_init_task(init);
 
-	writeback = kernel_thread(page_cache_writeback_thread, NULL);
+	writeback = kernel_thread(page_cache_wb_thread, NULL);
 	BUG_ON(!writeback);
 
 	/* 进入 idle 循环 — idle 进程的执行体 */
