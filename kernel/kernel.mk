@@ -14,4 +14,5 @@ KERNEL_OBJS = \
 	kernel/signal.o         \
 	kernel/wait.o           \
 	kernel/time.o           \
+	kernel/worker.o         \
 	kernel/init_process.o

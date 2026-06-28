@@ -8,7 +8,7 @@
 #include <kernel/buddy.h>
 #include <kernel/errno.h>
 #include <kernel/string.h>
-#include <kernel/timer.h>
+#include <kernel/worker.h>
 
 #define PAGE_CACHE_WB_ORDER 5U
 
@@ -30,11 +30,6 @@ void page_cache_writeback_init_once(void)
 	}
 
 	page_cache_wb_ready = true;
-}
-
-static void page_cache_sleep_until(uint64_t deadline)
-{
-	(void)timer_sleep_until(deadline, false);
 }
 
 int page_cache_sync_page(struct page_cache *page)
@@ -204,14 +199,13 @@ int page_cache_writeback_all(void)
 	return 0;
 }
 
-void page_cache_writeback_thread(void *arg)
+static void page_cache_writeback_once(void *arg)
 {
 	(void)arg;
+	(void)page_cache_writeback_all();
+}
 
-	for (;;) {
-		uint64_t deadline = arch_timer_now() + 5 * MTIME_FREQ;
-
-		page_cache_sleep_until(deadline);
-		(void)page_cache_writeback_all();
-	}
+void page_cache_writeback_thread(void *arg)
+{
+	kernel_periodic_worker_run(5, page_cache_writeback_once, arg);
 }
