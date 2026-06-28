@@ -1,10 +1,13 @@
 #include <kernel/atomic.h>
+#include <kernel/errno.h>
 #include <kernel/exit.h>
 #include <kernel/refcount.h>
 #include <kernel/sched.h>
+#include <kernel/signal.h>
 #include <kernel/sync.h>
 #include <kernel/task.h>
 #include <kernel/test.h>
+#include <kernel/wait.h>
 #include <asm/csr.h>
 
 void test_atomic_basic(void)
@@ -72,6 +75,60 @@ void test_spinlock_irqsave(void)
 	return;
 fail:
 	TEST_FAIL("sync: spinlock irqsave", "see above");
+}
+
+static bool wait_test_ready(void *arg)
+{
+	bool *ready = arg;
+
+	return *ready;
+}
+
+void test_wait_event_interruptible_ready(void)
+{
+	struct wait_queue_head wq;
+	bool ready = true;
+
+	TEST_BEGIN("sync: wait_event_interruptible ready");
+	{
+		init_waitqueue_head(&wq);
+		TEST_ASSERT_EQ(wait_event_interruptible(&wq, wait_test_ready,
+						       &ready),
+			       0);
+		TEST_ASSERT(list_empty(&current->wait_list));
+		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_RUNNING);
+	}
+	TEST_END("sync: wait_event_interruptible ready");
+	return;
+fail:
+	TEST_FAIL("sync: wait_event_interruptible ready", "see above");
+}
+
+void test_wait_event_interruptible_signal(void)
+{
+	struct wait_queue_head wq;
+	uint64_t saved_pending = current->pending;
+	uint64_t saved_blocked = current->blocked;
+	bool ready = false;
+
+	TEST_BEGIN("sync: wait_event_interruptible signal");
+	{
+		init_waitqueue_head(&wq);
+		current->blocked &= ~signal_mask(SIGUSR1);
+		TEST_ASSERT_EQ(send_current_signal(SIGUSR1), 0);
+		TEST_ASSERT_EQ(wait_event_interruptible(&wq, wait_test_ready,
+						       &ready),
+			       -EINTR);
+		TEST_ASSERT(list_empty(&current->wait_list));
+		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_RUNNING);
+	}
+	TEST_END("sync: wait_event_interruptible signal");
+	goto cleanup;
+fail:
+	TEST_FAIL("sync: wait_event_interruptible signal", "see above");
+cleanup:
+	current->pending = saved_pending;
+	current->blocked = saved_blocked;
 }
 
 static mutex_t mutex_test_lock;

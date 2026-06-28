@@ -2,9 +2,11 @@
  * kernel/wait.c - 等待队列与睡眠原语
  */
 
+#include <kernel/errno.h>
+#include <kernel/sched.h>
+#include <kernel/signal.h>
 #include <kernel/wait.h>
 #include <kernel/task.h>
-#include <kernel/sched.h>
 
 void init_waitqueue_head(struct wait_queue_head *wq)
 {
@@ -45,6 +47,29 @@ void finish_wait(struct wait_queue_head *wq)
 
 	if (task_state(current) & TASK_ANY_SLEEP)
 		task_set_state(current, TASK_RUNNING);
+}
+
+int wait_event_interruptible(struct wait_queue_head *wq,
+			     wait_condition_t condition, void *arg)
+{
+	if (!wq || !condition || !current)
+		return -EINVAL;
+
+	while (!condition(arg)) {
+		prepare_to_wait_interruptible(wq);
+		if (condition(arg)) {
+			finish_wait(wq);
+			break;
+		}
+		if (signal_pending(current)) {
+			finish_wait(wq);
+			return -EINTR;
+		}
+		schedule();
+		finish_wait(wq);
+	}
+
+	return 0;
 }
 
 struct task_struct *wake_up_locked(struct wait_queue_head *wq)

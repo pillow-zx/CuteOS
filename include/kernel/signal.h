@@ -66,6 +66,7 @@ bool signal_is_catchable(int sig);
 uint64_t unblockable_mask(void);
 int send_signal(int sig, struct task_struct *task);
 int send_group_signal(int sig, struct task_struct *leader);
+int send_current_signal(int sig);
 int force_signal(int sig, struct task_struct *task);
 bool signal_pending(struct task_struct *task);
 int signals_init(struct task_struct *task);

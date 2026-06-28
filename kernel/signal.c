@@ -321,6 +321,11 @@ int send_signal(int sig, struct task_struct *task)
 	return 0;
 }
 
+int send_current_signal(int sig)
+{
+	return send_signal(sig, current);
+}
+
 int send_group_signal(int sig, struct task_struct *leader)
 {
 	if (!signal_is_valid(sig))

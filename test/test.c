@@ -104,6 +104,8 @@ void kernel_test(void)
 	TEST_SECTION("Sync");
 	test_atomic_basic();
 	test_spinlock_irqsave();
+	test_wait_event_interruptible_ready();
+	test_wait_event_interruptible_signal();
 	test_mutex_blocking();
 
 	/* ---- MM/VMA ---- */

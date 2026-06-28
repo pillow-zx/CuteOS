@@ -76,6 +76,8 @@ void test_timer_wait_cancel_prevents_wake(void);
 
 void test_atomic_basic(void);
 void test_spinlock_irqsave(void);
+void test_wait_event_interruptible_ready(void);
+void test_wait_event_interruptible_signal(void);
 void test_mutex_blocking(void);
 
 /* ================================================================

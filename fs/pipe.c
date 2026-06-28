@@ -22,11 +22,9 @@
 #include <kernel/errno.h>
 #include <kernel/fdtable.h>
 #include <kernel/mm.h>
-#include <kernel/sched.h>
 #include <kernel/slab.h>
 #include <kernel/signal.h>
 #include <kernel/string.h>
-#include <kernel/task.h>
 #include <kernel/wait.h>
 #include <asm/page.h>
 #include <asm/trap.h>
@@ -41,8 +39,7 @@ struct pipe_buffer {
 	/*
 	 * Current Stage 4 semantics are single-core and non-preemptive while
 	 * executing syscalls. When kernel preemption or SMP is introduced,
-	 * protect the buffer state and wait-queue condition checks with a lock
-	 * and convert the sleep loops to a wait_event-style primitive.
+	 * protect the buffer state and wait-queue condition checks with a lock.
 	 */
 	int readers;
 	int writers;
@@ -84,6 +81,20 @@ static size_t pipe_linear_head_space(struct pipe_buffer *pipe)
 	if (space < until_end)
 		return space;
 	return until_end;
+}
+
+static bool pipe_read_ready(void *arg)
+{
+	struct pipe_buffer *pipe = arg;
+
+	return pipe->used > 0 || pipe->writers == 0;
+}
+
+static bool pipe_write_ready(void *arg)
+{
+	struct pipe_buffer *pipe = arg;
+
+	return pipe->used < PIPE_SIZE || pipe->readers == 0;
 }
 
 static struct pipe_buffer *pipe_buffer_alloc(void)
@@ -130,13 +141,10 @@ static ssize_t pipe_read(struct file *file, char *buf, size_t count)
 			if (pipe->writers == 0 || done > 0)
 				break;
 
-			prepare_to_wait_interruptible(&pipe->readers_wq);
-			if (signal_pending(current)) {
-				finish_wait(&pipe->readers_wq);
-				return done ? (ssize_t)done : -EINTR;
-			}
-			schedule();
-			finish_wait(&pipe->readers_wq);
+			int ret = wait_event_interruptible(
+				&pipe->readers_wq, pipe_read_ready, pipe);
+			if (ret < 0)
+				return done ? (ssize_t)done : ret;
 			continue;
 		}
 
@@ -168,7 +176,7 @@ static ssize_t pipe_write(struct file *file, const char *buf, size_t count)
 	while (done < count) {
 		if (pipe->readers == 0) {
 			if (done == 0)
-				send_signal(SIGPIPE, current);
+				(void)send_current_signal(SIGPIPE);
 			return done ? (ssize_t)done : -EPIPE;
 		}
 
@@ -176,13 +184,10 @@ static ssize_t pipe_write(struct file *file, const char *buf, size_t count)
 			if (done > 0)
 				break;
 
-			prepare_to_wait_interruptible(&pipe->writers_wq);
-			if (signal_pending(current)) {
-				finish_wait(&pipe->writers_wq);
-				return done ? (ssize_t)done : -EINTR;
-			}
-			schedule();
-			finish_wait(&pipe->writers_wq);
+			int ret = wait_event_interruptible(
+				&pipe->writers_wq, pipe_write_ready, pipe);
+			if (ret < 0)
+				return done ? (ssize_t)done : ret;
 			continue;
 		}
 
