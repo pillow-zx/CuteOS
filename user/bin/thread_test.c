@@ -50,10 +50,8 @@ static int test_basic_thread_wake(void)
 	flags = CLONE_VM | CLONE_SIGHAND | CLONE_THREAD | CLONE_FILES |
 		CLONE_FS | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID;
 
-	child = clone_thread(flags,
-			     (char *)stack + STACK_SIZE,
-			     NULL, 0, (int *)&tid_word,
-			     thread_fn, NULL);
+	child = clone_thread(flags, (char *)stack + STACK_SIZE, NULL, 0,
+			     (int *)&tid_word, thread_fn, NULL);
 	if (child < 0) {
 		printf("FAIL: clone_thread: %ld\n", child);
 		munmap(stack, STACK_SIZE);
@@ -71,7 +69,8 @@ static int test_basic_thread_wake(void)
 		return 1;
 	}
 
-	/* Wait for thread to fully exit (tid_word cleared by CHILD_CLEARTID). */
+	/* Wait for thread to fully exit (tid_word cleared by CHILD_CLEARTID).
+	 */
 	int tid;
 
 	while ((tid = __atomic_load_n((int *)&tid_word, __ATOMIC_ACQUIRE)) != 0)
@@ -94,8 +93,8 @@ static int thread_counter(void *arg)
 		__atomic_fetch_add((int *)&counter, 1, __ATOMIC_SEQ_CST);
 
 	__atomic_store_n((int *)&counter_done, 1, __ATOMIC_RELEASE);
-	futex((int *)&counter_done, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, NULL,
-	      0, 0);
+	futex((int *)&counter_done, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, NULL, 0,
+	      0);
 	return 0;
 }
 
@@ -118,9 +117,9 @@ static int test_shared_counter(void)
 	flags = CLONE_VM | CLONE_SIGHAND | CLONE_THREAD | CLONE_FILES |
 		CLONE_FS | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID;
 
-	child = clone_thread(flags, (char *)stack + STACK_SIZE,
-			     NULL, 0, (int *)&counter_tid,
-			     thread_counter, (void *)(long)N);
+	child = clone_thread(flags, (char *)stack + STACK_SIZE, NULL, 0,
+			     (int *)&counter_tid, thread_counter,
+			     (void *)(long)N);
 	if (child < 0) {
 		munmap(stack, STACK_SIZE);
 		return 1;

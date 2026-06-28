@@ -22,8 +22,7 @@
 static const unsigned long unsupported_clone_flags =
 	CLONE_NEWTIME | CLONE_PTRACE | CLONE_VFORK | CLONE_PARENT |
 	CLONE_NEWNS | CLONE_SYSVSEM | CLONE_NEWCGROUP | CLONE_NEWUTS |
-	CLONE_NEWIPC | CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNET |
-	CLONE_IO;
+	CLONE_NEWIPC | CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNET | CLONE_IO;
 static const unsigned long thread_only_clone_flags =
 	CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_SETTLS;
 
@@ -59,8 +58,8 @@ static int validate_clone_flags(unsigned long flags, uintptr_t child_stack)
 	if (!clone_wants_thread(flags) && (flags & thread_only_clone_flags))
 		return -EINVAL;
 
-	if (!clone_wants_thread(flags) &&
-	    exit_signal != 0 && exit_signal != SIGCHLD)
+	if (!clone_wants_thread(flags) && exit_signal != 0 &&
+	    exit_signal != SIGCHLD)
 		return -EINVAL;
 
 	return 0;
@@ -179,8 +178,7 @@ static void clone_link_task(struct task_struct *child, unsigned long flags)
 
 int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
 			 uintptr_t child_stack, uintptr_t tls,
-			 int *clear_child_tid,
-			 struct kernel_clone *clone)
+			 int *clear_child_tid, struct kernel_clone *clone)
 {
 	struct task_struct *child;
 	int ret;

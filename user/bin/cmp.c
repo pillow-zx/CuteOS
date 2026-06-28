@@ -40,8 +40,7 @@ int main(int argc, char **argv)
 	fd2 = open_input(argv[first + 1]);
 	if (fd2 < 0) {
 		if (!silent)
-			printf("cmp: %s: %s\n", argv[first + 1],
-			       strerror(fd2));
+			printf("cmp: %s: %s\n", argv[first + 1], strerror(fd2));
 		if (fd1 != 0)
 			close(fd1);
 		return 2;
@@ -65,8 +64,7 @@ int main(int argc, char **argv)
 				break;
 			if (!silent)
 				printf("cmp: EOF on %s after byte %lu\n",
-				       na == 0 ? argv[first] :
-						  argv[first + 1],
+				       na == 0 ? argv[first] : argv[first + 1],
 				       byte - 1);
 			if (fd1 != 0)
 				close(fd1);

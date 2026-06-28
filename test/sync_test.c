@@ -92,9 +92,9 @@ void test_wait_event_interruptible_ready(void)
 	TEST_BEGIN("sync: wait_event_interruptible ready");
 	{
 		init_waitqueue_head(&wq);
-		TEST_ASSERT_EQ(wait_event_interruptible(&wq, wait_test_ready,
-						       &ready),
-			       0);
+		TEST_ASSERT_EQ(
+			wait_event_interruptible(&wq, wait_test_ready, &ready),
+			0);
 		TEST_ASSERT(list_empty(&current->wait_list));
 		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_RUNNING);
 	}
@@ -116,9 +116,9 @@ void test_wait_event_interruptible_signal(void)
 		init_waitqueue_head(&wq);
 		current->blocked &= ~signal_mask(SIGUSR1);
 		TEST_ASSERT_EQ(send_current_signal(SIGUSR1), 0);
-		TEST_ASSERT_EQ(wait_event_interruptible(&wq, wait_test_ready,
-						       &ready),
-			       -EINTR);
+		TEST_ASSERT_EQ(
+			wait_event_interruptible(&wq, wait_test_ready, &ready),
+			-EINTR);
 		TEST_ASSERT(list_empty(&current->wait_list));
 		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_RUNNING);
 	}

@@ -173,10 +173,12 @@ void mm_unlock(struct mm_struct *mm)
 
 struct mm_struct *dup_mm(struct mm_struct *oldmm)
 {
+	struct mm_struct *newmm;
+
 	if (!oldmm)
 		return NULL;
 
-	struct mm_struct *newmm = mm_alloc();
+	newmm = mm_alloc();
 	if (!newmm)
 		return NULL;
 
@@ -239,17 +241,19 @@ void mm_destroy(struct mm_struct *mm)
 
 pte_t *mm_create_user_pgd(void)
 {
+	pte_t *user_pgd;
+	pte_t *kern_root;
 	int ret;
 
 	/* 1. 分配 PGD 页 */
-	pte_t *user_pgd = (pte_t *)get_free_page(0);
+	user_pgd = (pte_t *)get_free_page(0);
 	if (!user_pgd)
 		return NULL;
 	memset(user_pgd, 0, PAGE_SIZE);
 
 	/* 2. 复制内核高地址映射（PGD[256-511]）
 	 *    确保 trap 进内核后内核代码/数据仍可访问 */
-	pte_t *kern_root = arch_current_pt();
+	kern_root = arch_current_pt();
 	for (int i = 256; i < 512; i++)
 		user_pgd[i] = kern_root[i];
 

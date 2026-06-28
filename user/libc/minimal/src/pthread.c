@@ -4,7 +4,7 @@
 #define PTHREAD_CONTROL_BYTES 4096UL
 #define PTHREAD_STACK_SIZE    (32UL * 1024UL)
 #define PTHREAD_MAPPING_SIZE  (PTHREAD_CONTROL_BYTES + PTHREAD_STACK_SIZE)
-#define PTHREAD_MAGIC	       0x7074687265616401UL
+#define PTHREAD_MAGIC	      0x7074687265616401UL
 
 struct pthread_control {
 	unsigned long magic;
@@ -72,11 +72,11 @@ static struct pthread_control *pthread_find_locked(pthread_t thread)
 	struct pthread_control *ctrl;
 
 	for (ctrl = pthread_registry; ctrl; ctrl = ctrl->next) {
-		int tid_word = __atomic_load_n(&ctrl->tid_word, __ATOMIC_ACQUIRE);
+		int tid_word =
+			__atomic_load_n(&ctrl->tid_word, __ATOMIC_ACQUIRE);
 
-		if (ctrl->tid == thread ||
-		    (thread != 0 && tid_word != 0 &&
-		     (pthread_t)tid_word == thread))
+		if (ctrl->tid == thread || (thread != 0 && tid_word != 0 &&
+					    (pthread_t)tid_word == thread))
 			return ctrl;
 	}
 
@@ -331,8 +331,8 @@ int pthread_mutex_lock(pthread_mutex_t *mutex)
 		return 0;
 
 	for (;;) {
-		int old = __atomic_exchange_n(&mutex->value, 2,
-					      __ATOMIC_ACQUIRE);
+		int old =
+			__atomic_exchange_n(&mutex->value, 2, __ATOMIC_ACQUIRE);
 		if (old == 0)
 			return 0;
 		(void)futex((int *)&mutex->value,

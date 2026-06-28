@@ -5,10 +5,10 @@
 #include <compiler/compiler_builtin.h>
 
 typedef struct {
-	volatile int __aligned(sizeof(int))  counter;
+	volatile int __aligned(sizeof(int)) counter;
 } atomic_t;
 
-#define ATOMIC_INIT(i) { .counter = (i) }
+#define ATOMIC_INIT(i) {.counter = (i)}
 
 static __always_inline int atomic_read(const atomic_t *v)
 {
@@ -57,8 +57,8 @@ static __always_inline bool atomic_dec_and_test(atomic_t *v)
 
 static __always_inline int atomic_cmpxchg(atomic_t *v, int old, int new)
 {
-	atomic_compare_exchange_n(&v->counter, &old, new, false,
-				  ATOMIC_SEQ_CST, ATOMIC_SEQ_CST);
+	atomic_compare_exchange_n(&v->counter, &old, new, false, ATOMIC_SEQ_CST,
+				  ATOMIC_SEQ_CST);
 	return old;
 }
 

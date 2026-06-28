@@ -37,8 +37,7 @@ static int sys_timespec_to_deadline(const struct sys_timespec *ts,
 	*deadline = 0;
 	if (!ts)
 		return 0;
-	if (ts->tv_sec < 0 || ts->tv_nsec < 0 ||
-	    ts->tv_nsec >= 1000000000LL)
+	if (ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= 1000000000LL)
 		return -EINVAL;
 
 	now = arch_timer_now();
@@ -49,9 +48,8 @@ static int sys_timespec_to_deadline(const struct sys_timespec *ts,
 	}
 
 	delta = (uint64_t)ts->tv_sec * MTIME_FREQ;
-	nsec_delta =
-		((uint64_t)ts->tv_nsec * MTIME_FREQ + 999999999ULL) /
-		1000000000ULL;
+	nsec_delta = ((uint64_t)ts->tv_nsec * MTIME_FREQ + 999999999ULL) /
+		     1000000000ULL;
 	if (nsec_delta > UINT64_MAX - now - delta)
 		*deadline = UINT64_MAX;
 	else
@@ -94,7 +92,8 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 {
 	struct sys_pollfd *ufds = (struct sys_pollfd *)tf->a0;
 	size_t nfds = (size_t)tf->a1;
-	const struct sys_timespec *utimeout = (const struct sys_timespec *)tf->a2;
+	const struct sys_timespec *utimeout =
+		(const struct sys_timespec *)tf->a2;
 	const uint64_t *usigmask = (const uint64_t *)tf->a3;
 	size_t sigsetsize = (size_t)tf->a4;
 	struct sys_pollfd fds[NR_OPEN];

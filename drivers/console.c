@@ -17,8 +17,8 @@
 #define CONSOLE_INPUT_SIZE 256
 
 #define TTY_INPUT_CONTINUE 0
-#define TTY_INPUT_READY    1
-#define TTY_INPUT_EOF	    2
+#define TTY_INPUT_READY	   1
+#define TTY_INPUT_EOF	   2
 #define TTY_INPUT_SIGNAL   3
 
 typedef void (*console_emit_fn)(char ch, void *ctx);
@@ -33,24 +33,25 @@ static struct termios console_termios = {
 	.c_oflag = OPOST | ONLCR,
 	.c_cflag = B38400 | CS8 | CREAD,
 	.c_lflag = ISIG | ICANON | ECHO,
-	.c_cc = {
-		[VINTR] = 3,	  /* Ctrl-C */
-		[VQUIT] = 28,	  /* Ctrl-\ */
-		[VERASE] = 127,	  /* DEL */
-		[VKILL] = 21,	  /* Ctrl-U */
-		[VEOF] = 4,	  /* Ctrl-D */
-		[VTIME] = 0,
-		[VMIN] = 1,
-		[VSTART] = 17,	  /* Ctrl-Q */
-		[VSTOP] = 19,	  /* Ctrl-S */
-		[VSUSP] = 0,
-		[VEOL] = 0,
-		[VREPRINT] = 18,  /* Ctrl-R */
-		[VDISCARD] = 15,  /* Ctrl-O */
-		[VWERASE] = 23,	  /* Ctrl-W */
-		[VLNEXT] = 22,	  /* Ctrl-V */
-		[VEOL2] = 0,
-	},
+	.c_cc =
+		{
+			[VINTR] = 3,	/* Ctrl-C */
+			[VQUIT] = 28,	/* Ctrl-\ */
+			[VERASE] = 127, /* DEL */
+			[VKILL] = 21,	/* Ctrl-U */
+			[VEOF] = 4,	    /* Ctrl-D */
+			[VTIME] = 0,
+			[VMIN] = 1,
+			[VSTART] = 17,  /* Ctrl-Q */
+			[VSTOP] = 19,   /* Ctrl-S */
+			[VSUSP] = 0,
+			[VEOL] = 0,
+			[VREPRINT] = 18, /* Ctrl-R */
+			[VDISCARD] = 15, /* Ctrl-O */
+			[VWERASE] = 23,	 /* Ctrl-W */
+			[VLNEXT] = 22,	 /* Ctrl-V */
+			[VEOL2] = 0,
+		},
 };
 
 static struct winsize console_winsize = {
@@ -100,8 +101,8 @@ static size_t console_write_translated(const struct termios *termios,
 	size_t emitted = 0;
 
 	for (size_t i = 0; i < count; i++) {
-		if ((termios->c_oflag & OPOST) &&
-		    (termios->c_oflag & ONLCR) && buf[i] == '\n') {
+		if ((termios->c_oflag & OPOST) && (termios->c_oflag & ONLCR) &&
+		    buf[i] == '\n') {
 			emit('\r', ctx);
 			emitted++;
 		}
@@ -168,8 +169,7 @@ static int console_canonical_accept(const struct termios *termios, char ch,
 	if (console_cc_eq(termios, VEOF, ch))
 		return *line_len == 0 ? TTY_INPUT_EOF : TTY_INPUT_READY;
 
-	if (console_cc_eq(termios, VERASE, ch) || ch == '\b' ||
-	    ch == 0x7f) {
+	if (console_cc_eq(termios, VERASE, ch) || ch == '\b' || ch == 0x7f) {
 		if (*line_len > 0) {
 			(*line_len)--;
 			if (termios->c_lflag & ECHO)
@@ -301,8 +301,8 @@ static ssize_t console_write(struct file *file, const char *buf, size_t count)
 {
 	(void)file;
 
-	console_write_translated(&console_termios, buf, count, console_uart_emit,
-				 NULL);
+	console_write_translated(&console_termios, buf, count,
+				 console_uart_emit, NULL);
 
 	return (ssize_t)count;
 }
@@ -339,9 +339,8 @@ ssize_t console_tty_write_for_test(const struct termios *termios,
 
 ssize_t console_tty_read_stream_for_test(const struct termios *termios,
 					 const char *input, size_t input_len,
-					 char *out, size_t out_size,
-					 char *echo, size_t echo_size,
-					 int *signal)
+					 char *out, size_t out_size, char *echo,
+					 size_t echo_size, int *signal)
 {
 	struct console_emit_buffer echo_buf = {
 		.data = echo,
@@ -358,10 +357,9 @@ ssize_t console_tty_read_stream_for_test(const struct termios *termios,
 				termios, input[i], out, &out_len, out_size,
 				console_buffer_emit, &echo_buf, signal);
 		else
-			event = console_raw_accept(termios, input[i], out,
-						   &out_len, out_size,
-						   console_buffer_emit,
-						   &echo_buf, signal);
+			event = console_raw_accept(
+				termios, input[i], out, &out_len, out_size,
+				console_buffer_emit, &echo_buf, signal);
 
 		if (event == TTY_INPUT_SIGNAL)
 			return -EINTR;

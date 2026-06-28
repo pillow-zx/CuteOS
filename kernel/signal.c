@@ -22,13 +22,15 @@
  *   do_signal(tf)                  - 在所有 trap 返回 U-mode 前调用，
  *                                     检查并投递 pending 信号。
  *   do_kill(pid, sig)              - kill 系统调用内部实现。
- *   do_sigaction(sig, act, oldact) - sigaction 系统调用内部实现（注册/查询处理器）。
- *   do_sigreturn(tf, sp)           - 从信号处理器返回，恢复 trap_frame + blocked。
+ *   do_sigaction(sig, act, oldact) - sigaction 系统调用内部实现
+ *                                    （注册/查询处理器）。
+ *   do_sigreturn(tf, sp)           - 从信号处理器返回，恢复 trap_frame
+ *                                     + blocked。
  *   send_signal(sig, target)       - 向目标进程发送信号（置 pending 位）。
  *   setup_signal_frame(tf, ka)     - 在用户栈上构建 signal_frame，
  *                                     保存 trap_frame 和 blocked，
- *                                     修改 trap_frame（sepc=handler, a0=signo,
- *                                     ra=trampoline）。
+ *                                     修改 trap_frame（sepc=handler,
+ *                                     a0=signo, ra=trampoline）。
  */
 
 #include <kernel/errno.h>
@@ -173,8 +175,7 @@ static bool task_signal_target_dead(struct task_struct *task)
 	if (!task)
 		return true;
 
-	return task_state(task) == TASK_DEAD ||
-	       task_state(task) == TASK_ZOMBIE;
+	return task_state(task) == TASK_DEAD || task_state(task) == TASK_ZOMBIE;
 }
 
 static void reset_task_altstack(struct task_struct *task)
@@ -430,8 +431,7 @@ int send_group_signal(int sig, struct task_struct *leader)
 	if (task_is_group_leader(leader)) {
 		struct task_struct *thread;
 
-		list_for_each_entry (thread, &leader->thread_group,
-				     thread_node)
+		list_for_each_entry (thread, &leader->thread_group, thread_node)
 			wake_signal_target(thread, sig);
 	}
 
@@ -497,8 +497,8 @@ static int signal_map_trampoline(pte_t *pgd)
 		arch_icache_flush();
 	}
 
-	arch_map_page(pgd, SIGNAL_TRAMPOLINE_ADDR, __pa((uintptr_t)trampoline_page),
-		 PTE_USER_RX);
+	arch_map_page(pgd, SIGNAL_TRAMPOLINE_ADDR,
+		      __pa((uintptr_t)trampoline_page), PTE_USER_RX);
 	return 0;
 }
 
@@ -506,10 +506,9 @@ void signal_user_map_init(void)
 {
 	int ret;
 
-	ret = user_map_register_reserved("signal_trampoline",
-					 SIGNAL_TRAMPOLINE_ADDR,
-					 SIGNAL_TRAMPOLINE_ADDR + PAGE_SIZE,
-					 signal_map_trampoline);
+	ret = user_map_register_reserved(
+		"signal_trampoline", SIGNAL_TRAMPOLINE_ADDR,
+		SIGNAL_TRAMPOLINE_ADDR + PAGE_SIZE, signal_map_trampoline);
 	BUG_ON(ret < 0);
 }
 
@@ -528,8 +527,8 @@ static int setup_signal_frame(struct trap_frame *tf, int sig,
 	bool on_altstack = false;
 
 	/* SA_ONSTACK: use the alternate signal stack if installed. */
-	if ((action->sa_flags & SA_ONSTACK) &&
-	    sas && !(sas->ss_flags & (SS_DISABLE | SS_ONSTACK))) {
+	if ((action->sa_flags & SA_ONSTACK) && sas &&
+	    !(sas->ss_flags & (SS_DISABLE | SS_ONSTACK))) {
 		uintptr_t top = (uintptr_t)sas->ss_sp + sas->ss_size;
 		sp = (top - sizeof(struct signal_frame)) & ~(uintptr_t)0xf;
 		on_altstack = true;
@@ -602,14 +601,15 @@ static int next_signal(bool *shared)
 
 	*shared = false;
 	pending &= (1UL << (NSIG - 1)) - 1;
-	deliverable = pending & ~(signal_blocked_mask(current) &
-				  ~unblockable_mask());
+	deliverable =
+		pending & ~(signal_blocked_mask(current) & ~unblockable_mask());
 	if (!deliverable)
 		return 0;
 
 	for (int sig = 1; sig < NSIG; sig++) {
 		if (deliverable & signal_mask(sig)) {
-			*shared = (task_pending_mask(current) & signal_mask(sig)) == 0 &&
+			*shared = (task_pending_mask(current) &
+				   signal_mask(sig)) == 0 &&
 				  (shared_pending & signal_mask(sig)) != 0;
 			return sig;
 		}
@@ -743,8 +743,7 @@ int do_sigaltstack(const struct stack_t *ss, struct stack_t *old_ss)
 	return 0;
 }
 
-int do_sigaction(int sig, const struct sigaction *act,
-		 struct sigaction *oldact)
+int do_sigaction(int sig, const struct sigaction *act, struct sigaction *oldact)
 {
 	struct sighand_struct *sighand = task_sighand(current);
 	struct sigaction kact;

@@ -32,7 +32,7 @@ static const struct file_operations null_fops = {
 };
 
 static struct vfs_chrdev vfs_chrdevs[VFS_CHRDEV_MAX] = {
-	{ .dev = MKDEV(1, 3), .fops = &null_fops },
+	{.dev = MKDEV(1, 3), .fops = &null_fops},
 };
 
 int vfs_register_chrdev(dev_t dev, const struct file_operations *fops)
@@ -170,10 +170,13 @@ struct file *file_alloc(const struct file_operations *f_op, uint32_t mode,
 struct file *file_alloc_dentry(struct dentry *dentry, uint32_t flags,
 			       uint32_t mode)
 {
+	const struct file_operations *f_op;
+	struct file *file;
+
 	if (!dentry || !dentry->d_inode)
 		return NULL;
 
-	const struct file_operations *f_op = dentry->d_inode->i_fop;
+	f_op = dentry->d_inode->i_fop;
 
 	if ((dentry->d_inode->i_mode & S_IFMT) == S_IFCHR) {
 		f_op = vfs_chrdev_fops(dentry->d_inode->i_rdev);
@@ -181,7 +184,7 @@ struct file *file_alloc_dentry(struct dentry *dentry, uint32_t flags,
 			return NULL;
 	}
 
-	struct file *file = file_alloc(f_op, mode, NULL);
+	file = file_alloc(f_op, mode, NULL);
 	if (!file)
 		return NULL;
 
@@ -401,7 +404,8 @@ int fd_alloc_flags(struct file *file, int flags)
 		if (!files->fd[fd]) {
 			files->fd[fd] = file;
 			if (flags & O_CLOEXEC)
-				files->close_on_exec |= (1UL << (unsigned int)fd);
+				files->close_on_exec |=
+					(1UL << (unsigned int)fd);
 			mutex_unlock(&files->lock);
 			return fd;
 		}

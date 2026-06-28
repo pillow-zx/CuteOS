@@ -29,7 +29,7 @@ static syscall_fn_t syscall_table[NR_SYSCALL];
 void do_syscall(struct trap_frame *tf)
 {
 	size_t nr = tf->a7;
-	size_t args[6] = { tf->a0, tf->a1, tf->a2, tf->a3, tf->a4, tf->a5 };
+	size_t args[6] = {tf->a0, tf->a1, tf->a2, tf->a3, tf->a4, tf->a5};
 	ssize_t ret;
 
 	if (nr >= NR_SYSCALL || !syscall_table[nr]) {

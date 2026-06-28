@@ -23,7 +23,7 @@ typedef struct {
 	volatile int value;
 } pthread_mutex_t;
 
-#define PTHREAD_MUTEX_INITIALIZER { .value = 0 }
+#define PTHREAD_MUTEX_INITIALIZER {.value = 0}
 
 int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
 		   void *(*start_routine)(void *), void *arg);

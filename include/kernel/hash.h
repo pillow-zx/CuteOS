@@ -18,18 +18,18 @@ struct hash_table {
 
 #define HASH_TABLE_SIZE(hash_bits) (1u << (hash_bits))
 
-#define HASH_TABLE_DECLARE(name, hash_bits)                                   \
-	struct list_head name##_buckets[HASH_TABLE_SIZE(hash_bits)];          \
-	struct hash_table name = {                                            \
-		.buckets = name##_buckets,                                    \
-		.bits = (hash_bits),                                          \
+#define HASH_TABLE_DECLARE(name, hash_bits)                                    \
+	struct list_head name##_buckets[HASH_TABLE_SIZE(hash_bits)];           \
+	struct hash_table name = {                                             \
+		.buckets = name##_buckets,                                     \
+		.bits = (hash_bits),                                           \
 	}
 
-#define HASH_TABLE_DECLARE_STATIC(name, hash_bits)                            \
-	static struct list_head name##_buckets[HASH_TABLE_SIZE(hash_bits)];   \
-	static struct hash_table name = {                                     \
-		.buckets = name##_buckets,                                    \
-		.bits = (hash_bits),                                          \
+#define HASH_TABLE_DECLARE_STATIC(name, hash_bits)                             \
+	static struct list_head name##_buckets[HASH_TABLE_SIZE(hash_bits)];    \
+	static struct hash_table name = {                                      \
+		.buckets = name##_buckets,                                     \
+		.bits = (hash_bits),                                           \
 	}
 
 static __always_inline void hash_table_init(struct hash_table *table)
@@ -45,9 +45,8 @@ hash_table_bucket(struct hash_table *table, uint64_t hash)
 			       (HASH_TABLE_SIZE(table->bits) - 1u)];
 }
 
-static __always_inline void hash_table_add(struct hash_table *table,
-					   uint64_t hash,
-					   struct list_head *node)
+static __always_inline void
+hash_table_add(struct hash_table *table, uint64_t hash, struct list_head *node)
 {
 	list_add(node, hash_table_bucket(table, hash));
 }
@@ -58,6 +57,6 @@ static __always_inline void hash_table_del(struct list_head *node)
 }
 
 #define hash_table_for_each_possible(pos, table, hash)                         \
-	list_for_each(pos, hash_table_bucket((table), (hash)))
+	list_for_each (pos, hash_table_bucket((table), (hash)))
 
 #endif

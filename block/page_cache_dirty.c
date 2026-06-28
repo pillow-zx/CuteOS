@@ -62,6 +62,5 @@ struct page_cache *page_cache_dirty_any(void)
 	if (list_empty(&dirty_pages))
 		return NULL;
 
-	return list_first_entry(&dirty_pages, struct page_cache,
-				dirty_node);
+	return list_first_entry(&dirty_pages, struct page_cache, dirty_node);
 }

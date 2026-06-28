@@ -46,8 +46,6 @@ struct page_cache {
 	struct list_head dirty_map_node;
 };
 
-
-
 /*
  * 返回 (mapping, index) 对应的缓存页。create=false 时仅查找已有页；
  * create=true 时会分配一个未 uptodate 的新页，并通过 @created 告知调用者。
@@ -65,8 +63,7 @@ struct page_cache *__must_check
 page_cache_read_page(struct page_mapping *mapping, uint64_t index);
 
 /* 读取块设备物理块缓存页；block 是 4 KiB 块号，不是 512 字节扇区号。 */
-struct page_cache *__must_check page_cache_get_block(dev_t dev,
-						     uint64_t block);
+struct page_cache *__must_check page_cache_get_block(dev_t dev, uint64_t block);
 
 /* inode 文件页兼容包装；等价于 page_cache_get_page(&inode->i_pages, ...)。 */
 struct page_cache *__must_check page_cache_grab_file_page(struct inode *inode,

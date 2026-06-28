@@ -21,6 +21,6 @@ void arch_trap_init(void)
 	csr_set(sie, SIE_STIE);
 	csr_set(sstatus, SSTATUS_SIE);
 	pr_info("stvec: 0x%lx, sscratch: 0x%lx, sie: 0x%lx, sstatus: 0x%lx\n",
-	       csr_read(stvec), csr_read(sscratch), csr_read(sie),
-	       csr_read(sstatus));
+		csr_read(stvec), csr_read(sscratch), csr_read(sie),
+		csr_read(sstatus));
 }

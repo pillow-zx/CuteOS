@@ -44,9 +44,8 @@ static int read_check(const char *path, const char *expect, int len)
 	}
 	for (i = 0; i < len; i++) {
 		if (buf[i] != expect[i]) {
-			printf("  read_check: byte[%d] 0x%02x != 0x%02x\n",
-			       i, (unsigned char)buf[i],
-			       (unsigned char)expect[i]);
+			printf("  read_check: byte[%d] 0x%02x != 0x%02x\n", i,
+			       (unsigned char)buf[i], (unsigned char)expect[i]);
 			return -1;
 		}
 	}
@@ -57,15 +56,14 @@ static int read_check(const char *path, const char *expect, int len)
 static int test_basic(void)
 {
 	long ret;
-	int  fd;
+	int fd;
 
 	if (make_file("/tmp/rn_src", "hello", 5) < 0) {
 		printf("FAIL: make_file rn_src\n");
 		return 1;
 	}
 
-	ret = renameat2(AT_FDCWD, "/tmp/rn_src",
-			AT_FDCWD, "/tmp/rn_dst", 0);
+	ret = renameat2(AT_FDCWD, "/tmp/rn_src", AT_FDCWD, "/tmp/rn_dst", 0);
 	if (ret != 0) {
 		printf("FAIL: renameat2 basic: %ld\n", ret);
 		unlinkat(AT_FDCWD, "/tmp/rn_src", 0);
@@ -106,8 +104,7 @@ static int test_noreplace(void)
 		return 1;
 	}
 
-	ret = renameat2(AT_FDCWD, "/tmp/nr_src",
-			AT_FDCWD, "/tmp/nr_dst",
+	ret = renameat2(AT_FDCWD, "/tmp/nr_src", AT_FDCWD, "/tmp/nr_dst",
 			RENAME_NOREPLACE);
 	if (ret != -EEXIST) {
 		printf("FAIL: RENAME_NOREPLACE: expected -EEXIST(%d) got %ld\n",
@@ -135,8 +132,7 @@ static int test_replace_existing(void)
 		return 1;
 	}
 
-	ret = renameat2(AT_FDCWD, "/tmp/rp_src",
-			AT_FDCWD, "/tmp/rp_dst", 0);
+	ret = renameat2(AT_FDCWD, "/tmp/rp_src", AT_FDCWD, "/tmp/rp_dst", 0);
 	if (ret != 0) {
 		printf("FAIL: replace existing: %ld\n", ret);
 		unlinkat(AT_FDCWD, "/tmp/rp_src", 0);
@@ -164,8 +160,8 @@ static int test_same_path(void)
 		return 1;
 	}
 
-	ret = renameat2(AT_FDCWD, "/tmp/same_path",
-			AT_FDCWD, "/tmp/same_path", 0);
+	ret = renameat2(AT_FDCWD, "/tmp/same_path", AT_FDCWD, "/tmp/same_path",
+			0);
 	if (ret != 0 || read_check("/tmp/same_path", "z", 1) != 0) {
 		printf("FAIL: same path rename ret=%ld\n", ret);
 		unlinkat(AT_FDCWD, "/tmp/same_path", 0);
@@ -184,10 +180,11 @@ static int test_dir_into_subtree(void)
 	mkdirat(AT_FDCWD, "/tmp/rndir", 0755);
 	mkdirat(AT_FDCWD, "/tmp/rndir/sub", 0755);
 
-	ret = renameat2(AT_FDCWD, "/tmp/rndir",
-			AT_FDCWD, "/tmp/rndir/sub/moved", 0);
+	ret = renameat2(AT_FDCWD, "/tmp/rndir", AT_FDCWD,
+			"/tmp/rndir/sub/moved", 0);
 	if (ret != -EINVAL) {
-		printf("FAIL: dir into subtree expected -EINVAL got %ld\n", ret);
+		printf("FAIL: dir into subtree expected -EINVAL got %ld\n",
+		       ret);
 		unlinkat(AT_FDCWD, "/tmp/rndir/sub", AT_REMOVEDIR);
 		unlinkat(AT_FDCWD, "/tmp/rndir", AT_REMOVEDIR);
 		return 1;
@@ -208,9 +205,8 @@ static int test_noreplace_existing_uncached_target(void)
 		return 1;
 	}
 
-	ret = renameat2(AT_FDCWD, "/tmp/nr_uncached_src",
-			AT_FDCWD, "/bin/sigaltstack_test",
-			RENAME_NOREPLACE);
+	ret = renameat2(AT_FDCWD, "/tmp/nr_uncached_src", AT_FDCWD,
+			"/bin/sigaltstack_test", RENAME_NOREPLACE);
 	if (ret != -EEXIST) {
 		printf("FAIL: uncached target expected -EEXIST got %ld\n", ret);
 		unlinkat(AT_FDCWD, "/tmp/nr_uncached_src", 0);
@@ -227,7 +223,8 @@ static int test_noreplace_existing_uncached_target(void)
 	return 0;
 }
 
-/* test 7: an existing cwd dentry remains usable after its directory is renamed */
+/* test 7: an existing cwd dentry remains usable after its directory is renamed
+ */
 static int test_rename_cwd_keeps_reference(void)
 {
 	char cwd[64];
@@ -246,8 +243,7 @@ static int test_rename_cwd_keeps_reference(void)
 		return 1;
 	}
 
-	ret = renameat2(AT_FDCWD, "/tmp/cwd_old",
-			AT_FDCWD, "/tmp/cwd_new", 0);
+	ret = renameat2(AT_FDCWD, "/tmp/cwd_old", AT_FDCWD, "/tmp/cwd_new", 0);
 	if (ret != 0) {
 		printf("FAIL: rename cwd dir ret=%ld\n", ret);
 		chdir("/");

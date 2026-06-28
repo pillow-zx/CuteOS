@@ -38,8 +38,8 @@ static bool ext2_match(struct ext2_dir_entry_2 *de, const char *name,
 }
 
 static void ext2_dirent_init(struct ext2_dir_entry_2 *de, uint32_t ino,
-			     uint16_t rec_len, const char *name,
-			     size_t namelen, uint8_t type)
+			     uint16_t rec_len, const char *name, size_t namelen,
+			     uint8_t type)
 {
 	de->inode = ino;
 	de->rec_len = rec_len;
@@ -61,7 +61,7 @@ static int ext2_sync_dir_page(struct page_cache *page)
  * cache entry and make later fsync/writeback ordering ambiguous.
  */
 static struct page_cache *ext2_read_inode_page(struct inode *inode,
-						    uint32_t lblock)
+					       uint32_t lblock)
 {
 	return inode ? page_cache_read_page(&inode->i_pages, lblock) : NULL;
 }
@@ -72,7 +72,7 @@ static struct page_cache *ext2_read_inode_page(struct inode *inode,
  * lay out "."/".." or a new directory entry.
  */
 static struct page_cache *ext2_new_inode_page(struct inode *inode,
-						   uint32_t lblock)
+					      uint32_t lblock)
 {
 	struct page_cache *page;
 
@@ -167,8 +167,8 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 						 namelen, type);
 				/*
 				 * Directory updates remain synchronous in this
-				 * teaching kernel, but they still go through the
-				 * inode mapping so block-cache aliases are
+				 * teaching kernel, but they still go through
+				 * the inode mapping so block-cache aliases are
 				 * refreshed by page_cache_sync_page().
 				 */
 				page_cache_mark_dirty(page);
@@ -635,8 +635,8 @@ static int ext2_set_dotdot(struct inode *dir, uint32_t new_parent_ino)
 			if (de->rec_len < 8 ||
 			    offset + de->rec_len > BLOCK_SIZE)
 				break;
-			if (de->name_len == 2 &&
-			    de->name[0] == '.' && de->name[1] == '.') {
+			if (de->name_len == 2 && de->name[0] == '.' &&
+			    de->name[1] == '.') {
 				de->inode = new_parent_ino;
 				page_cache_mark_dirty(page);
 				if (ext2_sync_dir_page(page) < 0) {
@@ -684,8 +684,7 @@ static int ext2_rename(struct inode *old_dir, struct dentry *old_dentry,
 
 	/* Target exists: validate replaceability before touching metadata. */
 	if (new_inode) {
-		new_is_dir =
-			(new_inode->i_mode & EXT2_S_IFMT) == EXT2_S_IFDIR;
+		new_is_dir = (new_inode->i_mode & EXT2_S_IFMT) == EXT2_S_IFDIR;
 
 		if (!old_is_dir && new_is_dir)
 			return -EISDIR;
@@ -697,8 +696,8 @@ static int ext2_rename(struct inode *old_dir, struct dentry *old_dentry,
 
 	/*
 	 * Install the destination name before removing the source name.  For an
-	 * existing target, rewrite the target directory entry in place so a later
-	 * failure can restore it without losing the old target.
+	 * existing target, rewrite the target directory entry in place so a
+	 * later failure can restore it without losing the old target.
 	 */
 	ftype = ext2_file_type(old_inode->i_mode);
 	if (replacing)

@@ -20,7 +20,7 @@
 
 #include "ktest.h"
 
-#define FAT_DIR  "/fat_testdir"
+#define FAT_DIR	 "/fat_testdir"
 #define FAT_FILE "/fat_testfile"
 
 void test_fs_at_path_lookup_basics(void)
@@ -141,7 +141,8 @@ void test_fs_at_readlink_not_symlink(void)
 fail:
 	if (d)
 		dput(d);
-	TEST_FAIL("fs-at: readlink on non-symlink returns -EINVAL", "see above");
+	TEST_FAIL("fs-at: readlink on non-symlink returns -EINVAL",
+		  "see above");
 }
 
 void test_fs_at_lookup_nofollow_on_dir(void)
@@ -163,7 +164,8 @@ void test_fs_at_lookup_nofollow_on_dir(void)
 fail:
 	if (d)
 		dput(d);
-	TEST_FAIL("fs-at: LOOKUP_NOFOLLOW on directory is harmless", "see above");
+	TEST_FAIL("fs-at: LOOKUP_NOFOLLOW on directory is harmless",
+		  "see above");
 }
 
 void test_fs_at_non_directory_parent_error(void)
@@ -182,8 +184,7 @@ void test_fs_at_non_directory_parent_error(void)
 fail:
 	if (d)
 		dput(d);
-	TEST_FAIL("fs-at: non-directory parent returns -ENOTDIR",
-		  "see above");
+	TEST_FAIL("fs-at: non-directory parent returns -ENOTDIR", "see above");
 }
 
 void test_fs_at_openat_regular_file(void)
@@ -223,8 +224,8 @@ void test_fs_at_openat_regular_file(void)
 
 		/* Must be gone. */
 		struct dentry *d = NULL;
-		TEST_ASSERT_EQ(
-			path_lookupat_err(NULL, FAT_FILE, 0, &d), -ENOENT);
+		TEST_ASSERT_EQ(path_lookupat_err(NULL, FAT_FILE, 0, &d),
+			       -ENOENT);
 		TEST_ASSERT_NULL(d);
 	}
 	TEST_END("fs-at: openat create, write, read, unlink");

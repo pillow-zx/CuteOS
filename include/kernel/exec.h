@@ -4,9 +4,9 @@
 #include <kernel/compiler.h>
 #include <asm/trap.h>
 
-#define EXEC_MAX_ARGS	  16
+#define EXEC_MAX_ARGS	 16
 #define EXEC_MAX_ARG_LEN 128
-#define EXEC_MAX_ENVS	  16
+#define EXEC_MAX_ENVS	 16
 #define EXEC_MAX_ENV_LEN 128
 
 struct exec_args_envp {

@@ -22,7 +22,7 @@
 typedef unsigned long size_t;
 
 /* libc convenience alias; Linux riscv64 has clone, not a separate fork nr. */
-#define SYS_fork	   SYS_clone
+#define SYS_fork SYS_clone
 
 #define AT_FDCWD	    -100
 #define AT_REMOVEDIR	    0x200
@@ -88,21 +88,21 @@ typedef unsigned long size_t;
 #define DT_LNK	   10
 #define DT_SOCK	   12
 
-#define ENOENT	2
-#define ESRCH	3
-#define EINTR	4
-#define EACCES	13
-#define EEXIST	17
-#define ENOTDIR 20
-#define EISDIR	21
-#define EINVAL	22
-#define ENOTTY	25
-#define EFBIG	27
-#define EAGAIN	11
-#define EFAULT	14
-#define EBADF	9
-#define ENOSYS	38
-#define ELOOP	40
+#define ENOENT	  2
+#define ESRCH	  3
+#define EINTR	  4
+#define EACCES	  13
+#define EEXIST	  17
+#define ENOTDIR	  20
+#define EISDIR	  21
+#define EINVAL	  22
+#define ENOTTY	  25
+#define EFBIG	  27
+#define EAGAIN	  11
+#define EFAULT	  14
+#define EBADF	  9
+#define ENOSYS	  38
+#define ELOOP	  40
 #define ETIMEDOUT 110
 
 #define POLLIN	 0x0001
@@ -126,12 +126,12 @@ typedef unsigned long size_t;
 #define RLIMIT_NOFILE 7
 #define RLIMIT_AS     9
 
-#define FUTEX_WAIT	    0
-#define FUTEX_WAKE	    1
+#define FUTEX_WAIT	   0
+#define FUTEX_WAKE	   1
 #define FUTEX_PRIVATE_FLAG 128
-#define FUTEX_WAITERS	    0x80000000
-#define FUTEX_OWNER_DIED    0x40000000
-#define FUTEX_TID_MASK	    0x3fffffff
+#define FUTEX_WAITERS	   0x80000000
+#define FUTEX_OWNER_DIED   0x40000000
+#define FUTEX_TID_MASK	   0x3fffffff
 
 #define CLOCK_REALTIME	0
 #define CLOCK_MONOTONIC 1
@@ -461,12 +461,11 @@ static inline long unlinkat(int dfd, const char *path, int flags)
 	return syscall(SYS_unlinkat, dfd, (long)path, flags);
 }
 
-static inline long renameat2(int old_dfd, const char *old_path,
-			     int new_dfd, const char *new_path,
-			     unsigned int flags)
+static inline long renameat2(int old_dfd, const char *old_path, int new_dfd,
+			     const char *new_path, unsigned int flags)
 {
-	return syscall(SYS_renameat2, old_dfd, (long)old_path,
-		       new_dfd, (long)new_path, (long)flags);
+	return syscall(SYS_renameat2, old_dfd, (long)old_path, new_dfd,
+		       (long)new_path, (long)flags);
 }
 
 #define RENAME_NOREPLACE 1
@@ -525,8 +524,8 @@ static inline long ppoll(struct pollfd *fds, size_t nfds,
 			 const struct timespec *timeout,
 			 const unsigned long *sigmask)
 {
-	return syscall(SYS_ppoll, (long)fds, nfds, (long)timeout,
-		       (long)sigmask, sizeof(unsigned long));
+	return syscall(SYS_ppoll, (long)fds, nfds, (long)timeout, (long)sigmask,
+		       sizeof(unsigned long));
 }
 
 static inline void exit(int code)
@@ -662,8 +661,8 @@ static inline long fstatfs64(int fd, struct statfs64 *buf)
 	return syscall(SYS_fstatfs64, fd, (long)buf);
 }
 
-static inline long rseq(void *rseq_area, unsigned int rseq_len,
-			int flags, unsigned int sig)
+static inline long rseq(void *rseq_area, unsigned int rseq_len, int flags,
+			unsigned int sig)
 {
 	return syscall(SYS_rseq, (long)rseq_area, rseq_len, flags, sig);
 }
@@ -732,18 +731,17 @@ static inline long clone_thread(unsigned long flags, void *child_stack,
 	register long a6 __asm__("a6") = (long)arg;
 	register long a7 __asm__("a7") = SYS_clone;
 
-	__asm__ volatile(
-		"ecall\n"
-		"bnez a0, 1f\n"
-		"mv a0, a6\n"
-		"jalr a5\n"
-		"li a7, %[sys_exit]\n"
-		"ecall\n"
-		"1:\n"
-		: "+r"(a0)
-		: "r"(a1), "r"(a2), "r"(a3), "r"(a4), "r"(a5), "r"(a6),
-		  "r"(a7), [sys_exit] "i"(SYS_exit)
-		: "memory", "ra");
+	__asm__ volatile("ecall\n"
+			 "bnez a0, 1f\n"
+			 "mv a0, a6\n"
+			 "jalr a5\n"
+			 "li a7, %[sys_exit]\n"
+			 "ecall\n"
+			 "1:\n"
+			 : "+r"(a0)
+			 : "r"(a1), "r"(a2), "r"(a3), "r"(a4), "r"(a5), "r"(a6),
+			   "r"(a7), [sys_exit] "i"(SYS_exit)
+			 : "memory", "ra");
 
 	return a0;
 }

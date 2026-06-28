@@ -153,7 +153,7 @@ static int setup_user_stack(struct mm_struct *mm,
 	memset(stack_page, 0, PAGE_SIZE);
 
 	arch_map_page(mm->pgd, USER_STACK_BASE, __pa((uintptr_t)stack_page),
-		 PTE_USER_RW);
+		      PTE_USER_RW);
 
 	uintptr_t user_argv[EXEC_MAX_ARGS + 1];
 	uintptr_t user_envp[EXEC_MAX_ENVS + 1];
@@ -229,8 +229,7 @@ static int read_elf_header(struct exec_image *image, Elf64_Ehdr *ehdr)
 	return 0;
 }
 
-static int read_elf_phdr_table(struct exec_image *image,
-			       const Elf64_Ehdr *ehdr,
+static int read_elf_phdr_table(struct exec_image *image, const Elf64_Ehdr *ehdr,
 			       struct elf_phdr_table *table)
 {
 	uint64_t phdr_bytes;
@@ -363,7 +362,7 @@ static int map_segment_page(struct exec_image *image, struct mm_struct *mm,
 	}
 
 	arch_map_page(mm->pgd, va, __pa((uintptr_t)page),
-		 elf_flags_to_pte(ph->p_flags));
+		      elf_flags_to_pte(ph->p_flags));
 	return 0;
 }
 
@@ -442,7 +441,8 @@ static int load_elf_segments(struct exec_image *image,
 			     struct elf_load_layout *layout)
 {
 	for (int i = 0; i < phdrs->count; i++) {
-		int ret = load_elf_segment(image, mm, &phdrs->entries[i], layout);
+		int ret =
+			load_elf_segment(image, mm, &phdrs->entries[i], layout);
 
 		if (ret < 0)
 			return ret;
@@ -492,8 +492,8 @@ static int load_elf_file(struct exec_image *image,
 			 vaddr_t *sp_out)
 {
 	Elf64_Ehdr ehdr;
-	struct elf_phdr_table phdrs = { 0 };
-	struct elf_load_layout layout = { 0 };
+	struct elf_phdr_table phdrs = {0};
+	struct elf_load_layout layout = {0};
 	struct mm_struct *mm = NULL;
 	vaddr_t user_sp = 0;
 	int ret;

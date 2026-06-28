@@ -37,8 +37,7 @@ static int stat_empty_path(int dfd, struct kstat *ustat)
 	int ret;
 
 	if (dfd == AT_FDCWD) {
-		struct dentry *cwd =
-			fs_get_cwd_dentry(task_fs(current));
+		struct dentry *cwd = fs_get_cwd_dentry(task_fs(current));
 
 		if (!cwd)
 			return -ENOENT;
@@ -46,8 +45,7 @@ static int stat_empty_path(int dfd, struct kstat *ustat)
 		dput(cwd);
 		if (ret < 0)
 			return ret;
-		return copy_to_user(ustat, &st, sizeof(st)) != 0 ? -EFAULT :
-								   0;
+		return copy_to_user(ustat, &st, sizeof(st)) != 0 ? -EFAULT : 0;
 	} else {
 		struct file *file = fd_get(dfd);
 
@@ -55,9 +53,9 @@ static int stat_empty_path(int dfd, struct kstat *ustat)
 			return -EBADF;
 		ret = vfs_stat_file(file, &st);
 		if (ret == 0)
-			ret = copy_to_user(ustat, &st, sizeof(st)) != 0 ?
-				      -EFAULT :
-				      0;
+			ret = copy_to_user(ustat, &st, sizeof(st)) != 0
+				      ? -EFAULT
+				      : 0;
 		file_put(file);
 		return ret;
 	}

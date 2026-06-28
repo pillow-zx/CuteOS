@@ -55,8 +55,7 @@ static uint32_t page_cache_hash(struct page_mapping *mapping, uint64_t index)
 	return (uint32_t)(key ^ index ^ (index >> PAGE_CACHE_HASH_BITS));
 }
 
-struct page_cache *page_cache_find(struct page_mapping *mapping,
-				   uint64_t index)
+struct page_cache *page_cache_find(struct page_mapping *mapping, uint64_t index)
 {
 	struct list_head *pos;
 	uint32_t hash = page_cache_hash(mapping, index);
@@ -111,8 +110,8 @@ static void page_cache_drop_page(struct page_cache *page)
 
 	/*
 	 * Drop removes the page from all discoverable structures immediately.
-	 * A caller may still be using page->data, so actual memory release waits
-	 * until the reference count reaches zero.
+	 * A caller may still be using page->data, so actual memory release
+	 * waits until the reference count reaches zero.
 	 */
 	page_cache_alias_invalidate(page);
 	page_cache_clear_dirty(page);
@@ -151,9 +150,9 @@ static bool page_cache_flush_one_victim(void)
 	struct list_head *next;
 
 	/*
-	 * If the cache is full and no clean page can be evicted, write one dirty
-	 * unreferenced page first.  wb_run() may also flush adjacent pages,
-	 * after which a clean victim should be available.
+	 * If the cache is full and no clean page can be evicted, write one
+	 * dirty unreferenced page first.  wb_run() may also flush adjacent
+	 * pages, after which a clean victim should be available.
 	 */
 	list_for_each_safe (pos, next, &page_cache_lru) {
 		struct page_cache *page =
@@ -222,8 +221,8 @@ static void page_cache_add_page(struct page_cache *page)
 }
 
 struct page_cache *page_cache_get_page(struct page_mapping *mapping,
-					    uint64_t index, bool create,
-					    bool *created)
+				       uint64_t index, bool create,
+				       bool *created)
 {
 	struct page_cache *page;
 
@@ -263,7 +262,7 @@ struct page_cache *page_cache_get_page(struct page_mapping *mapping,
 }
 
 struct page_cache *page_cache_read_page(struct page_mapping *mapping,
-					     uint64_t index)
+					uint64_t index)
 {
 	struct page_cache *page;
 	bool created = false;
@@ -303,8 +302,8 @@ struct page_cache *page_cache_get_block(dev_t dev, uint64_t block)
 }
 
 struct page_cache *page_cache_grab_file_page(struct inode *inode,
-						  uint64_t index, bool create,
-						  bool *created)
+					     uint64_t index, bool create,
+					     bool *created)
 {
 	if (!inode)
 		return NULL;

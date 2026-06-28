@@ -132,7 +132,8 @@ void print_hexdump(const void *buf, size_t len)
 		for (size_t i = 0; i < 16; i++) {
 			if (off + i < len) {
 				uint8_t c = p[off + i];
-				pr_info("%c", (c >= 0x20 && c < 0x7f) ? c : '.');
+				pr_info("%c",
+					(c >= 0x20 && c < 0x7f) ? c : '.');
 			}
 		}
 		pr_info("\n");

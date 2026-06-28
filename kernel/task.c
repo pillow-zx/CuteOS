@@ -269,7 +269,7 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 	sched_enqueue(task);
 
 	pr_info("task: kernel thread (PID %d) created, fn=%p\n", task->pid,
-	       (void *)fn);
+		(void *)fn);
 
 	return task;
 }

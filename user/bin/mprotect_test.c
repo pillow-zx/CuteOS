@@ -20,7 +20,7 @@
 static int test_ro_rw(void)
 {
 	char *m;
-	long  ret;
+	long ret;
 	volatile char *p;
 	long pid;
 	int status;
@@ -33,7 +33,7 @@ static int test_ro_rw(void)
 	}
 
 	/* Touch both pages. */
-	m[0]         = 0xab;
+	m[0] = 0xab;
 	m[PAGE_SIZE] = 0xcd;
 
 	/* Remove write on first page. */
@@ -139,7 +139,7 @@ static int test_ro_rw(void)
 static int test_partial_range(void)
 {
 	char *m;
-	long  ret;
+	long ret;
 
 	m = mmap(NULL, 3 * PAGE_SIZE, PROT_READ | PROT_WRITE,
 		 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -186,7 +186,7 @@ static int test_partial_range(void)
 static int test_unaligned(void)
 {
 	char *m;
-	long  ret;
+	long ret;
 
 	m = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
 		 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);

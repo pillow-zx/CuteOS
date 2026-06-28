@@ -33,10 +33,10 @@
 
 /* ---- 全局数据 ---- */
 
-struct page		*mem_map;
-struct free_area	free_area[MAX_ORDER + 1];
-static size_t		total_pages;
-static size_t		nr_free_pages;
+struct page *mem_map;
+struct free_area free_area[MAX_ORDER + 1];
+static size_t total_pages;
+static size_t nr_free_pages;
 
 /* ---- 内联辅助 ---- */
 
@@ -143,7 +143,7 @@ void buddy_init(void)
 	}
 
 	pr_info("buddy: %d pages free (%d MB)\n", (int)nr_free_pages,
-	       (int)(nr_free_pages * PAGE_SIZE >> 20));
+		(int)(nr_free_pages * PAGE_SIZE >> 20));
 }
 
 /**

@@ -70,16 +70,6 @@ struct virtio_blk_dev {
 	uint64_t capacity;
 };
 
-static struct vring_desc vblk_desc[VBLK_QSIZE] __aligned(VRING_DESC_ALIGN_SIZE);
-static struct vblk_avail vblk_avail __aligned(VRING_AVAIL_ALIGN_SIZE);
-static struct vblk_used vblk_used __aligned(VRING_USED_ALIGN_SIZE);
-static struct virtio_blk_req vblk_req;
-static struct virtio_blk_dev vblk_dev;
-
-#ifdef CONFIG_KERNEL_TEST
-static struct virtio_blk_test_stats vblk_test_stats;
-#endif
-
 /* ---- 设备状态机辅助 ---- */
 
 static __always_inline void vblk_status_set(vaddr_t base, uint32_t bits)
@@ -92,7 +82,34 @@ static __always_inline uint32_t vblk_status_get(vaddr_t base)
 	return virtio_mmio_read(base, VIRTIO_MMIO_STATUS);
 }
 
-/* ---- virtqueue 建立（modern：写入各 ring 的 64 位物理地址后置 QueueReady） ---- */
+static struct vring_desc vblk_desc[VBLK_QSIZE] __aligned(VRING_DESC_ALIGN_SIZE);
+static struct vblk_avail vblk_avail __aligned(VRING_AVAIL_ALIGN_SIZE);
+static struct vblk_used vblk_used __aligned(VRING_USED_ALIGN_SIZE);
+static struct virtio_blk_req vblk_req;
+static struct virtio_blk_dev vblk_dev;
+
+#ifdef CONFIG_KERNEL_TEST
+static struct virtio_blk_test_stats vblk_test_stats;
+#endif
+
+static int virtio_blk_read_sectors(struct block_device *bdev, void *buf,
+				   uint64_t sector, uint32_t nsec);
+static int virtio_blk_write_sectors(struct block_device *bdev, const void *buf,
+				    uint64_t sector, uint32_t nsec);
+
+static const struct block_device_operations vblk_ops = {
+	.read_sectors = virtio_blk_read_sectors,
+	.write_sectors = virtio_blk_write_sectors,
+};
+
+/* 静态块设备实例（主设备号 VIRTIO_BLK_MAJOR） */
+static struct block_device vblk_bdev = {
+	.bd_dev = MKDEV(VIRTIO_BLK_MAJOR, 0),
+	.bd_ops = &vblk_ops,
+	.bd_private = &vblk_dev,
+};
+
+/* ---- virtqueue 建立：modern 模式下写入各 ring 物理地址后置 QueueReady ---- */
 
 static void vblk_setup_queue(uintptr_t base)
 {
@@ -265,18 +282,6 @@ static int virtio_blk_write_sectors(struct block_device *bdev, const void *buf,
 	return virtio_blk_rw(bdev, true, (void *)buf, sector, nsec);
 }
 
-static const struct block_device_operations vblk_ops = {
-	.read_sectors = virtio_blk_read_sectors,
-	.write_sectors = virtio_blk_write_sectors,
-};
-
-/* 静态块设备实例（主设备号 VIRTIO_BLK_MAJOR） */
-static struct block_device vblk_bdev = {
-	.bd_dev = MKDEV(VIRTIO_BLK_MAJOR, 0),
-	.bd_ops = &vblk_ops,
-	.bd_private = &vblk_dev,
-};
-
 /* ---- 只读 smoke test：读扇区 0 并 hexdump 前 32 字节 ---- */
 
 static void vblk_smoke_test(void)
@@ -320,7 +325,8 @@ void virtio_blk_init(void)
 	vblk_status_set(base, VIRTIO_CONFIG_S_ACKNOWLEDGE);
 
 	/* DRIVER：驱动正接管设备 */
-	vblk_status_set(base, VIRTIO_CONFIG_S_ACKNOWLEDGE | VIRTIO_CONFIG_S_DRIVER);
+	vblk_status_set(base,
+			VIRTIO_CONFIG_S_ACKNOWLEDGE | VIRTIO_CONFIG_S_DRIVER);
 
 	/* 特性协商 */
 	vblk_negotiate_features(base);
@@ -346,8 +352,8 @@ void virtio_blk_init(void)
 	register_block_device(&vblk_bdev);
 
 	pr_info("virtio_blk: init ok, capacity=%llu sectors (%llu MB)\n",
-	       (unsigned long long)vblk_dev.capacity,
-	       (unsigned long long)(vblk_dev.capacity >> 11));
+		(unsigned long long)vblk_dev.capacity,
+		(unsigned long long)(vblk_dev.capacity >> 11));
 
 	/* 读路径 smoke test */
 	vblk_smoke_test();

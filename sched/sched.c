@@ -99,6 +99,9 @@ void sched_yield(void)
 
 void schedule(void)
 {
+	struct task_struct *prev;
+	struct task_struct *next;
+
 	if (!preemptible())
 		return;
 
@@ -109,7 +112,7 @@ void schedule(void)
 		if (current == &idle_task || current->state == TASK_RUNNING)
 			return;
 
-		struct task_struct *prev = current;
+		prev = current;
 		check_canary(prev);
 		switch_address_space(prev, &idle_task);
 		current = &idle_task;
@@ -117,8 +120,8 @@ void schedule(void)
 		return;
 	}
 
-	struct task_struct *next = mlfq_pick_next();
-	struct task_struct *prev = current;
+	next = mlfq_pick_next();
+	prev = current;
 
 	if (next == prev)
 		return;

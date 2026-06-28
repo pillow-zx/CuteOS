@@ -44,8 +44,8 @@ ssize_t sys_munmap(struct trap_frame *tf)
 
 ssize_t sys_mprotect(struct trap_frame *tf)
 {
-	return mm_mprotect(task_mm(current), (uintptr_t)tf->a0,
-			   (size_t)tf->a1, (int)tf->a2);
+	return mm_mprotect(task_mm(current), (uintptr_t)tf->a0, (size_t)tf->a1,
+			   (int)tf->a2);
 }
 
 /*
@@ -57,8 +57,8 @@ ssize_t sys_mprotect(struct trap_frame *tf)
 ssize_t sys_madvise(struct trap_frame *tf)
 {
 	uintptr_t addr  = (uintptr_t)tf->a0;
-	size_t    len   = (size_t)tf->a1;
-	int       advice = (int)tf->a2;
+	size_t	  len   = (size_t)tf->a1;
+	int	  advice = (int)tf->a2;
 
 	switch (advice) {
 	case MADV_NORMAL:
@@ -87,12 +87,12 @@ ssize_t sys_madvise(struct trap_frame *tf)
  */
 ssize_t sys_mincore(struct trap_frame *tf)
 {
-	uintptr_t      addr  = (uintptr_t)tf->a0;
-	size_t         len   = (size_t)tf->a1;
-	unsigned char *uvec  = (unsigned char *)tf->a2;
+	uintptr_t      addr = (uintptr_t)tf->a0;
+	size_t         len  = (size_t)tf->a1;
+	unsigned char *uvec = (unsigned char *)tf->a2;
 	struct mm_struct *mm;
 	uintptr_t end, va;
-	size_t    npages, i;
+	size_t npages, i;
 	/* Stack buffer: covers up to 256 pages per batch without heap alloc. */
 	unsigned char kbuf[256];
 	size_t batch, done = 0;

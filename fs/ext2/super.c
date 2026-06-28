@@ -9,7 +9,7 @@
 #include <kernel/string.h>
 #include <kernel/vfs.h>
 
-#define EXT2_ROOT_DEV	 MKDEV(8, 0)
+#define EXT2_ROOT_DEV MKDEV(8, 0)
 static struct super_block *ext2_mount(struct file_system_type *fs_type,
 				      dev_t dev, void *data);
 static void ext2_evict_inode(struct inode *inode);

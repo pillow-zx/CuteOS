@@ -76,7 +76,7 @@ void test_virtio_blk_errors(void)
 {
 	struct block_device *bdev;
 	/* 主设备号 40 ≥ 32（NR_BLOCK_DEVICES）：仅用于触发越界分支 */
-	struct block_device bad = { .bd_dev = MKDEV(40, 0) };
+	struct block_device bad = {.bd_dev = MKDEV(40, 0)};
 	static uint8_t buf[SECTOR_SIZE];
 	int ret;
 
@@ -96,7 +96,8 @@ void test_virtio_blk_errors(void)
 		ret = bdev->bd_ops->read_sectors(bdev, buf, 0, 0);
 		TEST_ASSERT_EQ(ret, -EINVAL);
 
-		ret = bdev->bd_ops->read_sectors(bdev, buf, bdev->bd_sectors, 1);
+		ret = bdev->bd_ops->read_sectors(bdev, buf, bdev->bd_sectors,
+						 1);
 		TEST_ASSERT_EQ(ret, -EINVAL);
 	}
 	TEST_END("virtio_blk error paths");

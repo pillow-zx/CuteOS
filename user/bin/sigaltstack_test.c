@@ -14,8 +14,8 @@
 #include <uapi/mman.h>
 #include <uapi/signal.h>
 
-#define ALT_STACK_SIZE (SIGSTKSZ * 2)   /* 16 KB */
-#define PAGE_SIZE 4096UL
+#define ALT_STACK_SIZE (SIGSTKSZ * 2) /* 16 KB */
+#define PAGE_SIZE      4096UL
 
 static char *alt_base;
 static volatile int handler_ran;
@@ -62,9 +62,9 @@ static int test_install_altstack(void)
 		return 1;
 	}
 
-	ss.ss_sp    = alt_base;
+	ss.ss_sp = alt_base;
 	ss.ss_flags = 0;
-	ss.ss_size  = ALT_STACK_SIZE;
+	ss.ss_size = ALT_STACK_SIZE;
 
 	ret = sigaltstack(&ss, NULL);
 	if (ret != 0) {
@@ -80,9 +80,9 @@ static int test_query_altstack(void)
 	struct stack_t old;
 	long ret;
 
-	old.ss_sp    = NULL;
+	old.ss_sp = NULL;
 	old.ss_flags = -1;
-	old.ss_size  = 0;
+	old.ss_size = 0;
 
 	ret = sigaltstack(NULL, &old);
 	if (ret != 0) {
@@ -114,8 +114,8 @@ static int test_handler_on_altstack(void)
 	handler_change_denied = 0;
 
 	sa.sa_handler = handler_check_stack;
-	sa.sa_flags   = SA_ONSTACK;
-	sa.sa_mask    = 0;
+	sa.sa_flags = SA_ONSTACK;
+	sa.sa_mask = 0;
 	sa.sa_restorer = NULL;
 
 	if (sigaction(SIGUSR1, &sa, NULL) != 0) {
@@ -160,8 +160,8 @@ static int test_fork_inherits_altstack(void)
 	int status;
 
 	sa.sa_handler = handler_check_stack;
-	sa.sa_flags   = SA_ONSTACK;
-	sa.sa_mask    = 0;
+	sa.sa_flags = SA_ONSTACK;
+	sa.sa_mask = 0;
 	sa.sa_restorer = NULL;
 	if (sigaction(SIGUSR1, &sa, NULL) != 0) {
 		printf("FAIL: sigaction fork inherit\n");
@@ -208,9 +208,9 @@ static int test_disable_altstack(void)
 	struct stack_t ss, old;
 	long ret;
 
-	ss.ss_sp    = NULL;
+	ss.ss_sp = NULL;
 	ss.ss_flags = SS_DISABLE;
-	ss.ss_size  = 0;
+	ss.ss_size = 0;
 
 	ret = sigaltstack(&ss, &old);
 	if (ret != 0) {
@@ -233,12 +233,12 @@ static int test_invalid_flags(void)
 	struct stack_t ss;
 	long ret;
 
-	ss.ss_sp    = alt_base;
-	ss.ss_flags = 0xff;           /* invalid flags */
-	ss.ss_size  = ALT_STACK_SIZE;
+	ss.ss_sp = alt_base;
+	ss.ss_flags = 0xff; /* invalid flags */
+	ss.ss_size = ALT_STACK_SIZE;
 
 	ret = sigaltstack(&ss, NULL);
-	if (ret != -22) {             /* -EINVAL */
+	if (ret != -22) { /* -EINVAL */
 		printf("FAIL: invalid flags: expected -22 got %ld\n", ret);
 		return 1;
 	}

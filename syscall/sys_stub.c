@@ -135,8 +135,9 @@ ssize_t sys_rseq(struct trap_frame *tf)
 	(void)tf;
 	/*
 	 * Compatibility policy: report rseq unsupported so libc falls back to
-	 * normal atomics. Returning success without full abort-on-preempt/signal
-	 * semantics would be more dangerous than an explicit -ENOSYS.
+	 * normal atomics. Returning success without full
+	 * abort-on-preempt/signal semantics would be more dangerous than an
+	 * explicit -ENOSYS.
 	 */
 	return -ENOSYS;
 }

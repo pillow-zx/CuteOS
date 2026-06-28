@@ -73,8 +73,8 @@ ssize_t sys_wait4(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	if (wstatus && copy_to_user(wstatus, &result.status,
-				    sizeof(result.status)) != 0)
+	if (wstatus &&
+	    copy_to_user(wstatus, &result.status, sizeof(result.status)) != 0)
 		return -EFAULT;
 
 	kernel_wait4_finish(&result);

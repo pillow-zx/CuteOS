@@ -23,10 +23,10 @@ static int test_futex_error_paths(void)
 	int word = 1;
 	struct timespec timeout;
 
-	failed += expect_eq("futex wait mismatch",
-			    futex(&word, FUTEX_WAIT | FUTEX_PRIVATE_FLAG, 0,
-				  NULL, NULL, 0),
-			    -EAGAIN);
+	failed += expect_eq(
+		"futex wait mismatch",
+		futex(&word, FUTEX_WAIT | FUTEX_PRIVATE_FLAG, 0, NULL, NULL, 0),
+		-EAGAIN);
 
 	word = 0;
 	failed += expect_eq("futex bad timeout pointer",
@@ -63,16 +63,16 @@ static int test_robust_list_roundtrip(void)
 
 	failed += expect_eq("set_robust_list",
 			    set_robust_list(&head, sizeof(head)), 0);
-	failed += expect_eq("get_robust_list",
-			    get_robust_list(0, &got, &len), 0);
+	failed +=
+		expect_eq("get_robust_list", get_robust_list(0, &got, &len), 0);
 
 	if (got != &head) {
 		printf("FAIL: robust head mismatch\n");
 		failed++;
 	}
 	if (len != (long)sizeof(head)) {
-		printf("FAIL: robust len got %ld, want %ld\n",
-		       len, (long)sizeof(head));
+		printf("FAIL: robust len got %ld, want %ld\n", len,
+		       (long)sizeof(head));
 		failed++;
 	}
 

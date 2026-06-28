@@ -46,7 +46,7 @@ static int test_create_join(void)
 /* ---- test 2: mutex-protected shared counter ---- */
 
 #define N_THREADS 4
-#define N_ITERS   500
+#define N_ITERS	  500
 
 static pthread_mutex_t cnt_mutex = PTHREAD_MUTEX_INITIALIZER;
 static volatile int shared_cnt;
@@ -143,7 +143,8 @@ static int test_self_consistency(void)
 	if (rc != 0)
 		return 1;
 
-	long recorded = __atomic_load_n((long *)&child_self_tid, __ATOMIC_ACQUIRE);
+	long recorded =
+		__atomic_load_n((long *)&child_self_tid, __ATOMIC_ACQUIRE);
 
 	if (recorded != (long)t) {
 		printf("FAIL: self tid %ld != thread handle %ld\n", recorded,

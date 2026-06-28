@@ -56,8 +56,8 @@ static int test_getdents64_small_buffer(void)
 
 	ret = getdents64((int)fd, tiny, 0);
 	if (ret != -EINVAL) {
-		printf("FAIL: getdents64 zero expected -%d got %ld\n",
-		       EINVAL, ret);
+		printf("FAIL: getdents64 zero expected -%d got %ld\n", EINVAL,
+		       ret);
 		close((int)fd);
 		return 1;
 	}
@@ -65,8 +65,8 @@ static int test_getdents64_small_buffer(void)
 	ret = getdents64((int)fd, tiny, sizeof(tiny));
 	close((int)fd);
 	if (ret != -EINVAL) {
-		printf("FAIL: getdents64 tiny expected -%d got %ld\n",
-		       EINVAL, ret);
+		printf("FAIL: getdents64 tiny expected -%d got %ld\n", EINVAL,
+		       ret);
 		return 1;
 	}
 
@@ -101,8 +101,7 @@ static int test_getdents64_d_off_resume(void)
 	first = (struct linux_dirent64 *)buf;
 	if (first->d_reclen < name_off + 2 ||
 	    first->d_reclen > (unsigned long)n) {
-		printf("FAIL: first d_reclen=%u n=%ld\n",
-		       first->d_reclen, n);
+		printf("FAIL: first d_reclen=%u n=%ld\n", first->d_reclen, n);
 		close((int)fd);
 		return 1;
 	}
@@ -112,16 +111,15 @@ static int test_getdents64_d_off_resume(void)
 		return 1;
 	}
 	if (first->d_off <= 0) {
-		printf("FAIL: first d_off expected >0 got %ld\n",
-		       first->d_off);
+		printf("FAIL: first d_off expected >0 got %ld\n", first->d_off);
 		close((int)fd);
 		return 1;
 	}
 
 	off = lseek((int)fd, first->d_off, SEEK_SET);
 	if (off != first->d_off) {
-		printf("FAIL: lseek d_off expected %ld got %ld\n",
-		       first->d_off, off);
+		printf("FAIL: lseek d_off expected %ld got %ld\n", first->d_off,
+		       off);
 		close((int)fd);
 		return 1;
 	}
@@ -136,8 +134,7 @@ static int test_getdents64_d_off_resume(void)
 	next = (struct linux_dirent64 *)next_buf;
 	if (next->d_reclen < name_off + 2 ||
 	    next->d_reclen > (unsigned long)n2) {
-		printf("FAIL: next d_reclen=%u n=%ld\n",
-		       next->d_reclen, n2);
+		printf("FAIL: next d_reclen=%u n=%ld\n", next->d_reclen, n2);
 		return 1;
 	}
 	if (!has_nul(next->d_name, next->d_reclen - name_off)) {

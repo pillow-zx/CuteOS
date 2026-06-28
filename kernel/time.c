@@ -49,8 +49,7 @@ int timespec_to_mtime_delta(const struct sys_timespec *ts, uint64_t *delta)
 
 	if (!ts || !delta)
 		return -EINVAL;
-	if (ts->tv_sec < 0 || ts->tv_nsec < 0 ||
-	    ts->tv_nsec >= 1000000000LL)
+	if (ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= 1000000000LL)
 		return -EINVAL;
 
 	if ((uint64_t)ts->tv_sec > UINT64_MAX / MTIME_FREQ)
@@ -58,9 +57,8 @@ int timespec_to_mtime_delta(const struct sys_timespec *ts, uint64_t *delta)
 	else
 		sec_ticks = (uint64_t)ts->tv_sec * MTIME_FREQ;
 
-	nsec_ticks =
-		((uint64_t)ts->tv_nsec * MTIME_FREQ + 999999999ULL) /
-		1000000000ULL;
+	nsec_ticks = ((uint64_t)ts->tv_nsec * MTIME_FREQ + 999999999ULL) /
+		     1000000000ULL;
 	if (nsec_ticks > UINT64_MAX - sec_ticks)
 		*delta = UINT64_MAX;
 	else

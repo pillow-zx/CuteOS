@@ -12,7 +12,7 @@
 struct files_struct {
 	refcount_t refcount;
 	mutex_t lock;
-	unsigned long close_on_exec;  /* bitmask: bit N = fd N has FD_CLOEXEC */
+	unsigned long close_on_exec; /* bitmask: bit N = fd N has FD_CLOEXEC */
 	struct file *fd[NR_OPEN];
 };
 

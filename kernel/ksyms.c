@@ -3,7 +3,7 @@
 
 #if CONFIG_KSYMS
 const struct ksym ksym_table[1] __weak = {
-	{ 0, NULL },
+	{0, NULL},
 };
 const size_t ksym_count __weak;
 #endif

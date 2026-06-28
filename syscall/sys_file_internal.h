@@ -6,7 +6,7 @@
 #include <kernel/types.h>
 
 #define SYS_FILE_BUF_SIZE 256
-#define SYS_IOV_MAX	      64
+#define SYS_IOV_MAX	  64
 
 struct sys_iovec {
 	uint64_t iov_base;

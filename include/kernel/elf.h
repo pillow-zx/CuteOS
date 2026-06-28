@@ -22,27 +22,27 @@
 #define SELFMAG		4
 
 /* e_ident[] 索引 */
-#define EI_MAG0		0
-#define EI_MAG1		1
-#define EI_MAG2		2
-#define EI_MAG3		3
-#define EI_CLASS	4
-#define EI_DATA		5
-#define EI_VERSION	6
-#define EI_OSABI	7
-#define EI_ABIVERSION	8
-#define EI_PAD		9
-#define EI_NIDENT	16
+#define EI_MAG0	      0
+#define EI_MAG1	      1
+#define EI_MAG2	      2
+#define EI_MAG3	      3
+#define EI_CLASS      4
+#define EI_DATA	      5
+#define EI_VERSION    6
+#define EI_OSABI      7
+#define EI_ABIVERSION 8
+#define EI_PAD	      9
+#define EI_NIDENT     16
 
 /* EI_CLASS */
-#define ELFCLASSNONE	0
-#define ELFCLASS32	1
-#define ELFCLASS64	2
+#define ELFCLASSNONE 0
+#define ELFCLASS32   1
+#define ELFCLASS64   2
 
 /* EI_DATA */
-#define ELFDATANONE	0
-#define ELFDATA2LSB	1	/* 小端序 */
-#define ELFDATA2MSB	2	/* 大端序 */
+#define ELFDATANONE 0
+#define ELFDATA2LSB 1 /* 小端序 */
+#define ELFDATA2MSB 2 /* 大端序 */
 
 /* e_type */
 #define ET_NONE		0
@@ -63,19 +63,19 @@
 
 typedef struct {
 	unsigned char e_ident[EI_NIDENT]; /* ELF 标识 */
-	uint16_t e_type;		     /* 目标文件类型 */
-	uint16_t e_machine;		     /* 架构 */
-	uint32_t e_version;		     /* 目标文件版本 */
-	uint64_t e_entry;		     /* 入口点虚拟地址 */
-	uint64_t e_phoff;		     /* Program header 表偏移 */
-	uint64_t e_shoff;		     /* Section header 表偏移 */
-	uint32_t e_flags;		     /* 处理器特定标志 */
-	uint16_t e_ehsize;		     /* ELF 头大小 */
-	uint16_t e_phentsize;		     /* Program header 表项大小 */
-	uint16_t e_phnum;		     /* Program header 表项数量 */
-	uint16_t e_shentsize;		     /* Section header 表项大小 */
-	uint16_t e_shnum;		     /* Section header 表项数量 */
-	uint16_t e_shstrndx;		     /* Section header 字符串表索引 */
+	uint16_t e_type;		          /* 目标文件类型 */
+	uint16_t e_machine;		          /* 架构 */
+	uint32_t e_version;		          /* 目标文件版本 */
+	uint64_t e_entry;		          /* 入口点虚拟地址 */
+	uint64_t e_phoff;		          /* Program header 表偏移 */
+	uint64_t e_shoff;		          /* Section header 表偏移 */
+	uint32_t e_flags;		          /* 处理器特定标志 */
+	uint16_t e_ehsize;		          /* ELF 头大小 */
+	uint16_t e_phentsize;		      /* Program header 表项大小 */
+	uint16_t e_phnum;		          /* Program header 表项数量 */
+	uint16_t e_shentsize;		      /* Section header 表项大小 */
+	uint16_t e_shnum;		          /* Section header 表项数量 */
+	uint16_t e_shstrndx;		      /* Section header 字符串表索引 */
 } Elf64_Ehdr;
 
 /* ---- Program header 段类型 ---- */
@@ -97,14 +97,14 @@ typedef struct {
 /* ---- ELF64 Program header ---- */
 
 typedef struct {
-	uint32_t p_type;    /* 段类型 */
-	uint32_t p_flags;   /* 段权限标志 */
-	uint64_t p_offset;  /* 段在文件中的偏移 */
-	uint64_t p_vaddr;   /* 段的虚拟地址 */
-	uint64_t p_paddr;   /* 段的物理地址（未使用） */
-	uint64_t p_filesz;  /* 段在文件中的大小 */
-	uint64_t p_memsz;   /* 段在内存中的大小 */
-	uint64_t p_align;   /* 段对齐 */
+	uint32_t p_type;   /* 段类型 */
+	uint32_t p_flags;  /* 段权限标志 */
+	uint64_t p_offset; /* 段在文件中的偏移 */
+	uint64_t p_vaddr;  /* 段的虚拟地址 */
+	uint64_t p_paddr;  /* 段的物理地址（未使用） */
+	uint64_t p_filesz; /* 段在文件中的大小 */
+	uint64_t p_memsz;  /* 段在内存中的大小 */
+	uint64_t p_align;  /* 段对齐 */
 } Elf64_Phdr;
 
 #endif

@@ -43,7 +43,8 @@ ssize_t sys_futex(struct trap_frame *tf)
 	int *uaddr = (int *)tf->a0;
 	int op = (int)tf->a1;
 	int val = (int)tf->a2;
-	const struct sys_timespec *timeout = (const struct sys_timespec *)tf->a3;
+	const struct sys_timespec *timeout =
+		(const struct sys_timespec *)tf->a3;
 	struct futex_deadline deadline;
 	int ret;
 

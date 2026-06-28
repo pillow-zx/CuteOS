@@ -71,8 +71,7 @@ static void put_create_target(struct create_target *target)
 		dput(target->parent);
 }
 
-static void rollback_create_target(struct create_target *target,
-				   bool directory)
+static void rollback_create_target(struct create_target *target, bool directory)
 {
 	int ret;
 
@@ -234,8 +233,8 @@ int vfs_rename_at(struct dentry *old_base, const char *old_path,
 	struct dentry *old_dentry, *new_dentry;
 	int ret;
 
-	ret = path_parent_lookupat_err(old_base, old_path,
-				       old_name, &old_namelen, &old_parent);
+	ret = path_parent_lookupat_err(old_base, old_path, old_name,
+				       &old_namelen, &old_parent);
 	if (ret < 0)
 		return ret;
 	if (!old_parent->d_inode || !old_parent->d_inode->i_op) {
@@ -243,8 +242,8 @@ int vfs_rename_at(struct dentry *old_base, const char *old_path,
 		return -ENOTDIR;
 	}
 
-	ret = path_parent_lookupat_err(new_base, new_path,
-				       new_name, &new_namelen, &new_parent);
+	ret = path_parent_lookupat_err(new_base, new_path, new_name,
+				       &new_namelen, &new_parent);
 	if (ret < 0) {
 		dput(old_parent);
 		return ret;
@@ -287,10 +286,9 @@ int vfs_rename_at(struct dentry *old_base, const char *old_path,
 		goto out_dput;
 	}
 
-	ret = old_parent->d_inode->i_op->rename(old_parent->d_inode,
-						old_dentry,
-						new_parent->d_inode,
-						new_dentry, flags);
+	ret = old_parent->d_inode->i_op->rename(old_parent->d_inode, old_dentry,
+						new_parent->d_inode, new_dentry,
+						flags);
 	if (ret == 0) {
 		dcache_invalidate(new_dentry);
 		dcache_move(old_dentry, new_parent, new_name, new_namelen);

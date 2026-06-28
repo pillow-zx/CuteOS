@@ -93,10 +93,11 @@ int page_cache_wb_run(struct page_cache *start)
 		return -ENOMEM;
 
 	/*
-	 * Clustered writeback is conservative: collect only dirty pages from the
-	 * same mapping whose logical indexes are adjacent and whose physical
-	 * blocks are adjacent.  That lets writepages() issue one contiguous
-	 * device write without requiring the filesystem to handle scatter/gather.
+	 * Clustered writeback is conservative: collect only dirty pages from
+	 * the same mapping whose logical indexes are adjacent and whose
+	 * physical blocks are adjacent.  That lets writepages() issue one
+	 * contiguous device write without requiring the filesystem to handle
+	 * scatter/gather.
 	 */
 	index = start->index;
 	limit = wb_pages;
@@ -154,8 +155,7 @@ int page_cache_sync_mapping(struct page_mapping *mapping)
 		return -EINVAL;
 
 	for (;;) {
-		struct page_cache *page =
-			page_cache_dirty_first(mapping);
+		struct page_cache *page = page_cache_dirty_first(mapping);
 
 		if (!page)
 			break;

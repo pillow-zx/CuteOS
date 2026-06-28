@@ -5,7 +5,7 @@
 #include <kernel/page_cache.h>
 #include <kernel/string.h>
 
-#define EXT2_MAX_FILE_SIZE ((uint64_t)UINT32_MAX)
+#define EXT2_MAX_FILE_SIZE  ((uint64_t)UINT32_MAX)
 #define EXT2_MAX_FILE_INDEX ((EXT2_MAX_FILE_SIZE - 1) / BLOCK_SIZE)
 
 static bool ext2_file_index_valid(uint64_t index)
@@ -185,8 +185,7 @@ ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count,
 		bool created = false;
 		uint64_t file_pos = (uint64_t)pos + done;
 		uint32_t lblock = (uint32_t)(file_pos / BLOCK_SIZE);
-		uint32_t offset =
-			(uint32_t)(file_pos % BLOCK_SIZE);
+		uint32_t offset = (uint32_t)(file_pos % BLOCK_SIZE);
 		size_t chunk = BLOCK_SIZE - offset;
 		uint32_t pblock;
 		int ret;
@@ -203,9 +202,8 @@ ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count,
 		 * In this ext2 mapping API, -EIO from a readonly lookup means
 		 * "hole"; other errors are real failures.
 		 */
-		ret = inode->i_pages.ops->map_block(&inode->i_pages,
-							lblock, false,
-							&pblock);
+		ret = inode->i_pages.ops->map_block(&inode->i_pages, lblock,
+						    false, &pblock);
 		if (ret < 0) {
 			if (ret != -EIO) {
 				page_cache_put_page(page);
@@ -233,21 +231,26 @@ ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count,
 			 * bytes outside the write range, so read the old page
 			 * before copying user data into it.
 			 */
-			ret = inode->i_pages.ops->readpage(&inode->i_pages,
-							       lblock,
-							       page_cache_data(page));
+			ret = inode->i_pages.ops->readpage(
+				&inode->i_pages, lblock, page_cache_data(page));
 			if (ret < 0) {
 				page_cache_put_page(page);
 				return done ? (ssize_t)done : ret;
 			}
 			page_cache_set_uptodate(page, true);
-		} else if (!page_cache_is_uptodate(page) &&
-			   created && offset == 0 && chunk == BLOCK_SIZE) {
-			/* Full-page overwrite does not need a read-before-write. */
-			page_cache_set_uptodate(page, true);
-		} else if (!page_cache_is_uptodate(page) &&
+		} else if (!page_cache_is_uptodate(page) && created &&
 			   offset == 0 && chunk == BLOCK_SIZE) {
-			/* Same optimization when the page existed but was not loaded. */
+			/*
+			 * Full-page overwrite does not need a
+			 * read-before-write.
+			 */
+			page_cache_set_uptodate(page, true);
+		} else if (!page_cache_is_uptodate(page) && offset == 0 &&
+			   chunk == BLOCK_SIZE) {
+			/*
+			 * Same optimization when the page existed but was not
+			 * loaded.
+			 */
 			page_cache_set_uptodate(page, true);
 		}
 

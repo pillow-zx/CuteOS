@@ -138,8 +138,7 @@ static void signal_or_exit_segv(bool from_user_mode)
 	do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 }
 
-static int fault_in_user_page_locked(struct mm_struct *mm,
-				     uintptr_t fault_addr,
+static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 				     int access, pte_t *fault_pte)
 {
 	struct vm_area_struct *vma = find_vma(mm, fault_addr);
@@ -169,7 +168,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm,
 
 	memset(page, 0, PAGE_SIZE);
 	arch_map_page(mm->pgd, page_addr, __pa((uintptr_t)page),
-		 vma_flags_to_pte(vma->vm_flags));
+		      vma_flags_to_pte(vma->vm_flags));
 	arch_tlb_flush_page(page_addr);
 	return 0;
 }
@@ -207,8 +206,7 @@ int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size,
 			return -EFAULT;
 		}
 
-		segment_end = vma->vm_end < range_end ? vma->vm_end :
-						       range_end;
+		segment_end = vma->vm_end < range_end ? vma->vm_end : range_end;
 		if (segment_end <= cursor) {
 			mm_unlock(mm);
 			return -EFAULT;
@@ -219,8 +217,8 @@ int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size,
 		while (va < page_end) {
 			uintptr_t fault_addr = va < cursor ? cursor : va;
 
-			ret = fault_in_user_page_locked(mm, fault_addr,
-							access, NULL);
+			ret = fault_in_user_page_locked(mm, fault_addr, access,
+							NULL);
 			if (ret < 0)
 				break;
 			va += PAGE_SIZE;
@@ -289,10 +287,10 @@ void do_page_fault(struct trap_frame *tf)
 	if (!vma) {
 		mm_unlock(mm);
 		pr_warn("page fault: illegal access (no VMA) "
-		       "type=%s addr=%p sepc=%p origin=%s pid=%d\n",
-		       fault_type_name(scause), (void *)fault_addr,
-		       (void *)tf->sepc, from_user_mode ? "user" : "kernel",
-		       current->pid);
+			"type=%s addr=%p sepc=%p origin=%s pid=%d\n",
+			fault_type_name(scause), (void *)fault_addr,
+			(void *)tf->sepc, from_user_mode ? "user" : "kernel",
+			current->pid);
 		signal_or_exit_segv(from_user_mode);
 		return;
 	}
@@ -303,20 +301,20 @@ void do_page_fault(struct trap_frame *tf)
 
 		mm_unlock(mm);
 		pr_warn("page fault: permission denied "
-		       "type=%s addr=%p vma_flags=0x%x sepc=%p "
-		       "origin=%s pid=%d\n",
-		       fault_type_name(scause), (void *)fault_addr,
-		       vm_flags, (void *)tf->sepc,
-		       from_user_mode ? "user" : "kernel", current->pid);
+			"type=%s addr=%p vma_flags=0x%x sepc=%p "
+			"origin=%s pid=%d\n",
+			fault_type_name(scause), (void *)fault_addr, vm_flags,
+			(void *)tf->sepc, from_user_mode ? "user" : "kernel",
+			current->pid);
 		signal_or_exit_segv(from_user_mode);
 		return;
 	}
 	mm_unlock(mm);
 
 	pr_warn("page fault: mapped page permission denied "
-	       "type=%s addr=%p pte=0x%lx sepc=%p origin=%s pid=%d\n",
-	       fault_type_name(scause), (void *)fault_addr, (size_t)fault_pte,
-	       (void *)tf->sepc, from_user_mode ? "user" : "kernel",
-	       current->pid);
+		"type=%s addr=%p pte=0x%lx sepc=%p origin=%s pid=%d\n",
+		fault_type_name(scause), (void *)fault_addr, (size_t)fault_pte,
+		(void *)tf->sepc, from_user_mode ? "user" : "kernel",
+		current->pid);
 	signal_or_exit_segv(from_user_mode);
 }

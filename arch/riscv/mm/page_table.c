@@ -14,8 +14,8 @@
  *     步骤二：root[0] 建立 1GB mega page 映射 MMIO 设备空间
  *             (0x10000000 区域)，权限为 R+W（设备寄存器不可执行）。
  *
- *   arch_map_page(pgtbl, va, pa, perm) - 建立单个 4KB 页的虚拟地址到物理地址映射。
- *             自动分配中间层页表页，无需预先创建。
+ *   arch_map_page(pgtbl, va, pa, perm) - 建立单个 4KB 页的虚拟地址到
+ *             物理地址映射。自动分配中间层页表页，无需预先创建。
  *
  *   arch_pt_walk(pgtbl, va) - 三级页表遍历。从 L2 → L1 → L0 逐级查找，
  *             返回最终 PTE 的指针（虚拟地址）。若中间级页表不存在则分配新页。
@@ -230,7 +230,7 @@ void arch_pt_init(void)
 	/* 2. 映射 DRAM（高地址 KERNEL_VBASE + PA → PA）
 	 *    arch_pt_walk 自动分配 1 个 L1 页 + 128 个 L0 页 */
 	pr_info("page_table: mapping %dMB DRAM with 4KB pages...\n",
-	       (int)(DRAM_SIZE >> 20));
+		(int)(DRAM_SIZE >> 20));
 
 	for (paddr_t pa = DRAM_BASE; pa < DRAM_BASE + DRAM_SIZE;
 	     pa += PAGE_SIZE) {
@@ -256,7 +256,7 @@ void arch_pt_init(void)
 	arch_tlb_flush_all();
 
 	pr_info("page_table: switched to kernel page table (root=%p, "
-	       "early_alloc=%dKB)\n",
-	       (void *)root_pa,
-	       (int)((uintptr_t)early_alloc_ptr - (uintptr_t)_end) / 1024);
+		"early_alloc=%dKB)\n",
+		(void *)root_pa,
+		(int)((uintptr_t)early_alloc_ptr - (uintptr_t)_end) / 1024);
 }

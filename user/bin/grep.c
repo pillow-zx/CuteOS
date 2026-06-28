@@ -122,7 +122,8 @@ int main(int argc, char **argv)
 			} else if (arg[j] == 'v') {
 				opts.invert = 1;
 			} else {
-				printf("usage: grep [-F] [-ncvq] PATTERN [FILE...]\n");
+				printf("usage: grep [-F] [-ncvq] PATTERN "
+				       "[FILE...]\n");
 				return 2;
 			}
 		}

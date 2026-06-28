@@ -10,7 +10,7 @@ typedef struct {
 	atomic_t refs;
 } refcount_t;
 
-#define REFCOUNT_INIT(n) { .refs = ATOMIC_INIT(n) }
+#define REFCOUNT_INIT(n) {.refs = ATOMIC_INIT(n)}
 
 static __always_inline void refcount_set(refcount_t *ref, int value)
 {

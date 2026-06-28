@@ -133,8 +133,8 @@ static int parse_type(const char *arg)
 {
 	if (!arg || arg[0] == '\0' || arg[1] != '\0')
 		return 0;
-	if (arg[0] == 'f' || arg[0] == 'd' || arg[0] == 'l' ||
-	    arg[0] == 'c' || arg[0] == 'b' || arg[0] == 'p')
+	if (arg[0] == 'f' || arg[0] == 'd' || arg[0] == 'l' || arg[0] == 'c' ||
+	    arg[0] == 'b' || arg[0] == 'p')
 		return arg[0];
 	return 0;
 }

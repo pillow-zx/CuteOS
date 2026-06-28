@@ -34,8 +34,7 @@ void test_page_cache_metadata_basic(void)
 		TEST_ASSERT_NOT_NULL(bdev);
 		TEST_ASSERT(bdev->bd_sectors > BLOCK_SECTORS + 4);
 
-		block = (bdev->bd_sectors - BLOCK_SECTORS - 2) /
-			BLOCK_SECTORS;
+		block = (bdev->bd_sectors - BLOCK_SECTORS - 2) / BLOCK_SECTORS;
 		sector = block * BLOCK_SECTORS;
 
 		page = page_cache_get_block(ROOT_DEV, block);

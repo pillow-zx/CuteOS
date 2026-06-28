@@ -4,13 +4,13 @@
 #include <kernel/types.h>
 #include <kernel/task.h>
 
-#define FUTEX_WAIT	    0
-#define FUTEX_WAKE	    1
+#define FUTEX_WAIT	       0
+#define FUTEX_WAKE	       1
 #define FUTEX_PRIVATE_FLAG 128
-#define FUTEX_CMD_MASK	    0x7f
-#define FUTEX_WAITERS	    0x80000000U
-#define FUTEX_OWNER_DIED    0x40000000U
-#define FUTEX_TID_MASK	    0x3fffffffU
+#define FUTEX_CMD_MASK	   0x7f
+#define FUTEX_WAITERS	   0x80000000U
+#define FUTEX_OWNER_DIED   0x40000000U
+#define FUTEX_TID_MASK	   0x3fffffffU
 
 struct futex_deadline {
 	bool active;

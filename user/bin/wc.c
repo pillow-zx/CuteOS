@@ -22,8 +22,7 @@ static int count_fd(int fd, const char *name, struct wc_count *count)
 		long n = read(fd, buf, sizeof(buf));
 
 		if (n < 0) {
-			printf("wc: %s: %s\n", name ? name : "-",
-			       strerror(n));
+			printf("wc: %s: %s\n", name ? name : "-", strerror(n));
 			return 1;
 		}
 		if (n == 0)

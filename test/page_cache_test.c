@@ -148,8 +148,9 @@ void test_page_cache_dirty_write_visibility(void)
 		fd = open_test_file("/pcache-dirty", O_CREAT | O_TRUNC | O_RDWR,
 				    &file);
 		TEST_ASSERT(fd >= 0);
-		TEST_ASSERT_EQ(vfs_write(file, (const char *)wbuf, sizeof(wbuf)),
-			       (ssize_t)sizeof(wbuf));
+		TEST_ASSERT_EQ(
+			vfs_write(file, (const char *)wbuf, sizeof(wbuf)),
+			(ssize_t)sizeof(wbuf));
 		TEST_ASSERT_EQ(read_raw_file_page(file, 0, raw), 0);
 		TEST_ASSERT_NE(memcmp(raw, wbuf, sizeof(wbuf)), 0);
 	}
@@ -186,10 +187,12 @@ void test_page_cache_fsync_inode_scope(void)
 		TEST_ASSERT(fd_a >= 0);
 		TEST_ASSERT(fd_b >= 0);
 
-		TEST_ASSERT_EQ(vfs_write(file_a, (const char *)abuf, sizeof(abuf)),
-			       (ssize_t)sizeof(abuf));
-		TEST_ASSERT_EQ(vfs_write(file_b, (const char *)bbuf, sizeof(bbuf)),
-			       (ssize_t)sizeof(bbuf));
+		TEST_ASSERT_EQ(
+			vfs_write(file_a, (const char *)abuf, sizeof(abuf)),
+			(ssize_t)sizeof(abuf));
+		TEST_ASSERT_EQ(
+			vfs_write(file_b, (const char *)bbuf, sizeof(bbuf)),
+			(ssize_t)sizeof(bbuf));
 
 		memset(raw, 0, sizeof(raw));
 		TEST_ASSERT_EQ(read_raw_file_page(file_a, 0, raw), 0);
@@ -232,8 +235,9 @@ void test_page_cache_raw_alias_fsync(void)
 		fd = open_test_file("/pcache-block-mapping-refresh",
 				    O_CREAT | O_TRUNC | O_RDWR, &file);
 		TEST_ASSERT(fd >= 0);
-		TEST_ASSERT_EQ(vfs_write(file, (const char *)wbuf, sizeof(wbuf)),
-			       (ssize_t)sizeof(wbuf));
+		TEST_ASSERT_EQ(
+			vfs_write(file, (const char *)wbuf, sizeof(wbuf)),
+			(ssize_t)sizeof(wbuf));
 		TEST_ASSERT_EQ(read_block_alias(file, 0, cached), 0);
 		TEST_ASSERT_NE(memcmp(cached, wbuf, sizeof(wbuf)), 0);
 
@@ -272,22 +276,21 @@ void test_page_cache_directory_alias_refresh(void)
 		(void)vfs_unlink("/pcache-alias-dir", AT_REMOVEDIR);
 
 		TEST_ASSERT_EQ(vfs_mkdir("/pcache-alias-dir", 0755), 0);
-		TEST_ASSERT_EQ(path_lookupat_err(NULL, "/pcache-alias-dir",
-						 0, &dir_dentry),
+		TEST_ASSERT_EQ(path_lookupat_err(NULL, "/pcache-alias-dir", 0,
+						 &dir_dentry),
 			       0);
 		TEST_ASSERT_NOT_NULL(dir_dentry);
 		TEST_ASSERT_NOT_NULL(dir_dentry->d_inode);
 
 		pblock = ext2_bmap(dir_dentry->d_inode, 0, false);
 		TEST_ASSERT_NE(pblock, 0u);
-		raw_page = page_cache_get_block(dir_dentry->d_inode->i_sb->s_dev,
-						pblock);
+		raw_page = page_cache_get_block(
+			dir_dentry->d_inode->i_sb->s_dev, pblock);
 		TEST_ASSERT_NOT_NULL(raw_page);
 		TEST_ASSERT(!dir_page_has_entry(page_cache_data(raw_page),
 						"child"));
 
-		ret = vfs_create("/pcache-alias-dir/child", 0644,
-				 &file_dentry);
+		ret = vfs_create("/pcache-alias-dir/child", 0644, &file_dentry);
 		TEST_ASSERT_EQ(ret, 0);
 		TEST_ASSERT_NOT_NULL(file_dentry);
 		dput(file_dentry);
@@ -330,9 +333,9 @@ void test_page_cache_raw_alias_drop(void)
 		fd = open_test_file("/pcache-alias-invalidate",
 				    O_CREAT | O_TRUNC | O_RDWR, &file);
 		TEST_ASSERT(fd >= 0);
-		TEST_ASSERT_EQ(vfs_write(file, (const char *)old_buf,
-					 sizeof(old_buf)),
-			       (ssize_t)sizeof(old_buf));
+		TEST_ASSERT_EQ(
+			vfs_write(file, (const char *)old_buf, sizeof(old_buf)),
+			(ssize_t)sizeof(old_buf));
 		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
 		TEST_ASSERT_EQ(read_block_alias(file, 0, cached), 0);
 		TEST_ASSERT_EQ(memcmp(cached, old_buf, sizeof(cached)), 0);
@@ -347,7 +350,8 @@ void test_page_cache_raw_alias_drop(void)
 	TEST_END("page cache: alias invalidate reloads raw block");
 	goto cleanup;
 fail:
-	TEST_FAIL("page cache: alias invalidate reloads raw block", "see above");
+	TEST_FAIL("page cache: alias invalidate reloads raw block",
+		  "see above");
 cleanup:
 	close_test_file(fd, file);
 	unlink_test_path("/pcache-alias-invalidate");
@@ -368,17 +372,17 @@ void test_page_cache_pressure_eviction(void)
 		unlink_test_path("/pcache-pressure");
 		unlink_test_path("/pcache-clean");
 
-		dirty_fd = open_test_file("/pcache-pressure",
-					  O_CREAT | O_TRUNC | O_RDWR,
-					  &dirty_file);
+		dirty_fd =
+			open_test_file("/pcache-pressure",
+				       O_CREAT | O_TRUNC | O_RDWR, &dirty_file);
 		TEST_ASSERT(dirty_fd >= 0);
 
 		for (uint32_t i = 0; i < NR_PRESSURE_PAGES; i++) {
 			fill_pattern(page_buf, sizeof(page_buf), (uint8_t)i);
-			TEST_ASSERT_EQ(
-				vfs_write(dirty_file, (const char *)page_buf,
-					  sizeof(page_buf)),
-				(ssize_t)sizeof(page_buf));
+			TEST_ASSERT_EQ(vfs_write(dirty_file,
+						 (const char *)page_buf,
+						 sizeof(page_buf)),
+				       (ssize_t)sizeof(page_buf));
 		}
 
 		fill_pattern(page_buf, sizeof(page_buf), 0);
@@ -388,9 +392,9 @@ void test_page_cache_pressure_eviction(void)
 
 		TEST_ASSERT_EQ(vfs_sync_file(dirty_file), 0);
 
-		clean_fd = open_test_file("/pcache-clean",
-					  O_CREAT | O_TRUNC | O_RDWR,
-					  &clean_file);
+		clean_fd =
+			open_test_file("/pcache-clean",
+				       O_CREAT | O_TRUNC | O_RDWR, &clean_file);
 		TEST_ASSERT(clean_fd >= 0);
 		fill_pattern(page_buf, sizeof(page_buf), 0xa7);
 		TEST_ASSERT_EQ(vfs_write(clean_file, (const char *)page_buf,
@@ -421,8 +425,8 @@ void test_page_cache_clustered_writeback(void)
 	TEST_BEGIN("page cache: clustered writeback");
 	{
 		unlink_test_path("/pcache-cluster");
-		fd = open_test_file("/pcache-cluster", O_CREAT | O_TRUNC | O_RDWR,
-				    &file);
+		fd = open_test_file("/pcache-cluster",
+				    O_CREAT | O_TRUNC | O_RDWR, &file);
 		TEST_ASSERT(fd >= 0);
 
 		for (uint32_t i = 0; i < 3; i++) {
@@ -519,9 +523,9 @@ void test_page_cache_truncate_extend_zero_fill(void)
 		fd = open_test_file("/pcache-extend-tail",
 				    O_CREAT | O_TRUNC | O_RDWR, &file);
 		TEST_ASSERT(fd >= 0);
-		TEST_ASSERT_EQ(vfs_write(file, (const char *)initial,
-					 sizeof(initial)),
-			       (ssize_t)sizeof(initial));
+		TEST_ASSERT_EQ(
+			vfs_write(file, (const char *)initial, sizeof(initial)),
+			(ssize_t)sizeof(initial));
 		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
 		TEST_ASSERT_EQ(read_raw_file_page(file, TAIL_INDEX, raw), 0);
 

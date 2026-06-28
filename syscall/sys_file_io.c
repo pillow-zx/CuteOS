@@ -48,8 +48,7 @@ static struct file *fd_get_readable(int fd)
 
 	if (!file)
 		return NULL;
-	if (!(file->f_mode & FMODE_READ) || !file->f_op ||
-	    !file->f_op->read) {
+	if (!(file->f_mode & FMODE_READ) || !file->f_op || !file->f_op->read) {
 		file_put(file);
 		return NULL;
 	}

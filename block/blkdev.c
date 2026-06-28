@@ -41,9 +41,8 @@ static int block_mapping_readpage(struct page_mapping *mapping, uint64_t index,
 					  BLOCK_SECTORS);
 }
 
-static int block_mapping_map_block(struct page_mapping *mapping,
-				   uint64_t index, bool create,
-				   uint32_t *block)
+static int block_mapping_map_block(struct page_mapping *mapping, uint64_t index,
+				   bool create, uint32_t *block)
 {
 	(void)mapping;
 	(void)create;

@@ -113,7 +113,8 @@ void trap_handler(struct trap_frame *tf)
 				do_signal(tf);
 			return;
 		default:
-			panic("unhandled exception: origin=%s scause=0x%lx code=%lu "
+			panic("unhandled exception: origin=%s scause=0x%lx "
+			      "code=%lu "
 			      "sepc=%p stval=%p",
 			      trap_origin(tf), (size_t)scause, (size_t)code,
 			      (void *)tf->sepc, (void *)tf->stval);

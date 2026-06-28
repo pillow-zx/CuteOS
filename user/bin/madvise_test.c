@@ -266,8 +266,8 @@ static int test_mincore_prot_none_resident(void)
 
 	ret = mprotect(m, PAGE_SIZE, PROT_READ | PROT_WRITE);
 	if (ret != 0 || m[0] != 0x5a) {
-		printf("FAIL: PROT_NONE restore ret=%ld value=0x%x\n",
-		       ret, (unsigned char)m[0]);
+		printf("FAIL: PROT_NONE restore ret=%ld value=0x%x\n", ret,
+		       (unsigned char)m[0]);
 		munmap(m, PAGE_SIZE);
 		return 1;
 	}

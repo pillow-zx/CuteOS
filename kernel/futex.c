@@ -11,7 +11,7 @@
 #include <asm/csr.h>
 #include <asm/uaccess.h>
 
-#define FUTEX_BUCKETS 32
+#define FUTEX_BUCKETS	  32
 #define ROBUST_LIST_LIMIT 2048
 
 struct futex_key {
@@ -265,8 +265,8 @@ void futex_exit_robust_list(struct task_struct *task)
 		return;
 
 	entry = head.list.next;
-	for (int i = 0; entry && entry != &head_ptr->list && i < ROBUST_LIST_LIMIT;
-	     i++) {
+	for (int i = 0;
+	     entry && entry != &head_ptr->list && i < ROBUST_LIST_LIMIT; i++) {
 		struct robust_list current;
 
 		robust_wake_owner(task, entry, head.futex_offset);

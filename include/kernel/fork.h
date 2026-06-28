@@ -13,8 +13,7 @@ struct kernel_clone {
 
 int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
 			 uintptr_t child_stack, uintptr_t tls,
-			 int *clear_child_tid,
-			 struct kernel_clone *clone);
+			 int *clear_child_tid, struct kernel_clone *clone);
 pid_t kernel_clone_commit(struct kernel_clone *clone);
 void kernel_clone_abort(struct kernel_clone *clone);
 ssize_t kernel_clone_from_frame(struct trap_frame *tf, unsigned long flags,

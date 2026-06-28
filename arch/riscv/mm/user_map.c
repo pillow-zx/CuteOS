@@ -13,7 +13,7 @@
 #include <drivers/virtio.h>
 
 #define RISCV_MMIO_USER_START UART_BASE
-#define RISCV_MMIO_USER_END	(VIRTIO_MMIO_BASE + PAGE_SIZE)
+#define RISCV_MMIO_USER_END   (VIRTIO_MMIO_BASE + PAGE_SIZE)
 
 static int riscv_user_mmio_map(pte_t *root)
 {

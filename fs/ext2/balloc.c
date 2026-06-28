@@ -24,8 +24,7 @@ static int ext2_sync_super(struct super_block *sb)
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
 	uint32_t super_block = ext2_super_blocknr(BLOCK_SIZE);
 	uint32_t super_off = ext2_super_offset(BLOCK_SIZE);
-	struct page_cache *page = page_cache_get_block(sb->s_dev,
-							    super_block);
+	struct page_cache *page = page_cache_get_block(sb->s_dev, super_block);
 	int ret;
 
 	if (!page)

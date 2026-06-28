@@ -24,8 +24,8 @@ int user_map_register(const char *name, user_map_fn_t map)
 	return user_map_register_reserved(name, 0, 0, map);
 }
 
-int user_map_register_reserved(const char *name, vaddr_t start,
-			       vaddr_t end, user_map_fn_t map)
+int user_map_register_reserved(const char *name, vaddr_t start, vaddr_t end,
+			       user_map_fn_t map)
 {
 	if (!name || !map)
 		return -EINVAL;

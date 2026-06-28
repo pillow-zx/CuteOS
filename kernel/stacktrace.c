@@ -51,8 +51,8 @@ void dump_stack(void)
 
 		name = ksym_lookup(ra, &offset);
 		if (name)
-			pr_err("  [%d] %p <%s+0x%lx>\n", (int)depth,
-			       (void *)ra, name, (size_t)offset);
+			pr_err("  [%d] %p <%s+0x%lx>\n", (int)depth, (void *)ra,
+			       name, (size_t)offset);
 		else
 			pr_err("  [%d] %p\n", (int)depth, (void *)ra);
 

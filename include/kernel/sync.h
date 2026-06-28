@@ -15,7 +15,7 @@ typedef struct {
 	volatile int locked;
 } spinlock_t;
 
-#define SPINLOCK_INIT		{ .locked = 0 }
+#define SPINLOCK_INIT	      {.locked = 0}
 #define DEFINE_SPINLOCK(name) spinlock_t name = SPINLOCK_INIT
 
 typedef struct {
@@ -24,10 +24,11 @@ typedef struct {
 	struct wait_queue_head wait;
 } mutex_t;
 
-#define MUTEX_INIT(name)                                                        \
+#define MUTEX_INIT(name)                                                       \
 	{                                                                      \
-		.lock = SPINLOCK_INIT, .owner = NULL,                          \
-		.wait = { .task_list = LIST_HEAD_INIT((name).wait.task_list) }, \
+		.lock = SPINLOCK_INIT,                                         \
+		.owner = NULL,                                                 \
+		.wait = {.task_list = LIST_HEAD_INIT((name).wait.task_list)},  \
 	}
 #define DEFINE_MUTEX(name) mutex_t name = MUTEX_INIT(name)
 

@@ -14,9 +14,8 @@
 
 ssize_t console_tty_read_stream_for_test(const struct termios *termios,
 					 const char *input, size_t input_len,
-					 char *out, size_t out_size,
-					 char *echo, size_t echo_size,
-					 int *signal);
+					 char *out, size_t out_size, char *echo,
+					 size_t echo_size, int *signal);
 ssize_t console_tty_write_for_test(const struct termios *termios,
 				   const char *input, size_t input_len,
 				   char *out, size_t out_size);
@@ -28,8 +27,10 @@ void test_rlimit_defaults(void)
 	TEST_BEGIN("syscall compat: rlimit defaults");
 	{
 		rlimits_init(limits);
-		TEST_ASSERT_EQ(limits[RLIMIT_NOFILE].rlim_cur, (uint64_t)NR_OPEN);
-		TEST_ASSERT_EQ(limits[RLIMIT_NOFILE].rlim_max, (uint64_t)NR_OPEN);
+		TEST_ASSERT_EQ(limits[RLIMIT_NOFILE].rlim_cur,
+			       (uint64_t)NR_OPEN);
+		TEST_ASSERT_EQ(limits[RLIMIT_NOFILE].rlim_max,
+			       (uint64_t)NR_OPEN);
 		TEST_ASSERT_EQ(limits[RLIMIT_AS].rlim_cur,
 			       (uint64_t)RLIM_INFINITY);
 	}
@@ -95,8 +96,8 @@ void test_console_tty_line_discipline(void)
 
 	TEST_BEGIN("syscall compat: console tty line discipline");
 	{
-		TEST_ASSERT_EQ(console_tty_write_for_test(
-				       &termios, "a\nb", 3, out, sizeof(out)),
+		TEST_ASSERT_EQ(console_tty_write_for_test(&termios, "a\nb", 3,
+							  out, sizeof(out)),
 			       4);
 		TEST_ASSERT_EQ(out[0], 'a');
 		TEST_ASSERT_EQ(out[1], '\r');
@@ -104,10 +105,11 @@ void test_console_tty_line_discipline(void)
 		TEST_ASSERT_EQ(out[3], 'b');
 
 		TEST_ASSERT_EQ(console_tty_read_stream_for_test(
-				       &termios, "ab\x7f"
-						 "cd\n",
-				       6, out, sizeof(out), echo,
-				       sizeof(echo), &signal),
+				       &termios,
+				       "ab\x7f"
+				       "cd\n",
+				       6, out, sizeof(out), echo, sizeof(echo),
+				       &signal),
 			       4);
 		TEST_ASSERT_EQ(signal, 0);
 		TEST_ASSERT_EQ(out[0], 'a');

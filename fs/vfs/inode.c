@@ -209,7 +209,6 @@ int vfs_stat_inode(const struct inode *inode, struct kstat *st)
 	return 0;
 }
 
-
 void inode_forget(struct inode *inode)
 {
 	if (!inode)

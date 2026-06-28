@@ -140,8 +140,7 @@ ssize_t __must_check mm_mmap(struct mm_struct *mm, uintptr_t addr,
  *
  * 释放范围内已经分配的物理页，并调整受影响的 VMA。
  */
-int __must_check mm_munmap(struct mm_struct *mm, uintptr_t addr,
-			   size_t length);
+int __must_check mm_munmap(struct mm_struct *mm, uintptr_t addr, size_t length);
 
 int __must_check mm_madvise(struct mm_struct *mm, uintptr_t addr, size_t len,
 			    int advice);

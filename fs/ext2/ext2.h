@@ -42,7 +42,7 @@
 #define EXT2_GOOD_OLD_INODE_SIZE 128
 #define EXT2_NAME_LEN		 255
 
-#define EXT2_SUPER_OFFSET	 1024u
+#define EXT2_SUPER_OFFSET		  1024u
 #define EXT2_BGDT_BLOCK(first_data_block) ((first_data_block) + 1u)
 
 #define EXT2_NDIR_BLOCKS 12

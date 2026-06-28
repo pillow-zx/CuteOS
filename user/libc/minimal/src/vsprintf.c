@@ -73,8 +73,8 @@ static int format(char *buf, char *end, const char *fmt, va_list ap)
 		}
 		case 'd':
 			snum = va_arg(ap, int);
-			unum = snum < 0 ? -(unsigned long long)snum :
-					  (unsigned long long)snum;
+			unum = snum < 0 ? -(unsigned long long)snum
+					: (unsigned long long)snum;
 			p = emit_num(p, end, unum, 10, 0, snum < 0);
 			break;
 		case 'u':
@@ -89,11 +89,9 @@ static int format(char *buf, char *end, const char *fmt, va_list ap)
 			switch (*fmt++) {
 			case 'd':
 				snum = va_arg(ap, long);
-				unum = snum < 0 ?
-					       -(unsigned long long)snum :
-					       (unsigned long long)snum;
-				p = emit_num(p, end, unum, 10, 0,
-					     snum < 0);
+				unum = snum < 0 ? -(unsigned long long)snum
+						: (unsigned long long)snum;
+				p = emit_num(p, end, unum, 10, 0, snum < 0);
 				break;
 			case 'u':
 				unum = va_arg(ap, unsigned long);

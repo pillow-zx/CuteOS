@@ -117,8 +117,7 @@ static int ensure_directory_dentry(struct dentry *dentry)
 	return 0;
 }
 
-static struct dentry *lookup_start_dentry(struct dentry *base,
-					  const char *path)
+static struct dentry *lookup_start_dentry(struct dentry *base, const char *path)
 {
 	if (*path == '/')
 		return fs_get_root_dentry(task_fs(current));
@@ -354,7 +353,7 @@ static int walk_path(struct dentry *base, const char *path, uint32_t flags,
 int path_lookupat_err(struct dentry *base, const char *path, uint32_t flags,
 		      struct dentry **res)
 {
-	struct namei_context ctx = { 0 };
+	struct namei_context ctx = {0};
 	struct dentry *start;
 
 	if (res)
@@ -388,7 +387,7 @@ struct dentry *path_lookup(const char *path, uint32_t flags)
 int path_parent_lookupat_err(struct dentry *base, const char *path, char *name,
 			     size_t *namelen, struct dentry **res)
 {
-	struct namei_context ctx = { 0 };
+	struct namei_context ctx = {0};
 	struct dentry *parent;
 	const char *last;
 	size_t last_len;

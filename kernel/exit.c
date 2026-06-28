@@ -282,8 +282,8 @@ void __noreturn do_exit_group(int code)
 {
 	struct task_struct *leader = task_group_leader(current);
 
-	pr_info("exit_group: pid=%d tgid=%d exit_code=%d\n",
-	       task_pid(current), task_tgid(current), code);
+	pr_info("exit_group: pid=%d tgid=%d exit_code=%d\n", task_pid(current),
+		task_tgid(current), code);
 
 	if (leader && leader != current) {
 		finish_task_exit(leader, code, true);
