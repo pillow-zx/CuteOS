@@ -105,13 +105,6 @@ ssize_t sys_utimensat(struct trap_frame *tf)
 	return -ENOSYS;
 }
 
-ssize_t sys_syslog(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(log): 需要内核日志缓冲区读取接口；BusyBox 可先兼容探测。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 {
 	long pid = (long)tf->a0;

@@ -61,6 +61,7 @@ typedef __builtin_va_list va_list;
 /* Console initialization */
 void console_init_sbi(void);
 void console_init_mmio(void);
+size_t log_buffer_size(void);
 
 /* Formatted output */
 int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap);

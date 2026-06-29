@@ -18,6 +18,7 @@
 #include <uapi/sched.h>
 #include <uapi/signal.h>
 #include <uapi/syscall.h>
+#include <uapi/syslog.h>
 #include <uapi/tty.h>
 
 typedef unsigned long size_t;

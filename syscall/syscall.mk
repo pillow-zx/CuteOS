@@ -13,6 +13,7 @@ SYSCALL_OBJS = \
 	syscall/sys_mm.o         \
 	syscall/sys_signal.o     \
 	syscall/sys_futex.o      \
+	syscall/sys_log.o        \
 	syscall/sys_membarrier.o \
 	syscall/sys_misc.o       \
 	syscall/sys_stub.o       \

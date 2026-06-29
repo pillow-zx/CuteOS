@@ -47,6 +47,12 @@ static void (*console_putc)(int ch);
 static char printk_buf[PRINTK_BUF_SIZE];
 
 /*
+ * Planned kernel log ring size exposed to syslog(2) probes. printk currently
+ * writes directly to the console; real ring-buffer reads are a later slice.
+ */
+#define PRINTK_LOG_BUF_SIZE 4096
+
+/*
  * console_write - 将字符串输出到控制台
  * @s: 以 '\0' 结尾的字符串
  *
@@ -85,6 +91,11 @@ void console_init_mmio(void)
 {
 	uart_init();
 	console_putc = uart_putc;
+}
+
+size_t log_buffer_size(void)
+{
+	return PRINTK_LOG_BUF_SIZE;
 }
 
 /*
