@@ -14,6 +14,7 @@
 #define _USER_H
 
 #include <uapi/mman.h>
+#include <uapi/membarrier.h>
 #include <uapi/sched.h>
 #include <uapi/signal.h>
 #include <uapi/syscall.h>
@@ -88,6 +89,7 @@ typedef unsigned long size_t;
 #define DT_LNK	   10
 #define DT_SOCK	   12
 
+#define EPERM	  1
 #define ENOENT	  2
 #define ESRCH	  3
 #define EINTR	  4

@@ -55,6 +55,7 @@ struct mm_struct {
 	uintptr_t brk;			   /* 当前堆顶 */
 	uintptr_t code_start;		   /* 代码段起始 */
 	uintptr_t code_end;		   /* 代码段结束 */
+	uint32_t membarrier_registrations; /* membarrier 已注册命令位 */
 	struct vm_area_struct vma[NR_VMA]; /* VMA 固定数组 */
 };
 
@@ -71,6 +72,8 @@ void mm_get(struct mm_struct *mm);
 void mm_put(struct mm_struct *mm);
 void mm_lock(struct mm_struct *mm);
 void mm_unlock(struct mm_struct *mm);
+void mm_membarrier_register(struct mm_struct *mm, uint32_t cmd);
+uint32_t __must_check mm_membarrier_registrations(const struct mm_struct *mm);
 
 /*
  * dup_mm - 深拷贝用户地址空间

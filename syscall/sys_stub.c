@@ -221,13 +221,6 @@ ssize_t sys_munlock(struct trap_frame *tf)
 	return -ENOSYS;
 }
 
-ssize_t sys_membarrier(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(smp): 单核可做兼容语义；完整实现依赖多核内存屏障模型。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_statx(struct trap_frame *tf)
 {
 	(void)tf;

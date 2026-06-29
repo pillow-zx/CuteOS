@@ -174,14 +174,13 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	if (flags == TIMER_ABSTIME) {
+	if (flags == TIMER_ABSTIME)
 		deadline = delta;
-	} else if (flags == 0) {
+	else if (flags == 0) {
 		now = arch_timer_now();
 		deadline = mtime_deadline_after(now, delta);
-	} else {
+	} else
 		return -EINVAL;
-	}
 
 	ret = timer_sleep_until(deadline, true);
 	if (ret == -EINTR && flags == 0 && urem) {

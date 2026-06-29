@@ -27,25 +27,36 @@
  */
 ssize_t sys_brk(struct trap_frame *tf)
 {
-	vaddr_t addr = (vaddr_t)tf->a0;
+	uintptr_t addr = (uintptr_t)tf->a0;
+
 	return (ssize_t)mm_brk(task_mm(current), addr);
 }
 
 ssize_t sys_mmap(struct trap_frame *tf)
 {
-	return mm_mmap(task_mm(current), (vaddr_t)tf->a0, (size_t)tf->a1,
-		       (int)tf->a2, (int)tf->a3);
+	uintptr_t addr = (uintptr_t)tf->a0;
+	size_t length = (size_t)tf->a1;
+	int prot = (int)tf->a2;
+	int flags = (int)tf->a3;
+
+	return mm_mmap(task_mm(current), addr, length, prot, flags);
 }
 
 ssize_t sys_munmap(struct trap_frame *tf)
 {
-	return mm_munmap(task_mm(current), (vaddr_t)tf->a0, (size_t)tf->a1);
+	uintptr_t addr = (uintptr_t)tf->a0;
+	size_t length = (size_t)tf->a1;
+
+	return mm_munmap(task_mm(current), addr, length);
 }
 
 ssize_t sys_mprotect(struct trap_frame *tf)
 {
-	return mm_mprotect(task_mm(current), (uintptr_t)tf->a0, (size_t)tf->a1,
-			   (int)tf->a2);
+	uintptr_t addr = (uintptr_t)tf->a0;
+	size_t length = (size_t)tf->a1;
+	int prot = (int)tf->a2;
+
+	return mm_mprotect(task_mm(current), addr, length, prot);
 }
 
 /*
@@ -56,9 +67,9 @@ ssize_t sys_mprotect(struct trap_frame *tf)
  */
 ssize_t sys_madvise(struct trap_frame *tf)
 {
-	uintptr_t addr  = (uintptr_t)tf->a0;
-	size_t	  len   = (size_t)tf->a1;
-	int	  advice = (int)tf->a2;
+	uintptr_t addr = (uintptr_t)tf->a0;
+	size_t len = (size_t)tf->a1;
+	int advice = (int)tf->a2;
 
 	switch (advice) {
 	case MADV_NORMAL:
@@ -87,8 +98,8 @@ ssize_t sys_madvise(struct trap_frame *tf)
  */
 ssize_t sys_mincore(struct trap_frame *tf)
 {
-	uintptr_t      addr = (uintptr_t)tf->a0;
-	size_t         len  = (size_t)tf->a1;
+	uintptr_t addr = (uintptr_t)tf->a0;
+	size_t len = (size_t)tf->a1;
 	unsigned char *uvec = (unsigned char *)tf->a2;
 	struct mm_struct *mm;
 	uintptr_t end, va;

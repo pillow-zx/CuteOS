@@ -26,18 +26,25 @@
 
 ssize_t sys_kill(struct trap_frame *tf)
 {
-	return do_kill((pid_t)tf->a0, (int)tf->a1);
+	pid_t pid = (pid_t)tf->a0;
+	int sig = (int)tf->a1;
+
+	return do_kill(pid, sig);
 }
 
 ssize_t sys_tgkill(struct trap_frame *tf)
 {
-	return do_tgkill((pid_t)tf->a0, (pid_t)tf->a1, (int)tf->a2);
+	pid_t tgid = (pid_t)tf->a0;
+	pid_t tid = (pid_t)tf->a1;
+	int sig = (int)tf->a2;
+
+	return do_tgkill(tgid, tid, sig);
 }
 
 ssize_t sys_sigaltstack(struct trap_frame *tf)
 {
-	const struct stack_t *ss     = (const struct stack_t *)tf->a0;
-	struct stack_t       *old_ss = (struct stack_t *)tf->a1;
+	const struct stack_t *ss = (const struct stack_t *)tf->a0;
+	struct stack_t *old_ss = (struct stack_t *)tf->a1;
 	struct stack_t kss;
 	struct stack_t old;
 	int ret;
@@ -122,5 +129,7 @@ ssize_t sys_sigprocmask(struct trap_frame *tf)
 
 ssize_t sys_sigreturn(struct trap_frame *tf)
 {
-	return do_sigreturn(tf, tf->sp);
+	uintptr_t sp = (uintptr_t)tf->sp;
+
+	return do_sigreturn(tf, sp);
 }

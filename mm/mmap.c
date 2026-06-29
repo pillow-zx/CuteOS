@@ -171,6 +171,18 @@ void mm_unlock(struct mm_struct *mm)
 	mutex_unlock(&mm->mmap_lock);
 }
 
+void mm_membarrier_register(struct mm_struct *mm, uint32_t cmd)
+{
+	BUG_ON(!mm);
+	mm->membarrier_registrations |= cmd;
+}
+
+uint32_t mm_membarrier_registrations(const struct mm_struct *mm)
+{
+	BUG_ON(!mm);
+	return mm->membarrier_registrations;
+}
+
 struct mm_struct *dup_mm(struct mm_struct *oldmm)
 {
 	struct mm_struct *newmm;
@@ -192,6 +204,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 	newmm->brk = oldmm->brk;
 	newmm->code_start = oldmm->code_start;
 	newmm->code_end = oldmm->code_end;
+	newmm->membarrier_registrations = oldmm->membarrier_registrations;
 	memcpy(newmm->vma, oldmm->vma, sizeof(oldmm->vma));
 
 	for (int i = 0; i < NR_VMA; i++) {
