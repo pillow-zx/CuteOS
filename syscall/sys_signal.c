@@ -26,17 +26,34 @@
 
 ssize_t sys_kill(struct trap_frame *tf)
 {
-	pid_t pid = (pid_t)tf->a0;
+	long pid = (long)tf->a0;
 	int sig = (int)tf->a1;
+
+	if (pid <= 0)
+		return -EINVAL;
 
 	return do_kill(pid, sig);
 }
 
+ssize_t sys_tkill(struct trap_frame *tf)
+{
+	long tid = (long)tf->a0;
+	int sig = (int)tf->a1;
+
+	if (tid <= 0)
+		return -EINVAL;
+
+	return do_tkill(tid, sig);
+}
+
 ssize_t sys_tgkill(struct trap_frame *tf)
 {
-	pid_t tgid = (pid_t)tf->a0;
-	pid_t tid = (pid_t)tf->a1;
+	long tgid = (long)tf->a0;
+	long tid = (long)tf->a1;
 	int sig = (int)tf->a2;
+
+	if (tgid <= 0 || tid <= 0)
+		return -EINVAL;
 
 	return do_tgkill(tgid, tid, sig);
 }

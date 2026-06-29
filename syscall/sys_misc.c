@@ -188,7 +188,7 @@ ssize_t sys_sysinfo(struct trap_frame *tf)
 
 ssize_t sys_prlimit64(struct trap_frame *tf)
 {
-	pid_t pid = (pid_t)tf->a0;
+	long pid = (long)tf->a0;
 	int resource = (int)tf->a1;
 	const struct rlimit64 *unew = (const struct rlimit64 *)tf->a2;
 	struct rlimit64 *uold = (struct rlimit64 *)tf->a3;
@@ -198,6 +198,8 @@ ssize_t sys_prlimit64(struct trap_frame *tf)
 
 	if (resource < 0 || resource >= RLIM_NLIMITS)
 		return -EINVAL;
+	if (pid < 0)
+		return -ESRCH;
 
 	if (pid == 0) {
 		task = current;

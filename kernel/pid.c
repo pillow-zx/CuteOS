@@ -52,7 +52,7 @@ void free_pid(pid_t pid)
 		return;
 	}
 
-	if (pid > PID_MAX)
+	if (pid < 0 || pid > PID_MAX)
 		return;
 
 	pid_tasks[pid] = NULL;

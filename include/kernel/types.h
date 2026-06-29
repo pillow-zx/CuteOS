@@ -47,7 +47,7 @@ typedef signed long             isize;
 
 typedef _Bool			bool;
 typedef int64_t			loff_t;
-typedef uint32_t		pid_t;
+typedef int32_t			pid_t;
 typedef uint32_t		uid_t;
 typedef uint32_t		gid_t;
 typedef uint32_t		dev_t;

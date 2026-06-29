@@ -679,6 +679,11 @@ static inline long kill(long pid, int sig)
 	return syscall(SYS_kill, pid, sig);
 }
 
+static inline long tkill(long tid, int sig)
+{
+	return syscall(SYS_tkill, tid, sig);
+}
+
 static inline long tgkill(long tgid, long tid, int sig)
 {
 	return syscall(SYS_tgkill, tgid, tid, sig);

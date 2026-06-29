@@ -24,6 +24,13 @@ void test_pid_basic(void)
 		int32_t p0 = alloc_pid();
 		TEST_ASSERT_EQ(p0, (int32_t)1);
 		free_pid((pid_t)p0);
+
+		free_pid((pid_t)-1);
+		TEST_ASSERT(pid_task((pid_t)-1) == NULL);
+
+		int32_t after_negative = alloc_pid();
+		TEST_ASSERT_EQ(after_negative, (int32_t)1);
+		free_pid((pid_t)after_negative);
 	}
 	TEST_END("pid: basic alloc/free");
 	return;

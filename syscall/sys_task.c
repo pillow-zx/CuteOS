@@ -60,12 +60,14 @@ abort:
 
 ssize_t sys_wait4(struct trap_frame *tf)
 {
-	pid_t pid = (pid_t)tf->a0;
+	long pid = (long)tf->a0;
 	int *wstatus = (int *)tf->a1;
 	int options = (int)tf->a2;
 	struct wait4_result result = {0};
 	int ret;
 
+	if (pid != -1 && pid <= 0)
+		return -EINVAL;
 	if (wstatus && !access_ok(wstatus, sizeof(*wstatus)))
 		return -EFAULT;
 

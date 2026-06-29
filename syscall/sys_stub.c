@@ -114,13 +114,15 @@ ssize_t sys_syslog(struct trap_frame *tf)
 
 ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 {
-	pid_t pid = (pid_t)tf->a0;
+	long pid = (long)tf->a0;
 	size_t cpusetsize = (size_t)tf->a1;
 	const unsigned long *umask = (const unsigned long *)tf->a2;
 	unsigned long mask = 0;
 	size_t copy_size;
 	struct task_struct *task;
 
+	if (pid < 0)
+		return -ESRCH;
 	if (cpusetsize == 0)
 		return -EINVAL;
 	if (!umask)
@@ -144,12 +146,14 @@ ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 
 ssize_t sys_sched_getaffinity(struct trap_frame *tf)
 {
-	pid_t pid = (pid_t)tf->a0;
+	long pid = (long)tf->a0;
 	size_t cpusetsize = (size_t)tf->a1;
 	unsigned long *umask = (unsigned long *)tf->a2;
 	unsigned long mask = SINGLE_CPU_AFFINITY_MASK;
 	struct task_struct *task;
 
+	if (pid < 0)
+		return -ESRCH;
 	if (cpusetsize < sizeof(mask))
 		return -EINVAL;
 	if (!umask)
@@ -163,13 +167,6 @@ ssize_t sys_sched_getaffinity(struct trap_frame *tf)
 		return -EFAULT;
 
 	return (ssize_t)sizeof(mask);
-}
-
-ssize_t sys_tkill(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(signal): 需要按 tid 定位线程并投递信号。 */
-	return -ENOSYS;
 }
 
 ssize_t sys_setpgid(struct trap_frame *tf)

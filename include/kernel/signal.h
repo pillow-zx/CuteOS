@@ -87,6 +87,7 @@ void signal_user_map_init(void);
 
 /* 内部 API（供 syscall/sys_signal.c ABI 边界调用） */
 int do_kill(pid_t pid, int sig);
+int do_tkill(pid_t tid, int sig);
 int do_tgkill(pid_t tgid, pid_t tid, int sig);
 int do_sigaltstack(const struct stack_t *ss, struct stack_t *old_ss);
 int do_sigaction(int sig, const struct sigaction *act,

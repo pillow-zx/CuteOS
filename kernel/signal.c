@@ -697,6 +697,24 @@ int do_kill(pid_t pid, int sig)
 	return send_group_signal(sig, task);
 }
 
+int do_tkill(pid_t tid, int sig)
+{
+	struct task_struct *task;
+
+	if (sig != 0 && !signal_is_valid(sig))
+		return -EINVAL;
+	if (tid <= 0)
+		return -EINVAL;
+
+	task = task_find_thread(tid);
+	if (!task)
+		return -ESRCH;
+	if (sig == 0)
+		return 0;
+
+	return send_signal(sig, task);
+}
+
 int do_tgkill(pid_t tgid, pid_t tid, int sig)
 {
 	struct task_struct *task;
