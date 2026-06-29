@@ -370,6 +370,8 @@ ssize_t sys_fcntl(struct trap_frame *tf)
 	int ret;
 
 	switch (cmd) {
+	case F_DUPFD:
+		return fd_dup_from(fd, arg, 0);
 	case F_GETFD:
 		ret = fd_get_close_on_exec(fd);
 		if (ret < 0)
@@ -391,6 +393,8 @@ ssize_t sys_fcntl(struct trap_frame *tf)
 		ret = file_set_status_flags(file, (uint32_t)arg);
 		file_put(file);
 		return ret;
+	case F_DUPFD_CLOEXEC:
+		return fd_dup_from(fd, arg, 1);
 	default:
 		return -EINVAL;
 	}

@@ -564,6 +564,44 @@ int fd_dup(int oldfd)
 	return newfd;
 }
 
+int fd_dup_from(int oldfd, unsigned long minfd, int cloexec)
+{
+	struct files_struct *files = current_files();
+	struct file *file = fd_get(oldfd);
+	int newfd = -EMFILE;
+
+	if (!file)
+		return -EBADF;
+	if (!files) {
+		file_put(file);
+		return -EBADF;
+	}
+	if (minfd >= NR_OPEN) {
+		file_put(file);
+		return -EINVAL;
+	}
+
+	mutex_lock(&files->lock);
+	for (int fd = (int)minfd; fd < NR_OPEN; fd++) {
+		if (!files->fd[fd]) {
+			file_get(file);
+			files->fd[fd] = file;
+			if (cloexec)
+				files->close_on_exec |=
+					(1UL << (unsigned int)fd);
+			else
+				files->close_on_exec &=
+					~(1UL << (unsigned int)fd);
+			newfd = fd;
+			break;
+		}
+	}
+	mutex_unlock(&files->lock);
+
+	file_put(file);
+	return newfd;
+}
+
 int fd_dup2(int oldfd, int newfd, int cloexec)
 {
 	struct files_struct *files = current_files();

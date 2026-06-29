@@ -37,6 +37,7 @@ int __must_check fd_get_close_on_exec(int fd);
 int __must_check fd_set_close_on_exec(int fd, bool close_on_exec);
 int fd_close(int fd);
 int __must_check fd_dup(int oldfd);
+int __must_check fd_dup_from(int oldfd, unsigned long minfd, int cloexec);
 int __must_check fd_dup2(int oldfd, int newfd, int cloexec);
 
 int __must_check init_files(struct task_struct *task);
