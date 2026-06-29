@@ -790,6 +790,11 @@ static inline long clock_getres(int clock_id, struct timespec *ts)
 	return syscall(SYS_clock_getres, clock_id, (long)ts);
 }
 
+static inline long clock_settime(int clock_id, const struct timespec *ts)
+{
+	return syscall(SYS_clock_settime, clock_id, (long)ts);
+}
+
 static inline long clock_nanosleep(int clock_id, int flags,
 				   const struct timespec *req,
 				   struct timespec *rem)

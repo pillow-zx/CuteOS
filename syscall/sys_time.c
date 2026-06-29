@@ -15,7 +15,7 @@
  *   sys_nanosleep(tf)          - 高精度休眠
  *   sys_clock_nanosleep(tf)    - 基于指定时钟的休眠
  *   sys_getitimer/setitimer/sys_timer_* - 均返回 -ENOSYS
- *   sys_clock_settime(tf)      - 返回 -ENOSYS（无 RTC）
+ *   sys_clock_settime(tf)      - 返回 Linux 兼容的显式不支持错误
  */
 
 #include <kernel/errno.h>
@@ -27,7 +27,10 @@
 #include <kernel/types.h>
 #include <asm/trap.h>
 
-#define TIMER_ABSTIME 1
+#define CLOCK_REALTIME	0
+#define CLOCK_MONOTONIC 1
+#define CLOCK_BOOTTIME	7
+#define TIMER_ABSTIME	1
 
 ssize_t sys_times(struct trap_frame *tf)
 {
@@ -249,7 +252,29 @@ ssize_t sys_timer_delete(struct trap_frame *tf)
 
 ssize_t sys_clock_settime(struct trap_frame *tf)
 {
-	(void)tf;
-	/* TODO(time): 当前没有 RTC 或可写 wall-clock offset。 */
-	return -ENOSYS;
+	int clock_id = (int)tf->a0;
+	const struct sys_timespec *uts = (const struct sys_timespec *)tf->a1;
+	struct sys_timespec kts;
+
+	if (!clock_id_supported(clock_id))
+		return -EINVAL;
+	if (!uts)
+		return -EFAULT;
+	if (copy_from_user(&kts, uts, sizeof(kts)) != 0)
+		return -EFAULT;
+	if (kts.tv_sec < 0 || kts.tv_nsec < 0 || kts.tv_nsec >= 1000000000LL)
+		return -EINVAL;
+
+	switch (clock_id) {
+	case CLOCK_REALTIME:
+		/*
+		 * cuteOS has no CAP_SYS_TIME model and no writable wall-clock
+		 * offset.  The syscall exists, but user space cannot mutate it.
+		 */
+		return -EPERM;
+	case CLOCK_MONOTONIC:
+	case CLOCK_BOOTTIME:
+	default:
+		return -EINVAL;
+	}
 }
