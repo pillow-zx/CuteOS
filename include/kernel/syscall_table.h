@@ -16,10 +16,13 @@
 	X(SYS_epoll_pwait, "epoll_pwait", sys_epoll_pwait)                     \
 	X(SYS_dup, "dup", sys_dup)                                             \
 	X(SYS_dup3, "dup3", sys_dup3)                                          \
+	X(SYS_fcntl, "fcntl", sys_fcntl)                                       \
 	X(SYS_ioctl, "ioctl", sys_ioctl)                                       \
 	X(SYS_mknodat, "mknodat", sys_mknod)                                   \
 	X(SYS_mkdirat, "mkdirat", sys_mkdirat)                                 \
 	X(SYS_unlinkat, "unlinkat", sys_unlinkat)                              \
+	X(SYS_symlinkat, "symlinkat", sys_symlinkat)                           \
+	X(SYS_linkat, "linkat", sys_linkat)                                    \
 	X(SYS_umount2, "umount2", sys_umount2)                                 \
 	X(SYS_mount, "mount", sys_mount)                                       \
 	X(SYS_statfs64, "statfs64", sys_statfs64)                              \
@@ -39,12 +42,16 @@
 	X(SYS_writev, "writev", sys_writev)                                    \
 	X(SYS_pread64, "pread64", sys_pread64)                                 \
 	X(SYS_pwrite64, "pwrite64", sys_pwrite64)                              \
+	X(SYS_sendfile, "sendfile", sys_sendfile)                              \
+	X(SYS_pselect6, "pselect6", sys_pselect6)                              \
 	X(SYS_ppoll, "ppoll", sys_ppoll)                                       \
+	X(SYS_splice, "splice", sys_splice)                                    \
 	X(SYS_readlinkat, "readlinkat", sys_readlinkat)                        \
 	X(SYS_newfstatat, "newfstatat", sys_newfstatat)                        \
 	X(SYS_fstat, "fstat", sys_fstat)                                       \
 	X(SYS_fsync, "fsync", sys_fsync)                                       \
 	X(SYS_fdatasync, "fdatasync", sys_fdatasync)                           \
+	X(SYS_utimensat, "utimensat", sys_utimensat)                           \
 	X(SYS_exit, "exit", sys_exit)                                          \
 	X(SYS_exit_group, "exit_group", sys_exit_group)                        \
 	X(SYS_set_tid_addr, "set_tid_addr", sys_set_tid_addr)                  \
@@ -63,10 +70,12 @@
 	X(SYS_clock_gettime, "clock_gettime", sys_clock_gettime)               \
 	X(SYS_clock_getres, "clock_getres", sys_clock_getres)                  \
 	X(SYS_clock_nanosleep, "clock_nanosleep", sys_clock_nanosleep)         \
+	X(SYS_syslog, "syslog", sys_syslog)                                    \
 	X(SYS_sched_setaffinity, "sched_setaffinity", sys_sched_setaffinity)   \
 	X(SYS_sched_getaffinity, "sched_getaffinity", sys_sched_getaffinity)   \
 	X(SYS_sched_yield, "sched_yield", sys_sched_yield)                     \
 	X(SYS_kill, "kill", sys_kill)                                          \
+	X(SYS_tkill, "tkill", sys_tkill)                                       \
 	X(SYS_tgkill, "tgkill", sys_tgkill)                                    \
 	X(SYS_sigaltstack, "sigaltstack", sys_sigaltstack)                     \
 	X(SYS_rt_sigaction, "rt_sigaction", sys_sigaction)                     \
@@ -75,9 +84,12 @@
 	X(SYS_setgid, "setgid", sys_setgid)                                    \
 	X(SYS_setuid, "setuid", sys_setuid)                                    \
 	X(SYS_times, "times", sys_times)                                       \
+	X(SYS_setpgid, "setpgid", sys_setpgid)                                 \
+	X(SYS_getpgid, "getpgid", sys_getpgid)                                 \
 	X(SYS_getgroups, "getgroups", sys_getgroups)                           \
 	X(SYS_setgroups, "setgroups", sys_setgroups)                           \
 	X(SYS_uname, "uname", sys_uname)                                       \
+	X(SYS_getrusage, "getrusage", sys_getrusage)                           \
 	X(SYS_umask, "umask", sys_umask)                                       \
 	X(SYS_gettimeofday, "gettimeofday", sys_gettimeofday)                  \
 	X(SYS_getpid, "getpid", sys_getpid)                                    \
@@ -95,6 +107,7 @@
 	X(SYS_execve, "execve", sys_execve)                                    \
 	X(SYS_mmap, "mmap", sys_mmap)                                          \
 	X(SYS_mprotect, "mprotect", sys_mprotect)                              \
+	X(SYS_msync, "msync", sys_msync)                                       \
 	X(SYS_mlock, "mlock", sys_mlock)                                       \
 	X(SYS_munlock, "munlock", sys_munlock)                                 \
 	X(SYS_mincore, "mincore", sys_mincore)                                 \
@@ -103,6 +116,9 @@
 	X(SYS_prlimit64, "prlimit64", sys_prlimit64)                           \
 	X(SYS_renameat2, "renameat2", sys_renameat2)                           \
 	X(SYS_getrandom, "getrandom", sys_getrandom)                           \
-	X(SYS_rseq, "rseq", sys_rseq)
+	X(SYS_membarrier, "membarrier", sys_membarrier)                        \
+	X(SYS_statx, "statx", sys_statx)                                       \
+	X(SYS_rseq, "rseq", sys_rseq)                                          \
+	X(SYS_faccessat2, "faccessat2", sys_faccessat2)
 
 #endif
