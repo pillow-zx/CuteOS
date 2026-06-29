@@ -65,8 +65,15 @@ struct kstatfs;
 #define O_EXCL	    00000200
 #define O_TRUNC	    00001000
 #define O_APPEND    00002000
+#define O_NONBLOCK  00004000
+#define O_DSYNC	    00010000
+#define FASYNC	    00020000
+#define O_DIRECT    00040000
 #define O_DIRECTORY 00200000
-#define O_CLOEXEC   01000000
+#define O_NOATIME   01000000
+#define O_CLOEXEC   02000000
+#define __O_SYNC    04000000
+#define O_SYNC	    (__O_SYNC | O_DSYNC)
 
 #define AT_FDCWD     -100
 #define AT_REMOVEDIR 0x200
@@ -194,6 +201,8 @@ struct file {
 int __must_check vfs_open(const char *path, uint32_t flags, uint32_t mode);
 int __must_check vfs_openat(struct dentry *base, const char *path,
 			    uint32_t flags, uint32_t mode);
+int __must_check file_get_status_flags(struct file *file);
+int __must_check file_set_status_flags(struct file *file, uint32_t flags);
 ssize_t __must_check vfs_read(struct file *file, char *buf, size_t count);
 ssize_t __must_check vfs_write(struct file *file, const char *buf,
 			       size_t count);

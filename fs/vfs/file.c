@@ -14,6 +14,11 @@
 #include <kernel/task.h>
 #include <kernel/vfs.h>
 
+#define FILE_STATUS_FLAGS	 (O_ACCMODE | O_APPEND | O_DIRECTORY)
+#define FILE_SETFL_MUTABLE_FLAGS O_APPEND
+#define FILE_SETFL_UNSUPPORTED_FLAGS                                           \
+	(O_NONBLOCK | O_DSYNC | FASYNC | O_DIRECT | O_NOATIME | __O_SYNC)
+
 static ssize_t null_read(struct file *file, char *buf, size_t count);
 static ssize_t null_write(struct file *file, const char *buf, size_t count);
 static uint32_t null_poll(struct file *file, uint32_t events);
@@ -131,6 +136,30 @@ int vfs_ioctl(struct file *file, uint64_t cmd, uint64_t arg)
 		return -ENOTTY;
 
 	return file->f_op->ioctl(file, cmd, arg);
+}
+
+int file_get_status_flags(struct file *file)
+{
+	if (!file)
+		return -EBADF;
+
+	return (int)(file->f_flags & FILE_STATUS_FLAGS);
+}
+
+int file_set_status_flags(struct file *file, uint32_t flags)
+{
+	uint32_t old_flags;
+
+	if (!file)
+		return -EBADF;
+	if (flags & FILE_SETFL_UNSUPPORTED_FLAGS)
+		return -EINVAL;
+
+	old_flags = file->f_flags;
+	file->f_flags = (old_flags & ~FILE_SETFL_MUTABLE_FLAGS) |
+			(flags & FILE_SETFL_MUTABLE_FLAGS);
+
+	return 0;
 }
 
 static struct file console_stdin = {
@@ -275,7 +304,7 @@ int vfs_openat(struct dentry *base, const char *path, uint32_t flags,
 		}
 	}
 
-	fd = fd_alloc(file);
+	fd = fd_alloc_flags(file, flags);
 	if (fd < 0) {
 		file_put(file);
 		return fd;
