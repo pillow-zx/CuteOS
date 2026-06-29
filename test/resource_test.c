@@ -73,6 +73,58 @@ cleanup:
 		task_free(parent);
 }
 
+void test_files_struct_copy_preserves_cloexec(void)
+{
+	struct task_struct *saved = current;
+	struct task_struct *parent = NULL;
+	struct task_struct *child = NULL;
+
+	TEST_BEGIN("resources: files copy preserves cloexec");
+	{
+		parent = resource_test_task();
+		child = task_alloc();
+		TEST_ASSERT_NOT_NULL(parent);
+		TEST_ASSERT_NOT_NULL(child);
+
+		parent->files->close_on_exec |= (1UL << KERN_STDIN);
+
+		current = parent;
+		TEST_ASSERT_EQ(copy_files(child, false), 0);
+		TEST_ASSERT(parent->files != child->files);
+		TEST_ASSERT_EQ(child->files->close_on_exec,
+			       parent->files->close_on_exec);
+
+		current = saved;
+		task_free(child);
+		task_free(parent);
+		child = NULL;
+		parent = NULL;
+
+		parent = resource_test_task();
+		child = task_alloc();
+		TEST_ASSERT_NOT_NULL(parent);
+		TEST_ASSERT_NOT_NULL(child);
+
+		parent->files->close_on_exec |= (1UL << KERN_STDIN);
+
+		current = parent;
+		TEST_ASSERT_EQ(copy_files(child, true), 0);
+		TEST_ASSERT_EQ(parent->files, child->files);
+		TEST_ASSERT_EQ(child->files->close_on_exec,
+			       parent->files->close_on_exec);
+	}
+	TEST_END("resources: files copy preserves cloexec");
+	goto cleanup;
+fail:
+	TEST_FAIL("resources: files copy preserves cloexec", "see above");
+cleanup:
+	current = saved;
+	if (child)
+		task_free(child);
+	if (parent)
+		task_free(parent);
+}
+
 void test_fs_struct_copy_and_share(void)
 {
 	struct task_struct *saved = current;

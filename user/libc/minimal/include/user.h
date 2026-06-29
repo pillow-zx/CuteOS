@@ -40,6 +40,8 @@ typedef unsigned long size_t;
 #define O_APPEND    00002000
 #define O_DIRECTORY 00200000
 #define O_CLOEXEC   01000000
+#define F_GETFD	    1
+#define F_SETFD	    2
 #define FD_CLOEXEC  1
 
 #define R_OK 4
@@ -418,6 +420,11 @@ static inline long close(int fd)
 static inline long ioctl(int fd, unsigned long cmd, unsigned long arg)
 {
 	return syscall(SYS_ioctl, fd, cmd, arg);
+}
+
+static inline long fcntl(int fd, int cmd, unsigned long arg)
+{
+	return syscall(SYS_fcntl, fd, cmd, arg);
 }
 
 static inline long faccessat(int dfd, const char *path, int mode, int flags)

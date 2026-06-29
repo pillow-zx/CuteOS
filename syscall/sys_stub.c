@@ -56,13 +56,6 @@ ssize_t sys_mount(struct trap_frame *tf)
 	return -ENOSYS;
 }
 
-ssize_t sys_fcntl(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(fdtable): 需要 F_GETFD/F_SETFD/F_GETFL/F_SETFL/DUPFD 语义。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_symlinkat(struct trap_frame *tf)
 {
 	(void)tf;

@@ -113,6 +113,7 @@ void test_task_free_null(void);
  */
 
 void test_files_struct_copy_and_share(void);
+void test_files_struct_copy_preserves_cloexec(void);
 void test_fs_struct_copy_and_share(void);
 void test_sighand_struct_copy_and_share(void);
 void test_signal_struct_pending(void);

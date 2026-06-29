@@ -132,6 +132,7 @@ void kernel_test(void)
 	/* ---- Task Resources ---- */
 	TEST_SECTION("Task Resources");
 	test_files_struct_copy_and_share();
+	test_files_struct_copy_preserves_cloexec();
 	test_fs_struct_copy_and_share();
 	test_sighand_struct_copy_and_share();
 	test_signal_struct_pending();

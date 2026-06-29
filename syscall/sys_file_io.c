@@ -33,6 +33,47 @@
 #define SEEK_CUR 1
 #define SEEK_END 2
 
+#define F_DUPFD		    0
+#define F_GETFD		    1
+#define F_SETFD		    2
+#define F_GETFL		    3
+#define F_SETFL		    4
+#define F_GETLK		    5
+#define F_SETLK		    6
+#define F_SETLKW	    7
+#define F_SETOWN	    8
+#define F_GETOWN	    9
+#define F_SETSIG	    10
+#define F_GETSIG	    11
+#define F_GETLK64	    12
+#define F_SETLK64	    13
+#define F_SETLKW64	    14
+#define F_SETOWN_EX	    15
+#define F_GETOWN_EX	    16
+#define F_GETOWNER_UIDS	    17
+#define F_OFD_GETLK	    36
+#define F_OFD_SETLK	    37
+#define F_OFD_SETLKW	    38
+#define F_LINUX_SPECIFIC_BASE 1024
+#define F_SETLEASE	    (F_LINUX_SPECIFIC_BASE + 0)
+#define F_GETLEASE	    (F_LINUX_SPECIFIC_BASE + 1)
+#define F_NOTIFY	    (F_LINUX_SPECIFIC_BASE + 2)
+#define F_DUPFD_QUERY	    (F_LINUX_SPECIFIC_BASE + 3)
+#define F_CREATED_QUERY	    (F_LINUX_SPECIFIC_BASE + 4)
+#define F_CANCELLK	    (F_LINUX_SPECIFIC_BASE + 5)
+#define F_DUPFD_CLOEXEC    (F_LINUX_SPECIFIC_BASE + 6)
+#define F_SETPIPE_SZ	    (F_LINUX_SPECIFIC_BASE + 7)
+#define F_GETPIPE_SZ	    (F_LINUX_SPECIFIC_BASE + 8)
+#define F_ADD_SEALS	    (F_LINUX_SPECIFIC_BASE + 9)
+#define F_GET_SEALS	    (F_LINUX_SPECIFIC_BASE + 10)
+#define F_GET_RW_HINT	    (F_LINUX_SPECIFIC_BASE + 11)
+#define F_SET_RW_HINT	    (F_LINUX_SPECIFIC_BASE + 12)
+#define F_GET_FILE_RW_HINT  (F_LINUX_SPECIFIC_BASE + 13)
+#define F_SET_FILE_RW_HINT  (F_LINUX_SPECIFIC_BASE + 14)
+#define F_GETDELEG	    (F_LINUX_SPECIFIC_BASE + 15)
+#define F_SETDELEG	    (F_LINUX_SPECIFIC_BASE + 16)
+#define FD_CLOEXEC	    1
+
 #define FALLOC_FL_KEEP_SIZE 0x01
 
 /*
@@ -318,6 +359,26 @@ ssize_t sys_ioctl(struct trap_frame *tf)
 	ret = vfs_ioctl(file, cmd, arg);
 	file_put(file);
 	return ret;
+}
+
+ssize_t sys_fcntl(struct trap_frame *tf)
+{
+	int fd = (int)tf->a0;
+	int cmd = (int)tf->a1;
+	unsigned long arg = tf->a2;
+	int ret;
+
+	switch (cmd) {
+	case F_GETFD:
+		ret = fd_get_close_on_exec(fd);
+		if (ret < 0)
+			return ret;
+		return ret ? FD_CLOEXEC : 0;
+	case F_SETFD:
+		return fd_set_close_on_exec(fd, arg & FD_CLOEXEC);
+	default:
+		return -EINVAL;
+	}
 }
 
 ssize_t sys_dup(struct trap_frame *tf)

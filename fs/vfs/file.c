@@ -334,6 +334,7 @@ struct files_struct *files_dup(struct files_struct *old)
 		return files;
 
 	mutex_lock(&old->lock);
+	files->close_on_exec = old->close_on_exec;
 	for (int fd = 0; fd < NR_OPEN; fd++) {
 		files->fd[fd] = old->fd[fd];
 		file_get(files->fd[fd]);
@@ -406,6 +407,9 @@ int fd_alloc_flags(struct file *file, int flags)
 			if (flags & O_CLOEXEC)
 				files->close_on_exec |=
 					(1UL << (unsigned int)fd);
+			else
+				files->close_on_exec &=
+					~(1UL << (unsigned int)fd);
 			mutex_unlock(&files->lock);
 			return fd;
 		}
@@ -440,6 +444,45 @@ struct file *fd_get(int fd)
 	return fd_get_checked(fd);
 }
 
+int fd_get_close_on_exec(int fd)
+{
+	struct files_struct *files = current_files();
+	int ret;
+
+	if (!files || fd < 0 || fd >= NR_OPEN)
+		return -EBADF;
+
+	mutex_lock(&files->lock);
+	if (!files->fd[fd])
+		ret = -EBADF;
+	else
+		ret = !!(files->close_on_exec & (1UL << (unsigned int)fd));
+	mutex_unlock(&files->lock);
+
+	return ret;
+}
+
+int fd_set_close_on_exec(int fd, bool close_on_exec)
+{
+	struct files_struct *files = current_files();
+
+	if (!files || fd < 0 || fd >= NR_OPEN)
+		return -EBADF;
+
+	mutex_lock(&files->lock);
+	if (!files->fd[fd]) {
+		mutex_unlock(&files->lock);
+		return -EBADF;
+	}
+	if (close_on_exec)
+		files->close_on_exec |= (1UL << (unsigned int)fd);
+	else
+		files->close_on_exec &= ~(1UL << (unsigned int)fd);
+	mutex_unlock(&files->lock);
+
+	return 0;
+}
+
 int fd_close(int fd)
 {
 	struct files_struct *files = current_files();
@@ -456,6 +499,7 @@ int fd_close(int fd)
 	}
 
 	files->fd[fd] = NULL;
+	files->close_on_exec &= ~(1UL << (unsigned int)fd);
 	mutex_unlock(&files->lock);
 	file_put(file);
 
@@ -480,6 +524,7 @@ int fd_dup(int oldfd)
 		if (!files->fd[fd]) {
 			file_get(file);
 			files->fd[fd] = file;
+			files->close_on_exec &= ~(1UL << (unsigned int)fd);
 			newfd = fd;
 			break;
 		}

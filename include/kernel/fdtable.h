@@ -33,6 +33,8 @@ int __must_check fd_alloc(struct file *file);
 int __must_check fd_alloc_flags(struct file *file, int flags);
 struct file *__must_check fd_get(int fd);
 struct file *__must_check fd_get_checked(int fd);
+int __must_check fd_get_close_on_exec(int fd);
+int __must_check fd_set_close_on_exec(int fd, bool close_on_exec);
 int fd_close(int fd);
 int __must_check fd_dup(int oldfd);
 int __must_check fd_dup2(int oldfd, int newfd, int cloexec);
