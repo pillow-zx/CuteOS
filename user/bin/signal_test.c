@@ -1,20 +1,12 @@
 /*
- * user/bin/sigaltstack_test.c - sigaltstack / SA_ONSTACK 测试
- *
- * 测试内容：
- *   1. sigaltstack 安装备用栈 - 返回 0
- *   2. sigaltstack 获取当前状态 (ss=NULL)
- *   3. SA_ONSTACK handler 在备用栈上执行，SP 落在备用栈范围内
- *   4. fork 子进程继承备用栈
- *   5. 备用栈标志 SS_DISABLE 禁用后不再使用备用栈
- *   6. sigaltstack 对无效参数返回 -EINVAL
+ * user/bin/signal_test.c - signal user ABI tests
  */
 
 #include <ulib.h>
 #include <uapi/mman.h>
 #include <uapi/signal.h>
 
-#define ALT_STACK_SIZE (SIGSTKSZ * 2) /* 16 KB */
+#define ALT_STACK_SIZE (SIGSTKSZ * 2)
 #define PAGE_SIZE      4096UL
 
 static char *alt_base;
@@ -245,21 +237,96 @@ static int test_invalid_flags(void)
 	return 0;
 }
 
+static volatile int usr1_count;
+
+static void usr1_handler(int sig)
+{
+	if (sig == SIGUSR1)
+		usr1_count++;
+}
+
+static int signal_expect_ret(const char *name, long got, long want)
+{
+	if (got != want) {
+		printf("FAIL: %s expected %ld got %ld\n", name, want, got);
+		return 1;
+	}
+
+	return 0;
+}
+
+static int test_tkill_self_signal(void)
+{
+	struct sigaction sa;
+	long tid = gettid();
+	long ret;
+
+	usr1_count = 0;
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = usr1_handler;
+	ret = sigaction(SIGUSR1, &sa, NULL);
+	if (ret != 0)
+		return signal_expect_ret("sigaction", ret, 0);
+
+	ret = tkill(tid, 0);
+	if (signal_expect_ret("self sig 0", ret, 0))
+		return 1;
+	if (usr1_count != 0) {
+		printf("FAIL: sig 0 delivered signal\n");
+		return 1;
+	}
+
+	ret = tkill(tid, SIGUSR1);
+	if (signal_expect_ret("self SIGUSR1", ret, 0))
+		return 1;
+	if (usr1_count != 1) {
+		printf("FAIL: SIGUSR1 count expected 1 got %d\n", usr1_count);
+		return 1;
+	}
+
+	return 0;
+}
+
+static int test_tkill_errors(void)
+{
+	long tid = gettid();
+	int failed = 0;
+
+	failed += signal_expect_ret("bad signal", tkill(tid, NSIG), -EINVAL);
+	failed += signal_expect_ret("bad tid", tkill(-1, 0), -EINVAL);
+	failed += signal_expect_ret("missing tid", tkill(999999, 0), -ESRCH);
+
+	return failed;
+}
+
+static void report_group(const char *name, int ret, int *failed)
+{
+	printf("signal_test: %s ... ", name);
+	if (ret)
+		(*failed)++;
+	else
+		printf("PASS\n");
+}
+
 int main(void)
 {
-	int fail = 0;
+	int failed = 0;
 
-	fail += test_install_altstack();
-	fail += test_query_altstack();
-	fail += test_handler_on_altstack();
-	fail += test_fork_inherits_altstack();
-	fail += test_disable_altstack();
-	fail += test_invalid_flags();
+	report_group("install altstack", test_install_altstack(), &failed);
+	report_group("query altstack", test_query_altstack(), &failed);
+	report_group("handler on altstack", test_handler_on_altstack(),
+		     &failed);
+	report_group("fork inherits altstack", test_fork_inherits_altstack(),
+		     &failed);
+	report_group("disable altstack", test_disable_altstack(), &failed);
+	report_group("invalid altstack flags", test_invalid_flags(), &failed);
+	report_group("tkill self signal", test_tkill_self_signal(), &failed);
+	report_group("tkill error paths", test_tkill_errors(), &failed);
 
-	if (fail == 0)
-		printf("sigaltstack_test: PASS\n");
+	if (failed)
+		printf("signal_test: %d test group(s) FAILED\n", failed);
 	else
-		printf("sigaltstack_test: FAIL (%d)\n", fail);
+		printf("signal_test: all tests PASSED\n");
 
-	return fail ? 1 : 0;
+	return failed ? 1 : 0;
 }

@@ -1,0 +1,479 @@
+/*
+ * user/bin/task_test.c - task, thread, clone, and futex user ABI tests
+ */
+
+#include <pthread.h>
+#include <ulib.h>
+#include <uapi/mman.h>
+#include <uapi/sched.h>
+
+#define THREAD_STACK_SIZE (16 * 1024UL)
+#define FUTEX_STACK_SIZE  (16 * 1024UL)
+
+static int task_pid_expect_ret(const char *name, long got, long want)
+{
+	if (got != want) {
+		printf("FAIL: %s expected %ld got %ld\n", name, want, got);
+		return 1;
+	}
+
+	return 0;
+}
+
+static int test_wait_any_child(void)
+{
+	int status = 0;
+	long pid = fork();
+	long waited;
+
+	if (pid < 0)
+		return task_pid_expect_ret("fork", pid, 0);
+	if (pid == 0)
+		exit(7);
+
+	waited = wait4(-1, &status, 0, NULL);
+	if (waited != pid) {
+		printf("FAIL: wait4(-1) expected child %ld got %ld\n", pid,
+		       waited);
+		return 1;
+	}
+	if (status != (7 << 8)) {
+		printf("FAIL: wait status expected %d got %d\n", 7 << 8,
+		       status);
+		return 1;
+	}
+
+	return 0;
+}
+
+static int test_pid_error_paths(void)
+{
+	unsigned long mask = 0;
+	struct rlimit64 limit;
+	int failed = 0;
+
+	failed += task_pid_expect_ret("wait4 zero", wait4(0, NULL, 0, NULL),
+				      -EINVAL);
+	failed += task_pid_expect_ret("wait4 negative",
+				      wait4(-2, NULL, 0, NULL), -EINVAL);
+	failed += task_pid_expect_ret(
+		"sched_getaffinity negative",
+		sched_getaffinity(-1, sizeof(mask), &mask), -ESRCH);
+	failed += task_pid_expect_ret(
+		"prlimit64 negative",
+		prlimit64(-1, RLIMIT_NOFILE, NULL, &limit), -ESRCH);
+
+	return failed;
+}
+
+/* Shared state between parent and child thread. */
+static volatile int ready_flag;
+static volatile int tid_word = -1;
+static volatile int result;
+
+static int thread_fn(void *arg)
+{
+	(void)arg;
+	result = 42;
+	/* Signal parent that we're done. */
+	__atomic_store_n((int *)&ready_flag, 1, __ATOMIC_RELEASE);
+	futex((int *)&ready_flag, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, NULL, 0,
+	      0);
+	return 0;
+}
+
+static int test_basic_thread_wake(void)
+{
+	void *stack;
+	long child;
+	unsigned long flags;
+
+	ready_flag = 0;
+	result = 0;
+	tid_word = -1;
+
+	stack = mmap(NULL, THREAD_STACK_SIZE, PROT_READ | PROT_WRITE,
+		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)stack < 0) {
+		printf("FAIL: mmap stack: %ld\n", (long)stack);
+		return 1;
+	}
+
+	flags = CLONE_VM | CLONE_SIGHAND | CLONE_THREAD | CLONE_FILES |
+		CLONE_FS | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID;
+
+	child = clone_thread(flags, (char *)stack + THREAD_STACK_SIZE, NULL, 0,
+			     (int *)&tid_word, thread_fn, NULL);
+	if (child < 0) {
+		printf("FAIL: clone_thread: %ld\n", child);
+		munmap(stack, THREAD_STACK_SIZE);
+		return 1;
+	}
+
+	/* Wait for the child to signal readiness. */
+	while (__atomic_load_n((int *)&ready_flag, __ATOMIC_ACQUIRE) == 0)
+		futex((int *)&ready_flag, FUTEX_WAIT | FUTEX_PRIVATE_FLAG, 0,
+		      NULL, 0, 0);
+
+	if (result != 42) {
+		printf("FAIL: result expected 42, got %d\n", result);
+		munmap(stack, THREAD_STACK_SIZE);
+		return 1;
+	}
+
+	/* Wait for thread to fully exit (tid_word cleared by CHILD_CLEARTID).
+	 */
+	int tid;
+
+	while ((tid = __atomic_load_n((int *)&tid_word, __ATOMIC_ACQUIRE)) != 0)
+		futex((int *)&tid_word, FUTEX_WAIT | FUTEX_PRIVATE_FLAG, tid,
+		      NULL, 0, 0);
+
+	munmap(stack, THREAD_STACK_SIZE);
+	return 0;
+}
+
+static volatile int counter;
+static volatile int counter_done;
+static volatile int counter_tid = -1;
+
+static int thread_counter(void *arg)
+{
+	int n = (int)(long)arg;
+
+	for (int i = 0; i < n; i++)
+		__atomic_fetch_add((int *)&counter, 1, __ATOMIC_SEQ_CST);
+
+	__atomic_store_n((int *)&counter_done, 1, __ATOMIC_RELEASE);
+	futex((int *)&counter_done, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, NULL, 0,
+	      0);
+	return 0;
+}
+
+static int test_shared_counter(void)
+{
+	void *stack;
+	long child;
+	unsigned long flags;
+	const int N = 1000;
+
+	counter = 0;
+	counter_done = 0;
+	counter_tid = -1;
+
+	stack = mmap(NULL, THREAD_STACK_SIZE, PROT_READ | PROT_WRITE,
+		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)stack < 0)
+		return 1;
+
+	flags = CLONE_VM | CLONE_SIGHAND | CLONE_THREAD | CLONE_FILES |
+		CLONE_FS | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID;
+
+	child = clone_thread(flags, (char *)stack + THREAD_STACK_SIZE, NULL, 0,
+			     (int *)&counter_tid, thread_counter,
+			     (void *)(long)N);
+	if (child < 0) {
+		munmap(stack, THREAD_STACK_SIZE);
+		return 1;
+	}
+
+	/* Parent also increments. */
+	for (int i = 0; i < N; i++)
+		__atomic_fetch_add((int *)&counter, 1, __ATOMIC_SEQ_CST);
+
+	while (__atomic_load_n((int *)&counter_done, __ATOMIC_ACQUIRE) == 0)
+		futex((int *)&counter_done, FUTEX_WAIT | FUTEX_PRIVATE_FLAG, 0,
+		      NULL, 0, 0);
+
+	int tid;
+
+	while ((tid = __atomic_load_n((int *)&counter_tid, __ATOMIC_ACQUIRE)) !=
+	       0)
+		futex((int *)&counter_tid, FUTEX_WAIT | FUTEX_PRIVATE_FLAG, tid,
+		      NULL, 0, 0);
+
+	munmap(stack, THREAD_STACK_SIZE);
+
+	if (counter != 2 * N) {
+		printf("FAIL: counter expected %d, got %d\n", 2 * N, counter);
+		return 1;
+	}
+	return 0;
+}
+
+/* ---- test 1: basic create/join ---- */
+
+static void *thread_return_value(void *arg)
+{
+	return (void *)((long)arg + 1);
+}
+
+static int test_create_join(void)
+{
+	pthread_t t;
+	void *retval = NULL;
+	int rc;
+
+	rc = pthread_create(&t, NULL, thread_return_value, (void *)41L);
+	if (rc != 0) {
+		printf("FAIL: pthread_create: %d\n", rc);
+		return 1;
+	}
+
+	rc = pthread_join(t, &retval);
+	if (rc != 0) {
+		printf("FAIL: pthread_join: %d\n", rc);
+		return 1;
+	}
+
+	if ((long)retval != 42L) {
+		printf("FAIL: retval expected 42, got %ld\n", (long)retval);
+		return 1;
+	}
+	return 0;
+}
+
+/* ---- test 2: mutex-protected shared counter ---- */
+
+#define N_THREADS 4
+#define N_ITERS	  500
+
+static pthread_mutex_t cnt_mutex = PTHREAD_MUTEX_INITIALIZER;
+static volatile int shared_cnt;
+
+static void *thread_increment(void *arg)
+{
+	int n = (int)(long)arg;
+
+	for (int i = 0; i < n; i++) {
+		pthread_mutex_lock(&cnt_mutex);
+		shared_cnt++;
+		pthread_mutex_unlock(&cnt_mutex);
+	}
+	return NULL;
+}
+
+static int test_mutex_counter(void)
+{
+	pthread_t threads[N_THREADS];
+	int rc;
+
+	shared_cnt = 0;
+
+	for (int i = 0; i < N_THREADS; i++) {
+		rc = pthread_create(&threads[i], NULL, thread_increment,
+				    (void *)(long)N_ITERS);
+		if (rc != 0) {
+			printf("FAIL: pthread_create[%d]: %d\n", i, rc);
+			return 1;
+		}
+	}
+
+	for (int i = 0; i < N_THREADS; i++) {
+		rc = pthread_join(threads[i], NULL);
+		if (rc != 0) {
+			printf("FAIL: pthread_join[%d]: %d\n", i, rc);
+			return 1;
+		}
+	}
+
+	if (shared_cnt != N_THREADS * N_ITERS) {
+		printf("FAIL: counter expected %d, got %d\n",
+		       N_THREADS * N_ITERS, shared_cnt);
+		return 1;
+	}
+	return 0;
+}
+
+/* ---- test 3: mutex error paths ---- */
+
+static int test_mutex_errors(void)
+{
+	pthread_mutex_t m;
+
+	if (pthread_mutex_init(&m, NULL) != 0)
+		return 1;
+	if (pthread_mutex_lock(&m) != 0)
+		return 1;
+	if (pthread_mutex_destroy(&m) != EBUSY) {
+		printf("FAIL: expected EBUSY on destroy of locked mutex\n");
+		return 1;
+	}
+	if (pthread_mutex_unlock(&m) != 0)
+		return 1;
+	if (pthread_mutex_destroy(&m) != 0)
+		return 1;
+	return 0;
+}
+
+/* ---- test 4: pthread_self consistency ---- */
+
+static volatile long child_self_tid;
+
+static void *thread_record_self(void *arg)
+{
+	(void)arg;
+	__atomic_store_n((long *)&child_self_tid, (long)pthread_self(),
+			 __ATOMIC_RELEASE);
+	return NULL;
+}
+
+static int test_self_consistency(void)
+{
+	pthread_t t;
+	int rc;
+
+	child_self_tid = 0;
+
+	rc = pthread_create(&t, NULL, thread_record_self, NULL);
+	if (rc != 0)
+		return 1;
+
+	rc = pthread_join(t, NULL);
+	if (rc != 0)
+		return 1;
+
+	long recorded =
+		__atomic_load_n((long *)&child_self_tid, __ATOMIC_ACQUIRE);
+
+	if (recorded != (long)t) {
+		printf("FAIL: self tid %ld != thread handle %ld\n", recorded,
+		       (long)t);
+		return 1;
+	}
+	return 0;
+}
+
+static int futex_clone_expect_eq(const char *name, long got, long want)
+{
+	if (got == want)
+		return 0;
+
+	printf("FAIL: %s: got %ld, want %ld\n", name, got, want);
+	return 1;
+}
+
+static int test_futex_error_paths(void)
+{
+	int failed = 0;
+	int word = 1;
+	struct timespec timeout;
+
+	failed += futex_clone_expect_eq(
+		"futex wait mismatch",
+		futex(&word, FUTEX_WAIT | FUTEX_PRIVATE_FLAG, 0, NULL, NULL, 0),
+		-EAGAIN);
+
+	word = 0;
+	failed += futex_clone_expect_eq("futex bad timeout pointer",
+					futex(&word,
+					      FUTEX_WAIT | FUTEX_PRIVATE_FLAG,
+					      0, (void *)~0UL, NULL, 0),
+					-EFAULT);
+
+	timeout.tv_sec = 0;
+	timeout.tv_nsec = 1000000000L;
+	failed += futex_clone_expect_eq("futex invalid timeout nsec",
+					futex(&word,
+					      FUTEX_WAIT | FUTEX_PRIVATE_FLAG,
+					      0, &timeout, NULL, 0),
+					-EINVAL);
+
+	timeout.tv_sec = 0;
+	timeout.tv_nsec = 0;
+	failed += futex_clone_expect_eq("futex zero timeout",
+					futex(&word,
+					      FUTEX_WAIT | FUTEX_PRIVATE_FLAG,
+					      0, &timeout, NULL, 0),
+					-ETIMEDOUT);
+
+	return failed;
+}
+
+static int test_robust_list_roundtrip(void)
+{
+	struct robust_list_head head;
+	struct robust_list_head *got = NULL;
+	long len = 0;
+	int failed = 0;
+
+	memset(&head, 0, sizeof(head));
+	head.list.next = &head.list;
+
+	failed += futex_clone_expect_eq(
+		"set_robust_list", set_robust_list(&head, sizeof(head)), 0);
+	failed += futex_clone_expect_eq("get_robust_list",
+					get_robust_list(0, &got, &len), 0);
+
+	if (got != &head) {
+		printf("FAIL: robust head mismatch\n");
+		failed++;
+	}
+	if (len != (long)sizeof(head)) {
+		printf("FAIL: robust len got %ld, want %ld\n", len,
+		       (long)sizeof(head));
+		failed++;
+	}
+
+	return failed;
+}
+
+static int test_clone_bad_parent_tid(void)
+{
+	void *stack;
+	long ret;
+	unsigned long flags;
+
+	stack = mmap(NULL, FUTEX_STACK_SIZE, PROT_READ | PROT_WRITE,
+		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)stack < 0) {
+		printf("FAIL: mmap stack: %ld\n", (long)stack);
+		return 1;
+	}
+
+	flags = CLONE_VM | CLONE_SIGHAND | CLONE_THREAD | CLONE_FILES |
+		CLONE_FS | CLONE_PARENT_SETTID;
+	ret = clone(flags, (char *)stack + FUTEX_STACK_SIZE, (int *)~0UL, 0,
+		    NULL);
+	munmap(stack, FUTEX_STACK_SIZE);
+
+	return futex_clone_expect_eq("clone bad parent_tid", ret, -EFAULT);
+}
+
+static void report_group(const char *name, int ret, int *failed)
+{
+	printf("task_test: %s ... ", name);
+	if (ret)
+		(*failed)++;
+	else
+		printf("PASS\n");
+}
+
+int main(void)
+{
+	int failed = 0;
+
+	report_group("wait any child", test_wait_any_child(), &failed);
+	report_group("pid error paths", test_pid_error_paths(), &failed);
+	report_group("clone thread basic wake", test_basic_thread_wake(),
+		     &failed);
+	report_group("clone thread shared counter", test_shared_counter(),
+		     &failed);
+	report_group("pthread create/join", test_create_join(), &failed);
+	report_group("pthread mutex counter", test_mutex_counter(), &failed);
+	report_group("pthread mutex error paths", test_mutex_errors(), &failed);
+	report_group("pthread self consistency", test_self_consistency(),
+		     &failed);
+	report_group("futex error paths", test_futex_error_paths(), &failed);
+	report_group("robust list roundtrip", test_robust_list_roundtrip(),
+		     &failed);
+	report_group("clone bad parent_tid", test_clone_bad_parent_tid(),
+		     &failed);
+
+	if (failed)
+		printf("task_test: %d test group(s) FAILED\n", failed);
+	else
+		printf("task_test: all tests PASSED\n");
+
+	return failed ? 1 : 0;
+}
