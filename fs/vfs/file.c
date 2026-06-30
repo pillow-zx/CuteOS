@@ -196,15 +196,17 @@ struct file *file_alloc(const struct file_operations *f_op, uint32_t mode,
 	return file;
 }
 
-struct file *file_alloc_dentry(struct dentry *dentry, uint32_t flags,
-			       uint32_t mode)
+struct file *file_alloc_path(const struct path *path, uint32_t flags,
+			     uint32_t mode)
 {
 	const struct file_operations *f_op;
 	struct file *file;
+	struct dentry *dentry;
 
-	if (!dentry || !dentry->d_inode)
+	if (!path || !path->mnt || !path->dentry || !path->dentry->d_inode)
 		return NULL;
 
+	dentry = path->dentry;
 	f_op = dentry->d_inode->i_fop;
 
 	if ((dentry->d_inode->i_mode & S_IFMT) == S_IFCHR) {
@@ -217,10 +219,11 @@ struct file *file_alloc_dentry(struct dentry *dentry, uint32_t flags,
 	if (!file)
 		return NULL;
 
+	file->f_path = *path;
+	path_get(&file->f_path);
 	file->f_dentry = dentry;
 	file->f_inode = dentry->d_inode;
 	file->f_flags = flags;
-	dget(dentry);
 	igrab(file->f_inode);
 
 	if (file->f_op && file->f_op->open) {
@@ -228,7 +231,7 @@ struct file *file_alloc_dentry(struct dentry *dentry, uint32_t flags,
 		if (ret < 0) {
 			file->f_dentry = NULL;
 			file->f_inode = NULL;
-			dput(dentry);
+			path_put(&file->f_path);
 			iput(dentry->d_inode);
 			kfree(file);
 			return NULL;
@@ -238,31 +241,48 @@ struct file *file_alloc_dentry(struct dentry *dentry, uint32_t flags,
 	return file;
 }
 
-int vfs_openat(struct dentry *base, const char *path, uint32_t flags,
-	       uint32_t mode)
+struct file *file_alloc_dentry(struct dentry *dentry, uint32_t flags,
+			       uint32_t mode)
+{
+	struct path path;
+	struct file *file;
+
+	if (vfs_path_from_dentry(dentry, &path) < 0)
+		return NULL;
+
+	file = file_alloc_path(&path, flags, mode);
+	path_put(&path);
+	return file;
+}
+
+int vfs_openat_path(const struct path *base, const char *path, uint32_t flags,
+		    uint32_t mode)
 {
 	struct dentry *dentry;
+	struct path found_path;
 	struct file *file;
 	int fd;
 	int ret;
 	uint32_t fmode;
 
-	ret = path_lookupat_err(base, path, 0, &dentry);
+	ret = path_lookupat_path(base, path, 0, &found_path);
 	if (ret < 0) {
 		if (!(flags & O_CREAT) || ret != -ENOENT)
 			return ret;
 
-		ret = vfs_create_at(base, path, mode, &dentry);
+		ret = vfs_create_at_path(base, path, mode, &found_path);
 		if (ret < 0)
 			return ret;
 	} else if ((flags & O_CREAT) && (flags & O_EXCL)) {
-		dput(dentry);
+		path_put(&found_path);
 		return -EEXIST;
 	}
 
+	dentry = found_path.dentry;
+
 	if ((flags & O_DIRECTORY) && dentry->d_inode &&
 	    (dentry->d_inode->i_mode & S_IFMT) != S_IFDIR) {
-		dput(dentry);
+		path_put(&found_path);
 		return -ENOTDIR;
 	}
 
@@ -277,7 +297,7 @@ int vfs_openat(struct dentry *base, const char *path, uint32_t flags,
 		fmode = FMODE_READ | FMODE_WRITE;
 		break;
 	default:
-		dput(dentry);
+		path_put(&found_path);
 		return -EINVAL;
 	}
 
@@ -287,12 +307,12 @@ int vfs_openat(struct dentry *base, const char *path, uint32_t flags,
 	if (ret == 0 && (fmode & FMODE_WRITE))
 		ret = vfs_inode_permission(dentry->d_inode, VFS_MAY_WRITE);
 	if (ret < 0) {
-		dput(dentry);
+		path_put(&found_path);
 		return ret;
 	}
 
-	file = file_alloc_dentry(dentry, flags, fmode);
-	dput(dentry);
+	file = file_alloc_path(&found_path, flags, fmode);
+	path_put(&found_path);
 	if (!file)
 		return -ENOMEM;
 
@@ -313,9 +333,27 @@ int vfs_openat(struct dentry *base, const char *path, uint32_t flags,
 	return fd;
 }
 
+int vfs_openat(struct dentry *base, const char *path, uint32_t flags,
+	       uint32_t mode)
+{
+	struct path base_path;
+	int ret;
+
+	if (!base)
+		return vfs_openat_path(NULL, path, flags, mode);
+
+	ret = vfs_path_from_dentry(base, &base_path);
+	if (ret < 0)
+		return ret;
+
+	ret = vfs_openat_path(&base_path, path, flags, mode);
+	path_put(&base_path);
+	return ret;
+}
+
 int vfs_open(const char *path, uint32_t flags, uint32_t mode)
 {
-	return vfs_openat(NULL, path, flags, mode);
+	return vfs_openat_path(NULL, path, flags, mode);
 }
 
 void file_get(struct file *file)
@@ -335,7 +373,7 @@ void file_put(struct file *file)
 	if (file->f_op && file->f_op->release)
 		file->f_op->release(file);
 
-	dput(file->f_dentry);
+	path_put(&file->f_path);
 	iput(file->f_inode);
 	kfree(file);
 }

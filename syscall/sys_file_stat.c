@@ -95,8 +95,8 @@ ssize_t sys_newfstatat(struct trap_frame *tf)
 	struct kstat *ustat = (struct kstat *)tf->a2;
 	int flags = (int)tf->a3;
 	char *path;
-	struct dentry *base;
-	struct dentry *dentry;
+	struct path base;
+	struct path found;
 	struct kstat st;
 	int ret;
 
@@ -121,22 +121,22 @@ ssize_t sys_newfstatat(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	ret = dirfd_path_base(dfd, path, &base);
+	ret = dirfd_path_base_path(dfd, path, &base);
 	if (ret < 0)
 		goto out_free_path;
 
-	ret = path_lookupat_err(
-		base, path, (flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0,
-		&dentry);
-	if (base)
-		dput(base);
+	ret = path_lookupat_path(
+		base.dentry ? &base : NULL, path,
+		(flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0, &found);
+	if (base.dentry)
+		path_put(&base);
 out_free_path:
 	free_page(path, 0);
 	if (ret < 0)
 		return ret;
 
-	ret = vfs_stat_dentry(dentry, &st);
-	dput(dentry);
+	ret = vfs_stat_dentry(found.dentry, &st);
+	path_put(&found);
 	if (ret < 0)
 		return ret;
 	if (copy_to_user(ustat, &st, sizeof(st)) != 0)
@@ -219,8 +219,8 @@ ssize_t sys_statx(struct trap_frame *tf)
 	uint32_t mask = (uint32_t)tf->a3;
 	struct statx *ustatx = (struct statx *)tf->a4;
 	char *path;
-	struct dentry *base;
-	struct dentry *dentry;
+	struct path base;
+	struct path found;
 	struct kstat st;
 	struct statx stx;
 	int ret;
@@ -252,22 +252,22 @@ ssize_t sys_statx(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	ret = dirfd_path_base(dfd, path, &base);
+	ret = dirfd_path_base_path(dfd, path, &base);
 	if (ret < 0)
 		goto out_free_path;
 
-	ret = path_lookupat_err(
-		base, path, (flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0,
-		&dentry);
-	if (base)
-		dput(base);
+	ret = path_lookupat_path(
+		base.dentry ? &base : NULL, path,
+		(flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0, &found);
+	if (base.dentry)
+		path_put(&base);
 out_free_path:
 	free_page(path, 0);
 	if (ret < 0)
 		return ret;
 
-	ret = vfs_stat_dentry(dentry, &st);
-	dput(dentry);
+	ret = vfs_stat_dentry(found.dentry, &st);
+	path_put(&found);
 	if (ret < 0)
 		return ret;
 
@@ -283,7 +283,7 @@ ssize_t sys_statfs64(struct trap_frame *tf)
 	const char *upath = (const char *)tf->a0;
 	struct kstatfs *ubuf = (struct kstatfs *)tf->a1;
 	char *path;
-	struct dentry *dentry;
+	struct path found;
 	struct kstatfs st;
 	int ret;
 
@@ -294,17 +294,17 @@ ssize_t sys_statfs64(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	ret = path_lookup_err(path, 0, &dentry);
+	ret = path_lookupat_path(NULL, path, 0, &found);
 	free_page(path, 0);
 	if (ret < 0)
 		return ret;
-	if (!dentry->d_sb) {
-		dput(dentry);
+	if (!found.mnt || !found.mnt->mnt_sb) {
+		path_put(&found);
 		return -EINVAL;
 	}
 
-	ret = vfs_statfs(dentry->d_sb, &st);
-	dput(dentry);
+	ret = vfs_statfs(found.mnt->mnt_sb, &st);
+	path_put(&found);
 	if (ret < 0)
 		return ret;
 	if (copy_to_user(ubuf, &st, sizeof(st)) != 0)
@@ -327,12 +327,12 @@ ssize_t sys_fstatfs64(struct trap_frame *tf)
 	file = fd_get(fd);
 	if (!file)
 		return -EBADF;
-	if (!file->f_inode || !file->f_inode->i_sb) {
+	if (!file->f_path.mnt || !file->f_path.mnt->mnt_sb) {
 		file_put(file);
 		return -EINVAL;
 	}
 
-	ret = vfs_statfs(file->f_inode->i_sb, &st);
+	ret = vfs_statfs(file->f_path.mnt->mnt_sb, &st);
 	file_put(file);
 	if (ret < 0)
 		return ret;

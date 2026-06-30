@@ -194,5 +194,6 @@ void test_fs_at_readlink_not_symlink(void);
 void test_fs_at_lookup_nofollow_on_dir(void);
 void test_fs_at_non_directory_parent_error(void);
 void test_fs_at_openat_regular_file(void);
+void test_fs_mount_ext2_on_directory(void);
 
 #endif

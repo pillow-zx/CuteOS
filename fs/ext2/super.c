@@ -256,10 +256,11 @@ int mount_root(void)
 {
 	struct file_system_type *fs_type;
 	struct super_block *sb;
+	int ret;
 
 	fs_type = get_filesystem_type("ext2");
 	if (!fs_type) {
-		int ret = ext2_init();
+		ret = ext2_init();
 		if (ret < 0)
 			return ret;
 		fs_type = get_filesystem_type("ext2");
@@ -273,6 +274,9 @@ int mount_root(void)
 		return -EINVAL;
 
 	vfs_set_root_dentry(sb->s_root);
+	ret = vfs_mount_root(sb->s_root);
+	if (ret < 0)
+		return ret;
 	pr_info("VFS: mounted root (ext2)\n");
 	return 0;
 }

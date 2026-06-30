@@ -5,6 +5,16 @@
 #include <ulib.h>
 
 #define EPIPE 32
+#define EXT2_SUPER_MAGIC 0xef53
+
+#define MOUNT_DEV "/tmp/mount_dev"
+#define MOUNT_DIR "/tmp/mount_dir"
+#define MOUNT_HIDDEN "/tmp/mount_dir/hidden"
+#define MOUNT_CREATED "/tmp/mount_dir/created_on_mount"
+#define MOUNT_RENAMED "/tmp/mount_dir/renamed_on_mount"
+#define MOUNT_CWD_CREATED "/tmp/mount_dir/cwd_created_on_mount"
+#define MOUNT_FD_CREATED "/tmp/mount_dir/fd_created_on_mount"
+#define MOUNT_FD_RENAMED "/tmp/mount_dir/fd_renamed_on_mount"
 
 /* Helper: create a file and write data to it. */
 static int make_file(const char *path, const char *data, int len)
@@ -770,6 +780,499 @@ static int test_linkat_regular_file_shares_inode(void)
 	return 0;
 }
 
+static void mount_test_cleanup(void)
+{
+	umount2(MOUNT_DIR, 0);
+	unlinkat(AT_FDCWD, "/created_on_mount", 0);
+	unlinkat(AT_FDCWD, "/renamed_on_mount", 0);
+	unlinkat(AT_FDCWD, "/cwd_created_on_mount", 0);
+	unlinkat(AT_FDCWD, "/fd_created_on_mount", 0);
+	unlinkat(AT_FDCWD, "/fd_renamed_on_mount", 0);
+	unlinkat(AT_FDCWD, MOUNT_CREATED, 0);
+	unlinkat(AT_FDCWD, MOUNT_RENAMED, 0);
+	unlinkat(AT_FDCWD, MOUNT_CWD_CREATED, 0);
+	unlinkat(AT_FDCWD, MOUNT_FD_CREATED, 0);
+	unlinkat(AT_FDCWD, MOUNT_FD_RENAMED, 0);
+	unlinkat(AT_FDCWD, MOUNT_HIDDEN, 0);
+	unlinkat(AT_FDCWD, MOUNT_DIR, AT_REMOVEDIR);
+	unlinkat(AT_FDCWD, MOUNT_DEV, 0);
+}
+
+static int mount_test_setup(void)
+{
+	mount_test_cleanup();
+	if (mknodat(AT_FDCWD, MOUNT_DEV, S_IFBLK | 0600, MKDEV(8, 0)) != 0) {
+		printf("FAIL: mknod mount dev\n");
+		return 1;
+	}
+	if (mkdirat(AT_FDCWD, MOUNT_DIR, 0755) != 0) {
+		printf("FAIL: mkdir mount dir\n");
+		mount_test_cleanup();
+		return 1;
+	}
+	if (make_file(MOUNT_HIDDEN, "h", 1) != 0) {
+		printf("FAIL: make mount hidden file\n");
+		mount_test_cleanup();
+		return 1;
+	}
+
+	return 0;
+}
+
+static int test_mount_umount_ext2_cycle(void)
+{
+	struct statfs64 st;
+	long fd;
+	long ret;
+
+	if (mount_test_setup())
+		return 1;
+
+	ret = mount(MOUNT_DEV, MOUNT_DIR, "ext2", 0, NULL);
+	if (ret != 0) {
+		printf("FAIL: mount ext2 expected 0 got %ld\n", ret);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	ret = statfs64(MOUNT_DIR, &st);
+	if (ret != 0 || st.f_type != EXT2_SUPER_MAGIC) {
+		printf("FAIL: statfs mounted ret=%ld type=%lx\n", ret,
+		       st.f_type);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	fd = open(MOUNT_DIR "/bin/sh", O_RDONLY);
+	if (fd < 0) {
+		printf("FAIL: lookup through mount got %ld\n", fd);
+		mount_test_cleanup();
+		return 1;
+	}
+	close((int)fd);
+
+	fd = open(MOUNT_HIDDEN, O_RDONLY);
+	if (fd != -ENOENT) {
+		printf("FAIL: covered file expected -ENOENT got %ld\n", fd);
+		if (fd >= 0)
+			close((int)fd);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	ret = umount2(MOUNT_DIR, 0);
+	if (ret != 0) {
+		printf("FAIL: umount2 expected 0 got %ld\n", ret);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	if (read_check(MOUNT_HIDDEN, "h", 1) != 0) {
+		printf("FAIL: covered file not restored after umount\n");
+		mount_test_cleanup();
+		return 1;
+	}
+
+	mount_test_cleanup();
+	return 0;
+}
+
+static int test_mount_parent_lookup_create_targets_mounted_root(void)
+{
+	long fd;
+	long ret;
+
+	if (mount_test_setup())
+		return 1;
+	ret = mount(MOUNT_DEV, MOUNT_DIR, "ext2", 0, NULL);
+	if (ret != 0) {
+		printf("FAIL: mount for create parent test got %ld\n", ret);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	if (make_file(MOUNT_CREATED, "m", 1) != 0 ||
+	    read_check(MOUNT_CREATED, "m", 1) != 0) {
+		printf("FAIL: create under mounted directory not visible\n");
+		mount_test_cleanup();
+		return 1;
+	}
+
+	ret = umount2(MOUNT_DIR, 0);
+	if (ret != 0) {
+		printf("FAIL: umount after create parent test got %ld\n", ret);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	fd = open(MOUNT_CREATED, O_RDONLY);
+	if (fd != -ENOENT) {
+		printf("FAIL: created file leaked into covered dir: %ld\n", fd);
+		if (fd >= 0)
+			close((int)fd);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	mount_test_cleanup();
+	return 0;
+}
+
+static int test_umount2_busy_open_and_cwd(void)
+{
+	long fd;
+	long ret;
+
+	if (mount_test_setup())
+		return 1;
+	ret = mount(MOUNT_DEV, MOUNT_DIR, "ext2", 0, NULL);
+	if (ret != 0) {
+		printf("FAIL: mount for busy test got %ld\n", ret);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	fd = open(MOUNT_DIR "/bin/sh", O_RDONLY);
+	if (fd < 0) {
+		printf("FAIL: open mounted file for busy test got %ld\n", fd);
+		mount_test_cleanup();
+		return 1;
+	}
+	ret = umount2(MOUNT_DIR, 0);
+	if (ret != -EBUSY) {
+		printf("FAIL: open-file busy expected -EBUSY got %ld\n", ret);
+		close((int)fd);
+		mount_test_cleanup();
+		return 1;
+	}
+	close((int)fd);
+
+	if (chdir(MOUNT_DIR) != 0) {
+		printf("FAIL: chdir mounted root\n");
+		mount_test_cleanup();
+		return 1;
+	}
+	ret = umount2(MOUNT_DIR, 0);
+	if (ret != -EBUSY) {
+		printf("FAIL: cwd busy expected -EBUSY got %ld\n", ret);
+		chdir("/");
+		mount_test_cleanup();
+		return 1;
+	}
+	chdir("/");
+
+	ret = umount2(MOUNT_DIR, 0);
+	if (ret != 0) {
+		printf("FAIL: umount after releasing busy refs got %ld\n", ret);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	mount_test_cleanup();
+	return 0;
+}
+
+static int test_mount_cwd_getcwd_path_semantics(void)
+{
+	char cwd[128];
+	long fd;
+	long ret;
+
+	if (mount_test_setup())
+		return 1;
+	ret = mount(MOUNT_DEV, MOUNT_DIR, "ext2", 0, NULL);
+	if (ret != 0) {
+		printf("FAIL: mount for cwd test got %ld\n", ret);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	ret = chdir(MOUNT_DIR);
+	if (ret != 0) {
+		printf("FAIL: chdir mount dir got %ld\n", ret);
+		mount_test_cleanup();
+		return 1;
+	}
+	ret = getcwd(cwd, sizeof(cwd));
+	if (ret < 0 || strcmp(cwd, MOUNT_DIR) != 0) {
+		printf("FAIL: getcwd mount dir ret=%ld cwd=%s\n", ret, cwd);
+		chdir("/");
+		mount_test_cleanup();
+		return 1;
+	}
+
+	if (make_file("cwd_created_on_mount", "c", 1) != 0 ||
+	    read_check(MOUNT_CWD_CREATED, "c", 1) != 0) {
+		printf("FAIL: relative create from mount cwd\n");
+		chdir("/");
+		mount_test_cleanup();
+		return 1;
+	}
+
+	chdir("/");
+	ret = umount2(MOUNT_DIR, 0);
+	if (ret != 0) {
+		printf("FAIL: umount after cwd semantics got %ld\n", ret);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	fd = open(MOUNT_CWD_CREATED, O_RDONLY);
+	if (fd != -ENOENT) {
+		printf("FAIL: cwd-created file leaked into covered dir: %ld\n",
+		       fd);
+		if (fd >= 0)
+			close((int)fd);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	mount_test_cleanup();
+	return 0;
+}
+
+static int test_mount_dirfd_relative_paths_use_mounted_root(void)
+{
+	long dirfd = -1;
+	long fd;
+	long ret;
+
+	if (mount_test_setup())
+		return 1;
+	ret = mount(MOUNT_DEV, MOUNT_DIR, "ext2", 0, NULL);
+	if (ret != 0) {
+		printf("FAIL: mount for dirfd test got %ld\n", ret);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	dirfd = open(MOUNT_DIR, O_RDONLY | O_DIRECTORY);
+	if (dirfd < 0) {
+		printf("FAIL: open mounted dirfd got %ld\n", dirfd);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	fd = openat((int)dirfd, "fd_created_on_mount",
+		    O_CREAT | O_WRONLY | O_TRUNC, 0644);
+	if (fd < 0) {
+		printf("FAIL: openat create via mounted dirfd got %ld\n", fd);
+		close((int)dirfd);
+		mount_test_cleanup();
+		return 1;
+	}
+	write((int)fd, "f", 1);
+	close((int)fd);
+	if (read_check(MOUNT_FD_CREATED, "f", 1) != 0) {
+		printf("FAIL: mounted dirfd create not visible\n");
+		close((int)dirfd);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	ret = renameat2((int)dirfd, "fd_created_on_mount", (int)dirfd,
+			"fd_renamed_on_mount", 0);
+	if (ret != 0 || read_check(MOUNT_FD_RENAMED, "f", 1) != 0) {
+		printf("FAIL: mounted dirfd rename ret=%ld\n", ret);
+		close((int)dirfd);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	ret = unlinkat((int)dirfd, "fd_renamed_on_mount", 0);
+	if (ret != 0) {
+		printf("FAIL: mounted dirfd unlink ret=%ld\n", ret);
+		close((int)dirfd);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	ret = umount2(MOUNT_DIR, 0);
+	if (ret != -EBUSY) {
+		printf("FAIL: mounted dirfd busy expected -EBUSY got %ld\n",
+		       ret);
+		close((int)dirfd);
+		mount_test_cleanup();
+		return 1;
+	}
+	close((int)dirfd);
+
+	ret = umount2(MOUNT_DIR, 0);
+	if (ret != 0) {
+		printf("FAIL: umount after dirfd close got %ld\n", ret);
+		mount_test_cleanup();
+		return 1;
+	}
+	fd = open(MOUNT_FD_CREATED, O_RDONLY);
+	if (fd != -ENOENT) {
+		printf("FAIL: dirfd-created file leaked into covered dir: %ld\n",
+		       fd);
+		if (fd >= 0)
+			close((int)fd);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	mount_test_cleanup();
+	return 0;
+}
+
+static int test_mount_unlink_rename_targets_mounted_root(void)
+{
+	long fd;
+	long ret;
+
+	if (mount_test_setup())
+		return 1;
+	ret = mount(MOUNT_DEV, MOUNT_DIR, "ext2", 0, NULL);
+	if (ret != 0) {
+		printf("FAIL: mount for unlink/rename test got %ld\n", ret);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	if (make_file(MOUNT_CREATED, "u", 1) != 0) {
+		printf("FAIL: create unlink target under mount\n");
+		mount_test_cleanup();
+		return 1;
+	}
+	ret = unlinkat(AT_FDCWD, MOUNT_CREATED, 0);
+	if (ret != 0) {
+		printf("FAIL: unlink under mount got %ld\n", ret);
+		mount_test_cleanup();
+		return 1;
+	}
+	fd = open(MOUNT_CREATED, O_RDONLY);
+	if (fd != -ENOENT) {
+		printf("FAIL: unlinked mounted file still visible: %ld\n", fd);
+		if (fd >= 0)
+			close((int)fd);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	if (make_file(MOUNT_CREATED, "r", 1) != 0) {
+		printf("FAIL: create rename target under mount\n");
+		mount_test_cleanup();
+		return 1;
+	}
+	ret = renameat2(AT_FDCWD, MOUNT_CREATED, AT_FDCWD, MOUNT_RENAMED, 0);
+	if (ret != 0 || read_check(MOUNT_RENAMED, "r", 1) != 0) {
+		printf("FAIL: rename under mount ret=%ld\n", ret);
+		mount_test_cleanup();
+		return 1;
+	}
+	fd = open(MOUNT_CREATED, O_RDONLY);
+	if (fd != -ENOENT) {
+		printf("FAIL: renamed source still visible: %ld\n", fd);
+		if (fd >= 0)
+			close((int)fd);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	ret = umount2(MOUNT_DIR, 0);
+	if (ret != 0) {
+		printf("FAIL: umount after unlink/rename test got %ld\n", ret);
+		mount_test_cleanup();
+		return 1;
+	}
+	fd = open(MOUNT_RENAMED, O_RDONLY);
+	if (fd != -ENOENT) {
+		printf("FAIL: renamed file leaked into covered dir: %ld\n", fd);
+		if (fd >= 0)
+			close((int)fd);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	mount_test_cleanup();
+	return 0;
+}
+
+static int test_mount_dotdot_escapes_to_parent(void)
+{
+	struct stat parent_st;
+	struct stat dotdot_st;
+	long ret;
+
+	if (mount_test_setup())
+		return 1;
+	ret = mount(MOUNT_DEV, MOUNT_DIR, "ext2", 0, NULL);
+	if (ret != 0) {
+		printf("FAIL: mount for dotdot test got %ld\n", ret);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	if (fstatat(AT_FDCWD, "/tmp", &parent_st, 0) != 0 ||
+	    fstatat(AT_FDCWD, MOUNT_DIR "/..", &dotdot_st, 0) != 0) {
+		printf("FAIL: stat dotdot mount paths\n");
+		mount_test_cleanup();
+		return 1;
+	}
+	if (parent_st.st_ino != dotdot_st.st_ino ||
+	    parent_st.st_dev != dotdot_st.st_dev) {
+		printf("FAIL: mount dotdot did not reach parent\n");
+		mount_test_cleanup();
+		return 1;
+	}
+
+	mount_test_cleanup();
+	return 0;
+}
+
+static int test_mount_umount_error_returns(void)
+{
+	long ret;
+	int failed = 0;
+
+	if (mount_test_setup())
+		return 1;
+
+	ret = mount(MOUNT_DEV, MOUNT_DIR, "ext2", 1, NULL);
+	if (ret != -EINVAL) {
+		printf("FAIL: mount flags expected -EINVAL got %ld\n", ret);
+		failed++;
+	}
+	ret = umount2(MOUNT_DIR, 1);
+	if (ret != -EINVAL) {
+		printf("FAIL: umount flags expected -EINVAL got %ld\n", ret);
+		failed++;
+	}
+	ret = mount(MOUNT_DEV, MOUNT_DIR, "no_such_fs", 0, NULL);
+	if (ret != -ENODEV) {
+		printf("FAIL: unknown fs expected -ENODEV got %ld\n", ret);
+		failed++;
+	}
+	ret = mount(MOUNT_HIDDEN, MOUNT_DIR, "ext2", 0, NULL);
+	if (ret != -ENOTBLK) {
+		printf("FAIL: non-block source expected -ENOTBLK got %ld\n",
+		       ret);
+		failed++;
+	}
+	ret = mount(MOUNT_DEV, MOUNT_HIDDEN, "ext2", 0, NULL);
+	if (ret != -ENOTDIR) {
+		printf("FAIL: non-dir target expected -ENOTDIR got %ld\n", ret);
+		failed++;
+	}
+
+	ret = mount(MOUNT_DEV, MOUNT_DIR, "ext2", 0, NULL);
+	if (ret != 0) {
+		printf("FAIL: mount before duplicate got %ld\n", ret);
+		mount_test_cleanup();
+		return 1;
+	}
+	ret = mount(MOUNT_DEV, MOUNT_DIR, "ext2", 0, NULL);
+	if (ret != -EBUSY) {
+		printf("FAIL: duplicate mount expected -EBUSY got %ld\n", ret);
+		failed++;
+	}
+
+	mount_test_cleanup();
+	return failed;
+}
+
 static void report_group(const char *name, int ret, int *failed)
 {
 	printf("fs_test: %s ... ", name);
@@ -820,6 +1323,23 @@ int main(void)
 		     test_symlinkat_creates_readlink_target(), &failed);
 	report_group("linkat regular file shares inode",
 		     test_linkat_regular_file_shares_inode(), &failed);
+	report_group("mount ext2 and umount2 cycle",
+		     test_mount_umount_ext2_cycle(), &failed);
+	report_group("mount parent lookup create targets mounted root",
+		     test_mount_parent_lookup_create_targets_mounted_root(),
+		     &failed);
+	report_group("mount unlink and rename target mounted root",
+		     test_mount_unlink_rename_targets_mounted_root(), &failed);
+	report_group("mount cwd and getcwd path semantics",
+		     test_mount_cwd_getcwd_path_semantics(), &failed);
+	report_group("mount dirfd relative paths use mounted root",
+		     test_mount_dirfd_relative_paths_use_mounted_root(), &failed);
+	report_group("umount2 busy open file and cwd",
+		     test_umount2_busy_open_and_cwd(), &failed);
+	report_group("mount dotdot escapes to parent",
+		     test_mount_dotdot_escapes_to_parent(), &failed);
+	report_group("mount and umount2 error returns",
+		     test_mount_umount_error_returns(), &failed);
 
 	if (failed)
 		printf("fs_test: %d test group(s) FAILED\n", failed);

@@ -33,6 +33,7 @@ extern struct dentry *root_dentry;
 
 /* path_lookup() flags */
 #define LOOKUP_NOFOLLOW 0x0001 /* 不跟随路径末端的符号链接 */
+#define LOOKUP_NO_MOUNT 0x0002 /* 不跨越路径末端的挂载点 */
 
 /* renameat2() flags */
 #define RENAME_NOREPLACE 0x0001
@@ -42,6 +43,12 @@ extern struct dentry *root_dentry;
 #define VFS_MAY_READ  0x4
 
 struct dentry *__must_check path_lookup(const char *path, uint32_t flags);
+int __must_check path_lookupat_path(const struct path *base, const char *path,
+				    uint32_t flags, struct path *res);
+int __must_check path_parent_lookupat_path(const struct path *base,
+					   const char *path, char *name,
+					   size_t *namelen,
+					   struct path *res);
 int __must_check path_lookup_err(const char *path, uint32_t flags,
 				 struct dentry **res);
 int __must_check path_lookupat_err(struct dentry *base, const char *path,
@@ -56,26 +63,58 @@ int __must_check vfs_inode_permission(struct inode *inode, uint32_t mask);
 int __must_check vfs_readlink(struct dentry *dentry, char *buf, size_t size);
 int __must_check vfs_create(const char *path, uint32_t mode,
 			    struct dentry **res);
+int __must_check vfs_create_at_path(const struct path *base, const char *path,
+				    uint32_t mode, struct path *res);
 int __must_check vfs_create_at(struct dentry *base, const char *path,
 			       uint32_t mode, struct dentry **res);
+int __must_check vfs_symlink_at_path(const struct path *base,
+				     const char *target,
+				     const char *linkpath);
 int __must_check vfs_symlink_at(struct dentry *base, const char *target,
 				const char *linkpath);
+int __must_check vfs_link_at_path(struct dentry *old_dentry,
+				  const struct path *new_base,
+				  const char *new_path);
 int __must_check vfs_link_at(struct dentry *old_dentry, struct dentry *new_base,
 			     const char *new_path);
 int __must_check vfs_mkdir(const char *path, uint32_t mode);
+int __must_check vfs_mkdir_at_path(const struct path *base, const char *path,
+				   uint32_t mode);
 int __must_check vfs_mkdir_at(struct dentry *base, const char *path,
 			      uint32_t mode);
 int vfs_unlink(const char *path, int flags);
+int vfs_unlink_at_path(const struct path *base, const char *path, int flags);
 int vfs_unlink_at(struct dentry *base, const char *path, int flags);
+int __must_check vfs_rename_at_path(const struct path *old_base,
+				    const char *old_path,
+				    const struct path *new_base,
+				    const char *new_path,
+				    unsigned int flags);
 int __must_check vfs_rename_at(struct dentry *old_base, const char *old_path,
 			       struct dentry *new_base, const char *new_path,
 			       unsigned int flags);
 int __must_check vfs_mknod(const char *path, uint32_t mode, dev_t dev);
+int __must_check vfs_mknod_at_path(const struct path *base, const char *path,
+				   uint32_t mode, dev_t dev);
 int __must_check vfs_mknod_at(struct dentry *base, const char *path,
 			      uint32_t mode, dev_t dev);
 int __must_check vfs_stat_dentry(struct dentry *dentry, struct kstat *st);
+int __must_check vfs_chdir_path(const struct path *path);
 int __must_check vfs_chdir_dentry(struct dentry *dentry);
 void vfs_set_root_dentry(struct dentry *dentry);
+void mntget(struct vfsmount *mnt);
+void mntput(struct vfsmount *mnt);
+void path_get(const struct path *path);
+void path_put(struct path *path);
+int __must_check vfs_root_path(struct path *path);
+int __must_check vfs_path_from_dentry(struct dentry *dentry, struct path *path);
+int __must_check vfs_mount_root(struct dentry *root);
+int __must_check vfs_mount(const char *source, const char *target,
+			   const char *type, unsigned long flags,
+			   const void *data);
+int __must_check vfs_umount(const char *target, int flags);
+int __must_check vfs_follow_mount(struct path *path);
+int __must_check vfs_follow_dotdot_mount(struct path *path);
 int __must_check vfs_register_chrdev(dev_t dev,
 				     const struct file_operations *fops);
 const struct file_operations *__must_check vfs_chrdev_fops(dev_t dev);

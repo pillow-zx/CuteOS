@@ -11,8 +11,10 @@
  */
 
 #include <kernel/errno.h>
+#include <kernel/blkdev.h>
 #include <kernel/fs.h>
 #include <kernel/fdtable.h>
+#include <kernel/statfs.h>
 #include <kernel/stat.h>
 #include <kernel/string.h>
 #include <kernel/test.h>
@@ -22,6 +24,10 @@
 
 #define FAT_DIR	 "/fat_testdir"
 #define FAT_FILE "/fat_testfile"
+#define FAT_MOUNT_DIR "/fat_mount"
+#define FAT_MOUNT_DEV "/fat_mount_dev"
+
+#define EXT2_SUPER_MAGIC 0xef53
 
 void test_fs_at_path_lookup_basics(void)
 {
@@ -237,4 +243,55 @@ fail:
 		fd_close(fd);
 	(void)vfs_unlink(FAT_FILE, 0);
 	TEST_FAIL("fs-at: openat create, write, read, unlink", "see above");
+}
+
+void test_fs_mount_ext2_on_directory(void)
+{
+	struct dentry *d = NULL;
+	struct kstatfs st;
+	int ret;
+	int ignored;
+
+	ignored = vfs_umount(FAT_MOUNT_DIR, 0);
+	(void)ignored;
+	(void)vfs_unlink_at(NULL, FAT_MOUNT_DIR, AT_REMOVEDIR);
+	(void)vfs_unlink(FAT_MOUNT_DEV, 0);
+
+	TEST_BEGIN("fs-mount: mount ext2 block device on directory");
+	{
+		ret = vfs_mknod(FAT_MOUNT_DEV, S_IFBLK | 0600,
+				MKDEV(8, 0));
+		TEST_ASSERT_EQ(ret, 0);
+		ret = vfs_mkdir(FAT_MOUNT_DIR, 0755);
+		TEST_ASSERT_EQ(ret, 0);
+
+		ret = vfs_mount(FAT_MOUNT_DEV, FAT_MOUNT_DIR, "ext2", 0,
+				NULL);
+		TEST_ASSERT_EQ(ret, 0);
+
+		ret = path_lookupat_err(NULL, FAT_MOUNT_DIR, 0, &d);
+		TEST_ASSERT_EQ(ret, 0);
+		TEST_ASSERT_NOT_NULL(d);
+		TEST_ASSERT_EQ(vfs_statfs(d->d_sb, &st), 0);
+		TEST_ASSERT_EQ(st.f_type, EXT2_SUPER_MAGIC);
+		dput(d);
+		d = NULL;
+
+		TEST_ASSERT_EQ(vfs_umount(FAT_MOUNT_DIR, 0), 0);
+		TEST_ASSERT_EQ(vfs_unlink_at(NULL, FAT_MOUNT_DIR,
+					     AT_REMOVEDIR),
+			       0);
+		TEST_ASSERT_EQ(vfs_unlink(FAT_MOUNT_DEV, 0), 0);
+	}
+	TEST_END("fs-mount: mount ext2 block device on directory");
+	return;
+fail:
+	if (d)
+		dput(d);
+	ignored = vfs_umount(FAT_MOUNT_DIR, 0);
+	(void)ignored;
+	(void)vfs_unlink_at(NULL, FAT_MOUNT_DIR, AT_REMOVEDIR);
+	(void)vfs_unlink(FAT_MOUNT_DEV, 0);
+	TEST_FAIL("fs-mount: mount ext2 block device on directory",
+		  "see above");
 }

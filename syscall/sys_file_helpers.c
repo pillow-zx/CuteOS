@@ -47,15 +47,15 @@ int copy_user_path(char **pathp, const char *user)
 	return 0;
 }
 
-int dirfd_path_base(int dfd, const char *path, struct dentry **basep)
+int dirfd_path_base_path(int dfd, const char *path, struct path *basep)
 {
 	struct file *file;
 	int ret = 0;
 
-	if (basep)
-		*basep = NULL;
 	if (!basep)
 		return -EINVAL;
+	basep->mnt = NULL;
+	basep->dentry = NULL;
 	if (!path)
 		return -EFAULT;
 	if (path[0] == '/' || dfd == AT_FDCWD)
@@ -64,16 +64,38 @@ int dirfd_path_base(int dfd, const char *path, struct dentry **basep)
 	file = fd_get(dfd);
 	if (!file)
 		return -EBADF;
-	if (!file->f_dentry || !file->f_inode ||
+	if (!file->f_path.dentry || !file->f_path.mnt || !file->f_inode ||
 	    !S_ISDIR(file->f_inode->i_mode)) {
 		ret = -ENOTDIR;
 		goto out;
 	}
 
-	dget(file->f_dentry);
-	*basep = file->f_dentry;
+	*basep = file->f_path;
+	path_get(basep);
 
 out:
 	file_put(file);
 	return ret;
+}
+
+int dirfd_path_base(int dfd, const char *path, struct dentry **basep)
+{
+	struct path base;
+	int ret;
+
+	if (basep)
+		*basep = NULL;
+	if (!basep)
+		return -EINVAL;
+
+	ret = dirfd_path_base_path(dfd, path, &base);
+	if (ret < 0)
+		return ret;
+	if (!base.dentry)
+		return 0;
+
+	dget(base.dentry);
+	*basep = base.dentry;
+	path_put(&base);
+	return 0;
 }

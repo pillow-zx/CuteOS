@@ -81,27 +81,28 @@ static int sys_faccessat_path(int dfd, const char *upath, int mode,
 			      uint32_t lookup_flags)
 {
 	char *path;
-	struct dentry *base;
-	struct dentry *dentry;
+	struct path base;
+	struct path found;
 	int ret;
 
 	ret = copy_user_path(&path, upath);
 	if (ret < 0)
 		return ret;
 
-	ret = dirfd_path_base(dfd, path, &base);
+	ret = dirfd_path_base_path(dfd, path, &base);
 	if (ret < 0)
 		goto out;
 
-	ret = path_lookupat_err(base, path, lookup_flags, &dentry);
-	if (base)
-		dput(base);
+	ret = path_lookupat_path(base.dentry ? &base : NULL, path,
+				 lookup_flags, &found);
+	if (base.dentry)
+		path_put(&base);
 out:
 	free_page(path, 0);
 	if (ret < 0)
 		return ret;
-	ret = vfs_inode_permission(dentry->d_inode, (uint32_t)mode);
-	dput(dentry);
+	ret = vfs_inode_permission(found.dentry->d_inode, (uint32_t)mode);
+	path_put(&found);
 
 	return ret;
 }
@@ -163,20 +164,21 @@ ssize_t sys_openat(struct trap_frame *tf)
 	uint32_t flags = (uint32_t)tf->a2;
 	uint32_t mode = (uint32_t)tf->a3;
 	char *path;
-	struct dentry *base;
+	struct path base;
 	int ret;
 
 	ret = copy_user_path(&path, upath);
 	if (ret < 0)
 		return ret;
 
-	ret = dirfd_path_base(dfd, path, &base);
+	ret = dirfd_path_base_path(dfd, path, &base);
 	if (ret < 0)
 		goto out;
 
-	ret = vfs_openat(base, path, flags, apply_umask(mode));
-	if (base)
-		dput(base);
+	ret = vfs_openat_path(base.dentry ? &base : NULL, path, flags,
+			      apply_umask(mode));
+	if (base.dentry)
+		path_put(&base);
 out:
 	free_page(path, 0);
 	return ret;
@@ -188,20 +190,21 @@ ssize_t sys_mkdirat(struct trap_frame *tf)
 	const char *upath = (const char *)tf->a1;
 	uint32_t mode = (uint32_t)tf->a2;
 	char *path;
-	struct dentry *base;
+	struct path base;
 	int ret;
 
 	ret = copy_user_path(&path, upath);
 	if (ret < 0)
 		return ret;
 
-	ret = dirfd_path_base(dfd, path, &base);
+	ret = dirfd_path_base_path(dfd, path, &base);
 	if (ret < 0)
 		goto out;
 
-	ret = vfs_mkdir_at(base, path, apply_umask(mode));
-	if (base)
-		dput(base);
+	ret = vfs_mkdir_at_path(base.dentry ? &base : NULL, path,
+				apply_umask(mode));
+	if (base.dentry)
+		path_put(&base);
 out:
 	free_page(path, 0);
 	return ret;
@@ -213,7 +216,7 @@ ssize_t sys_unlinkat(struct trap_frame *tf)
 	const char *upath = (const char *)tf->a1;
 	int flags = (int)tf->a2;
 	char *path;
-	struct dentry *base;
+	struct path base;
 	int ret;
 
 	if (flags & ~AT_REMOVEDIR)
@@ -223,13 +226,13 @@ ssize_t sys_unlinkat(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	ret = dirfd_path_base(dfd, path, &base);
+	ret = dirfd_path_base_path(dfd, path, &base);
 	if (ret < 0)
 		goto out;
 
-	ret = vfs_unlink_at(base, path, flags);
-	if (base)
-		dput(base);
+	ret = vfs_unlink_at_path(base.dentry ? &base : NULL, path, flags);
+	if (base.dentry)
+		path_put(&base);
 out:
 	free_page(path, 0);
 	return ret;
@@ -239,18 +242,21 @@ ssize_t sys_chdir(struct trap_frame *tf)
 {
 	const char *upath = (const char *)tf->a0;
 	char *path;
-	struct dentry *dentry;
+	struct path found;
 	int ret;
 
 	ret = copy_user_path(&path, upath);
 	if (ret < 0)
 		return ret;
 
-	ret = path_lookup_err(path, 0, &dentry);
+	ret = path_lookupat_path(NULL, path, 0, &found);
 	free_page(path, 0);
 	if (ret < 0)
 		return ret;
-	return vfs_chdir_dentry(dentry);
+
+	ret = vfs_chdir_path(&found);
+	path_put(&found);
+	return ret;
 }
 
 ssize_t sys_faccessat(struct trap_frame *tf)
@@ -296,7 +302,7 @@ ssize_t sys_getcwd(struct trap_frame *tf)
 {
 	char *ubuf = (char *)tf->a0;
 	size_t size = tf->a1;
-	struct dentry *cwd;
+	struct path cwd;
 	char *path;
 	int ret;
 
@@ -307,10 +313,11 @@ ssize_t sys_getcwd(struct trap_frame *tf)
 	if (!path)
 		return -ENOMEM;
 
-	cwd = fs_get_cwd_dentry(task_fs(current));
-	ret = vfs_getcwd_path(cwd, path, VFS_PATH_MAX);
-	if (cwd)
-		dput(cwd);
+	ret = fs_get_cwd_path(task_fs(current), &cwd);
+	if (ret < 0)
+		goto out;
+	ret = vfs_getcwd_path(&cwd, path, VFS_PATH_MAX);
+	path_put(&cwd);
 	if (ret < 0)
 		goto out;
 	if ((size_t)ret > size) {
@@ -408,8 +415,8 @@ ssize_t sys_readlinkat(struct trap_frame *tf)
 	char *path;
 	char *link;
 	size_t link_size;
-	struct dentry *base;
-	struct dentry *dentry;
+	struct path base;
+	struct path found;
 	int len;
 	int ret;
 
@@ -423,13 +430,14 @@ ssize_t sys_readlinkat(struct trap_frame *tf)
 		return ret;
 
 	/* readlink 操作链接本身，绝不跟随末端符号链接。 */
-	ret = dirfd_path_base(dfd, path, &base);
+	ret = dirfd_path_base_path(dfd, path, &base);
 	if (ret < 0)
 		goto out_free_path;
 
-	ret = path_lookupat_err(base, path, LOOKUP_NOFOLLOW, &dentry);
-	if (base)
-		dput(base);
+	ret = path_lookupat_path(base.dentry ? &base : NULL, path,
+				 LOOKUP_NOFOLLOW, &found);
+	if (base.dentry)
+		path_put(&base);
 out_free_path:
 	free_page(path, 0);
 	if (ret < 0)
@@ -438,12 +446,12 @@ out_free_path:
 	link_size = bufsiz < VFS_PATH_MAX ? bufsiz : VFS_PATH_MAX;
 	link = get_free_page(0);
 	if (!link) {
-		dput(dentry);
+		path_put(&found);
 		return -ENOMEM;
 	}
 
-	len = vfs_readlink(dentry, link, link_size);
-	dput(dentry);
+	len = vfs_readlink(found.dentry, link, link_size);
+	path_put(&found);
 	if (len < 0) {
 		free_page(link, 0);
 		return len;
@@ -467,7 +475,7 @@ ssize_t sys_symlinkat(struct trap_frame *tf)
 	const char *ulinkpath = (const char *)tf->a2;
 	char *target;
 	char *linkpath;
-	struct dentry *base;
+	struct path base;
 	int ret;
 
 	ret = copy_user_path(&target, utarget);
@@ -479,13 +487,14 @@ ssize_t sys_symlinkat(struct trap_frame *tf)
 		return ret;
 	}
 
-	ret = dirfd_path_base(newdfd, linkpath, &base);
+	ret = dirfd_path_base_path(newdfd, linkpath, &base);
 	if (ret < 0)
 		goto out;
 
-	ret = vfs_symlink_at(base, target, linkpath);
-	if (base)
-		dput(base);
+	ret = vfs_symlink_at_path(base.dentry ? &base : NULL, target,
+				  linkpath);
+	if (base.dentry)
+		path_put(&base);
 out:
 	free_page(linkpath, 0);
 	free_page(target, 0);
@@ -501,9 +510,9 @@ ssize_t sys_linkat(struct trap_frame *tf)
 	int flags = (int)tf->a4;
 	char *oldpath;
 	char *newpath;
-	struct dentry *old_base;
-	struct dentry *new_base;
-	struct dentry *old_dentry;
+	struct path old_base;
+	struct path new_base;
+	struct path old_path_found;
 	int ret;
 
 	if (flags & ~AT_SYMLINK_FOLLOW)
@@ -518,27 +527,28 @@ ssize_t sys_linkat(struct trap_frame *tf)
 		return ret;
 	}
 
-	ret = dirfd_path_base(olddfd, oldpath, &old_base);
+	ret = dirfd_path_base_path(olddfd, oldpath, &old_base);
 	if (ret < 0)
 		goto out_free_paths;
-	ret = path_lookupat_err(old_base, oldpath,
-				(flags & AT_SYMLINK_FOLLOW) ? 0 :
-								  LOOKUP_NOFOLLOW,
-				&old_dentry);
-	if (old_base)
-		dput(old_base);
+	ret = path_lookupat_path(
+		old_base.dentry ? &old_base : NULL, oldpath,
+		(flags & AT_SYMLINK_FOLLOW) ? 0 : LOOKUP_NOFOLLOW,
+		&old_path_found);
+	if (old_base.dentry)
+		path_put(&old_base);
 	if (ret < 0)
 		goto out_free_paths;
 
-	ret = dirfd_path_base(newdfd, newpath, &new_base);
+	ret = dirfd_path_base_path(newdfd, newpath, &new_base);
 	if (ret < 0) {
-		dput(old_dentry);
+		path_put(&old_path_found);
 		goto out_free_paths;
 	}
-	ret = vfs_link_at(old_dentry, new_base, newpath);
-	if (new_base)
-		dput(new_base);
-	dput(old_dentry);
+	ret = vfs_link_at_path(old_path_found.dentry,
+			       new_base.dentry ? &new_base : NULL, newpath);
+	if (new_base.dentry)
+		path_put(&new_base);
+	path_put(&old_path_found);
 
 out_free_paths:
 	free_page(newpath, 0);
@@ -553,22 +563,73 @@ ssize_t sys_mknod(struct trap_frame *tf)
 	uint32_t mode = (uint32_t)tf->a2;
 	dev_t dev = (dev_t)tf->a3;
 	char *path;
-	struct dentry *base;
+	struct path base;
 	int ret;
 
 	ret = copy_user_path(&path, upath);
 	if (ret < 0)
 		return ret;
 
-	ret = dirfd_path_base(dfd, path, &base);
+	ret = dirfd_path_base_path(dfd, path, &base);
 	if (ret < 0)
 		goto out;
 
-	ret = vfs_mknod_at(base, path, apply_umask(mode), dev);
-	if (base)
-		dput(base);
+	ret = vfs_mknod_at_path(base.dentry ? &base : NULL, path,
+				apply_umask(mode), dev);
+	if (base.dentry)
+		path_put(&base);
 out:
 	free_page(path, 0);
+	return ret;
+}
+
+ssize_t sys_umount2(struct trap_frame *tf)
+{
+	const char *utarget = (const char *)tf->a0;
+	int flags = (int)tf->a1;
+	char *target;
+	int ret;
+
+	ret = copy_user_path(&target, utarget);
+	if (ret < 0)
+		return ret;
+
+	ret = vfs_umount(target, flags);
+	free_page(target, 0);
+	return ret;
+}
+
+ssize_t sys_mount(struct trap_frame *tf)
+{
+	const char *usource = (const char *)tf->a0;
+	const char *utarget = (const char *)tf->a1;
+	const char *utype = (const char *)tf->a2;
+	unsigned long flags = (unsigned long)tf->a3;
+	const void *data = (const void *)tf->a4;
+	char *source = NULL;
+	char *target = NULL;
+	char *type = NULL;
+	int ret;
+
+	ret = copy_user_path(&source, usource);
+	if (ret < 0)
+		goto out;
+	ret = copy_user_path(&target, utarget);
+	if (ret < 0)
+		goto out;
+	ret = copy_user_path(&type, utype);
+	if (ret < 0)
+		goto out;
+
+	ret = vfs_mount(source, target, type, flags, data);
+
+out:
+	if (type)
+		free_page(type, 0);
+	if (target)
+		free_page(target, 0);
+	if (source)
+		free_page(source, 0);
 	return ret;
 }
 
@@ -581,7 +642,8 @@ ssize_t sys_renameat2(struct trap_frame *tf)
 	unsigned int flags = (unsigned int)tf->a4;
 	char *old_path = NULL;
 	char *new_path = NULL;
-	struct dentry *old_base, *new_base;
+	struct path old_base;
+	struct path new_base;
 	int ret;
 
 	if (flags & ~RENAME_NOREPLACE)
@@ -597,22 +659,24 @@ ssize_t sys_renameat2(struct trap_frame *tf)
 		return ret;
 	}
 
-	ret = dirfd_path_base(old_dfd, old_path, &old_base);
+	ret = dirfd_path_base_path(old_dfd, old_path, &old_base);
 	if (ret < 0)
 		goto out;
 
-	ret = dirfd_path_base(new_dfd, new_path, &new_base);
+	ret = dirfd_path_base_path(new_dfd, new_path, &new_base);
 	if (ret < 0) {
-		if (old_base)
-			dput(old_base);
+		if (old_base.dentry)
+			path_put(&old_base);
 		goto out;
 	}
 
-	ret = vfs_rename_at(old_base, old_path, new_base, new_path, flags);
-	if (old_base)
-		dput(old_base);
-	if (new_base)
-		dput(new_base);
+	ret = vfs_rename_at_path(old_base.dentry ? &old_base : NULL, old_path,
+				 new_base.dentry ? &new_base : NULL, new_path,
+				 flags);
+	if (old_base.dentry)
+		path_put(&old_base);
+	if (new_base.dentry)
+		path_put(&new_base);
 out:
 	free_page(old_path, 0);
 	free_page(new_path, 0);
@@ -691,8 +755,8 @@ ssize_t sys_utimensat(struct trap_frame *tf)
 	struct sys_timespec ktimes[2];
 	bool set_time[2];
 	char *path;
-	struct dentry *base;
-	struct dentry *dentry;
+	struct path base;
+	struct path found;
 	int ret;
 
 	if (flags & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW))
@@ -717,23 +781,23 @@ ssize_t sys_utimensat(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	ret = dirfd_path_base(dfd, path, &base);
+	ret = dirfd_path_base_path(dfd, path, &base);
 	if (ret < 0)
 		goto out_free_path;
 
-	ret = path_lookupat_err(
-		base, path, (flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0,
-		&dentry);
-	if (base)
-		dput(base);
+	ret = path_lookupat_path(
+		base.dentry ? &base : NULL, path,
+		(flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0, &found);
+	if (base.dentry)
+		path_put(&base);
 out_free_path:
 	free_page(path, 0);
 	if (ret < 0)
 		return ret;
 
-	ret = vfs_inode_set_timestamps(dentry->d_inode, ktimes[0].tv_sec,
+	ret = vfs_inode_set_timestamps(found.dentry->d_inode, ktimes[0].tv_sec,
 				       ktimes[1].tv_sec, set_time[0],
 				       set_time[1]);
-	dput(dentry);
+	path_put(&found);
 	return ret;
 }

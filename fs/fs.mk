@@ -4,6 +4,7 @@ VFS_OBJS = \
 	fs/vfs/super.o          \
 	fs/vfs/inode.o          \
 	fs/vfs/dentry.o         \
+	fs/vfs/mount.o          \
 	fs/vfs/namei.o          \
 	fs/vfs/namei_mutation.o \
 	fs/vfs/fs_struct.o      \

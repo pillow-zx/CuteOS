@@ -18,6 +18,8 @@ struct files_struct {
 
 struct file *__must_check file_alloc(const struct file_operations *f_op,
 				     uint32_t mode, void *private_data);
+struct file *__must_check file_alloc_path(const struct path *path,
+					  uint32_t flags, uint32_t mode);
 struct file *__must_check file_alloc_dentry(struct dentry *dentry,
 					    uint32_t flags, uint32_t mode);
 void file_get(struct file *file);

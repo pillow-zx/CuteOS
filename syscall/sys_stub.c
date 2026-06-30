@@ -42,20 +42,6 @@ ssize_t sys_epoll_pwait(struct trap_frame *tf)
 	return -ENOSYS;
 }
 
-ssize_t sys_umount2(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(vfs): 当前根文件系统固定挂载，尚无 mount namespace。 */
-	return -ENOSYS;
-}
-
-ssize_t sys_mount(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(vfs): 需要动态挂载表、挂载点和设备/类型解析。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_sendfile(struct trap_frame *tf)
 {
 	(void)tf;

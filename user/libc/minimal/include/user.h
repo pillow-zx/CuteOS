@@ -122,6 +122,9 @@ typedef unsigned long size_t;
 #define EFBIG	  27
 #define EAGAIN	  11
 #define EFAULT	  14
+#define ENOTBLK	  15
+#define EBUSY	  16
+#define ENODEV	  19
 #define EBADF	  9
 #define ENOSYS	  38
 #define ELOOP	  40
@@ -568,6 +571,19 @@ static inline long renameat2(int old_dfd, const char *old_path, int new_dfd,
 static inline long rename(const char *old_path, const char *new_path)
 {
 	return renameat2(AT_FDCWD, old_path, AT_FDCWD, new_path, 0);
+}
+
+static inline long mount(const char *source, const char *target,
+			 const char *type, unsigned long flags,
+			 const void *data)
+{
+	return syscall(SYS_mount, (long)source, (long)target, (long)type,
+		       flags, (long)data);
+}
+
+static inline long umount2(const char *target, int flags)
+{
+	return syscall(SYS_umount2, (long)target, flags);
 }
 
 static inline long utimensat(int dfd, const char *path,

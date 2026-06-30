@@ -60,20 +60,36 @@ static const char *skip_slashes(const char *path)
 	return path;
 }
 
-int vfs_getcwd_path(struct dentry *cwd, char *buf, size_t size)
+static bool path_is_root(const struct path *path)
+{
+	return path && path->mnt && path->mnt->mnt_is_root &&
+	       path->dentry == path->mnt->mnt_root;
+}
+
+int vfs_getcwd_path(const struct path *cwd, char *buf, size_t size)
 {
 	struct dentry *stack[32];
-	struct dentry *dentry = cwd;
+	struct path cur;
 	size_t depth = 0;
 	size_t pos = 0;
 
-	if (!dentry || !root_dentry)
+	if (!cwd || !cwd->mnt || !cwd->dentry || !root_dentry)
 		return -ENOENT;
-	while (dentry && dentry != root_dentry) {
+	cur = *cwd;
+	while (!path_is_root(&cur)) {
 		if (depth >= 32)
 			return -ENAMETOOLONG;
-		stack[depth++] = dentry;
-		dentry = vfs_dentry_parent(dentry);
+		if (cur.dentry == cur.mnt->mnt_root && !cur.mnt->mnt_is_root) {
+			stack[depth++] = cur.mnt->mnt_mountpoint;
+			cur.dentry = cur.mnt->mnt_mountpoint;
+			cur.mnt = cur.mnt->mnt_parent;
+			cur.dentry = vfs_dentry_parent(cur.dentry);
+			continue;
+		}
+		stack[depth++] = cur.dentry;
+		if (cur.dentry == vfs_dentry_parent(cur.dentry))
+			return -ENOENT;
+		cur.dentry = vfs_dentry_parent(cur.dentry);
 	}
 	if (size < 2)
 		return -ERANGE;
@@ -95,16 +111,32 @@ int vfs_getcwd_path(struct dentry *cwd, char *buf, size_t size)
 	return (int)pos + 1;
 }
 
-static struct dentry *follow_dotdot(struct dentry *dentry)
+static int follow_dotdot(struct path *path)
 {
-	struct dentry *parent;
+	struct path parent_path;
+	struct dentry *parent_dentry;
+	int ret;
 
-	if (!dentry)
-		return NULL;
+	if (!path || !path->dentry || !path->mnt)
+		return -ENOENT;
 
-	parent = dentry->d_parent ? dentry->d_parent : dentry;
-	dget(parent);
-	return parent;
+	ret = vfs_follow_dotdot_mount(path);
+	if (ret < 0)
+		return ret;
+
+	parent_dentry = path->dentry->d_parent ? path->dentry->d_parent :
+						 path->dentry;
+	if (!parent_dentry)
+		return -ENOENT;
+	if (parent_dentry == path->dentry)
+		return 0;
+
+	parent_path.mnt = path->mnt;
+	parent_path.dentry = parent_dentry;
+	path_get(&parent_path);
+	path_put(path);
+	*path = parent_path;
+	return vfs_follow_mount(path);
 }
 
 static int ensure_directory_dentry(struct dentry *dentry)
@@ -117,16 +149,22 @@ static int ensure_directory_dentry(struct dentry *dentry)
 	return 0;
 }
 
-static struct dentry *lookup_start_dentry(struct dentry *base, const char *path)
+static int lookup_start_path(const struct path *base, const char *path,
+			     struct path *res)
 {
+	if (!res)
+		return -EINVAL;
+	res->mnt = NULL;
+	res->dentry = NULL;
 	if (*path == '/')
-		return fs_get_root_dentry(task_fs(current));
+		return fs_get_root_path(task_fs(current), res);
 	if (base) {
-		dget(base);
-		return base;
+		*res = *base;
+		path_get(res);
+		return 0;
 	}
 
-	return fs_get_cwd_dentry(task_fs(current));
+	return fs_get_cwd_path(task_fs(current), res);
 }
 
 struct dentry *vfs_lookup_one(struct dentry *parent, const char *name,
@@ -218,8 +256,8 @@ int vfs_readlink(struct dentry *dentry, char *buf, size_t size)
 	return inode->i_op->readlink(inode, buf, size);
 }
 
-static int walk_path(struct dentry *base, const char *path, uint32_t flags,
-		     struct namei_context *ctx, struct dentry **res);
+static int walk_path(struct path *base, const char *path, uint32_t flags,
+		     struct namei_context *ctx, struct path *res);
 
 /*
  * 跟随符号链接：读取 link 指向的目标路径，并从合适的起点解析出目标
@@ -227,29 +265,29 @@ static int walk_path(struct dentry *base, const char *path, uint32_t flags,
  * 引用；link 的引用由本函数释放。成功时通过 res 返回目标 dentry（已
  * dget），失败返回负错误码。
  */
-static int follow_symlink(struct dentry *dir, struct dentry *link,
+static int follow_symlink(const struct path *dir, struct path *link,
 			  uint32_t flags, struct namei_context *ctx,
-			  struct dentry **res)
+			  struct path *res)
 {
 	char *target;
-	struct dentry *base;
+	struct path base;
 	int len;
 	int ret;
 
 	if (ctx->symlink_depth >= MAXSYMLINKS) {
-		dput(link);
+		path_put(link);
 		return -ELOOP;
 	}
 	ctx->symlink_depth++;
 
 	target = get_free_page(0);
 	if (!target) {
-		dput(link);
+		path_put(link);
 		return -ENOMEM;
 	}
 
-	len = vfs_readlink(link, target, VFS_PATH_MAX - 1);
-	dput(link);
+	len = vfs_readlink(link->dentry, target, VFS_PATH_MAX - 1);
+	path_put(link);
 	if (len < 0) {
 		free_page(target, 0);
 		return len;
@@ -261,16 +299,17 @@ static int follow_symlink(struct dentry *dir, struct dentry *link,
 	target[len] = '\0';
 
 	if (target[0] == '/')
-		base = fs_get_root_dentry(task_fs(current));
+		ret = fs_get_root_path(task_fs(current), &base);
 	else {
-		base = dir;
-		dget(base);
+		base = *dir;
+		path_get(&base);
+		ret = 0;
 	}
-	if (!base) {
+	if (ret < 0) {
 		free_page(target, 0);
-		return -ENOENT;
+		return ret;
 	}
-	ret = walk_path(base, target, flags, ctx, res);
+	ret = walk_path(&base, target, flags, ctx, res);
 	free_page(target, 0);
 	return ret;
 }
@@ -280,12 +319,13 @@ static int follow_symlink(struct dentry *dir, struct dentry *link,
  * （持有引用），失败时释放 base 并返回负错误码。中间分量总是跟随
  * 符号链接；末端分量在未设置 LOOKUP_NOFOLLOW 时也跟随。
  */
-static int walk_path(struct dentry *base, const char *path, uint32_t flags,
-		     struct namei_context *ctx, struct dentry **res)
+static int walk_path(struct path *base, const char *path, uint32_t flags,
+		     struct namei_context *ctx, struct path *res)
 {
-	struct dentry *dentry = base;
+	struct path cur = *base;
 
-	*res = NULL;
+	res->mnt = NULL;
+	res->dentry = NULL;
 	path = skip_slashes(path);
 
 	while (*path) {
@@ -304,70 +344,118 @@ static int walk_path(struct dentry *base, const char *path, uint32_t flags,
 		if (len == 0 || is_dot(name, len))
 			continue;
 		if (len > VFS_NAME_MAX) {
-			dput(dentry);
+			path_put(&cur);
 			return -ENAMETOOLONG;
 		}
 
 		if (is_dotdot(name, len)) {
-			struct dentry *parent = follow_dotdot(dentry);
-			dput(dentry);
-			dentry = parent;
-			if (!dentry)
-				return -ENOENT;
+			int ret = follow_dotdot(&cur);
+			if (ret < 0) {
+				path_put(&cur);
+				return ret;
+			}
 			continue;
 		}
 
-		int ret = ensure_directory_dentry(dentry);
+		int ret = ensure_directory_dentry(cur.dentry);
 		if (ret < 0) {
-			dput(dentry);
+			path_put(&cur);
 			return ret;
 		}
 
-		next = vfs_lookup_one(dentry, name, len);
+		next = vfs_lookup_one(cur.dentry, name, len);
 		if (!next) {
-			dput(dentry);
+			path_put(&cur);
 			return -ENOENT;
 		}
+		struct path next_path = {
+			.mnt = cur.mnt,
+			.dentry = next,
+		};
+		mntget(next_path.mnt);
+		if (!(is_last && (flags & LOOKUP_NO_MOUNT))) {
+			ret = vfs_follow_mount(&next_path);
+			if (ret < 0) {
+				path_put(&next_path);
+				path_put(&cur);
+				return ret;
+			}
+		}
 
-		if (d_is_symlink(next) &&
+		if (d_is_symlink(next_path.dentry) &&
 		    !(is_last && (flags & LOOKUP_NOFOLLOW))) {
-			struct dentry *target;
-			int ret = follow_symlink(dentry, next, flags, ctx,
-						 &target);
+			struct path target;
+			ret = follow_symlink(&cur, &next_path, flags, ctx,
+					     &target);
 
-			dput(dentry);
+			path_put(&cur);
 			if (ret < 0)
 				return ret;
-			dentry = target;
+			cur = target;
 			continue;
 		}
 
-		dput(dentry);
-		dentry = next;
+		path_put(&cur);
+		cur = next_path;
 	}
 
-	*res = dentry;
+	*res = cur;
 	return 0;
 }
 
-int path_lookupat_err(struct dentry *base, const char *path, uint32_t flags,
-		      struct dentry **res)
+int path_lookupat_path(const struct path *base, const char *path, uint32_t flags,
+		       struct path *res)
 {
 	struct namei_context ctx = {0};
-	struct dentry *start;
+	struct path start;
+	int ret;
 
 	if (res)
-		*res = NULL;
+		memset(res, 0, sizeof(*res));
 	if (!res)
 		return -EINVAL;
 	if (!path || !*path)
 		return -ENOENT;
 
-	start = lookup_start_dentry(base, path);
-	if (!start)
-		return -ENOENT;
+	ret = lookup_start_path(base, path, &start);
+	if (ret < 0)
+		return ret;
+	ret = vfs_follow_mount(&start);
+	if (ret < 0) {
+		path_put(&start);
+		return ret;
+	}
 
-	return walk_path(start, path, flags, &ctx, res);
+	return walk_path(&start, path, flags, &ctx, res);
+}
+
+int path_lookupat_err(struct dentry *base, const char *path, uint32_t flags,
+		      struct dentry **res)
+{
+	struct path base_path = {0};
+	struct path found;
+	int ret;
+
+	if (res)
+		*res = NULL;
+	if (!res)
+		return -EINVAL;
+	if (base) {
+		ret = vfs_path_from_dentry(base, &base_path);
+		if (ret < 0)
+			return ret;
+	}
+
+	ret = path_lookupat_path(base ? &base_path : NULL, path, flags, &found);
+	if (base)
+		path_put(&base_path);
+	if (ret < 0)
+		return ret;
+
+	dget(found.dentry);
+	*res = found.dentry;
+	path_put(&found);
+	return 0;
 }
 
 int path_lookup_err(const char *path, uint32_t flags, struct dentry **res)
@@ -387,33 +475,65 @@ struct dentry *path_lookup(const char *path, uint32_t flags)
 int path_parent_lookupat_err(struct dentry *base, const char *path, char *name,
 			     size_t *namelen, struct dentry **res)
 {
-	struct namei_context ctx = {0};
-	struct dentry *parent;
-	const char *last;
-	size_t last_len;
-	bool absolute;
+	struct path base_path = {0};
+	struct path parent_path;
+	int ret;
 
 	if (res)
 		*res = NULL;
+	if (!res)
+		return -EINVAL;
+	if (base) {
+		ret = vfs_path_from_dentry(base, &base_path);
+		if (ret < 0)
+			return ret;
+	}
+
+	ret = path_parent_lookupat_path(base ? &base_path : NULL, path, name,
+					namelen, &parent_path);
+	if (base)
+		path_put(&base_path);
+	if (ret < 0)
+		return ret;
+
+	dget(parent_path.dentry);
+	*res = parent_path.dentry;
+	path_put(&parent_path);
+	return 0;
+}
+
+int path_parent_lookupat_path(const struct path *base, const char *path,
+			      char *name, size_t *namelen, struct path *res)
+{
+	struct namei_context ctx = {0};
+	struct path parent;
+	const char *last;
+	size_t last_len;
+	int ret;
+
+	if (res) {
+		res->mnt = NULL;
+		res->dentry = NULL;
+	}
 	if (!res || !name || !namelen)
 		return -EINVAL;
 	if (!path || !*path)
 		return -ENOENT;
 
-	absolute = path[0] == '/';
-	while (*path == '/')
-		path++;
-	if (!*path)
-		return -ENOENT;
+	ret = lookup_start_path(base, path, &parent);
+	if (ret < 0)
+		return ret;
 
-	if (absolute)
-		parent = fs_get_root_dentry(task_fs(current));
-	else if (base) {
-		parent = base;
-		dget(parent);
-	} else
-		parent = fs_get_cwd_dentry(task_fs(current));
-	if (!parent)
+	ret = vfs_follow_mount(&parent);
+	if (ret < 0) {
+		path_put(&parent);
+		return ret;
+	}
+
+	path = skip_slashes(path);
+	if (!*path)
+		path_put(&parent);
+	if (!*path)
 		return -ENOENT;
 	last = NULL;
 	last_len = 0;
@@ -429,6 +549,10 @@ int path_parent_lookupat_err(struct dentry *base, const char *path, char *name,
 
 		if (len == 0 || is_dot(component, len))
 			continue;
+		if (len > VFS_NAME_MAX) {
+			path_put(&parent);
+			return -ENAMETOOLONG;
+		}
 
 		if (!*path) {
 			last = component;
@@ -436,51 +560,65 @@ int path_parent_lookupat_err(struct dentry *base, const char *path, char *name,
 			break;
 		}
 
-		int ret = ensure_directory_dentry(parent);
+		ret = ensure_directory_dentry(parent.dentry);
 		if (ret < 0) {
-			dput(parent);
+			path_put(&parent);
 			return ret;
 		}
 
 		if (is_dotdot(component, len)) {
-			struct dentry *next = follow_dotdot(parent);
-			dput(parent);
-			parent = next;
-			if (!parent)
-				return -ENOENT;
+			ret = follow_dotdot(&parent);
+			if (ret < 0) {
+				path_put(&parent);
+				return ret;
+			}
 			continue;
 		}
 
-		struct dentry *next = vfs_lookup_one(parent, component, len);
+		struct dentry *next =
+			vfs_lookup_one(parent.dentry, component, len);
 		if (!next) {
-			dput(parent);
+			path_put(&parent);
 			return -ENOENT;
 		}
+		struct path next_path = {
+			.mnt = parent.mnt,
+			.dentry = next,
+		};
+		mntget(next_path.mnt);
 
-		if (d_is_symlink(next)) {
-			struct dentry *target;
-			ret = follow_symlink(parent, next, 0, &ctx, &target);
+		ret = vfs_follow_mount(&next_path);
+		if (ret < 0) {
+			path_put(&next_path);
+			path_put(&parent);
+			return ret;
+		}
 
-			dput(parent);
+		if (d_is_symlink(next_path.dentry)) {
+			struct path target;
+
+			ret = follow_symlink(&parent, &next_path, 0, &ctx,
+					     &target);
+			path_put(&parent);
 			if (ret < 0)
 				return ret;
 			parent = target;
 			continue;
 		}
 
-		dput(parent);
-		parent = next;
+		path_put(&parent);
+		parent = next_path;
 	}
 
 	if (!last || last_len == 0 || last_len > VFS_NAME_MAX ||
 	    is_dot(last, last_len) || is_dotdot(last, last_len)) {
-		dput(parent);
+		path_put(&parent);
 		return last_len > VFS_NAME_MAX ? -ENAMETOOLONG : -ENOENT;
 	}
 
-	int ret = ensure_directory_dentry(parent);
+	ret = ensure_directory_dentry(parent.dentry);
 	if (ret < 0) {
-		dput(parent);
+		path_put(&parent);
 		return ret;
 	}
 
@@ -500,20 +638,34 @@ struct dentry *path_parent_lookup(const char *path, char *name, size_t *namelen)
 	return parent;
 }
 
+int vfs_chdir_path(const struct path *path)
+{
+	struct inode *inode;
+
+	if (!path || !path->dentry)
+		return -ENOENT;
+	inode = vfs_dentry_inode(path->dentry);
+	if (!inode)
+		return -ENOENT;
+	if (!S_ISDIR(vfs_inode_mode(inode)))
+		return -ENOTDIR;
+
+	return fs_set_cwd_path(task_fs(current), path);
+}
+
 int vfs_chdir_dentry(struct dentry *dentry)
 {
-	struct inode *inode = vfs_dentry_inode(dentry);
+	struct path path;
+	int ret;
 
-	if (!dentry || !inode) {
-		dput(dentry);
-		return -ENOENT;
-	}
-	if (!S_ISDIR(vfs_inode_mode(inode))) {
-		dput(dentry);
-		return -ENOTDIR;
-	}
+	ret = vfs_path_from_dentry(dentry, &path);
+	dput(dentry);
+	if (ret < 0)
+		return ret;
 
-	return fs_set_cwd(task_fs(current), dentry);
+	ret = vfs_chdir_path(&path);
+	path_put(&path);
+	return ret;
 }
 
 void vfs_set_root_dentry(struct dentry *dentry)

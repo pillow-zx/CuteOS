@@ -158,6 +158,7 @@ void kernel_test(void)
 	test_fs_at_lookup_nofollow_on_dir();
 	test_fs_at_non_directory_parent_error();
 	test_fs_at_openat_regular_file();
+	test_fs_mount_ext2_on_directory();
 
 	/* ---- Sched ---- */
 	TEST_SECTION("Sched");

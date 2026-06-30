@@ -11,13 +11,16 @@
 
 static void fs_set_initial_root(struct fs_struct *fs)
 {
+	struct path root = {0};
+
 	if (!fs || !root_dentry)
 		return;
+	if (vfs_root_path(&root) < 0)
+		return;
 
-	fs->root = root_dentry;
-	fs->cwd = root_dentry;
-	dget(fs->root);
-	dget(fs->cwd);
+	fs->root = root;
+	fs->cwd = root;
+	path_get(&fs->cwd);
 }
 
 struct fs_struct *fs_alloc(void)
@@ -44,23 +47,15 @@ struct fs_struct *fs_dup(struct fs_struct *old)
 	if (!old)
 		return fs;
 
-	if (fs->root) {
-		dput(fs->root);
-		fs->root = NULL;
-	}
-	if (fs->cwd) {
-		dput(fs->cwd);
-		fs->cwd = NULL;
-	}
+	path_put(&fs->root);
+	path_put(&fs->cwd);
 
 	mutex_lock(&old->lock);
 	fs->umask = old->umask;
 	fs->root = old->root;
 	fs->cwd = old->cwd;
-	if (fs->root)
-		dget(fs->root);
-	if (fs->cwd)
-		dget(fs->cwd);
+	path_get(&fs->root);
+	path_get(&fs->cwd);
 	mutex_unlock(&old->lock);
 
 	return fs;
@@ -80,69 +75,110 @@ void fs_put(struct fs_struct *fs)
 	if (!refcount_dec_and_test(&fs->refcount))
 		return;
 
-	if (fs->root)
-		dput(fs->root);
-	if (fs->cwd)
-		dput(fs->cwd);
+	path_put(&fs->root);
+	path_put(&fs->cwd);
 	kfree(fs);
+}
+
+int fs_get_root_path(struct fs_struct *fs, struct path *path)
+{
+	if (!path)
+		return -EINVAL;
+	path->mnt = NULL;
+	path->dentry = NULL;
+
+	if (fs) {
+		mutex_lock(&fs->lock);
+		*path = fs->root;
+		path_get(path);
+		mutex_unlock(&fs->lock);
+	}
+
+	if (!path->dentry)
+		return vfs_root_path(path);
+
+	return path->dentry ? 0 : -ENOENT;
+}
+
+int fs_get_cwd_path(struct fs_struct *fs, struct path *path)
+{
+	if (!path)
+		return -EINVAL;
+	path->mnt = NULL;
+	path->dentry = NULL;
+
+	if (fs) {
+		mutex_lock(&fs->lock);
+		*path = fs->cwd.dentry ? fs->cwd : fs->root;
+		path_get(path);
+		mutex_unlock(&fs->lock);
+	}
+
+	if (!path->dentry)
+		return vfs_root_path(path);
+
+	return path->dentry ? 0 : -ENOENT;
 }
 
 struct dentry *fs_get_root_dentry(struct fs_struct *fs)
 {
-	struct dentry *dentry = NULL;
+	struct path path;
+	struct dentry *dentry;
 
-	if (fs) {
-		mutex_lock(&fs->lock);
-		dentry = fs->root;
-		if (dentry)
-			dget(dentry);
-		mutex_unlock(&fs->lock);
-	}
-
-	if (!dentry && root_dentry) {
-		dentry = root_dentry;
-		dget(dentry);
-	}
-
+	if (fs_get_root_path(fs, &path) < 0)
+		return NULL;
+	dentry = path.dentry;
+	dget(dentry);
+	path_put(&path);
 	return dentry;
 }
 
 struct dentry *fs_get_cwd_dentry(struct fs_struct *fs)
 {
-	struct dentry *dentry = NULL;
+	struct path path;
+	struct dentry *dentry;
 
-	if (fs) {
-		mutex_lock(&fs->lock);
-		dentry = fs->cwd ? fs->cwd : fs->root;
-		if (dentry)
-			dget(dentry);
-		mutex_unlock(&fs->lock);
-	}
-
-	if (!dentry && root_dentry) {
-		dentry = root_dentry;
-		dget(dentry);
-	}
-
+	if (fs_get_cwd_path(fs, &path) < 0)
+		return NULL;
+	dentry = path.dentry;
+	dget(dentry);
+	path_put(&path);
 	return dentry;
 }
 
 int fs_set_cwd(struct fs_struct *fs, struct dentry *dentry)
 {
-	struct dentry *old;
+	struct path path;
+	int ret;
 
 	if (!fs || !dentry) {
 		dput(dentry);
 		return -EINVAL;
 	}
 
+	ret = vfs_path_from_dentry(dentry, &path);
+	dput(dentry);
+	if (ret < 0)
+		return ret;
+	ret = fs_set_cwd_path(fs, &path);
+	path_put(&path);
+	return ret;
+}
+
+int fs_set_cwd_path(struct fs_struct *fs, const struct path *path)
+{
+	struct path old;
+
+	if (!fs || !path || !path->dentry)
+		return -EINVAL;
+
+	path_get(path);
 	mutex_lock(&fs->lock);
 	old = fs->cwd;
-	fs->cwd = dentry;
+	fs->cwd = *path;
 	mutex_unlock(&fs->lock);
 
-	if (old)
-		dput(old);
+	path_put(&old);
 	return 0;
 }
 
@@ -175,19 +211,24 @@ uint32_t fs_set_umask(struct fs_struct *fs, uint32_t mask)
 
 void fs_set_root_if_empty(struct fs_struct *fs, struct dentry *root)
 {
+	struct path path;
+
 	if (!fs || !root)
+		return;
+	if (vfs_path_from_dentry(root, &path) < 0)
 		return;
 
 	mutex_lock(&fs->lock);
-	if (!fs->root) {
-		fs->root = root;
-		dget(fs->root);
+	if (!fs->root.dentry) {
+		fs->root = path;
+		path_get(&fs->root);
 	}
-	if (!fs->cwd) {
-		fs->cwd = root;
-		dget(fs->cwd);
+	if (!fs->cwd.dentry) {
+		fs->cwd = path;
+		path_get(&fs->cwd);
 	}
 	mutex_unlock(&fs->lock);
+	path_put(&path);
 }
 
 int init_fs(struct task_struct *task)

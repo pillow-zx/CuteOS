@@ -191,8 +191,25 @@ struct dentry {
 	struct list_head d_subdirs;
 };
 
+struct vfsmount {
+	refcount_t mnt_refcount;
+	struct list_head mnt_list;
+	struct vfsmount *mnt_parent;
+	struct dentry *mnt_mountpoint;
+	struct dentry *mnt_root;
+	struct super_block *mnt_sb;
+	dev_t mnt_dev;
+	bool mnt_is_root;
+};
+
+struct path {
+	struct vfsmount *mnt;
+	struct dentry *dentry;
+};
+
 struct file {
 	const struct file_operations *f_op;
+	struct path f_path;
 	struct dentry *f_dentry;
 	struct inode *f_inode;
 	void *private_data;
@@ -204,6 +221,8 @@ struct file {
 };
 
 int __must_check vfs_open(const char *path, uint32_t flags, uint32_t mode);
+int __must_check vfs_openat_path(const struct path *base, const char *path,
+				 uint32_t flags, uint32_t mode);
 int __must_check vfs_openat(struct dentry *base, const char *path,
 			    uint32_t flags, uint32_t mode);
 int __must_check file_get_status_flags(struct file *file);
@@ -227,7 +246,8 @@ int __must_check vfs_stat_file(struct file *file, struct kstat *st);
 int __must_check vfs_statfs(struct super_block *sb, struct kstatfs *buf);
 uint32_t __must_check vfs_poll(struct file *file, uint32_t events);
 int __must_check vfs_ioctl(struct file *file, uint64_t cmd, uint64_t arg);
-int __must_check vfs_getcwd_path(struct dentry *cwd, char *buf, size_t size);
+int __must_check vfs_getcwd_path(const struct path *cwd, char *buf,
+				 size_t size);
 
 static __always_inline __must_check __pure uint64_t
 vfs_inode_size(const struct inode *inode)

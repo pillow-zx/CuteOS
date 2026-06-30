@@ -5,6 +5,7 @@
  * include/kernel/fs_struct.h - 可共享的进程文件系统上下文
  */
 
+#include <kernel/fs.h>
 #include <kernel/refcount.h>
 #include <kernel/sync.h>
 #include <kernel/types.h>
@@ -12,8 +13,8 @@
 struct fs_struct {
 	refcount_t refcount;
 	mutex_t lock;
-	struct dentry *root;
-	struct dentry *cwd;
+	struct path root;
+	struct path cwd;
 	uint32_t umask;
 };
 
@@ -24,7 +25,10 @@ void fs_put(struct fs_struct *fs);
 
 struct dentry *__must_check fs_get_root_dentry(struct fs_struct *fs);
 struct dentry *__must_check fs_get_cwd_dentry(struct fs_struct *fs);
+int __must_check fs_get_root_path(struct fs_struct *fs, struct path *path);
+int __must_check fs_get_cwd_path(struct fs_struct *fs, struct path *path);
 int __must_check fs_set_cwd(struct fs_struct *fs, struct dentry *dentry);
+int __must_check fs_set_cwd_path(struct fs_struct *fs, const struct path *path);
 uint32_t __must_check fs_get_umask(struct fs_struct *fs);
 uint32_t fs_set_umask(struct fs_struct *fs, uint32_t mask);
 void fs_set_root_if_empty(struct fs_struct *fs, struct dentry *root);
