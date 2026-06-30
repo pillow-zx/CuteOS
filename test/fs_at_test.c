@@ -2,7 +2,7 @@
  * test/fs_at_test.c - *at 系统调用 VFS 语义回归测试
  *
  * 覆盖：
- *   - path_lookupat_err 基本路径解析（NULL base = cwd）
+ *   - path_lookupat_path 基本路径解析（NULL base = cwd）
  *   - 空路径、不存在路径的错误码
  *   - mkdir_at / unlink_at (AT_REMOVEDIR) 往返
  *   - vfs_readlink 对非符号链接返回 -EINVAL
@@ -31,39 +31,39 @@
 
 void test_fs_at_path_lookup_basics(void)
 {
-	struct dentry *d = NULL;
+	struct path path = {0};
 
-	TEST_BEGIN("fs-at: path_lookupat_err basics");
+	TEST_BEGIN("fs-at: path_lookupat_path basics");
 	{
 		/* Root lookup from cwd (NULL base) must succeed. */
-		TEST_ASSERT_EQ(path_lookupat_err(NULL, "/", 0, &d), 0);
-		TEST_ASSERT_NOT_NULL(d);
-		dput(d);
-		d = NULL;
+		TEST_ASSERT_EQ(path_lookupat_path(NULL, "/", 0, &path), 0);
+		TEST_ASSERT_NOT_NULL(path.mnt);
+		TEST_ASSERT_NOT_NULL(path.dentry);
+		path_put(&path);
 
 		/* Known non-existent path must return -ENOENT. */
 		TEST_ASSERT_EQ(
-			path_lookupat_err(NULL, "/no_such_entry_xyz", 0, &d),
+			path_lookupat_path(NULL, "/no_such_entry_xyz", 0,
+					   &path),
 			-ENOENT);
-		TEST_ASSERT_NULL(d);
+		TEST_ASSERT_NULL(path.dentry);
 
 		/* Component-based lookup through root. */
-		TEST_ASSERT_EQ(path_lookupat_err(NULL, "/.", 0, &d), 0);
-		TEST_ASSERT_NOT_NULL(d);
-		dput(d);
-		d = NULL;
+		TEST_ASSERT_EQ(path_lookupat_path(NULL, "/.", 0, &path), 0);
+		TEST_ASSERT_NOT_NULL(path.mnt);
+		TEST_ASSERT_NOT_NULL(path.dentry);
+		path_put(&path);
 	}
-	TEST_END("fs-at: path_lookupat_err basics");
+	TEST_END("fs-at: path_lookupat_path basics");
 	return;
 fail:
-	if (d)
-		dput(d);
-	TEST_FAIL("fs-at: path_lookupat_err basics", "see above");
+	path_put(&path);
+	TEST_FAIL("fs-at: path_lookupat_path basics", "see above");
 }
 
 void test_fs_at_empty_path_error(void)
 {
-	struct dentry *d = NULL;
+	struct path path = {0};
 	int ret;
 
 	TEST_BEGIN("fs-at: empty path returns error");
@@ -72,9 +72,9 @@ void test_fs_at_empty_path_error(void)
 		 * An empty path must not succeed for ordinary lookup; the
 		 * kernel returns either -ENOENT or -EINVAL.
 		 */
-		ret = path_lookupat_err(NULL, "", 0, &d);
+		ret = path_lookupat_path(NULL, "", 0, &path);
 		TEST_ASSERT(ret < 0);
-		TEST_ASSERT_NULL(d);
+		TEST_ASSERT_NULL(path.dentry);
 	}
 	TEST_END("fs-at: empty path returns error");
 	return;
@@ -84,112 +84,107 @@ fail:
 
 void test_fs_at_mkdir_rmdir_cycle(void)
 {
-	struct dentry *d = NULL;
+	struct path path = {0};
 	int ret;
 
 	/* Clean up any leftover from a previous run. */
-	(void)vfs_unlink_at(NULL, FAT_DIR, AT_REMOVEDIR);
+	(void)vfs_unlink_at_path(NULL, FAT_DIR, AT_REMOVEDIR);
 
 	TEST_BEGIN("fs-at: mkdir_at / rmdir_at cycle");
 	{
 		/* Create the directory. */
-		ret = vfs_mkdir_at(NULL, FAT_DIR, 0755);
+		ret = vfs_mkdir_at_path(NULL, FAT_DIR, 0755);
 		TEST_ASSERT_EQ(ret, 0);
 
 		/* Look it up — must exist and be a directory. */
-		ret = path_lookupat_err(NULL, FAT_DIR, 0, &d);
+		ret = path_lookupat_path(NULL, FAT_DIR, 0, &path);
 		TEST_ASSERT_EQ(ret, 0);
-		TEST_ASSERT_NOT_NULL(d);
-		TEST_ASSERT_NOT_NULL(d->d_inode);
-		TEST_ASSERT(S_ISDIR(d->d_inode->i_mode));
-		dput(d);
-		d = NULL;
+		TEST_ASSERT_NOT_NULL(path.mnt);
+		TEST_ASSERT_NOT_NULL(path.dentry);
+		TEST_ASSERT_NOT_NULL(path.dentry->d_inode);
+		TEST_ASSERT(S_ISDIR(path.dentry->d_inode->i_mode));
+		path_put(&path);
 
 		/* Remove the directory via AT_REMOVEDIR. */
-		ret = vfs_unlink_at(NULL, FAT_DIR, AT_REMOVEDIR);
+		ret = vfs_unlink_at_path(NULL, FAT_DIR, AT_REMOVEDIR);
 		TEST_ASSERT_EQ(ret, 0);
 
 		/* Must be gone now. */
-		ret = path_lookupat_err(NULL, FAT_DIR, 0, &d);
+		ret = path_lookupat_path(NULL, FAT_DIR, 0, &path);
 		TEST_ASSERT_EQ(ret, -ENOENT);
-		TEST_ASSERT_NULL(d);
+		TEST_ASSERT_NULL(path.dentry);
 	}
 	TEST_END("fs-at: mkdir_at / rmdir_at cycle");
 	return;
 fail:
-	if (d)
-		dput(d);
-	(void)vfs_unlink_at(NULL, FAT_DIR, AT_REMOVEDIR);
+	path_put(&path);
+	(void)vfs_unlink_at_path(NULL, FAT_DIR, AT_REMOVEDIR);
 	TEST_FAIL("fs-at: mkdir_at / rmdir_at cycle", "see above");
 }
 
 void test_fs_at_readlink_not_symlink(void)
 {
-	struct dentry *d = NULL;
+	struct path path = {0};
 	char buf[64];
 	int ret;
 
 	TEST_BEGIN("fs-at: readlink on non-symlink returns -EINVAL");
 	{
 		/* Look up the root (definitely not a symlink). */
-		ret = path_lookupat_err(NULL, "/", 0, &d);
+		ret = path_lookupat_path(NULL, "/", 0, &path);
 		TEST_ASSERT_EQ(ret, 0);
-		TEST_ASSERT_NOT_NULL(d);
+		TEST_ASSERT_NOT_NULL(path.dentry);
 
-		ret = vfs_readlink(d, buf, sizeof(buf));
+		ret = vfs_readlink(path.dentry, buf, sizeof(buf));
 		TEST_ASSERT_EQ(ret, -EINVAL);
 
-		dput(d);
-		d = NULL;
+		path_put(&path);
 	}
 	TEST_END("fs-at: readlink on non-symlink returns -EINVAL");
 	return;
 fail:
-	if (d)
-		dput(d);
+	path_put(&path);
 	TEST_FAIL("fs-at: readlink on non-symlink returns -EINVAL",
 		  "see above");
 }
 
 void test_fs_at_lookup_nofollow_on_dir(void)
 {
-	struct dentry *d = NULL;
+	struct path path = {0};
 
 	TEST_BEGIN("fs-at: LOOKUP_NOFOLLOW on directory is harmless");
 	{
 		/* LOOKUP_NOFOLLOW must not affect non-symlink lookups. */
 		TEST_ASSERT_EQ(
-			path_lookupat_err(NULL, "/", LOOKUP_NOFOLLOW, &d), 0);
-		TEST_ASSERT_NOT_NULL(d);
-		TEST_ASSERT(S_ISDIR(d->d_inode->i_mode));
-		dput(d);
-		d = NULL;
+			path_lookupat_path(NULL, "/", LOOKUP_NOFOLLOW, &path),
+			0);
+		TEST_ASSERT_NOT_NULL(path.dentry);
+		TEST_ASSERT(S_ISDIR(path.dentry->d_inode->i_mode));
+		path_put(&path);
 	}
 	TEST_END("fs-at: LOOKUP_NOFOLLOW on directory is harmless");
 	return;
 fail:
-	if (d)
-		dput(d);
+	path_put(&path);
 	TEST_FAIL("fs-at: LOOKUP_NOFOLLOW on directory is harmless",
 		  "see above");
 }
 
 void test_fs_at_non_directory_parent_error(void)
 {
-	struct dentry *d = NULL;
+	struct path path = {0};
 	int ret;
 
 	TEST_BEGIN("fs-at: non-directory parent returns -ENOTDIR");
 	{
-		ret = path_lookupat_err(NULL, "/bin/sh/child", 0, &d);
+		ret = path_lookupat_path(NULL, "/bin/sh/child", 0, &path);
 		TEST_ASSERT_EQ(ret, -ENOTDIR);
-		TEST_ASSERT_NULL(d);
+		TEST_ASSERT_NULL(path.dentry);
 	}
 	TEST_END("fs-at: non-directory parent returns -ENOTDIR");
 	return;
 fail:
-	if (d)
-		dput(d);
+	path_put(&path);
 	TEST_FAIL("fs-at: non-directory parent returns -ENOTDIR", "see above");
 }
 
@@ -202,7 +197,7 @@ void test_fs_at_openat_regular_file(void)
 	ssize_t n;
 
 	/* Clean up any leftover. */
-	(void)vfs_unlink(FAT_FILE, 0);
+	(void)vfs_unlink_at_path(NULL, FAT_FILE, 0);
 
 	TEST_BEGIN("fs-at: openat create, write, read, unlink");
 	{
@@ -226,13 +221,13 @@ void test_fs_at_openat_regular_file(void)
 		fd_close(fd);
 		fd = -1;
 
-		TEST_ASSERT_EQ(vfs_unlink(FAT_FILE, 0), 0);
+		TEST_ASSERT_EQ(vfs_unlink_at_path(NULL, FAT_FILE, 0), 0);
 
 		/* Must be gone. */
-		struct dentry *d = NULL;
-		TEST_ASSERT_EQ(path_lookupat_err(NULL, FAT_FILE, 0, &d),
+		struct path path = {0};
+		TEST_ASSERT_EQ(path_lookupat_path(NULL, FAT_FILE, 0, &path),
 			       -ENOENT);
-		TEST_ASSERT_NULL(d);
+		TEST_ASSERT_NULL(path.dentry);
 	}
 	TEST_END("fs-at: openat create, write, read, unlink");
 	return;
@@ -241,57 +236,56 @@ fail:
 		file_put(f);
 	if (fd >= 0)
 		fd_close(fd);
-	(void)vfs_unlink(FAT_FILE, 0);
+	(void)vfs_unlink_at_path(NULL, FAT_FILE, 0);
 	TEST_FAIL("fs-at: openat create, write, read, unlink", "see above");
 }
 
 void test_fs_mount_ext2_on_directory(void)
 {
-	struct dentry *d = NULL;
+	struct path path = {0};
 	struct kstatfs st;
 	int ret;
 	int ignored;
 
 	ignored = vfs_umount(FAT_MOUNT_DIR, 0);
 	(void)ignored;
-	(void)vfs_unlink_at(NULL, FAT_MOUNT_DIR, AT_REMOVEDIR);
-	(void)vfs_unlink(FAT_MOUNT_DEV, 0);
+	(void)vfs_unlink_at_path(NULL, FAT_MOUNT_DIR, AT_REMOVEDIR);
+	(void)vfs_unlink_at_path(NULL, FAT_MOUNT_DEV, 0);
 
 	TEST_BEGIN("fs-mount: mount ext2 block device on directory");
 	{
-		ret = vfs_mknod(FAT_MOUNT_DEV, S_IFBLK | 0600,
-				MKDEV(8, 0));
+		ret = vfs_mknod_at_path(NULL, FAT_MOUNT_DEV, S_IFBLK | 0600,
+					MKDEV(8, 0));
 		TEST_ASSERT_EQ(ret, 0);
-		ret = vfs_mkdir(FAT_MOUNT_DIR, 0755);
+		ret = vfs_mkdir_at_path(NULL, FAT_MOUNT_DIR, 0755);
 		TEST_ASSERT_EQ(ret, 0);
 
 		ret = vfs_mount(FAT_MOUNT_DEV, FAT_MOUNT_DIR, "ext2", 0,
 				NULL);
 		TEST_ASSERT_EQ(ret, 0);
 
-		ret = path_lookupat_err(NULL, FAT_MOUNT_DIR, 0, &d);
+		ret = path_lookupat_path(NULL, FAT_MOUNT_DIR, 0, &path);
 		TEST_ASSERT_EQ(ret, 0);
-		TEST_ASSERT_NOT_NULL(d);
-		TEST_ASSERT_EQ(vfs_statfs(d->d_sb, &st), 0);
+		TEST_ASSERT_NOT_NULL(path.mnt);
+		TEST_ASSERT_NOT_NULL(path.dentry);
+		TEST_ASSERT_EQ(vfs_statfs(path.mnt->mnt_sb, &st), 0);
 		TEST_ASSERT_EQ(st.f_type, EXT2_SUPER_MAGIC);
-		dput(d);
-		d = NULL;
+		path_put(&path);
 
 		TEST_ASSERT_EQ(vfs_umount(FAT_MOUNT_DIR, 0), 0);
-		TEST_ASSERT_EQ(vfs_unlink_at(NULL, FAT_MOUNT_DIR,
-					     AT_REMOVEDIR),
+		TEST_ASSERT_EQ(vfs_unlink_at_path(NULL, FAT_MOUNT_DIR,
+						  AT_REMOVEDIR),
 			       0);
-		TEST_ASSERT_EQ(vfs_unlink(FAT_MOUNT_DEV, 0), 0);
+		TEST_ASSERT_EQ(vfs_unlink_at_path(NULL, FAT_MOUNT_DEV, 0), 0);
 	}
 	TEST_END("fs-mount: mount ext2 block device on directory");
 	return;
 fail:
-	if (d)
-		dput(d);
+	path_put(&path);
 	ignored = vfs_umount(FAT_MOUNT_DIR, 0);
 	(void)ignored;
-	(void)vfs_unlink_at(NULL, FAT_MOUNT_DIR, AT_REMOVEDIR);
-	(void)vfs_unlink(FAT_MOUNT_DEV, 0);
+	(void)vfs_unlink_at_path(NULL, FAT_MOUNT_DIR, AT_REMOVEDIR);
+	(void)vfs_unlink_at_path(NULL, FAT_MOUNT_DEV, 0);
 	TEST_FAIL("fs-mount: mount ext2 block device on directory",
 		  "see above");
 }

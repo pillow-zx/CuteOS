@@ -5,6 +5,7 @@
 #include <ulib.h>
 
 #define EPIPE 32
+#define EXDEV 18
 #define EXT2_SUPER_MAGIC 0xef53
 
 #define MOUNT_DEV "/tmp/mount_dev"
@@ -1190,6 +1191,52 @@ static int test_mount_unlink_rename_targets_mounted_root(void)
 	return 0;
 }
 
+static int test_mount_rename_cross_superblock_rejected(void)
+{
+	long fd;
+	long ret;
+
+	if (mount_test_setup())
+		return 1;
+	ret = mount(MOUNT_DEV, MOUNT_DIR, "ext2", 0, NULL);
+	if (ret != 0) {
+		printf("FAIL: mount for cross-superblock rename got %ld\n", ret);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	if (make_file(MOUNT_CREATED, "x", 1) != 0) {
+		printf("FAIL: create cross-superblock rename source\n");
+		mount_test_cleanup();
+		return 1;
+	}
+
+	ret = renameat2(AT_FDCWD, MOUNT_CREATED, AT_FDCWD,
+			"/cross_superblock_dst", 0);
+	if (ret != -EXDEV) {
+		printf("FAIL: cross-superblock rename expected -EXDEV got %ld\n",
+		       ret);
+		mount_test_cleanup();
+		return 1;
+	}
+	if (read_check(MOUNT_CREATED, "x", 1) != 0) {
+		printf("FAIL: cross-superblock rename source changed\n");
+		mount_test_cleanup();
+		return 1;
+	}
+	fd = open("/cross_superblock_dst", O_RDONLY);
+	if (fd != -ENOENT) {
+		printf("FAIL: cross-superblock rename created dst: %ld\n", fd);
+		if (fd >= 0)
+			close((int)fd);
+		mount_test_cleanup();
+		return 1;
+	}
+
+	mount_test_cleanup();
+	return 0;
+}
+
 static int test_mount_dotdot_escapes_to_parent(void)
 {
 	struct stat parent_st;
@@ -1330,6 +1377,8 @@ int main(void)
 		     &failed);
 	report_group("mount unlink and rename target mounted root",
 		     test_mount_unlink_rename_targets_mounted_root(), &failed);
+	report_group("mount rejects cross-superblock rename",
+		     test_mount_rename_cross_superblock_rejected(), &failed);
 	report_group("mount cwd and getcwd path semantics",
 		     test_mount_cwd_getcwd_path_semantics(), &failed);
 	report_group("mount dirfd relative paths use mounted root",

@@ -23,11 +23,8 @@ struct fs_struct *__must_check fs_dup(struct fs_struct *old);
 void fs_get(struct fs_struct *fs);
 void fs_put(struct fs_struct *fs);
 
-struct dentry *__must_check fs_get_root_dentry(struct fs_struct *fs);
-struct dentry *__must_check fs_get_cwd_dentry(struct fs_struct *fs);
 int __must_check fs_get_root_path(struct fs_struct *fs, struct path *path);
 int __must_check fs_get_cwd_path(struct fs_struct *fs, struct path *path);
-int __must_check fs_set_cwd(struct fs_struct *fs, struct dentry *dentry);
 int __must_check fs_set_cwd_path(struct fs_struct *fs, const struct path *path);
 uint32_t __must_check fs_get_umask(struct fs_struct *fs);
 uint32_t fs_set_umask(struct fs_struct *fs, uint32_t mask);

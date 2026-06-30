@@ -221,7 +221,6 @@ struct file *file_alloc_path(const struct path *path, uint32_t flags,
 
 	file->f_path = *path;
 	path_get(&file->f_path);
-	file->f_dentry = dentry;
 	file->f_inode = dentry->d_inode;
 	file->f_flags = flags;
 	igrab(file->f_inode);
@@ -229,7 +228,6 @@ struct file *file_alloc_path(const struct path *path, uint32_t flags,
 	if (file->f_op && file->f_op->open) {
 		int ret = file->f_op->open(file->f_inode, file);
 		if (ret < 0) {
-			file->f_dentry = NULL;
 			file->f_inode = NULL;
 			path_put(&file->f_path);
 			iput(dentry->d_inode);
@@ -238,20 +236,6 @@ struct file *file_alloc_path(const struct path *path, uint32_t flags,
 		}
 	}
 
-	return file;
-}
-
-struct file *file_alloc_dentry(struct dentry *dentry, uint32_t flags,
-			       uint32_t mode)
-{
-	struct path path;
-	struct file *file;
-
-	if (vfs_path_from_dentry(dentry, &path) < 0)
-		return NULL;
-
-	file = file_alloc_path(&path, flags, mode);
-	path_put(&path);
 	return file;
 }
 

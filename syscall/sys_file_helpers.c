@@ -77,25 +77,3 @@ out:
 	file_put(file);
 	return ret;
 }
-
-int dirfd_path_base(int dfd, const char *path, struct dentry **basep)
-{
-	struct path base;
-	int ret;
-
-	if (basep)
-		*basep = NULL;
-	if (!basep)
-		return -EINVAL;
-
-	ret = dirfd_path_base_path(dfd, path, &base);
-	if (ret < 0)
-		return ret;
-	if (!base.dentry)
-		return 0;
-
-	dget(base.dentry);
-	*basep = base.dentry;
-	path_put(&base);
-	return 0;
-}

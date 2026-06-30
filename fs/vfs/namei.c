@@ -11,8 +11,7 @@
  *   以防环路。每个分量最终调用 i_op->lookup 在磁盘上查找。
  *
  * 主要函数：
- *   path_lookup(path, flags) - 主路径解析函数。绝对路径从 fs root 开始，
- *                              相对路径从 fs cwd 开始
+ *   path_lookupat_path(base, path, flags, res) - 主路径解析函数。
  *   walk_path(base, path, …) - 从 base 起逐分量解析并跟随符号链接
  *   follow_symlink(dir, link, …) - 读取符号链接目标并解析出目标 dentry
  *   follow_dotdot(dentry)    - 处理 ".." 分量，通过 d_parent 回溯
@@ -429,79 +428,6 @@ int path_lookupat_path(const struct path *base, const char *path, uint32_t flags
 	return walk_path(&start, path, flags, &ctx, res);
 }
 
-int path_lookupat_err(struct dentry *base, const char *path, uint32_t flags,
-		      struct dentry **res)
-{
-	struct path base_path = {0};
-	struct path found;
-	int ret;
-
-	if (res)
-		*res = NULL;
-	if (!res)
-		return -EINVAL;
-	if (base) {
-		ret = vfs_path_from_dentry(base, &base_path);
-		if (ret < 0)
-			return ret;
-	}
-
-	ret = path_lookupat_path(base ? &base_path : NULL, path, flags, &found);
-	if (base)
-		path_put(&base_path);
-	if (ret < 0)
-		return ret;
-
-	dget(found.dentry);
-	*res = found.dentry;
-	path_put(&found);
-	return 0;
-}
-
-int path_lookup_err(const char *path, uint32_t flags, struct dentry **res)
-{
-	return path_lookupat_err(NULL, path, flags, res);
-}
-
-struct dentry *path_lookup(const char *path, uint32_t flags)
-{
-	struct dentry *dentry;
-
-	if (path_lookup_err(path, flags, &dentry) < 0)
-		return NULL;
-	return dentry;
-}
-
-int path_parent_lookupat_err(struct dentry *base, const char *path, char *name,
-			     size_t *namelen, struct dentry **res)
-{
-	struct path base_path = {0};
-	struct path parent_path;
-	int ret;
-
-	if (res)
-		*res = NULL;
-	if (!res)
-		return -EINVAL;
-	if (base) {
-		ret = vfs_path_from_dentry(base, &base_path);
-		if (ret < 0)
-			return ret;
-	}
-
-	ret = path_parent_lookupat_path(base ? &base_path : NULL, path, name,
-					namelen, &parent_path);
-	if (base)
-		path_put(&base_path);
-	if (ret < 0)
-		return ret;
-
-	dget(parent_path.dentry);
-	*res = parent_path.dentry;
-	path_put(&parent_path);
-	return 0;
-}
-
 int path_parent_lookupat_path(const struct path *base, const char *path,
 			      char *name, size_t *namelen, struct path *res)
 {
@@ -629,15 +555,6 @@ int path_parent_lookupat_path(const struct path *base, const char *path,
 	return 0;
 }
 
-struct dentry *path_parent_lookup(const char *path, char *name, size_t *namelen)
-{
-	struct dentry *parent;
-
-	if (path_parent_lookupat_err(NULL, path, name, namelen, &parent) < 0)
-		return NULL;
-	return parent;
-}
-
 int vfs_chdir_path(const struct path *path)
 {
 	struct inode *inode;
@@ -651,21 +568,6 @@ int vfs_chdir_path(const struct path *path)
 		return -ENOTDIR;
 
 	return fs_set_cwd_path(task_fs(current), path);
-}
-
-int vfs_chdir_dentry(struct dentry *dentry)
-{
-	struct path path;
-	int ret;
-
-	ret = vfs_path_from_dentry(dentry, &path);
-	dput(dentry);
-	if (ret < 0)
-		return ret;
-
-	ret = vfs_chdir_path(&path);
-	path_put(&path);
-	return ret;
 }
 
 void vfs_set_root_dentry(struct dentry *dentry)

@@ -109,16 +109,17 @@ out:
 
 static int sys_faccessat_empty_path(int dfd, int mode)
 {
-	struct dentry *cwd;
+	struct path cwd;
 	struct file *file;
 	int ret;
 
 	if (dfd == AT_FDCWD) {
-		cwd = fs_get_cwd_dentry(task_fs(current));
-		if (!cwd)
-			return -ENOENT;
-		ret = vfs_inode_permission(cwd->d_inode, (uint32_t)mode);
-		dput(cwd);
+		ret = fs_get_cwd_path(task_fs(current), &cwd);
+		if (ret < 0)
+			return ret;
+		ret = vfs_inode_permission(cwd.dentry->d_inode,
+					   (uint32_t)mode);
+		path_put(&cwd);
 		return ret;
 	}
 
@@ -687,17 +688,18 @@ static int sys_utimensat_empty_path(int dfd, const struct sys_timespec ktimes[2]
 				    const bool set_time[2])
 {
 	struct file *file;
-	struct dentry *cwd;
+	struct path cwd;
 	int ret;
 
 	if (dfd == AT_FDCWD) {
-		cwd = fs_get_cwd_dentry(task_fs(current));
-		if (!cwd)
-			return -ENOENT;
-		ret = vfs_inode_set_timestamps(cwd->d_inode, ktimes[0].tv_sec,
+		ret = fs_get_cwd_path(task_fs(current), &cwd);
+		if (ret < 0)
+			return ret;
+		ret = vfs_inode_set_timestamps(cwd.dentry->d_inode,
+					       ktimes[0].tv_sec,
 					       ktimes[1].tv_sec, set_time[0],
 					       set_time[1]);
-		dput(cwd);
+		path_put(&cwd);
 		return ret;
 	}
 

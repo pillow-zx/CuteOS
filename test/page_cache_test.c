@@ -42,7 +42,7 @@ static void close_test_file(int fd, struct file *file)
 
 static void unlink_test_path(const char *path)
 {
-	(void)vfs_unlink(path, 0);
+	(void)vfs_unlink_at_path(NULL, path, 0);
 }
 
 static int read_raw_file_page(struct file *file, uint32_t index, uint8_t *buf)
@@ -264,37 +264,39 @@ cleanup:
 void test_page_cache_directory_alias_refresh(void)
 {
 	static uint8_t cached[BLOCK_SIZE];
-	struct dentry *dir_dentry = NULL;
-	struct dentry *file_dentry = NULL;
+	struct path dir_path = {0};
+	struct path file_path = {0};
 	struct page_cache *raw_page = NULL;
 	uint32_t pblock;
 	int ret;
 
 	TEST_BEGIN("page cache: directory alias refresh after create");
 	{
-		(void)vfs_unlink("/pcache-alias-dir/child", 0);
-		(void)vfs_unlink("/pcache-alias-dir", AT_REMOVEDIR);
+		(void)vfs_unlink_at_path(NULL, "/pcache-alias-dir/child", 0);
+		(void)vfs_unlink_at_path(NULL, "/pcache-alias-dir",
+					  AT_REMOVEDIR);
 
-		TEST_ASSERT_EQ(vfs_mkdir("/pcache-alias-dir", 0755), 0);
-		TEST_ASSERT_EQ(path_lookupat_err(NULL, "/pcache-alias-dir", 0,
-						 &dir_dentry),
+		TEST_ASSERT_EQ(
+			vfs_mkdir_at_path(NULL, "/pcache-alias-dir", 0755), 0);
+		TEST_ASSERT_EQ(path_lookupat_path(NULL, "/pcache-alias-dir", 0,
+						  &dir_path),
 			       0);
-		TEST_ASSERT_NOT_NULL(dir_dentry);
-		TEST_ASSERT_NOT_NULL(dir_dentry->d_inode);
+		TEST_ASSERT_NOT_NULL(dir_path.dentry);
+		TEST_ASSERT_NOT_NULL(dir_path.dentry->d_inode);
 
-		pblock = ext2_bmap(dir_dentry->d_inode, 0, false);
+		pblock = ext2_bmap(dir_path.dentry->d_inode, 0, false);
 		TEST_ASSERT_NE(pblock, 0u);
 		raw_page = page_cache_get_block(
-			dir_dentry->d_inode->i_sb->s_dev, pblock);
+			dir_path.dentry->d_inode->i_sb->s_dev, pblock);
 		TEST_ASSERT_NOT_NULL(raw_page);
 		TEST_ASSERT(!dir_page_has_entry(page_cache_data(raw_page),
 						"child"));
 
-		ret = vfs_create("/pcache-alias-dir/child", 0644, &file_dentry);
+		ret = vfs_create_at_path(NULL, "/pcache-alias-dir/child", 0644,
+					 &file_path);
 		TEST_ASSERT_EQ(ret, 0);
-		TEST_ASSERT_NOT_NULL(file_dentry);
-		dput(file_dentry);
-		file_dentry = NULL;
+		TEST_ASSERT_NOT_NULL(file_path.dentry);
+		path_put(&file_path);
 
 		memset(cached, 0, sizeof(cached));
 		memcpy(cached, page_cache_data(raw_page), BLOCK_SIZE);
@@ -308,12 +310,10 @@ fail:
 cleanup:
 	if (raw_page)
 		page_cache_put_page(raw_page);
-	if (file_dentry)
-		dput(file_dentry);
-	if (dir_dentry)
-		dput(dir_dentry);
-	(void)vfs_unlink("/pcache-alias-dir/child", 0);
-	(void)vfs_unlink("/pcache-alias-dir", AT_REMOVEDIR);
+	path_put(&file_path);
+	path_put(&dir_path);
+	(void)vfs_unlink_at_path(NULL, "/pcache-alias-dir/child", 0);
+	(void)vfs_unlink_at_path(NULL, "/pcache-alias-dir", AT_REMOVEDIR);
 }
 
 void test_page_cache_raw_alias_drop(void)

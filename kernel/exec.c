@@ -70,22 +70,23 @@ static uint32_t elf_flags_to_vma(uint32_t p_flags)
 
 static int open_exec_image(const char *path, struct exec_image *image)
 {
-	struct dentry *dentry;
+	struct path found;
 	struct file *file;
+	int ret;
 
 	memset(image, 0, sizeof(*image));
 
-	dentry = path_lookup(path, 0);
-	if (!dentry)
-		return -ENOENT;
-	if (!dentry->d_inode || !dentry->d_inode->i_fop ||
-	    !dentry->d_inode->i_fop->read) {
-		dput(dentry);
+	ret = path_lookupat_path(NULL, path, 0, &found);
+	if (ret < 0)
+		return ret;
+	if (!found.dentry->d_inode || !found.dentry->d_inode->i_fop ||
+	    !found.dentry->d_inode->i_fop->read) {
+		path_put(&found);
 		return -ENOEXEC;
 	}
 
-	file = file_alloc_dentry(dentry, O_RDONLY, FMODE_READ);
-	dput(dentry);
+	file = file_alloc_path(&found, O_RDONLY, FMODE_READ);
+	path_put(&found);
 	if (!file)
 		return -ENOMEM;
 

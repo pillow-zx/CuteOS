@@ -120,51 +120,6 @@ int fs_get_cwd_path(struct fs_struct *fs, struct path *path)
 	return path->dentry ? 0 : -ENOENT;
 }
 
-struct dentry *fs_get_root_dentry(struct fs_struct *fs)
-{
-	struct path path;
-	struct dentry *dentry;
-
-	if (fs_get_root_path(fs, &path) < 0)
-		return NULL;
-	dentry = path.dentry;
-	dget(dentry);
-	path_put(&path);
-	return dentry;
-}
-
-struct dentry *fs_get_cwd_dentry(struct fs_struct *fs)
-{
-	struct path path;
-	struct dentry *dentry;
-
-	if (fs_get_cwd_path(fs, &path) < 0)
-		return NULL;
-	dentry = path.dentry;
-	dget(dentry);
-	path_put(&path);
-	return dentry;
-}
-
-int fs_set_cwd(struct fs_struct *fs, struct dentry *dentry)
-{
-	struct path path;
-	int ret;
-
-	if (!fs || !dentry) {
-		dput(dentry);
-		return -EINVAL;
-	}
-
-	ret = vfs_path_from_dentry(dentry, &path);
-	dput(dentry);
-	if (ret < 0)
-		return ret;
-	ret = fs_set_cwd_path(fs, &path);
-	path_put(&path);
-	return ret;
-}
-
 int fs_set_cwd_path(struct fs_struct *fs, const struct path *path)
 {
 	struct path old;

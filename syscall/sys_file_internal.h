@@ -23,6 +23,5 @@ struct linux_dirent64 {
 
 int copy_user_path(char **pathp, const char *user);
 int dirfd_path_base_path(int dfd, const char *path, struct path *basep);
-int dirfd_path_base(int dfd, const char *path, struct dentry **basep);
 
 #endif /* SYS_FILE_INTERNAL_H */

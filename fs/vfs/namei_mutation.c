@@ -137,40 +137,6 @@ int vfs_create_at_path(const struct path *base, const char *path, uint32_t mode,
 	return ret;
 }
 
-int vfs_create_at(struct dentry *base, const char *path, uint32_t mode,
-		  struct dentry **res)
-{
-	struct path base_path = {0};
-	struct path created;
-	int ret;
-
-	if (res)
-		*res = NULL;
-	if (base) {
-		ret = vfs_path_from_dentry(base, &base_path);
-		if (ret < 0)
-			return ret;
-	}
-
-	ret = vfs_create_at_path(base ? &base_path : NULL, path, mode, &created);
-	if (base)
-		path_put(&base_path);
-	if (ret < 0)
-		return ret;
-
-	if (res) {
-		dget(created.dentry);
-		*res = created.dentry;
-	}
-	path_put(&created);
-	return 0;
-}
-
-int vfs_create(const char *path, uint32_t mode, struct dentry **res)
-{
-	return vfs_create_at(NULL, path, mode, res);
-}
-
 int vfs_symlink_at_path(const struct path *base, const char *target,
 			const char *linkpath)
 {
@@ -202,24 +168,6 @@ int vfs_symlink_at_path(const struct path *base, const char *target,
 	}
 
 	put_create_target(&create);
-	return ret;
-}
-
-int vfs_symlink_at(struct dentry *base, const char *target,
-		   const char *linkpath)
-{
-	struct path base_path = {0};
-	int ret;
-
-	if (base) {
-		ret = vfs_path_from_dentry(base, &base_path);
-		if (ret < 0)
-			return ret;
-	}
-
-	ret = vfs_symlink_at_path(base ? &base_path : NULL, target, linkpath);
-	if (base)
-		path_put(&base_path);
 	return ret;
 }
 
@@ -260,25 +208,6 @@ int vfs_link_at_path(struct dentry *old_dentry, const struct path *new_base,
 	return ret;
 }
 
-int vfs_link_at(struct dentry *old_dentry, struct dentry *new_base,
-		const char *new_path)
-{
-	struct path new_base_path = {0};
-	int ret;
-
-	if (new_base) {
-		ret = vfs_path_from_dentry(new_base, &new_base_path);
-		if (ret < 0)
-			return ret;
-	}
-
-	ret = vfs_link_at_path(old_dentry, new_base ? &new_base_path : NULL,
-			       new_path);
-	if (new_base)
-		path_put(&new_base_path);
-	return ret;
-}
-
 int vfs_mkdir_at_path(const struct path *base, const char *path, uint32_t mode)
 {
 	struct create_target target;
@@ -303,28 +232,6 @@ int vfs_mkdir_at_path(const struct path *base, const char *path, uint32_t mode)
 
 	put_create_target(&target);
 	return ret;
-}
-
-int vfs_mkdir_at(struct dentry *base, const char *path, uint32_t mode)
-{
-	struct path base_path = {0};
-	int ret;
-
-	if (base) {
-		ret = vfs_path_from_dentry(base, &base_path);
-		if (ret < 0)
-			return ret;
-	}
-
-	ret = vfs_mkdir_at_path(base ? &base_path : NULL, path, mode);
-	if (base)
-		path_put(&base_path);
-	return ret;
-}
-
-int vfs_mkdir(const char *path, uint32_t mode)
-{
-	return vfs_mkdir_at_path(NULL, path, mode);
 }
 
 int vfs_unlink_at_path(const struct path *base, const char *path, int flags)
@@ -369,28 +276,6 @@ int vfs_unlink_at_path(const struct path *base, const char *path, int flags)
 	dput(dentry);
 	path_put(&parent_path);
 	return ret;
-}
-
-int vfs_unlink_at(struct dentry *base, const char *path, int flags)
-{
-	struct path base_path = {0};
-	int ret;
-
-	if (base) {
-		ret = vfs_path_from_dentry(base, &base_path);
-		if (ret < 0)
-			return ret;
-	}
-
-	ret = vfs_unlink_at_path(base ? &base_path : NULL, path, flags);
-	if (base)
-		path_put(&base_path);
-	return ret;
-}
-
-int vfs_unlink(const char *path, int flags)
-{
-	return vfs_unlink_at_path(NULL, path, flags);
 }
 
 static bool dentry_is_ancestor(struct dentry *ancestor, struct dentry *dentry)
@@ -439,6 +324,11 @@ int vfs_rename_at_path(const struct path *old_base, const char *old_path,
 		path_put(&old_parent_path);
 		path_put(&new_parent_path);
 		return -ENOTDIR;
+	}
+	if (old_parent->d_inode->i_sb != new_parent->d_inode->i_sb) {
+		path_put(&old_parent_path);
+		path_put(&new_parent_path);
+		return -EXDEV;
 	}
 
 	if (!old_parent->d_inode->i_op->rename) {
@@ -489,38 +379,6 @@ out_dput:
 	return ret;
 }
 
-int vfs_rename_at(struct dentry *old_base, const char *old_path,
-		  struct dentry *new_base, const char *new_path,
-		  unsigned int flags)
-{
-	struct path old_base_path = {0};
-	struct path new_base_path = {0};
-	int ret;
-
-	if (old_base) {
-		ret = vfs_path_from_dentry(old_base, &old_base_path);
-		if (ret < 0)
-			return ret;
-	}
-	if (new_base) {
-		ret = vfs_path_from_dentry(new_base, &new_base_path);
-		if (ret < 0) {
-			if (old_base)
-				path_put(&old_base_path);
-			return ret;
-		}
-	}
-
-	ret = vfs_rename_at_path(old_base ? &old_base_path : NULL, old_path,
-				 new_base ? &new_base_path : NULL, new_path,
-				 flags);
-	if (old_base)
-		path_put(&old_base_path);
-	if (new_base)
-		path_put(&new_base_path);
-	return ret;
-}
-
 int vfs_mknod_at_path(const struct path *base, const char *path, uint32_t mode,
 		      dev_t dev)
 {
@@ -544,27 +402,4 @@ int vfs_mknod_at_path(const struct path *base, const char *path, uint32_t mode,
 	}
 	path_put(&created);
 	return ret;
-}
-
-int vfs_mknod_at(struct dentry *base, const char *path, uint32_t mode,
-		 dev_t dev)
-{
-	struct path base_path = {0};
-	int ret;
-
-	if (base) {
-		ret = vfs_path_from_dentry(base, &base_path);
-		if (ret < 0)
-			return ret;
-	}
-
-	ret = vfs_mknod_at_path(base ? &base_path : NULL, path, mode, dev);
-	if (base)
-		path_put(&base_path);
-	return ret;
-}
-
-int vfs_mknod(const char *path, uint32_t mode, dev_t dev)
-{
-	return vfs_mknod_at_path(NULL, path, mode, dev);
 }

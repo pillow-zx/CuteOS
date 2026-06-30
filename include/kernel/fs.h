@@ -210,7 +210,6 @@ struct path {
 struct file {
 	const struct file_operations *f_op;
 	struct path f_path;
-	struct dentry *f_dentry;
 	struct inode *f_inode;
 	void *private_data;
 	loff_t f_pos;
