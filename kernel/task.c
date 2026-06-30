@@ -115,7 +115,7 @@ struct task_struct *task_alloc(void)
 	INIT_LIST_HEAD(&task->thread_group);
 	INIT_LIST_HEAD(&task->thread_node);
 	INIT_LIST_HEAD(&task->run_list);
-	INIT_LIST_HEAD(&task->wait_list);
+	init_waitqueue_entry(&task->wait_entry, task);
 	init_waitqueue_head(&task->wait_child_queue);
 
 	/* 5. 内核栈清零并在栈底写入 canary */
@@ -208,7 +208,7 @@ void task_init(void)
 	INIT_LIST_HEAD(&idle_task.thread_group);
 	INIT_LIST_HEAD(&idle_task.thread_node);
 	INIT_LIST_HEAD(&idle_task.run_list);
-	INIT_LIST_HEAD(&idle_task.wait_list);
+	init_waitqueue_entry(&idle_task.wait_entry, &idle_task);
 	init_waitqueue_head(&idle_task.wait_child_queue);
 	BUG_ON(task_init_resources(&idle_task) < 0);
 	pid_attach_task(idle_task.pid, &idle_task);

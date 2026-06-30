@@ -95,7 +95,7 @@ void test_wait_event_interruptible_ready(void)
 		TEST_ASSERT_EQ(
 			wait_event_interruptible(&wq, wait_test_ready, &ready),
 			0);
-		TEST_ASSERT(list_empty(&current->wait_list));
+			TEST_ASSERT(list_empty(&current->wait_entry.node));
 		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_RUNNING);
 	}
 	TEST_END("sync: wait_event_interruptible ready");
@@ -119,7 +119,7 @@ void test_wait_event_interruptible_signal(void)
 		TEST_ASSERT_EQ(
 			wait_event_interruptible(&wq, wait_test_ready, &ready),
 			-EINTR);
-		TEST_ASSERT(list_empty(&current->wait_list));
+			TEST_ASSERT(list_empty(&current->wait_entry.node));
 		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_RUNNING);
 	}
 	TEST_END("sync: wait_event_interruptible signal");

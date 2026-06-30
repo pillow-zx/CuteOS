@@ -47,7 +47,8 @@ struct pipe_buffer {
 
 static ssize_t pipe_read(struct file *file, char *buf, size_t count);
 static ssize_t pipe_write(struct file *file, const char *buf, size_t count);
-static uint32_t pipe_poll(struct file *file, uint32_t events);
+static uint32_t pipe_poll(struct file *file, uint32_t events,
+			  struct vfs_poll_table *table);
 static int pipe_release(struct file *file);
 
 static const struct file_operations pipe_read_fops = {
@@ -241,7 +242,8 @@ static ssize_t pipe_write(struct file *file, const char *buf, size_t count)
 	return (ssize_t)done;
 }
 
-static uint32_t pipe_poll(struct file *file, uint32_t events)
+static uint32_t pipe_poll(struct file *file, uint32_t events,
+			  struct vfs_poll_table *table)
 {
 	struct pipe_buffer *pipe = file->private_data;
 	uint32_t mask = 0;
@@ -249,12 +251,14 @@ static uint32_t pipe_poll(struct file *file, uint32_t events)
 	if (!pipe)
 		return POLLERR;
 	if ((events & POLLIN) && (file->f_mode & FMODE_READ)) {
+		vfs_poll_wait(table, &pipe->readers_wq);
 		if (pipe->used > 0)
 			mask |= POLLIN;
 		if (pipe->writers == 0)
 			mask |= POLLHUP;
 	}
 	if ((events & POLLOUT) && (file->f_mode & FMODE_WRITE)) {
+		vfs_poll_wait(table, &pipe->writers_wq);
 		if (pipe->readers == 0)
 			mask |= POLLERR;
 		else if (pipe->used < PIPE_SIZE)

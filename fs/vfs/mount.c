@@ -67,6 +67,18 @@ void mntget(struct vfsmount *mnt)
 		refcount_inc(&mnt->mnt_refcount);
 }
 
+static void mnt_active_get(struct vfsmount *mnt)
+{
+	if (mnt)
+		atomic_inc(&mnt->mnt_active_refs);
+}
+
+static void mnt_active_put(struct vfsmount *mnt)
+{
+	if (mnt)
+		atomic_dec(&mnt->mnt_active_refs);
+}
+
 static void mount_free(struct vfsmount *mnt)
 {
 	if (!mnt)
@@ -93,6 +105,7 @@ void path_get(const struct path *path)
 	if (!path)
 		return;
 	mntget(path->mnt);
+	mnt_active_get(path->mnt);
 	dget(path->dentry);
 }
 
@@ -101,6 +114,7 @@ void path_put(struct path *path)
 	if (!path)
 		return;
 	dput(path->dentry);
+	mnt_active_put(path->mnt);
 	mntput(path->mnt);
 	path->mnt = NULL;
 	path->dentry = NULL;
@@ -164,6 +178,7 @@ static int mount_add(const struct path *mountpoint, struct dentry *root,
 		return -ENOMEM;
 
 	refcount_set(&mnt->mnt_refcount, 1);
+	atomic_set(&mnt->mnt_active_refs, 0);
 	mnt->mnt_parent = is_root ? NULL : mountpoint->mnt;
 	mnt->mnt_mountpoint = mountpoint->dentry;
 	mnt->mnt_root = root;
@@ -315,7 +330,7 @@ static bool mount_busy(struct vfsmount *mnt)
 	if (!mnt || !mnt->mnt_root)
 		return true;
 
-	return refcount_read(&mnt->mnt_refcount) > 2;
+	return atomic_read(&mnt->mnt_active_refs) > 0;
 }
 
 int vfs_umount(const char *target, int flags)
@@ -340,15 +355,20 @@ int vfs_umount(const char *target, int flags)
 		path_put(&path);
 		return -EINVAL;
 	}
+	mntget(mnt);
+	mutex_unlock(&mount_lock);
+	path_put(&path);
+
+	mutex_lock(&mount_lock);
 	if (mnt->mnt_is_root || mount_busy(mnt)) {
 		mutex_unlock(&mount_lock);
-		path_put(&path);
+		mntput(mnt);
 		return -EBUSY;
 	}
 	list_del(&mnt->mnt_list);
 	mutex_unlock(&mount_lock);
 
 	mntput(mnt);
-	path_put(&path);
+	mntput(mnt);
 	return 0;
 }

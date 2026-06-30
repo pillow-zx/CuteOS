@@ -60,6 +60,12 @@ typedef unsigned long size_t;
 #define F_DUPFD_CLOEXEC 1030
 #define FD_CLOEXEC  1
 
+#define POLLIN	 0x0001
+#define POLLOUT	 0x0004
+#define POLLERR	 0x0008
+#define POLLHUP	 0x0010
+#define POLLNVAL 0x0020
+
 #define R_OK 4
 #define W_OK 2
 #define X_OK 1

@@ -127,8 +127,7 @@ int vfs_create_at_path(const struct path *base, const char *path, uint32_t mode,
 			if (res) {
 				res->mnt = target.parent.mnt;
 				res->dentry = target.dentry;
-				mntget(res->mnt);
-				target.dentry = NULL;
+				path_get(res);
 			}
 		}
 	}

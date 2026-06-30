@@ -35,6 +35,7 @@
 #include <kernel/refcount.h>
 #include <kernel/types.h>
 #include <kernel/compiler.h>
+#include <kernel/wait.h>
 
 struct task_struct;
 struct trap_frame;
@@ -44,6 +45,7 @@ struct dentry;
 struct super_block;
 struct kstat;
 struct kstatfs;
+struct vfs_poll_table;
 
 #define VFS_NAME_MAX 255
 #define VFS_PATH_MAX 4096
@@ -127,7 +129,8 @@ struct file_operations {
 	loff_t (*llseek)(struct file *file, loff_t offset, int whence);
 	int (*open)(struct inode *inode, struct file *file);
 	int (*readdir)(struct file *file, void *ctx, filldir_t filldir);
-	uint32_t (*poll)(struct file *file, uint32_t events);
+	uint32_t (*poll)(struct file *file, uint32_t events,
+			 struct vfs_poll_table *table);
 	int (*ioctl)(struct file *file, uint64_t cmd, uint64_t arg);
 	int (*release)(struct file *file);
 };
@@ -193,6 +196,7 @@ struct dentry {
 
 struct vfsmount {
 	refcount_t mnt_refcount;
+	atomic_t mnt_active_refs;
 	struct list_head mnt_list;
 	struct vfsmount *mnt_parent;
 	struct dentry *mnt_mountpoint;
@@ -219,6 +223,20 @@ struct file {
 	bool static_file;
 };
 
+#define VFS_POLL_MAX_WAIT_QUEUES (NR_OPEN * 2)
+
+struct vfs_poll_entry {
+	struct wait_queue_head *wq;
+	struct wait_queue_entry wait;
+};
+
+struct vfs_poll_table {
+	struct vfs_poll_entry entries[VFS_POLL_MAX_WAIT_QUEUES];
+	size_t nr_entries;
+};
+
+typedef int (*vfs_poll_scan_t)(struct vfs_poll_table *table, void *arg);
+
 int __must_check vfs_open(const char *path, uint32_t flags, uint32_t mode);
 int __must_check vfs_openat_path(const struct path *base, const char *path,
 				 uint32_t flags, uint32_t mode);
@@ -243,7 +261,13 @@ int __must_check vfs_sync_file(struct file *file);
 int __must_check vfs_stat_inode(const struct inode *inode, struct kstat *st);
 int __must_check vfs_stat_file(struct file *file, struct kstat *st);
 int __must_check vfs_statfs(struct super_block *sb, struct kstatfs *buf);
-uint32_t __must_check vfs_poll(struct file *file, uint32_t events);
+void vfs_poll_table_init(struct vfs_poll_table *table);
+void vfs_poll_table_cleanup(struct vfs_poll_table *table);
+void vfs_poll_wait(struct vfs_poll_table *table, struct wait_queue_head *wq);
+int __must_check vfs_poll_wait_until(vfs_poll_scan_t scan, void *arg,
+				     bool has_timeout, uint64_t deadline);
+uint32_t __must_check vfs_poll(struct file *file, uint32_t events,
+			       struct vfs_poll_table *table);
 int __must_check vfs_ioctl(struct file *file, uint64_t cmd, uint64_t arg);
 int __must_check vfs_getcwd_path(const struct path *cwd, char *buf,
 				 size_t size);

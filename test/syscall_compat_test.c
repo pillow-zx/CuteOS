@@ -48,16 +48,52 @@ void test_vfs_default_poll_masks(void)
 
 	TEST_BEGIN("syscall compat: default poll masks");
 	{
-		TEST_ASSERT_EQ(vfs_poll(&file, POLLIN), (uint32_t)POLLIN);
-		TEST_ASSERT_EQ(vfs_poll(&file, POLLOUT), (uint32_t)POLLOUT);
-		TEST_ASSERT_EQ(vfs_poll(&file, POLLIN | POLLOUT),
+		TEST_ASSERT_EQ(vfs_poll(&file, POLLIN, NULL), (uint32_t)POLLIN);
+		TEST_ASSERT_EQ(vfs_poll(&file, POLLOUT, NULL),
+			       (uint32_t)POLLOUT);
+		TEST_ASSERT_EQ(vfs_poll(&file, POLLIN | POLLOUT, NULL),
 			       (uint32_t)(POLLIN | POLLOUT));
-		TEST_ASSERT_EQ(vfs_poll(NULL, POLLIN), (uint32_t)POLLNVAL);
+		TEST_ASSERT_EQ(vfs_poll(NULL, POLLIN, NULL),
+			       (uint32_t)POLLNVAL);
 	}
 	TEST_END("syscall compat: default poll masks");
 	return;
 fail:
 	TEST_FAIL("syscall compat: default poll masks", "see above");
+}
+
+void test_vfs_poll_table_registers_multiple_queues(void)
+{
+	struct wait_queue_head readers;
+	struct wait_queue_head writers;
+	struct vfs_poll_table table;
+
+	TEST_BEGIN("syscall compat: poll table multiple queues");
+	{
+		init_waitqueue_head(&readers);
+		init_waitqueue_head(&writers);
+		vfs_poll_table_init(&table);
+
+		vfs_poll_wait(&table, &readers);
+		vfs_poll_wait(&table, &writers);
+		vfs_poll_wait(&table, &readers);
+
+		TEST_ASSERT_EQ(table.nr_entries, (size_t)2);
+		TEST_ASSERT(!list_empty(&readers.task_list));
+		TEST_ASSERT(!list_empty(&writers.task_list));
+		TEST_ASSERT_EQ(table.entries[0].wait.task, current);
+		TEST_ASSERT_EQ(table.entries[1].wait.task, current);
+
+		vfs_poll_table_cleanup(&table);
+		TEST_ASSERT_EQ(table.nr_entries, (size_t)0);
+		TEST_ASSERT(list_empty(&readers.task_list));
+		TEST_ASSERT(list_empty(&writers.task_list));
+	}
+	TEST_END("syscall compat: poll table multiple queues");
+	return;
+fail:
+	vfs_poll_table_cleanup(&table);
+	TEST_FAIL("syscall compat: poll table multiple queues", "see above");
 }
 
 void test_vfs_default_ioctl_enotty(void)

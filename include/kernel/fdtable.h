@@ -28,6 +28,7 @@ struct files_struct *__must_check files_dup(struct files_struct *old);
 void files_get(struct files_struct *files);
 void files_put(struct files_struct *files);
 void files_install_standard_fds(struct files_struct *files);
+void files_close_on_exec(struct files_struct *files);
 
 int __must_check fd_alloc(struct file *file);
 int __must_check fd_alloc_flags(struct file *file, int flags);

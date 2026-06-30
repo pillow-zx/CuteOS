@@ -26,6 +26,11 @@ struct sys_pollfd {
 	int16_t revents;
 };
 
+struct ppoll_scan_ctx {
+	struct sys_pollfd *fds;
+	size_t nfds;
+};
+
 static int sys_timespec_to_deadline(const struct sys_timespec *ts,
 				    bool *has_timeout, uint64_t *deadline)
 {
@@ -58,30 +63,32 @@ static int sys_timespec_to_deadline(const struct sys_timespec *ts,
 	return 0;
 }
 
-static int ppoll_scan(struct sys_pollfd *fds, size_t nfds)
+static int ppoll_scan(struct vfs_poll_table *table, void *arg)
 {
+	struct ppoll_scan_ctx *ctx = arg;
 	int ready = 0;
 
-	for (size_t i = 0; i < nfds; i++) {
+	for (size_t i = 0; i < ctx->nfds; i++) {
 		struct file *file;
 		uint32_t mask;
 
-		fds[i].revents = 0;
-		if (fds[i].fd < 0)
+		ctx->fds[i].revents = 0;
+		if (ctx->fds[i].fd < 0)
 			continue;
 
-		file = fd_get(fds[i].fd);
+		file = fd_get(ctx->fds[i].fd);
 		if (!file) {
-			fds[i].revents = POLLNVAL;
+			ctx->fds[i].revents = POLLNVAL;
 			ready++;
 			continue;
 		}
 
-		mask = vfs_poll(file, (uint32_t)fds[i].events);
+		mask = vfs_poll(file, (uint32_t)ctx->fds[i].events, table);
 		file_put(file);
-		fds[i].revents = (int16_t)(mask & (fds[i].events | POLLERR |
-						   POLLHUP | POLLNVAL));
-		if (fds[i].revents)
+		ctx->fds[i].revents =
+			(int16_t)(mask & (ctx->fds[i].events | POLLERR |
+					  POLLHUP | POLLNVAL));
+		if (ctx->fds[i].revents)
 			ready++;
 	}
 
@@ -98,6 +105,7 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 	size_t sigsetsize = (size_t)tf->a4;
 	struct sys_pollfd fds[NR_OPEN];
 	struct sys_timespec timeout;
+	struct ppoll_scan_ctx scan_ctx;
 	bool has_timeout;
 	uint64_t deadline;
 	uint64_t old_blocked = 0;
@@ -139,27 +147,9 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 		swapped_mask = true;
 	}
 
-	while (true) {
-		ret = ppoll_scan(fds, nfds);
-		if (ret != 0)
-			break;
-		if (has_timeout && deadline <= arch_timer_now())
-			break;
-		if (signal_pending(current)) {
-			ret = -EINTR;
-			break;
-		}
-
-		uint64_t now = arch_timer_now();
-		uint64_t next = now + CLOCKS_PER_TICK;
-
-		if (has_timeout && deadline < next)
-			next = deadline;
-		ret = timer_sleep_until(next, true);
-		if (ret == -EINTR)
-			break;
-		ret = 0;
-	}
+	scan_ctx.fds = fds;
+	scan_ctx.nfds = nfds;
+	ret = vfs_poll_wait_until(ppoll_scan, &scan_ctx, has_timeout, deadline);
 
 	if (swapped_mask)
 		task_set_blocked_mask(current, old_blocked);

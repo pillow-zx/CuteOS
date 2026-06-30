@@ -8,6 +8,7 @@ VFS_OBJS = \
 	fs/vfs/namei.o          \
 	fs/vfs/namei_mutation.o \
 	fs/vfs/fs_struct.o      \
+	fs/vfs/fdtable.o        \
 	fs/vfs/file.o           \
 	fs/vfs/read_write.o
 

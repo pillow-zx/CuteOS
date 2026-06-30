@@ -25,7 +25,8 @@ typedef void (*console_emit_fn)(char ch, void *ctx);
 
 static ssize_t console_read(struct file *file, char *buf, size_t count);
 static ssize_t console_write(struct file *file, const char *buf, size_t count);
-static uint32_t console_poll(struct file *file, uint32_t events);
+static uint32_t console_poll(struct file *file, uint32_t events,
+			     struct vfs_poll_table *table);
 static int console_ioctl(struct file *file, uint64_t cmd, uint64_t arg);
 
 static struct termios console_termios = {
@@ -371,9 +372,12 @@ ssize_t console_tty_read_stream_for_test(const struct termios *termios,
 }
 #endif
 
-static uint32_t console_poll(struct file *file, uint32_t events)
+static uint32_t console_poll(struct file *file, uint32_t events,
+			     struct vfs_poll_table *table)
 {
 	uint32_t mask = 0;
+
+	(void)table;
 
 	if ((events & POLLIN) && (file->f_mode & FMODE_READ))
 		mask |= POLLIN;

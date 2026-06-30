@@ -168,8 +168,8 @@ static void detach_task_queues(struct task_struct *task)
 
 	if (!list_empty(&task->run_list))
 		sched_dequeue(task);
-	if (!list_empty(&task->wait_list))
-		list_del_init(&task->wait_list);
+	if (!list_empty(&task->wait_entry.node))
+		list_del_init(&task->wait_entry.node);
 }
 
 static void finish_task_exit(struct task_struct *task, int code,
@@ -315,8 +315,8 @@ void release_task(struct task_struct *task)
 		list_del_init(&task->thread_node);
 	if (!list_empty(&task->run_list))
 		sched_dequeue(task);
-	if (!list_empty(&task->wait_list))
-		list_del_init(&task->wait_list);
+	if (!list_empty(&task->wait_entry.node))
+		list_del_init(&task->wait_entry.node);
 
 	task_set_state(task, TASK_DEAD);
 	task_free(task);

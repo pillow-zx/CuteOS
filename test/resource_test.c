@@ -86,13 +86,13 @@ void test_files_struct_copy_preserves_cloexec(void)
 		TEST_ASSERT_NOT_NULL(parent);
 		TEST_ASSERT_NOT_NULL(child);
 
-		parent->files->close_on_exec |= (1UL << KERN_STDIN);
-
 		current = parent;
+		TEST_ASSERT_EQ(fd_set_close_on_exec(KERN_STDIN, true), 0);
 		TEST_ASSERT_EQ(copy_files(child, false), 0);
 		TEST_ASSERT(parent->files != child->files);
-		TEST_ASSERT_EQ(child->files->close_on_exec,
-			       parent->files->close_on_exec);
+
+		current = child;
+		TEST_ASSERT_EQ(fd_get_close_on_exec(KERN_STDIN), 1);
 
 		current = saved;
 		task_free(child);
@@ -105,13 +105,13 @@ void test_files_struct_copy_preserves_cloexec(void)
 		TEST_ASSERT_NOT_NULL(parent);
 		TEST_ASSERT_NOT_NULL(child);
 
-		parent->files->close_on_exec |= (1UL << KERN_STDIN);
-
 		current = parent;
+		TEST_ASSERT_EQ(fd_set_close_on_exec(KERN_STDIN, true), 0);
 		TEST_ASSERT_EQ(copy_files(child, true), 0);
 		TEST_ASSERT_EQ(parent->files, child->files);
-		TEST_ASSERT_EQ(child->files->close_on_exec,
-			       parent->files->close_on_exec);
+
+		current = child;
+		TEST_ASSERT_EQ(fd_get_close_on_exec(KERN_STDIN), 1);
 	}
 	TEST_END("resources: files copy preserves cloexec");
 	goto cleanup;

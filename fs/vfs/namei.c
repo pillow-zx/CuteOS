@@ -371,7 +371,8 @@ static int walk_path(struct path *base, const char *path, uint32_t flags,
 			.mnt = cur.mnt,
 			.dentry = next,
 		};
-		mntget(next_path.mnt);
+		path_get(&next_path);
+		dput(next);
 		if (!(is_last && (flags & LOOKUP_NO_MOUNT))) {
 			ret = vfs_follow_mount(&next_path);
 			if (ret < 0) {
@@ -511,7 +512,8 @@ int path_parent_lookupat_path(const struct path *base, const char *path,
 			.mnt = parent.mnt,
 			.dentry = next,
 		};
-		mntget(next_path.mnt);
+		path_get(&next_path);
+		dput(next);
 
 		ret = vfs_follow_mount(&next_path);
 		if (ret < 0) {

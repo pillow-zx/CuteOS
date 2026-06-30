@@ -562,21 +562,6 @@ static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
 	tf->sstatus = SSTATUS_SPIE;
 }
 
-static void close_cloexec_fds(struct files_struct *files)
-{
-	unsigned long cloexec;
-
-	if (!files)
-		return;
-
-	cloexec = files->close_on_exec;
-	files->close_on_exec = 0;
-	for (int fd = 0; cloexec; fd++, cloexec >>= 1) {
-		if (cloexec & 1)
-			fd_close(fd);
-	}
-}
-
 void exec_user_path(const char *path)
 {
 	struct exec_args_envp args;
@@ -626,8 +611,8 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 	 */
 	install_exec_mm(mm, tf, entry, sp);
 
-	/* 关闭所有设置了 FD_CLOEXEC 的文件描述符 */
-	close_cloexec_fds(task_files(current));
+	/* 关闭所有设置了 FD_CLOEXEC 的文件描述符。 */
+	files_close_on_exec(task_files(current));
 
 	return 0;
 }

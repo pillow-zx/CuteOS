@@ -126,6 +126,7 @@ void test_signal_struct_rlimits_copy(void);
 
 void test_rlimit_defaults(void);
 void test_vfs_default_poll_masks(void);
+void test_vfs_poll_table_registers_multiple_queues(void);
 void test_vfs_default_ioctl_enotty(void);
 void test_console_tty_line_discipline(void);
 void test_tty_signal_delivery_policy(void);

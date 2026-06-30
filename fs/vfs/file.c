@@ -6,13 +6,16 @@
 #include <kernel/slab.h>
 #include <kernel/page_cache.h>
 #include <kernel/printk.h>
+#include <kernel/sched.h>
+#include <kernel/signal.h>
 #include <kernel/stat.h>
 #include <kernel/statfs.h>
 #include <kernel/blkdev.h>
 #include <kernel/string.h>
 #include <kernel/errno.h>
-#include <kernel/task.h>
+#include <kernel/timer.h>
 #include <kernel/vfs.h>
+#include <asm/csr.h>
 
 #define FILE_STATUS_FLAGS	 (O_ACCMODE | O_APPEND | O_DIRECTORY)
 #define FILE_SETFL_MUTABLE_FLAGS O_APPEND
@@ -21,7 +24,8 @@
 
 static ssize_t null_read(struct file *file, char *buf, size_t count);
 static ssize_t null_write(struct file *file, const char *buf, size_t count);
-static uint32_t null_poll(struct file *file, uint32_t events);
+static uint32_t null_poll(struct file *file, uint32_t events,
+			  struct vfs_poll_table *table);
 
 #define VFS_CHRDEV_MAX 8
 
@@ -112,14 +116,130 @@ int vfs_statfs(struct super_block *sb, struct kstatfs *buf)
 	return sb->s_op->statfs(sb, buf);
 }
 
-uint32_t vfs_poll(struct file *file, uint32_t events)
+void vfs_poll_table_init(struct vfs_poll_table *table)
+{
+	if (!table)
+		return;
+
+	memset(table, 0, sizeof(*table));
+}
+
+void vfs_poll_table_cleanup(struct vfs_poll_table *table)
+{
+	if (!table)
+		return;
+
+	for (size_t i = 0; i < table->nr_entries; i++)
+		finish_wait_entry(&table->entries[i].wait);
+	table->nr_entries = 0;
+}
+
+void vfs_poll_wait(struct vfs_poll_table *table, struct wait_queue_head *wq)
+{
+	struct vfs_poll_entry *entry;
+
+	if (!table || !wq || !current)
+		return;
+
+	for (size_t i = 0; i < table->nr_entries; i++) {
+		if (table->entries[i].wq == wq)
+			return;
+	}
+	if (table->nr_entries >= VFS_POLL_MAX_WAIT_QUEUES)
+		return;
+
+	entry = &table->entries[table->nr_entries++];
+	entry->wq = wq;
+	init_waitqueue_entry(&entry->wait, current);
+	prepare_wait_entry(wq, &entry->wait);
+}
+
+int vfs_poll_wait_until(vfs_poll_scan_t scan, void *arg, bool has_timeout,
+			uint64_t deadline)
+{
+	if (!scan || !current)
+		return -EINVAL;
+
+	while (true) {
+		struct vfs_poll_table table;
+		struct timer_wait timer;
+		bool timer_started = false;
+		bool local_timer_wait;
+		bool enabled_irq_for_sleep = false;
+		int ret;
+
+		vfs_poll_table_init(&table);
+		ret = scan(&table, arg);
+		if (ret != 0) {
+			vfs_poll_table_cleanup(&table);
+			return ret;
+		}
+		if (has_timeout && deadline <= arch_timer_now()) {
+			vfs_poll_table_cleanup(&table);
+			return 0;
+		}
+		if (signal_pending(current)) {
+			vfs_poll_table_cleanup(&table);
+			return -EINTR;
+		}
+
+		wait_prepare_current_interruptible();
+		if (has_timeout) {
+			timer_wait_init(&timer, current, deadline);
+			timer_wait_start(&timer);
+			timer_started = true;
+		}
+
+		ret = scan(NULL, arg);
+		if (ret != 0 || signal_pending(current) ||
+		    (has_timeout && deadline <= arch_timer_now())) {
+			if (timer_started)
+				timer_wait_cancel(&timer);
+			vfs_poll_table_cleanup(&table);
+			wait_finish_current_state();
+			if (ret != 0)
+				return ret;
+			if (signal_pending(current))
+				return -EINTR;
+			return 0;
+		}
+
+		local_timer_wait = has_timeout && !sched_has_runnable();
+		if (irqs_disabled()) {
+			csr_set(sstatus, SSTATUS_SIE);
+			enabled_irq_for_sleep = true;
+		}
+		if (local_timer_wait) {
+			while (!timer_wait_fired(&timer) &&
+			       !signal_pending(current))
+				wfi();
+		} else {
+			schedule();
+		}
+		if (enabled_irq_for_sleep)
+			csr_clear(sstatus, SSTATUS_SIE);
+
+		if (timer_started)
+			timer_wait_cancel(&timer);
+		vfs_poll_table_cleanup(&table);
+		wait_finish_current_state();
+
+		if (signal_pending(current))
+			return -EINTR;
+		if (has_timeout && deadline <= arch_timer_now())
+			return 0;
+	}
+}
+
+uint32_t vfs_poll(struct file *file, uint32_t events,
+		  struct vfs_poll_table *table)
 {
 	uint32_t mask = 0;
 
 	if (!file)
 		return POLLNVAL;
 	if (file->f_op && file->f_op->poll)
-		return file->f_op->poll(file, events);
+		return file->f_op->poll(file, events, table);
 
 	if ((events & POLLIN) && (file->f_mode & FMODE_READ))
 		mask |= POLLIN;
@@ -161,24 +281,6 @@ int file_set_status_flags(struct file *file, uint32_t flags)
 
 	return 0;
 }
-
-static struct file console_stdin = {
-	.f_mode = FMODE_READ,
-	.refcount = REFCOUNT_INIT(1),
-	.static_file = true,
-};
-
-static struct file console_stdout = {
-	.f_mode = FMODE_WRITE,
-	.refcount = REFCOUNT_INIT(1),
-	.static_file = true,
-};
-
-static struct file console_stderr = {
-	.f_mode = FMODE_WRITE,
-	.refcount = REFCOUNT_INIT(1),
-	.static_file = true,
-};
 
 struct file *file_alloc(const struct file_operations *f_op, uint32_t mode,
 			void *private_data)
@@ -362,346 +464,6 @@ void file_put(struct file *file)
 	kfree(file);
 }
 
-struct files_struct *files_alloc(void)
-{
-	struct files_struct *files = kmalloc(sizeof(*files));
-
-	if (!files)
-		return NULL;
-
-	memset(files, 0, sizeof(*files));
-	refcount_set(&files->refcount, 1);
-	mutex_init(&files->lock);
-	return files;
-}
-
-struct files_struct *files_dup(struct files_struct *old)
-{
-	struct files_struct *files = files_alloc();
-
-	if (!files)
-		return NULL;
-	if (!old)
-		return files;
-
-	mutex_lock(&old->lock);
-	files->close_on_exec = old->close_on_exec;
-	for (int fd = 0; fd < NR_OPEN; fd++) {
-		files->fd[fd] = old->fd[fd];
-		file_get(files->fd[fd]);
-	}
-	mutex_unlock(&old->lock);
-
-	return files;
-}
-
-void files_get(struct files_struct *files)
-{
-	if (files)
-		refcount_inc(&files->refcount);
-}
-
-void files_put(struct files_struct *files)
-{
-	if (!files)
-		return;
-
-	if (!refcount_dec_and_test(&files->refcount))
-		return;
-
-	for (int fd = 0; fd < NR_OPEN; fd++) {
-		struct file *file = files->fd[fd];
-
-		files->fd[fd] = NULL;
-		file_put(file);
-	}
-	kfree(files);
-}
-
-void files_install_standard_fds(struct files_struct *files)
-{
-	const struct file_operations *fops;
-
-	if (!files)
-		return;
-
-	fops = vfs_chrdev_fops(MKDEV(5, 1));
-	BUG_ON(!fops);
-
-	console_stdin.f_op = fops;
-	console_stdout.f_op = fops;
-	console_stderr.f_op = fops;
-
-	files->fd[KERN_STDIN] = &console_stdin;
-	files->fd[KERN_STDOUT] = &console_stdout;
-	files->fd[KERN_STDERR] = &console_stderr;
-}
-
-static struct files_struct *current_files(void)
-{
-	return task_files(current);
-}
-
-int fd_alloc_flags(struct file *file, int flags)
-{
-	struct files_struct *files = current_files();
-
-	if (!file)
-		return -EINVAL;
-	if (!files)
-		return -EBADF;
-
-	mutex_lock(&files->lock);
-	for (int fd = 0; fd < NR_OPEN; fd++) {
-		if (!files->fd[fd]) {
-			files->fd[fd] = file;
-			if (flags & O_CLOEXEC)
-				files->close_on_exec |=
-					(1UL << (unsigned int)fd);
-			else
-				files->close_on_exec &=
-					~(1UL << (unsigned int)fd);
-			mutex_unlock(&files->lock);
-			return fd;
-		}
-	}
-	mutex_unlock(&files->lock);
-
-	return -EMFILE;
-}
-
-int fd_alloc(struct file *file)
-{
-	return fd_alloc_flags(file, 0);
-}
-
-struct file *fd_get_checked(int fd)
-{
-	struct files_struct *files = current_files();
-	struct file *file;
-
-	if (!files || fd < 0 || fd >= NR_OPEN)
-		return NULL;
-
-	mutex_lock(&files->lock);
-	file = files->fd[fd];
-	file_get(file);
-	mutex_unlock(&files->lock);
-	return file;
-}
-
-struct file *fd_get(int fd)
-{
-	return fd_get_checked(fd);
-}
-
-int fd_get_close_on_exec(int fd)
-{
-	struct files_struct *files = current_files();
-	int ret;
-
-	if (!files || fd < 0 || fd >= NR_OPEN)
-		return -EBADF;
-
-	mutex_lock(&files->lock);
-	if (!files->fd[fd])
-		ret = -EBADF;
-	else
-		ret = !!(files->close_on_exec & (1UL << (unsigned int)fd));
-	mutex_unlock(&files->lock);
-
-	return ret;
-}
-
-int fd_set_close_on_exec(int fd, bool close_on_exec)
-{
-	struct files_struct *files = current_files();
-
-	if (!files || fd < 0 || fd >= NR_OPEN)
-		return -EBADF;
-
-	mutex_lock(&files->lock);
-	if (!files->fd[fd]) {
-		mutex_unlock(&files->lock);
-		return -EBADF;
-	}
-	if (close_on_exec)
-		files->close_on_exec |= (1UL << (unsigned int)fd);
-	else
-		files->close_on_exec &= ~(1UL << (unsigned int)fd);
-	mutex_unlock(&files->lock);
-
-	return 0;
-}
-
-int fd_close(int fd)
-{
-	struct files_struct *files = current_files();
-	struct file *file;
-
-	if (!files || fd < 0 || fd >= NR_OPEN)
-		return -EBADF;
-
-	mutex_lock(&files->lock);
-	file = files->fd[fd];
-	if (!file) {
-		mutex_unlock(&files->lock);
-		return -EBADF;
-	}
-
-	files->fd[fd] = NULL;
-	files->close_on_exec &= ~(1UL << (unsigned int)fd);
-	mutex_unlock(&files->lock);
-	file_put(file);
-
-	return 0;
-}
-
-int fd_dup(int oldfd)
-{
-	struct files_struct *files = current_files();
-	struct file *file = fd_get(oldfd);
-	int newfd = -EMFILE;
-
-	if (!file)
-		return -EBADF;
-	if (!files) {
-		file_put(file);
-		return -EBADF;
-	}
-
-	mutex_lock(&files->lock);
-	for (int fd = 0; fd < NR_OPEN; fd++) {
-		if (!files->fd[fd]) {
-			file_get(file);
-			files->fd[fd] = file;
-			files->close_on_exec &= ~(1UL << (unsigned int)fd);
-			newfd = fd;
-			break;
-		}
-	}
-	mutex_unlock(&files->lock);
-
-	file_put(file);
-	return newfd;
-}
-
-int fd_dup_from(int oldfd, unsigned long minfd, int cloexec)
-{
-	struct files_struct *files = current_files();
-	struct file *file = fd_get(oldfd);
-	int newfd = -EMFILE;
-
-	if (!file)
-		return -EBADF;
-	if (!files) {
-		file_put(file);
-		return -EBADF;
-	}
-	if (minfd >= NR_OPEN) {
-		file_put(file);
-		return -EINVAL;
-	}
-
-	mutex_lock(&files->lock);
-	for (int fd = (int)minfd; fd < NR_OPEN; fd++) {
-		if (!files->fd[fd]) {
-			file_get(file);
-			files->fd[fd] = file;
-			if (cloexec)
-				files->close_on_exec |=
-					(1UL << (unsigned int)fd);
-			else
-				files->close_on_exec &=
-					~(1UL << (unsigned int)fd);
-			newfd = fd;
-			break;
-		}
-	}
-	mutex_unlock(&files->lock);
-
-	file_put(file);
-	return newfd;
-}
-
-int fd_dup2(int oldfd, int newfd, int cloexec)
-{
-	struct files_struct *files = current_files();
-	struct file *file = fd_get(oldfd);
-	struct file *old = NULL;
-
-	if (!file)
-		return -EBADF;
-	if (!files || newfd < 0 || newfd >= NR_OPEN) {
-		file_put(file);
-		return -EBADF;
-	}
-	if (oldfd == newfd) {
-		file_put(file);
-		return newfd;
-	}
-
-	mutex_lock(&files->lock);
-	old = files->fd[newfd];
-	file_get(file);
-	files->fd[newfd] = file;
-	if (cloexec)
-		files->close_on_exec |= (1UL << (unsigned int)newfd);
-	else
-		files->close_on_exec &= ~(1UL << (unsigned int)newfd);
-	mutex_unlock(&files->lock);
-
-	file_put(old);
-	file_put(file);
-
-	return newfd;
-}
-
-int init_files(struct task_struct *task)
-{
-	if (!task)
-		return -EINVAL;
-
-	task->files = files_alloc();
-	if (!task->files)
-		return -ENOMEM;
-
-	files_install_standard_fds(task->files);
-	return 0;
-}
-
-int copy_files(struct task_struct *child, bool share)
-{
-	struct files_struct *files;
-
-	if (!child)
-		return -EINVAL;
-
-	if (share) {
-		files = task_files(current);
-		if (!files)
-			return init_files(child);
-		files_get(files);
-	} else {
-		files = files_dup(task_files(current));
-		if (!files)
-			return -ENOMEM;
-	}
-
-	close_files(child);
-	child->files = files;
-	return 0;
-}
-
-void close_files(struct task_struct *task)
-{
-	if (!task || !task->files)
-		return;
-
-	files_put(task->files);
-	task->files = NULL;
-}
-
 static ssize_t null_read(struct file *file, char *buf, size_t count)
 {
 	(void)file;
@@ -719,9 +481,12 @@ static ssize_t null_write(struct file *file, const char *buf, size_t count)
 	return (ssize_t)count;
 }
 
-static uint32_t null_poll(struct file *file, uint32_t events)
+static uint32_t null_poll(struct file *file, uint32_t events,
+			  struct vfs_poll_table *table)
 {
 	uint32_t mask = 0;
+
+	(void)table;
 
 	if ((events & POLLIN) && (file->f_mode & FMODE_READ))
 		mask |= POLLIN;
