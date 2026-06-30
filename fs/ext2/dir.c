@@ -382,6 +382,131 @@ static int ext2_create(struct inode *dir, struct dentry *dentry, uint32_t mode)
 	return 0;
 }
 
+static int ext2_symlink(struct inode *dir, struct dentry *dentry,
+			const char *target)
+{
+	struct page_cache *page = NULL;
+	size_t len = strlen(target);
+	uint32_t ino;
+	struct inode *inode;
+	struct ext2_inode_info *ei;
+	int ret;
+
+	if (len == 0)
+		return -ENOENT;
+	if (len > BLOCK_SIZE)
+		return -ENAMETOOLONG;
+	if (ext2_find_entry(dir, dentry->d_name, dentry->d_namelen, &page)) {
+		page_cache_put_page(page);
+		return -EEXIST;
+	}
+
+	ino = ext2_alloc_inode(dir->i_sb, EXT2_S_IFLNK | 0777);
+	if (!ino)
+		return -ENOSPC;
+
+	inode = iget(dir->i_sb, ino);
+	if (!inode) {
+		ext2_free_inode(dir->i_sb, ino);
+		return -EIO;
+	}
+
+	ei = EXT2_I(inode);
+	memset(&ei->raw_inode, 0, sizeof(ei->raw_inode));
+	inode->i_mode = EXT2_S_IFLNK | 0777;
+	inode->i_nlink = 1;
+	inode->i_size = len;
+	inode->i_rdev = 0;
+	ext2_init_inode_ops(inode);
+
+	if (len <= sizeof(ei->raw_inode.i_block)) {
+		memcpy(ei->raw_inode.i_block, target, len);
+	} else {
+		uint32_t block = ext2_bmap(inode, 0, true);
+		struct page_cache *target_page;
+
+		if (!block) {
+			ext2_rollback_new_inode(inode);
+			return -ENOSPC;
+		}
+		target_page = ext2_new_inode_page(inode, 0);
+		if (!target_page) {
+			ext2_rollback_new_inode(inode);
+			return -EIO;
+		}
+		memset(page_cache_data(target_page), 0, BLOCK_SIZE);
+		memcpy(page_cache_data(target_page), target, len);
+		page_cache_mark_dirty(target_page);
+		if (ext2_sync_dir_page(target_page) < 0) {
+			page_cache_put_page(target_page);
+			ext2_rollback_new_inode(inode);
+			return -EIO;
+		}
+		page_cache_put_page(target_page);
+	}
+	ext2_write_inode(inode);
+
+	ret = ext2_add_entry(dir, dentry->d_name, dentry->d_namelen, ino,
+			     EXT2_FT_SYMLINK);
+	if (ret < 0) {
+		ext2_rollback_new_inode(inode);
+		return ret;
+	}
+	ret = vfs_inode_touch(dir, false, true, true);
+	if (ret < 0) {
+		ext2_delete_entry(dir, dentry);
+		ext2_rollback_new_inode(inode);
+		return ret;
+	}
+
+	dentry->d_inode = inode;
+	dentry->d_sb = dir->i_sb;
+	return 0;
+}
+
+static int ext2_link(struct dentry *old_dentry, struct inode *dir,
+		     struct dentry *new_dentry)
+{
+	struct inode *inode;
+	int ret;
+
+	if (!old_dentry || !old_dentry->d_inode || !new_dentry)
+		return -ENOENT;
+
+	inode = old_dentry->d_inode;
+	if ((inode->i_mode & EXT2_S_IFMT) == EXT2_S_IFDIR)
+		return -EPERM;
+	if (inode->i_sb != dir->i_sb)
+		return -EXDEV;
+
+	ret = ext2_add_entry(dir, new_dentry->d_name, new_dentry->d_namelen,
+			     (uint32_t)inode->i_ino,
+			     ext2_file_type((uint16_t)inode->i_mode));
+	if (ret < 0)
+		return ret;
+
+	inode->i_nlink++;
+	ret = vfs_inode_touch(inode, false, false, true);
+	if (ret < 0) {
+		ext2_delete_entry(dir, new_dentry);
+		inode->i_nlink--;
+		ext2_write_inode(inode);
+		return ret;
+	}
+	ret = vfs_inode_touch(dir, false, true, true);
+	if (ret < 0) {
+		ext2_delete_entry(dir, new_dentry);
+		inode->i_nlink--;
+		ext2_write_inode(inode);
+		return ret;
+	}
+
+	igrab(inode);
+	new_dentry->d_inode = inode;
+	new_dentry->d_sb = dir->i_sb;
+	return 0;
+}
+
 static int ext2_make_empty_dir(struct inode *inode, struct inode *parent)
 {
 	uint32_t block = ext2_bmap(inode, 0, true);
@@ -763,6 +888,8 @@ rollback_new:
 const struct inode_operations ext2_dir_inode_operations = {
 	.lookup   = ext2_lookup,
 	.create   = ext2_create,
+	.symlink  = ext2_symlink,
+	.link	  = ext2_link,
 	.unlink   = ext2_unlink,
 	.mkdir    = ext2_mkdir,
 	.rmdir    = ext2_rmdir,

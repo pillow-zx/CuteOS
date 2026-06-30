@@ -107,6 +107,8 @@ struct super_operations {
 struct inode_operations {
 	struct dentry *(*lookup)(struct inode *dir, struct dentry *dentry);
 	int (*create)(struct inode *dir, struct dentry *dentry, uint32_t mode);
+	int (*symlink)(struct inode *dir, struct dentry *dentry,
+		       const char *target);
 	int (*link)(struct dentry *old_dentry, struct inode *dir,
 		    struct dentry *new_dentry);
 	int (*unlink)(struct inode *dir, struct dentry *dentry);
@@ -155,6 +157,9 @@ struct inode {
 	uint32_t i_gid;
 	uint32_t i_nlink;
 	uint64_t i_size;
+	int64_t i_atime_sec;
+	int64_t i_mtime_sec;
+	int64_t i_ctime_sec;
 	dev_t i_rdev;
 	refcount_t i_refcount;
 	struct super_block *i_sb;
@@ -211,6 +216,11 @@ int __must_check vfs_readdir(struct file *file, void *ctx, filldir_t filldir);
 int __must_check vfs_truncate_file(struct file *file, uint64_t size);
 int __must_check vfs_inode_truncate(struct inode *inode, uint64_t size);
 int __must_check vfs_inode_writeback(struct inode *inode);
+int __must_check vfs_inode_set_timestamps(struct inode *inode,
+					  int64_t atime_sec, int64_t mtime_sec,
+					  bool set_atime, bool set_mtime);
+int __must_check vfs_inode_touch(struct inode *inode, bool atime, bool mtime,
+				 bool ctime);
 int __must_check vfs_sync_file(struct file *file);
 int __must_check vfs_stat_inode(const struct inode *inode, struct kstat *st);
 int __must_check vfs_stat_file(struct file *file, struct kstat *st);
@@ -259,6 +269,24 @@ static __always_inline __must_check __pure uint32_t
 vfs_inode_nlink(const struct inode *inode)
 {
 	return inode ? inode->i_nlink : 0;
+}
+
+static __always_inline __must_check __pure int64_t
+vfs_inode_atime_sec(const struct inode *inode)
+{
+	return inode ? inode->i_atime_sec : 0;
+}
+
+static __always_inline __must_check __pure int64_t
+vfs_inode_mtime_sec(const struct inode *inode)
+{
+	return inode ? inode->i_mtime_sec : 0;
+}
+
+static __always_inline __must_check __pure int64_t
+vfs_inode_ctime_sec(const struct inode *inode)
+{
+	return inode ? inode->i_ctime_sec : 0;
 }
 
 static __always_inline __must_check __pure dev_t

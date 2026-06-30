@@ -36,6 +36,10 @@
 #define AT_EMPTY_PATH	    0x1000
 #define AT_EACCESS	    0x200
 #define AT_SYMLINK_NOFOLLOW 0x100
+#define AT_SYMLINK_FOLLOW   0x400
+
+#define UTIME_NOW  0x3fffffff
+#define UTIME_OMIT 0x3ffffffe
 
 struct getdents_ctx {
 	char *dirp;
@@ -456,6 +460,92 @@ out_free_path:
 	return len;
 }
 
+ssize_t sys_symlinkat(struct trap_frame *tf)
+{
+	const char *utarget = (const char *)tf->a0;
+	int newdfd = (int)tf->a1;
+	const char *ulinkpath = (const char *)tf->a2;
+	char *target;
+	char *linkpath;
+	struct dentry *base;
+	int ret;
+
+	ret = copy_user_path(&target, utarget);
+	if (ret < 0)
+		return ret;
+	ret = copy_user_path(&linkpath, ulinkpath);
+	if (ret < 0) {
+		free_page(target, 0);
+		return ret;
+	}
+
+	ret = dirfd_path_base(newdfd, linkpath, &base);
+	if (ret < 0)
+		goto out;
+
+	ret = vfs_symlink_at(base, target, linkpath);
+	if (base)
+		dput(base);
+out:
+	free_page(linkpath, 0);
+	free_page(target, 0);
+	return ret;
+}
+
+ssize_t sys_linkat(struct trap_frame *tf)
+{
+	int olddfd = (int)tf->a0;
+	const char *uoldpath = (const char *)tf->a1;
+	int newdfd = (int)tf->a2;
+	const char *unewpath = (const char *)tf->a3;
+	int flags = (int)tf->a4;
+	char *oldpath;
+	char *newpath;
+	struct dentry *old_base;
+	struct dentry *new_base;
+	struct dentry *old_dentry;
+	int ret;
+
+	if (flags & ~AT_SYMLINK_FOLLOW)
+		return -EINVAL;
+
+	ret = copy_user_path(&oldpath, uoldpath);
+	if (ret < 0)
+		return ret;
+	ret = copy_user_path(&newpath, unewpath);
+	if (ret < 0) {
+		free_page(oldpath, 0);
+		return ret;
+	}
+
+	ret = dirfd_path_base(olddfd, oldpath, &old_base);
+	if (ret < 0)
+		goto out_free_paths;
+	ret = path_lookupat_err(old_base, oldpath,
+				(flags & AT_SYMLINK_FOLLOW) ? 0 :
+								  LOOKUP_NOFOLLOW,
+				&old_dentry);
+	if (old_base)
+		dput(old_base);
+	if (ret < 0)
+		goto out_free_paths;
+
+	ret = dirfd_path_base(newdfd, newpath, &new_base);
+	if (ret < 0) {
+		dput(old_dentry);
+		goto out_free_paths;
+	}
+	ret = vfs_link_at(old_dentry, new_base, newpath);
+	if (new_base)
+		dput(new_base);
+	dput(old_dentry);
+
+out_free_paths:
+	free_page(newpath, 0);
+	free_page(oldpath, 0);
+	return ret;
+}
+
 ssize_t sys_mknod(struct trap_frame *tf)
 {
 	int dfd = (int)tf->a0;
@@ -526,5 +616,124 @@ ssize_t sys_renameat2(struct trap_frame *tf)
 out:
 	free_page(old_path, 0);
 	free_page(new_path, 0);
+	return ret;
+}
+
+static int sys_utimensat_empty_path(int dfd, const struct sys_timespec ktimes[2],
+				    const bool set_time[2])
+{
+	struct file *file;
+	struct dentry *cwd;
+	int ret;
+
+	if (dfd == AT_FDCWD) {
+		cwd = fs_get_cwd_dentry(task_fs(current));
+		if (!cwd)
+			return -ENOENT;
+		ret = vfs_inode_set_timestamps(cwd->d_inode, ktimes[0].tv_sec,
+					       ktimes[1].tv_sec, set_time[0],
+					       set_time[1]);
+		dput(cwd);
+		return ret;
+	}
+
+	file = fd_get(dfd);
+	if (!file)
+		return -EBADF;
+	ret = vfs_inode_set_timestamps(file->f_inode, ktimes[0].tv_sec,
+				       ktimes[1].tv_sec, set_time[0],
+				       set_time[1]);
+	file_put(file);
+	return ret;
+}
+
+static int sys_utimensat_read_times(const struct sys_timespec *utimes,
+				    struct sys_timespec ktimes[2],
+				    bool set_time[2])
+{
+	struct sys_timespec now;
+
+	mtime_to_timespec(arch_timer_now(), &now);
+	if (!utimes) {
+		ktimes[0] = now;
+		ktimes[1] = now;
+		set_time[0] = true;
+		set_time[1] = true;
+		return 0;
+	}
+	if (copy_from_user(ktimes, utimes, sizeof(struct sys_timespec) * 2) != 0)
+		return -EFAULT;
+
+	for (int i = 0; i < 2; i++) {
+		set_time[i] = true;
+		if (ktimes[i].tv_nsec == UTIME_OMIT) {
+			set_time[i] = false;
+			continue;
+		}
+		if (ktimes[i].tv_nsec == UTIME_NOW) {
+			ktimes[i] = now;
+			continue;
+		}
+		if (ktimes[i].tv_sec < 0 || ktimes[i].tv_sec > UINT32_MAX ||
+		    ktimes[i].tv_nsec < 0 || ktimes[i].tv_nsec >= 1000000000LL)
+			return -EINVAL;
+	}
+
+	return 0;
+}
+
+ssize_t sys_utimensat(struct trap_frame *tf)
+{
+	int dfd = (int)tf->a0;
+	const char *upath = (const char *)tf->a1;
+	const struct sys_timespec *utimes = (const struct sys_timespec *)tf->a2;
+	int flags = (int)tf->a3;
+	struct sys_timespec ktimes[2];
+	bool set_time[2];
+	char *path;
+	struct dentry *base;
+	struct dentry *dentry;
+	int ret;
+
+	if (flags & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW))
+		return -EINVAL;
+
+	ret = sys_utimensat_read_times(utimes, ktimes, set_time);
+	if (ret < 0)
+		return ret;
+
+	if ((flags & AT_EMPTY_PATH) && !upath)
+		return sys_utimensat_empty_path(dfd, ktimes, set_time);
+	if ((flags & AT_EMPTY_PATH) && upath) {
+		char first;
+
+		if (copy_from_user(&first, upath, sizeof(first)) != 0)
+			return -EFAULT;
+		if (first == '\0')
+			return sys_utimensat_empty_path(dfd, ktimes, set_time);
+	}
+
+	ret = copy_user_path(&path, upath);
+	if (ret < 0)
+		return ret;
+
+	ret = dirfd_path_base(dfd, path, &base);
+	if (ret < 0)
+		goto out_free_path;
+
+	ret = path_lookupat_err(
+		base, path, (flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0,
+		&dentry);
+	if (base)
+		dput(base);
+out_free_path:
+	free_page(path, 0);
+	if (ret < 0)
+		return ret;
+
+	ret = vfs_inode_set_timestamps(dentry->d_inode, ktimes[0].tv_sec,
+				       ktimes[1].tv_sec, set_time[0],
+				       set_time[1]);
+	dput(dentry);
 	return ret;
 }

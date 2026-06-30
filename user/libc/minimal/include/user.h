@@ -29,8 +29,12 @@ typedef unsigned long size_t;
 #define AT_FDCWD	    -100
 #define AT_REMOVEDIR	    0x200
 #define AT_EACCESS	    0x200
+#define AT_SYMLINK_FOLLOW  0x400
 #define AT_EMPTY_PATH	    0x1000
 #define AT_SYMLINK_NOFOLLOW 0x100
+
+#define UTIME_NOW  0x3fffffff
+#define UTIME_OMIT 0x3ffffffe
 
 #define O_RDONLY    00000000
 #define O_WRONLY    00000001
@@ -249,6 +253,55 @@ struct stat {
 	unsigned int st_unused[2];
 };
 
+struct statx_timestamp {
+	long tv_sec;
+	unsigned int tv_nsec;
+	int __reserved;
+};
+
+struct statx {
+	unsigned int stx_mask;
+	unsigned int stx_blksize;
+	unsigned long stx_attributes;
+	unsigned int stx_nlink;
+	unsigned int stx_uid;
+	unsigned int stx_gid;
+	unsigned short stx_mode;
+	unsigned short __spare0[1];
+	unsigned long stx_ino;
+	unsigned long stx_size;
+	unsigned long stx_blocks;
+	unsigned long stx_attributes_mask;
+	struct statx_timestamp stx_atime;
+	struct statx_timestamp stx_btime;
+	struct statx_timestamp stx_ctime;
+	struct statx_timestamp stx_mtime;
+	unsigned int stx_rdev_major;
+	unsigned int stx_rdev_minor;
+	unsigned int stx_dev_major;
+	unsigned int stx_dev_minor;
+	unsigned long stx_mnt_id;
+	unsigned int stx_dio_mem_align;
+	unsigned int stx_dio_offset_align;
+	unsigned long stx_subvol;
+	unsigned long __spare3[11];
+};
+
+#define STATX_TYPE	  0x00000001U
+#define STATX_MODE	  0x00000002U
+#define STATX_NLINK	  0x00000004U
+#define STATX_UID	  0x00000008U
+#define STATX_GID	  0x00000010U
+#define STATX_ATIME	  0x00000020U
+#define STATX_MTIME	  0x00000040U
+#define STATX_CTIME	  0x00000080U
+#define STATX_INO	  0x00000100U
+#define STATX_SIZE	  0x00000200U
+#define STATX_BLOCKS	  0x00000400U
+#define STATX_BASIC_STATS 0x000007ffU
+#define STATX_BTIME	  0x00000800U
+#define STATX__RESERVED  0x80000000U
+
 struct utsname {
 	char sysname[65];
 	char nodename[65];
@@ -456,11 +509,30 @@ static inline long fstat(int fd, struct stat *st)
 	return syscall(SYS_fstat, fd, (long)st);
 }
 
+static inline long statx(int dfd, const char *path, int flags,
+			 unsigned int mask, struct statx *stx)
+{
+	return syscall(SYS_statx, dfd, (long)path, flags, mask, (long)stx);
+}
+
 static inline long readlinkat(int dfd, const char *path, char *buf,
 			      size_t bufsiz)
 {
 	return syscall(SYS_readlinkat, dfd, (long)path, (long)buf,
 		       (long)bufsiz);
+}
+
+static inline long symlinkat(const char *target, int newdfd,
+			     const char *linkpath)
+{
+	return syscall(SYS_symlinkat, (long)target, newdfd, (long)linkpath);
+}
+
+static inline long linkat(int olddfd, const char *oldpath, int newdfd,
+			  const char *newpath, int flags)
+{
+	return syscall(SYS_linkat, olddfd, (long)oldpath, newdfd,
+		       (long)newpath, flags);
 }
 
 static inline long getdents64(int fd, void *dirp, size_t count)
@@ -496,6 +568,12 @@ static inline long renameat2(int old_dfd, const char *old_path, int new_dfd,
 static inline long rename(const char *old_path, const char *new_path)
 {
 	return renameat2(AT_FDCWD, old_path, AT_FDCWD, new_path, 0);
+}
+
+static inline long utimensat(int dfd, const char *path,
+			     const struct timespec times[2], int flags)
+{
+	return syscall(SYS_utimensat, dfd, (long)path, (long)times, flags);
 }
 
 static inline long chdir(const char *path)

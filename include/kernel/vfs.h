@@ -58,6 +58,10 @@ int __must_check vfs_create(const char *path, uint32_t mode,
 			    struct dentry **res);
 int __must_check vfs_create_at(struct dentry *base, const char *path,
 			       uint32_t mode, struct dentry **res);
+int __must_check vfs_symlink_at(struct dentry *base, const char *target,
+				const char *linkpath);
+int __must_check vfs_link_at(struct dentry *old_dentry, struct dentry *new_base,
+			     const char *new_path);
 int __must_check vfs_mkdir(const char *path, uint32_t mode);
 int __must_check vfs_mkdir_at(struct dentry *base, const char *path,
 			      uint32_t mode);

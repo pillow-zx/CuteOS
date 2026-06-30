@@ -56,20 +56,6 @@ ssize_t sys_mount(struct trap_frame *tf)
 	return -ENOSYS;
 }
 
-ssize_t sys_symlinkat(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(vfs): 需要 symlink inode 创建和 ext2 符号链接写入语义。 */
-	return -ENOSYS;
-}
-
-ssize_t sys_linkat(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(vfs): 需要硬链接 nlink 维护和跨目录 linkat 语义。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_sendfile(struct trap_frame *tf)
 {
 	(void)tf;
@@ -88,13 +74,6 @@ ssize_t sys_splice(struct trap_frame *tf)
 {
 	(void)tf;
 	/* TODO(vfs): 需要 pipe/file 间数据搬运和 offset 语义。 */
-	return -ENOSYS;
-}
-
-ssize_t sys_utimensat(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(vfs): 需要 inode 时间戳、UTIME_NOW/OMIT 和 at 路径语义。 */
 	return -ENOSYS;
 }
 
@@ -201,13 +180,6 @@ ssize_t sys_munlock(struct trap_frame *tf)
 {
 	(void)tf;
 	/* TODO(mm): 需要 page pin/unevictable 语义；当前也没有换页。 */
-	return -ENOSYS;
-}
-
-ssize_t sys_statx(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(vfs): 需要 Linux struct statx 布局、mask 和 at 路径语义。 */
 	return -ENOSYS;
 }
 

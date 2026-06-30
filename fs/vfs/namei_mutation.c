@@ -134,6 +134,74 @@ int vfs_create(const char *path, uint32_t mode, struct dentry **res)
 	return vfs_create_at(NULL, path, mode, res);
 }
 
+int vfs_symlink_at(struct dentry *base, const char *target,
+		   const char *linkpath)
+{
+	struct create_target create;
+	int ret;
+
+	if (!target || !*target)
+		return -ENOENT;
+
+	ret = prepare_create_target(base, linkpath, false, &create);
+	if (ret < 0)
+		return ret;
+	if (!create.parent->d_inode->i_op->symlink) {
+		put_create_target(&create);
+		return -EINVAL;
+	}
+
+	ret = create.parent->d_inode->i_op->symlink(create.parent->d_inode,
+						    create.dentry, target);
+	if (ret == 0) {
+		ret = vfs_init_inode_owner(create.dentry->d_inode);
+		if (ret < 0) {
+			rollback_create_target(&create, false);
+		} else if (create.new_dentry) {
+			dcache_insert(create.dentry);
+		}
+	}
+
+	put_create_target(&create);
+	return ret;
+}
+
+int vfs_link_at(struct dentry *old_dentry, struct dentry *new_base,
+		const char *new_path)
+{
+	struct create_target target;
+	struct inode *inode;
+	int ret;
+
+	if (!old_dentry || !old_dentry->d_inode)
+		return -ENOENT;
+
+	inode = old_dentry->d_inode;
+	if (S_ISDIR(inode->i_mode))
+		return -EPERM;
+
+	ret = prepare_create_target(new_base, new_path, false, &target);
+	if (ret < 0)
+		return ret;
+	if (target.parent->d_inode->i_sb != inode->i_sb) {
+		put_create_target(&target);
+		return -EXDEV;
+	}
+	if (!target.parent->d_inode->i_op->link) {
+		put_create_target(&target);
+		return -EINVAL;
+	}
+
+	ret = target.parent->d_inode->i_op->link(old_dentry,
+						 target.parent->d_inode,
+						 target.dentry);
+	if (ret == 0 && target.new_dentry)
+		dcache_insert(target.dentry);
+
+	put_create_target(&target);
+	return ret;
+}
+
 int vfs_mkdir_at(struct dentry *base, const char *path, uint32_t mode)
 {
 	struct create_target target;

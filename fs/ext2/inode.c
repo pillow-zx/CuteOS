@@ -339,6 +339,9 @@ static void ext2_fill_vfs_inode(struct inode *inode)
 	inode->i_gid = raw->i_gid;
 	inode->i_nlink = raw->i_links_count;
 	inode->i_size = raw->i_size;
+	inode->i_atime_sec = raw->i_atime;
+	inode->i_mtime_sec = raw->i_mtime;
+	inode->i_ctime_sec = raw->i_ctime;
 	if ((raw->i_mode & EXT2_S_IFMT) == EXT2_S_IFCHR ||
 	    (raw->i_mode & EXT2_S_IFMT) == EXT2_S_IFBLK)
 		inode->i_rdev = ext2_decode_dev(raw->i_block[0]);
@@ -450,6 +453,9 @@ int ext2_write_inode(struct inode *inode)
 	ei->raw_inode.i_gid = (uint16_t)inode->i_gid;
 	ei->raw_inode.i_links_count = (uint16_t)inode->i_nlink;
 	ei->raw_inode.i_size = (uint32_t)inode->i_size;
+	ei->raw_inode.i_atime = (uint32_t)inode->i_atime_sec;
+	ei->raw_inode.i_mtime = (uint32_t)inode->i_mtime_sec;
+	ei->raw_inode.i_ctime = (uint32_t)inode->i_ctime_sec;
 	if ((inode->i_mode & S_IFMT) == S_IFCHR ||
 	    (inode->i_mode & S_IFMT) == S_IFBLK)
 		ei->raw_inode.i_block[0] = ext2_encode_dev(inode->i_rdev);

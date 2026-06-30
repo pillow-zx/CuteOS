@@ -624,6 +624,152 @@ static int test_pipe_epipe(void)
 	return 0;
 }
 
+static int test_utimensat_sets_mtime(void)
+{
+	struct timespec times[2];
+	struct stat st;
+	long ret;
+
+	if (make_file("/tmp/utime_file", "t", 1) < 0) {
+		printf("FAIL: make utime file\n");
+		return 1;
+	}
+
+	times[0].tv_sec = 100;
+	times[0].tv_nsec = 0;
+	times[1].tv_sec = 12345;
+	times[1].tv_nsec = 0;
+	ret = utimensat(AT_FDCWD, "/tmp/utime_file", times, 0);
+	if (ret != 0) {
+		printf("FAIL: utimensat expected 0 got %ld\n", ret);
+		unlinkat(AT_FDCWD, "/tmp/utime_file", 0);
+		return 1;
+	}
+
+	ret = fstatat(AT_FDCWD, "/tmp/utime_file", &st, 0);
+	if (ret != 0) {
+		printf("FAIL: stat utime file got %ld\n", ret);
+		unlinkat(AT_FDCWD, "/tmp/utime_file", 0);
+		return 1;
+	}
+	if (st.st_mtime_sec != 12345 || st.st_mtime_nsec != 0) {
+		printf("FAIL: mtime expected 12345.0 got %ld.%lu\n",
+		       st.st_mtime_sec, st.st_mtime_nsec);
+		unlinkat(AT_FDCWD, "/tmp/utime_file", 0);
+		return 1;
+	}
+
+	unlinkat(AT_FDCWD, "/tmp/utime_file", 0);
+	return 0;
+}
+
+static int test_statx_basic_regular_file(void)
+{
+	struct statx stx;
+	long ret;
+
+	if (make_file("/tmp/statx_file", "statx", 5) < 0) {
+		printf("FAIL: make statx file\n");
+		return 1;
+	}
+
+	memset(&stx, 0, sizeof(stx));
+	ret = statx(AT_FDCWD, "/tmp/statx_file", 0, STATX_BASIC_STATS, &stx);
+	if (ret != 0) {
+		printf("FAIL: statx expected 0 got %ld\n", ret);
+		unlinkat(AT_FDCWD, "/tmp/statx_file", 0);
+		return 1;
+	}
+
+	if ((stx.stx_mask & (STATX_TYPE | STATX_MODE | STATX_NLINK |
+			    STATX_INO | STATX_SIZE)) !=
+	    (STATX_TYPE | STATX_MODE | STATX_NLINK | STATX_INO |
+	     STATX_SIZE)) {
+		printf("FAIL: statx mask missing fields 0x%x\n", stx.stx_mask);
+		unlinkat(AT_FDCWD, "/tmp/statx_file", 0);
+		return 1;
+	}
+	if ((stx.stx_mode & S_IFMT) != S_IFREG || stx.stx_size != 5 ||
+	    stx.stx_nlink != 1 || stx.stx_ino == 0) {
+		printf("FAIL: statx fields mode=0%o size=%lu nlink=%u ino=%lu\n",
+		       stx.stx_mode, stx.stx_size, stx.stx_nlink,
+		       stx.stx_ino);
+		unlinkat(AT_FDCWD, "/tmp/statx_file", 0);
+		return 1;
+	}
+
+	unlinkat(AT_FDCWD, "/tmp/statx_file", 0);
+	return 0;
+}
+
+static int test_symlinkat_creates_readlink_target(void)
+{
+	char buf[32];
+	long ret;
+
+	unlinkat(AT_FDCWD, "/tmp/symlink_link", 0);
+	ret = symlinkat("relative-target", AT_FDCWD, "/tmp/symlink_link");
+	if (ret != 0) {
+		printf("FAIL: symlinkat expected 0 got %ld\n", ret);
+		return 1;
+	}
+
+	memset(buf, 0, sizeof(buf));
+	ret = readlinkat(AT_FDCWD, "/tmp/symlink_link", buf, sizeof(buf));
+	if (ret >= 0 && ret < (long)sizeof(buf))
+		buf[ret] = '\0';
+	if (ret != 15 || strcmp(buf, "relative-target") != 0) {
+		printf("FAIL: readlink symlink ret=%ld target=%s\n", ret, buf);
+		unlinkat(AT_FDCWD, "/tmp/symlink_link", 0);
+		return 1;
+	}
+
+	unlinkat(AT_FDCWD, "/tmp/symlink_link", 0);
+	return 0;
+}
+
+static int test_linkat_regular_file_shares_inode(void)
+{
+	struct stat src_st;
+	struct stat dst_st;
+	long ret;
+
+	unlinkat(AT_FDCWD, "/tmp/hard_src", 0);
+	unlinkat(AT_FDCWD, "/tmp/hard_dst", 0);
+	if (make_file("/tmp/hard_src", "hard", 4) < 0) {
+		printf("FAIL: make hard link source\n");
+		return 1;
+	}
+
+	ret = linkat(AT_FDCWD, "/tmp/hard_src", AT_FDCWD, "/tmp/hard_dst", 0);
+	if (ret != 0) {
+		printf("FAIL: linkat expected 0 got %ld\n", ret);
+		unlinkat(AT_FDCWD, "/tmp/hard_src", 0);
+		return 1;
+	}
+
+	if (fstatat(AT_FDCWD, "/tmp/hard_src", &src_st, 0) != 0 ||
+	    fstatat(AT_FDCWD, "/tmp/hard_dst", &dst_st, 0) != 0) {
+		printf("FAIL: stat hard link paths\n");
+		unlinkat(AT_FDCWD, "/tmp/hard_src", 0);
+		unlinkat(AT_FDCWD, "/tmp/hard_dst", 0);
+		return 1;
+	}
+	if (src_st.st_ino != dst_st.st_ino || src_st.st_nlink != 2 ||
+	    dst_st.st_nlink != 2 || read_check("/tmp/hard_dst", "hard", 4)) {
+		printf("FAIL: hard link inode/nlink ino=%lu/%lu n=%u/%u\n",
+		       src_st.st_ino, dst_st.st_ino, src_st.st_nlink,
+		       dst_st.st_nlink);
+		unlinkat(AT_FDCWD, "/tmp/hard_src", 0);
+		unlinkat(AT_FDCWD, "/tmp/hard_dst", 0);
+		return 1;
+	}
+
+	unlinkat(AT_FDCWD, "/tmp/hard_src", 0);
+	unlinkat(AT_FDCWD, "/tmp/hard_dst", 0);
+	return 0;
+}
+
 static void report_group(const char *name, int ret, int *failed)
 {
 	printf("fs_test: %s ... ", name);
@@ -666,6 +812,14 @@ int main(void)
 		     &failed);
 	report_group("pipe eof", test_pipe_eof(), &failed);
 	report_group("pipe epipe", test_pipe_epipe(), &failed);
+	report_group("utimensat sets mtime", test_utimensat_sets_mtime(),
+		     &failed);
+	report_group("statx basic regular file", test_statx_basic_regular_file(),
+		     &failed);
+	report_group("symlinkat creates readlink target",
+		     test_symlinkat_creates_readlink_target(), &failed);
+	report_group("linkat regular file shares inode",
+		     test_linkat_regular_file_shares_inode(), &failed);
 
 	if (failed)
 		printf("fs_test: %d test group(s) FAILED\n", failed);

@@ -26,6 +26,8 @@
 #include <kernel/stat.h>
 #include <kernel/string.h>
 #include <kernel/task.h>
+#include <kernel/time.h>
+#include <kernel/timer.h>
 #include <kernel/vfs.h>
 
 #define ICACHE_HASH_BITS 6
@@ -132,13 +134,63 @@ int vfs_inode_writeback(struct inode *inode)
 	return inode->i_sb->s_op->write_inode(inode);
 }
 
+static int64_t vfs_current_time_sec(void)
+{
+	struct sys_timespec ts;
+
+	mtime_to_timespec(arch_timer_now(), &ts);
+	return ts.tv_sec;
+}
+
 int vfs_init_inode_owner(struct inode *inode)
 {
+	int64_t now;
+
 	if (!inode)
 		return 0;
 
+	now = vfs_current_time_sec();
 	inode->i_uid = task_uid(current);
 	inode->i_gid = task_gid(current);
+	inode->i_atime_sec = now;
+	inode->i_mtime_sec = now;
+	inode->i_ctime_sec = now;
+	return vfs_inode_writeback(inode);
+}
+
+int vfs_inode_touch(struct inode *inode, bool atime, bool mtime, bool ctime)
+{
+	int64_t now;
+
+	if (!inode)
+		return -EINVAL;
+
+	now = vfs_current_time_sec();
+	if (atime)
+		inode->i_atime_sec = now;
+	if (mtime)
+		inode->i_mtime_sec = now;
+	if (ctime)
+		inode->i_ctime_sec = now;
+
+	return vfs_inode_writeback(inode);
+}
+
+int vfs_inode_set_timestamps(struct inode *inode, int64_t atime_sec,
+			     int64_t mtime_sec, bool set_atime,
+			     bool set_mtime)
+{
+	if (!inode)
+		return -EINVAL;
+
+	if (set_atime)
+		inode->i_atime_sec = atime_sec;
+	if (set_mtime)
+		inode->i_mtime_sec = mtime_sec;
+	if (!set_atime && !set_mtime)
+		return 0;
+	inode->i_ctime_sec = vfs_current_time_sec();
+
 	return vfs_inode_writeback(inode);
 }
 
@@ -167,10 +219,10 @@ int vfs_inode_permission(struct inode *inode, uint32_t mask)
 	if (task_uid(current) == 0)
 		return 0;
 
-	if (task_uid(current) == inode->i_uid)
-		perm = (inode->i_mode >> 6) & 7;
-	else if (task_gid(current) == inode->i_gid)
-		perm = (inode->i_mode >> 3) & 7;
+	if (task_uid(current) == vfs_inode_uid(inode))
+		perm = (vfs_inode_mode(inode) >> 6) & 7;
+	else if (task_gid(current) == vfs_inode_gid(inode))
+		perm = (vfs_inode_mode(inode) >> 3) & 7;
 	else
 		perm = inode->i_mode & 7;
 
@@ -206,6 +258,9 @@ int vfs_stat_inode(const struct inode *inode, struct kstat *st)
 	st->st_size = (int64_t)size;
 	st->st_blksize = 1024;
 	st->st_blocks = size / 512 + (size % 512 ? 1 : 0);
+	st->st_atime_sec = vfs_inode_atime_sec(inode);
+	st->st_mtime_sec = vfs_inode_mtime_sec(inode);
+	st->st_ctime_sec = vfs_inode_ctime_sec(inode);
 	return 0;
 }
 
