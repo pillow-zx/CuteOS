@@ -204,18 +204,19 @@ int vfs_poll_wait_until(vfs_poll_scan_t scan, void *arg, bool has_timeout,
 			return 0;
 		}
 
-		local_timer_wait = has_timeout && !sched_has_runnable();
 		if (irqs_disabled()) {
 			csr_set(sstatus, SSTATUS_SIE);
 			enabled_irq_for_sleep = true;
 		}
+		local_timer_wait = !sched_has_runnable();
 		if (local_timer_wait) {
-			while (!timer_wait_fired(&timer) &&
-			       !signal_pending(current))
+			while (!signal_pending(current) &&
+			       !(has_timeout && timer_wait_fired(&timer)) &&
+			       !sched_has_runnable())
 				wfi();
-		} else {
-			schedule();
 		}
+		if (sched_has_runnable())
+			schedule();
 		if (enabled_irq_for_sleep)
 			csr_clear(sstatus, SSTATUS_SIE);
 

@@ -108,6 +108,15 @@ void kernel_test(void)
 	test_wait_event_interruptible_signal();
 	test_mutex_blocking();
 
+	/* ---- Cleanup RAII ---- */
+	TEST_SECTION("Cleanup");
+	test_cleanup_free_scope();
+	test_cleanup_take_ptr();
+	test_cleanup_forget_ptr();
+	test_cleanup_guard_scope();
+	test_cleanup_with_guard_block();
+	test_cleanup_class_helpers();
+
 	/* ---- MM/VMA ---- */
 	TEST_SECTION("MM/VMA");
 	test_mm_vma_merge_adjacent();

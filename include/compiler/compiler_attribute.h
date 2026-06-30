@@ -37,12 +37,13 @@
 #define __noinline	   __attribute__((__noinline__))
 #define __hot		   __attribute__((__hot__))
 #define __cold		   __attribute__((__cold__))
-#define __alias(str)	   __attribute__((__alias__(str)))
+#define __alias(str)	   __attribute__((__alias__(#str)))
 #define __pure		   __attribute__((__pure__))
 #define __const		   __attribute__((__const__))
 #define __section(section) __attribute__((__section__(section)))
 #define __weak		   __attribute__((__weak__))
 #define __printf(a, b)	   __attribute__((__format__(printf, a, b)))
 #define __malloc	   __attribute__((__malloc__))
+#define __cleanup(func)	  __attribute__((__cleanup__(func)))
 
 #endif

@@ -224,14 +224,13 @@ ssize_t sys_write(struct trap_frame *tf)
 	int fd = (int)tf->a0;
 	const char *buf = (const char *)tf->a1;
 	size_t len = tf->a2;
-	struct file *file = fd_get_writable(fd);
+	struct file *file __cleanup_with(file) = fd_get_writable(fd);
 	ssize_t ret;
 
 	if (!file)
 		return -EBADF;
 
 	ret = rw_user_buffer(file, (void *)buf, len, true);
-	file_put(file);
 	return ret;
 }
 
@@ -240,14 +239,13 @@ ssize_t sys_read(struct trap_frame *tf)
 	int fd = (int)tf->a0;
 	char *buf = (char *)tf->a1;
 	size_t len = tf->a2;
-	struct file *file = fd_get_readable(fd);
+	struct file *file __cleanup_with(file) = fd_get_readable(fd);
 	ssize_t ret;
 
 	if (!file)
 		return -EBADF;
 
 	ret = rw_user_buffer(file, buf, len, false);
-	file_put(file);
 	return ret;
 }
 
@@ -256,18 +254,15 @@ ssize_t sys_readv(struct trap_frame *tf)
 	int fd = (int)tf->a0;
 	const struct sys_iovec *uiov = (const struct sys_iovec *)tf->a1;
 	size_t iovcnt = tf->a2;
-	struct file *file = fd_get_readable(fd);
+	struct file *file __cleanup_with(file) = fd_get_readable(fd);
 	ssize_t ret;
 
 	if (!file)
 		return -EBADF;
-	if (!access_ok(uiov, iovcnt * sizeof(*uiov))) {
-		file_put(file);
+	if (!access_ok(uiov, iovcnt * sizeof(*uiov)))
 		return -EFAULT;
-	}
 
 	ret = rw_iovec(file, uiov, iovcnt, false);
-	file_put(file);
 	return ret;
 }
 
@@ -276,18 +271,15 @@ ssize_t sys_writev(struct trap_frame *tf)
 	int fd = (int)tf->a0;
 	const struct sys_iovec *uiov = (const struct sys_iovec *)tf->a1;
 	size_t iovcnt = tf->a2;
-	struct file *file = fd_get_writable(fd);
+	struct file *file __cleanup_with(file) = fd_get_writable(fd);
 	ssize_t ret;
 
 	if (!file)
 		return -EBADF;
-	if (!access_ok(uiov, iovcnt * sizeof(*uiov))) {
-		file_put(file);
+	if (!access_ok(uiov, iovcnt * sizeof(*uiov)))
 		return -EFAULT;
-	}
 
 	ret = rw_iovec(file, uiov, iovcnt, true);
-	file_put(file);
 	return ret;
 }
 
@@ -297,14 +289,13 @@ ssize_t sys_pread64(struct trap_frame *tf)
 	char *buf = (char *)tf->a1;
 	size_t len = tf->a2;
 	loff_t offset = (loff_t)tf->a3;
-	struct file *file = fd_get_readable(fd);
+	struct file *file __cleanup_with(file) = fd_get_readable(fd);
 	ssize_t ret;
 
 	if (!file)
 		return -EBADF;
 
 	ret = rw_at_offset(file, buf, len, offset, false);
-	file_put(file);
 	return ret;
 }
 
@@ -314,14 +305,13 @@ ssize_t sys_pwrite64(struct trap_frame *tf)
 	const char *buf = (const char *)tf->a1;
 	size_t len = tf->a2;
 	loff_t offset = (loff_t)tf->a3;
-	struct file *file = fd_get_writable(fd);
+	struct file *file __cleanup_with(file) = fd_get_writable(fd);
 	ssize_t ret;
 
 	if (!file)
 		return -EBADF;
 
 	ret = rw_at_offset(file, (void *)buf, len, offset, true);
-	file_put(file);
 	return ret;
 }
 
@@ -332,7 +322,7 @@ ssize_t sys_close(struct trap_frame *tf)
 
 ssize_t sys_lseek(struct trap_frame *tf)
 {
-	struct file *file = fd_get((int)tf->a0);
+	struct file *file __cleanup_with(file) = fd_get((int)tf->a0);
 	loff_t offset = (loff_t)tf->a1;
 	int whence = (int)tf->a2;
 	ssize_t ret;
@@ -341,7 +331,6 @@ ssize_t sys_lseek(struct trap_frame *tf)
 		return -EBADF;
 
 	ret = vfs_llseek(file, offset, whence);
-	file_put(file);
 	return ret;
 }
 
@@ -350,14 +339,13 @@ ssize_t sys_ioctl(struct trap_frame *tf)
 	int fd = (int)tf->a0;
 	uint64_t cmd = tf->a1;
 	uint64_t arg = tf->a2;
-	struct file *file = fd_get(fd);
+	struct file *file __cleanup_with(file) = fd_get(fd);
 	ssize_t ret;
 
 	if (!file)
 		return -EBADF;
 
 	ret = vfs_ioctl(file, cmd, arg);
-	file_put(file);
 	return ret;
 }
 
@@ -366,7 +354,6 @@ ssize_t sys_fcntl(struct trap_frame *tf)
 	int fd = (int)tf->a0;
 	int cmd = (int)tf->a1;
 	unsigned long arg = tf->a2;
-	struct file *file;
 	int ret;
 
 	switch (cmd) {
@@ -379,20 +366,21 @@ ssize_t sys_fcntl(struct trap_frame *tf)
 		return ret ? FD_CLOEXEC : 0;
 	case F_SETFD:
 		return fd_set_close_on_exec(fd, arg & FD_CLOEXEC);
-	case F_GETFL:
-		file = fd_get(fd);
+	case F_GETFL: {
+		struct file *file __cleanup_with(file) = fd_get(fd);
+
 		if (!file)
 			return -EBADF;
-		ret = file_get_status_flags(file);
-		file_put(file);
-		return ret;
-	case F_SETFL:
-		file = fd_get(fd);
+		return file_get_status_flags(file);
+	}
+	case F_SETFL: {
+		struct file *file __cleanup_with(file) = fd_get(fd);
+
 		if (!file)
 			return -EBADF;
 		ret = file_set_status_flags(file, (uint32_t)arg);
-		file_put(file);
 		return ret;
+	}
 	case F_DUPFD_CLOEXEC:
 		return fd_dup_from(fd, arg, 1);
 	default:
@@ -419,14 +407,13 @@ ssize_t sys_dup3(struct trap_frame *tf)
 
 ssize_t sys_fsync(struct trap_frame *tf)
 {
-	struct file *file = fd_get((int)tf->a0);
+	struct file *file __cleanup_with(file) = fd_get((int)tf->a0);
 	ssize_t ret;
 
 	if (!file)
 		return -EBADF;
 
 	ret = vfs_sync_file(file);
-	file_put(file);
 	return ret;
 }
 
@@ -437,27 +424,20 @@ ssize_t sys_fdatasync(struct trap_frame *tf)
 
 ssize_t sys_ftruncate64(struct trap_frame *tf)
 {
-	struct file *file = fd_get((int)tf->a0);
+	struct file *file __cleanup_with(file) = fd_get((int)tf->a0);
 	int64_t length = (int64_t)tf->a1;
 	ssize_t ret;
 
 	if (!file)
 		return -EBADF;
-	if (!(file->f_mode & FMODE_WRITE)) {
-		file_put(file);
+	if (!(file->f_mode & FMODE_WRITE))
 		return -EBADF;
-	}
-	if (length < 0 || length > MAX_FILE_SIZE) {
-		file_put(file);
+	if (length < 0 || length > MAX_FILE_SIZE)
 		return -EINVAL;
-	}
-	if (!file->f_inode) {
-		file_put(file);
+	if (!file->f_inode)
 		return -EINVAL;
-	}
 
 	ret = vfs_truncate_file(file, (uint64_t)length);
-	file_put(file);
 	return ret;
 }
 

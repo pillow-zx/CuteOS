@@ -128,8 +128,8 @@ void timer_run_expired(uint64_t now)
 int timer_sleep_until(uint64_t expires, bool interruptible)
 {
 	struct timer_wait wait;
-	bool local_timer_wait;
 	bool enabled_irq_for_sleep = false;
+	int ret = 0;
 
 	if (!current)
 		return -EINVAL;
@@ -138,7 +138,6 @@ int timer_sleep_until(uint64_t expires, bool interruptible)
 	if (expires <= arch_timer_now())
 		return 0;
 
-	local_timer_wait = !sched_has_runnable();
 	if (interruptible)
 		wait_prepare_current_interruptible();
 	else
@@ -146,16 +145,24 @@ int timer_sleep_until(uint64_t expires, bool interruptible)
 	timer_wait_init(&wait, current, expires);
 	timer_wait_start(&wait);
 
-	if (irqs_disabled()) {
-		csr_set(sstatus, SSTATUS_SIE);
-		enabled_irq_for_sleep = true;
-	}
-	if (local_timer_wait) {
-		while (!timer_wait_fired(&wait) &&
-		       !(interruptible && signal_pending(current)))
-			wfi();
-	} else {
-		schedule();
+	while (!timer_wait_fired(&wait)) {
+		if (interruptible && signal_pending(current)) {
+			ret = -EINTR;
+			break;
+		}
+		if (expires <= arch_timer_now())
+			break;
+
+		if (sched_has_runnable()) {
+			schedule();
+			continue;
+		}
+
+		if (irqs_disabled()) {
+			csr_set(sstatus, SSTATUS_SIE);
+			enabled_irq_for_sleep = true;
+		}
+		wfi();
 	}
 	if (enabled_irq_for_sleep)
 		csr_clear(sstatus, SSTATUS_SIE);
@@ -163,6 +170,8 @@ int timer_sleep_until(uint64_t expires, bool interruptible)
 	timer_wait_cancel(&wait);
 	wait_finish_current_state();
 
+	if (ret < 0)
+		return ret;
 	if (interruptible && signal_pending(current))
 		return -EINTR;
 	return 0;

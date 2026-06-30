@@ -81,6 +81,18 @@ void test_wait_event_interruptible_signal(void);
 void test_mutex_blocking(void);
 
 /* ================================================================
+ *  Cleanup RAII 测试
+ * ================================================================
+ */
+
+void test_cleanup_free_scope(void);
+void test_cleanup_take_ptr(void);
+void test_cleanup_forget_ptr(void);
+void test_cleanup_guard_scope(void);
+void test_cleanup_with_guard_block(void);
+void test_cleanup_class_helpers(void);
+
+/* ================================================================
  *  MM/VMA 测试
  * ================================================================
  */

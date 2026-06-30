@@ -19,7 +19,7 @@ static_assert(VFS_PATH_MAX <= PAGE_SIZE,
 
 int copy_user_path(char **pathp, const char *user)
 {
-	char *dst;
+	char *dst __cleanup_with(page0) = NULL;
 	ssize_t len;
 
 	if (pathp)
@@ -34,23 +34,18 @@ int copy_user_path(char **pathp, const char *user)
 		return -ENOMEM;
 
 	len = strncpy_from_user(dst, user, VFS_PATH_MAX);
-	if (len < 0) {
-		free_page(dst, 0);
+	if (len < 0)
 		return (int)len;
-	}
-	if (len == 0) {
-		free_page(dst, 0);
+	if (len == 0)
 		return -ENOENT;
-	}
 
-	*pathp = dst;
+	*pathp = cleanup_take_ptr(dst);
 	return 0;
 }
 
 int dirfd_path_base_path(int dfd, const char *path, struct path *basep)
 {
-	struct file *file;
-	int ret = 0;
+	struct file *file __cleanup_with(file) = NULL;
 
 	if (!basep)
 		return -EINVAL;
@@ -65,15 +60,11 @@ int dirfd_path_base_path(int dfd, const char *path, struct path *basep)
 	if (!file)
 		return -EBADF;
 	if (!file->f_path.dentry || !file->f_path.mnt || !file->f_inode ||
-	    !S_ISDIR(file->f_inode->i_mode)) {
-		ret = -ENOTDIR;
-		goto out;
-	}
+	    !S_ISDIR(file->f_inode->i_mode))
+		return -ENOTDIR;
 
 	*basep = file->f_path;
 	path_get(basep);
 
-out:
-	file_put(file);
-	return ret;
+	return 0;
 }
