@@ -33,6 +33,10 @@
 #define W_OK 2
 #define X_OK 1
 
+#define AT_EMPTY_PATH	    0x1000
+#define AT_EACCESS	    0x200
+#define AT_SYMLINK_NOFOLLOW 0x100
+
 struct getdents_ctx {
 	char *dirp;
 	size_t count;
@@ -67,6 +71,58 @@ static uint8_t vfs_type_to_dirent(uint8_t type)
 	default:
 		return DT_UNKNOWN;
 	}
+}
+
+static int sys_faccessat_path(int dfd, const char *upath, int mode,
+			      uint32_t lookup_flags)
+{
+	char *path;
+	struct dentry *base;
+	struct dentry *dentry;
+	int ret;
+
+	ret = copy_user_path(&path, upath);
+	if (ret < 0)
+		return ret;
+
+	ret = dirfd_path_base(dfd, path, &base);
+	if (ret < 0)
+		goto out;
+
+	ret = path_lookupat_err(base, path, lookup_flags, &dentry);
+	if (base)
+		dput(base);
+out:
+	free_page(path, 0);
+	if (ret < 0)
+		return ret;
+	ret = vfs_inode_permission(dentry->d_inode, (uint32_t)mode);
+	dput(dentry);
+
+	return ret;
+}
+
+static int sys_faccessat_empty_path(int dfd, int mode)
+{
+	struct dentry *cwd;
+	struct file *file;
+	int ret;
+
+	if (dfd == AT_FDCWD) {
+		cwd = fs_get_cwd_dentry(task_fs(current));
+		if (!cwd)
+			return -ENOENT;
+		ret = vfs_inode_permission(cwd->d_inode, (uint32_t)mode);
+		dput(cwd);
+		return ret;
+	}
+
+	file = fd_get(dfd);
+	if (!file)
+		return -EBADF;
+	ret = vfs_inode_permission(file->f_inode, (uint32_t)mode);
+	file_put(file);
+	return ret;
 }
 
 static int filldir64(void *arg, const char *name, size_t namelen, uint64_t ino,
@@ -198,33 +254,38 @@ ssize_t sys_faccessat(struct trap_frame *tf)
 	int dfd = (int)tf->a0;
 	const char *upath = (const char *)tf->a1;
 	int mode = (int)tf->a2;
-	char *path;
-	struct dentry *base;
-	struct dentry *dentry;
-	int ret;
 
 	if (mode & ~(R_OK | W_OK | X_OK))
 		return -EINVAL;
 
-	ret = copy_user_path(&path, upath);
-	if (ret < 0)
-		return ret;
+	return sys_faccessat_path(dfd, upath, mode, 0);
+}
 
-	ret = dirfd_path_base(dfd, path, &base);
-	if (ret < 0)
-		goto out;
+ssize_t sys_faccessat2(struct trap_frame *tf)
+{
+	int dfd = (int)tf->a0;
+	const char *upath = (const char *)tf->a1;
+	int mode = (int)tf->a2;
+	int flags = (int)tf->a3;
 
-	ret = path_lookupat_err(base, path, 0, &dentry);
-	if (base)
-		dput(base);
-out:
-	free_page(path, 0);
-	if (ret < 0)
-		return ret;
-	ret = vfs_inode_permission(dentry->d_inode, (uint32_t)mode);
-	dput(dentry);
+	if (mode & ~(R_OK | W_OK | X_OK))
+		return -EINVAL;
+	if (flags & ~(AT_EACCESS | AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW))
+		return -EINVAL;
+	if (flags & AT_EMPTY_PATH) {
+		char first;
 
-	return ret;
+		if (!upath)
+			return -EFAULT;
+		if (copy_from_user(&first, upath, sizeof(first)) != 0)
+			return -EFAULT;
+		if (first == '\0')
+			return sys_faccessat_empty_path(dfd, mode);
+	}
+
+	return sys_faccessat_path(
+		dfd, upath, mode,
+		(flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0);
 }
 
 ssize_t sys_getcwd(struct trap_frame *tf)

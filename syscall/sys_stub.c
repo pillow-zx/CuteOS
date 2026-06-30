@@ -222,10 +222,3 @@ ssize_t sys_rseq(struct trap_frame *tf)
 	 */
 	return -ENOSYS;
 }
-
-ssize_t sys_faccessat2(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(vfs): 需要 faccessat2 flags 解析和权限检查语义。 */
-	return -ENOSYS;
-}
