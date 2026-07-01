@@ -90,19 +90,19 @@ void test_waitqueue_timeout_expiry_wakes_task(void)
 	{
 		task = task_alloc();
 		TEST_ASSERT_NOT_NULL(task);
-		task->state = TASK_UNINTERRUPTIBLE;
+		task->lifecycle.state = TASK_UNINTERRUPTIBLE;
 
 		wait_timer_test_init(&wait, task, 100);
 		wait_timer_test_start(&wait);
 		timer_run_expired(99);
-		TEST_ASSERT_EQ(task->state, (uint32_t)TASK_UNINTERRUPTIBLE);
+		TEST_ASSERT_EQ(task->lifecycle.state, (uint32_t)TASK_UNINTERRUPTIBLE);
 		TEST_ASSERT(!wait_timer_test_fired(&wait));
 
 		timer_run_expired(100);
-		TEST_ASSERT_EQ(task->state, (uint32_t)TASK_RUNNING);
+		TEST_ASSERT_EQ(task->lifecycle.state, (uint32_t)TASK_RUNNING);
 		TEST_ASSERT(wait_timer_test_fired(&wait));
 		TEST_ASSERT(!wait_timer_test_cancel(&wait));
-		TEST_ASSERT(!list_empty(&task->run_list));
+		TEST_ASSERT(!list_empty(&task->sched.run_list));
 	}
 	TEST_END("waitqueue: timeout expiry wakes task");
 	goto cleanup;
@@ -110,7 +110,7 @@ fail:
 	TEST_FAIL("waitqueue: timeout expiry wakes task", "see above");
 cleanup:
 	if (task) {
-		if (!list_empty(&task->run_list))
+		if (!list_empty(&task->sched.run_list))
 			sched_dequeue(task);
 		task_free(task);
 	}
@@ -125,15 +125,15 @@ void test_waitqueue_timeout_cancel_prevents_wake(void)
 	{
 		task = task_alloc();
 		TEST_ASSERT_NOT_NULL(task);
-		task->state = TASK_UNINTERRUPTIBLE;
+		task->lifecycle.state = TASK_UNINTERRUPTIBLE;
 
 		wait_timer_test_init(&wait, task, 200);
 		wait_timer_test_start(&wait);
 		TEST_ASSERT(wait_timer_test_cancel(&wait));
 		timer_run_expired(200);
-		TEST_ASSERT_EQ(task->state, (uint32_t)TASK_UNINTERRUPTIBLE);
+		TEST_ASSERT_EQ(task->lifecycle.state, (uint32_t)TASK_UNINTERRUPTIBLE);
 		TEST_ASSERT(!wait_timer_test_fired(&wait));
-		TEST_ASSERT(list_empty(&task->run_list));
+		TEST_ASSERT(list_empty(&task->sched.run_list));
 	}
 	TEST_END("waitqueue: timeout cancel prevents wake");
 	goto cleanup;
@@ -141,7 +141,7 @@ fail:
 	TEST_FAIL("waitqueue: timeout cancel prevents wake", "see above");
 cleanup:
 	if (task) {
-		if (!list_empty(&task->run_list))
+		if (!list_empty(&task->sched.run_list))
 			sched_dequeue(task);
 		task_free(task);
 	}

@@ -32,6 +32,7 @@
 #include <kernel/printk.h>
 #include <kernel/string.h>
 #include <kernel/sched.h>
+#include <kernel/signal.h>
 #include <kernel/fdtable.h>
 #include <kernel/fs_struct.h>
 #include <kernel/vfs.h>
@@ -59,14 +60,14 @@ struct task_struct *init_task;
  */
 static inline uint64_t *stack_canary_ptr(struct task_struct *task)
 {
-	return (uint64_t *)task->kstack;
+	return (uint64_t *)task->arch.kstack;
 }
 
 /* ---- 公共接口 ---- */
 
 void check_canary(struct task_struct *task)
 {
-	if (!task->kstack)
+	if (!task->arch.kstack)
 		return;
 
 	uint64_t canary = *stack_canary_ptr(task);
@@ -97,32 +98,32 @@ struct task_struct *task_alloc(void)
 
 	/* 4. 初始化 task_struct */
 	memset(task, 0, sizeof(struct task_struct));
-	task->pid = (pid_t)pid;
-	task->state = TASK_RUNNING;
-	task->kstack = kstack;
-	task->tf = NULL;
-	task->mm = NULL;
-	task->tgid = task->pid;
-	task->group_leader = task;
-	task->exit_signal = SIGCHLD;
-	task->uid = 0;
-	task->gid = 0;
-	task->sas.ss_flags = SS_DISABLE;
+	task->ids.pid = (pid_t)pid;
+	task->lifecycle.state = TASK_RUNNING;
+	task->arch.kstack = kstack;
+	task->arch.tf = NULL;
+	task->resources.mm = NULL;
+	task->ids.tgid = task->ids.pid;
+	task->ids.group_leader = task;
+	task->lifecycle.exit_signal = SIGCHLD;
+	task->resources.uid = 0;
+	task->resources.gid = 0;
+	task->sigctx.sas.ss_flags = SS_DISABLE;
 	sched_task_init(task);
 
-	INIT_LIST_HEAD(&task->children);
-	INIT_LIST_HEAD(&task->sibling);
-	INIT_LIST_HEAD(&task->thread_group);
-	INIT_LIST_HEAD(&task->thread_node);
-	INIT_LIST_HEAD(&task->run_list);
-	init_waitqueue_entry(&task->wait_entry, task);
-	init_waitqueue_head(&task->wait_child_queue);
+	INIT_LIST_HEAD(&task->links.children);
+	INIT_LIST_HEAD(&task->links.sibling);
+	INIT_LIST_HEAD(&task->links.thread_group);
+	INIT_LIST_HEAD(&task->links.thread_node);
+	INIT_LIST_HEAD(&task->sched.run_list);
+	init_waitqueue_entry(&task->sched.wait_entry, task);
+	init_waitqueue_head(&task->links.wait_child_queue);
 
 	/* 5. 内核栈清零并在栈底写入 canary */
 	memset(kstack, 0, KSTACK_SIZE);
 	*stack_canary_ptr(task) = CANARY_MAGIC;
 
-	pid_attach_task(task->pid, task);
+	pid_attach_task(task->ids.pid, task);
 
 	return task;
 }
@@ -169,15 +170,15 @@ void task_free(struct task_struct *task)
 		return;
 
 	/* 释放 PID */
-	pid_detach_task(task->pid, task);
-	free_pid(task->pid);
+	pid_detach_task(task->ids.pid, task);
+	free_pid(task->ids.pid);
 
 	task_release_resources(task);
 
 	/* 释放内核栈 */
-	if (task->kstack) {
-		free_page(task->kstack, KSTACK_ORDER);
-		task->kstack = NULL;
+	if (task->arch.kstack) {
+		free_page(task->arch.kstack, KSTACK_ORDER);
+		task->arch.kstack = NULL;
 	}
 
 	/* 释放 task_struct */
@@ -191,27 +192,27 @@ void task_init(void)
 
 	/* 2. 初始化 idle 进程（PID 0，BSS 静态分配） */
 	memset(&idle_task, 0, sizeof(struct task_struct));
-	idle_task.pid = 0;
-	idle_task.state = TASK_RUNNING;
-	idle_task.kstack = NULL; /* idle 使用 boot_stack，无独立内核栈 */
-	idle_task.mm = NULL;
-	idle_task.tgid = idle_task.pid;
-	idle_task.group_leader = &idle_task;
-	idle_task.exit_signal = SIGCHLD;
-	idle_task.uid = 0;
-	idle_task.gid = 0;
-	idle_task.sas.ss_flags = SS_DISABLE;
+	idle_task.ids.pid = 0;
+	idle_task.lifecycle.state = TASK_RUNNING;
+	idle_task.arch.kstack = NULL; /* idle 使用 boot_stack，无独立内核栈 */
+	idle_task.resources.mm = NULL;
+	idle_task.ids.tgid = idle_task.ids.pid;
+	idle_task.ids.group_leader = &idle_task;
+	idle_task.lifecycle.exit_signal = SIGCHLD;
+	idle_task.resources.uid = 0;
+	idle_task.resources.gid = 0;
+	idle_task.sigctx.sas.ss_flags = SS_DISABLE;
 	sched_task_init(&idle_task);
 
-	INIT_LIST_HEAD(&idle_task.children);
-	INIT_LIST_HEAD(&idle_task.sibling);
-	INIT_LIST_HEAD(&idle_task.thread_group);
-	INIT_LIST_HEAD(&idle_task.thread_node);
-	INIT_LIST_HEAD(&idle_task.run_list);
-	init_waitqueue_entry(&idle_task.wait_entry, &idle_task);
-	init_waitqueue_head(&idle_task.wait_child_queue);
+	INIT_LIST_HEAD(&idle_task.links.children);
+	INIT_LIST_HEAD(&idle_task.links.sibling);
+	INIT_LIST_HEAD(&idle_task.links.thread_group);
+	INIT_LIST_HEAD(&idle_task.links.thread_node);
+	INIT_LIST_HEAD(&idle_task.sched.run_list);
+	init_waitqueue_entry(&idle_task.sched.wait_entry, &idle_task);
+	init_waitqueue_head(&idle_task.links.wait_child_queue);
 	BUG_ON(task_init_resources(&idle_task) < 0);
-	pid_attach_task(idle_task.pid, &idle_task);
+	pid_attach_task(idle_task.ids.pid, &idle_task);
 
 	/* 3. 设置 current 指针 */
 	current = &idle_task;
@@ -246,7 +247,7 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 
 	/* 在内核栈顶预留 trap_frame 空间 */
 	struct trap_frame *tf =
-		(struct trap_frame *)((uint8_t *)task->kstack + KSTACK_SIZE -
+		(struct trap_frame *)((uint8_t *)task->arch.kstack + KSTACK_SIZE -
 				      sizeof(struct trap_frame));
 
 	memset(tf, 0, sizeof(struct trap_frame));
@@ -257,18 +258,18 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 	/* SPP=1 → 返回 S-mode; SPIE=1 → sret 后 SIE=1 (中断使能) */
 	tf->sstatus = SSTATUS_SPP | SSTATUS_SPIE;
 
-	task->tf = tf;
+	task->arch.tf = tf;
 
 	/* switch_to 加载 ctx 后 ret → __trapret → 恢复 tf → sret → fn(arg) */
-	task->ctx.ra = (size_t)__trapret;
-	task->ctx.sp = (size_t)tf;
+	task->arch.ctx.ra = (size_t)__trapret;
+	task->arch.ctx.sp = (size_t)tf;
 
-	task->parent = current;
-	list_add_tail(&task->sibling, &current->children);
+	task->links.parent = current;
+	list_add_tail(&task->links.sibling, &current->links.children);
 
 	sched_enqueue(task);
 
-	pr_info("task: kernel thread (PID %d) created, fn=%p\n", task->pid,
+	pr_info("task: kernel thread (PID %d) created, fn=%p\n", task->ids.pid,
 		(void *)fn);
 
 	return task;
@@ -277,7 +278,7 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 void set_init_task(struct task_struct *task)
 {
 	BUG_ON(!task);
-	BUG_ON(task->pid != 1);
+	BUG_ON(task->ids.pid != 1);
 	BUG_ON(init_task && init_task != task);
 
 	init_task = task;
@@ -285,15 +286,15 @@ void set_init_task(struct task_struct *task)
 
 bool task_is_group_leader(const struct task_struct *task)
 {
-	return task && task->group_leader == task;
+	return task && task->ids.group_leader == task;
 }
 
 bool task_group_has_other_threads(const struct task_struct *task)
 {
-	if (!task || !task->group_leader)
+	if (!task || !task->ids.group_leader)
 		return false;
 
-	return !list_empty(&task->group_leader->thread_group);
+	return !list_empty(&task->ids.group_leader->links.thread_group);
 }
 
 struct task_struct *task_find_thread(pid_t tid)
@@ -305,7 +306,7 @@ struct task_struct *task_find_group_leader(pid_t tgid)
 {
 	struct task_struct *task = pid_task(tgid);
 
-	if (!task || !task_is_group_leader(task) || task->tgid != tgid)
+	if (!task || !task_is_group_leader(task) || task->ids.tgid != tgid)
 		return NULL;
 
 	return task;
@@ -313,5 +314,5 @@ struct task_struct *task_find_group_leader(pid_t tgid)
 
 bool task_in_thread_group(const struct task_struct *task, pid_t tgid)
 {
-	return task && task->tgid == tgid;
+	return task && task->ids.tgid == tgid;
 }

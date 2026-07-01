@@ -96,7 +96,7 @@ void test_wait_event_interruptible_ready(void)
 		TEST_ASSERT_EQ(
 			wait_event_interruptible(&wq, wait_test_ready, &ready),
 			0);
-			TEST_ASSERT(list_empty(&current->wait_entry.node));
+			TEST_ASSERT(list_empty(&current->sched.wait_entry.node));
 		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_RUNNING);
 	}
 	TEST_END("sync: wait_event_interruptible ready");
@@ -108,19 +108,19 @@ fail:
 void test_wait_event_interruptible_signal(void)
 {
 	struct wait_queue_head wq;
-	uint64_t saved_pending = current->pending;
-	uint64_t saved_blocked = current->blocked;
+	uint64_t saved_pending = current->sigctx.pending;
+	uint64_t saved_blocked = current->sigctx.blocked;
 	bool ready = false;
 
 	TEST_BEGIN("sync: wait_event_interruptible signal");
 	{
 		init_waitqueue_head(&wq);
-		current->blocked &= ~signal_mask(SIGUSR1);
+		current->sigctx.blocked &= ~signal_mask(SIGUSR1);
 		TEST_ASSERT_EQ(send_current_signal(SIGUSR1), 0);
 		TEST_ASSERT_EQ(
 			wait_event_interruptible(&wq, wait_test_ready, &ready),
 			-EINTR);
-			TEST_ASSERT(list_empty(&current->wait_entry.node));
+			TEST_ASSERT(list_empty(&current->sched.wait_entry.node));
 		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_RUNNING);
 	}
 	TEST_END("sync: wait_event_interruptible signal");
@@ -128,8 +128,8 @@ void test_wait_event_interruptible_signal(void)
 fail:
 	TEST_FAIL("sync: wait_event_interruptible signal", "see above");
 cleanup:
-	current->pending = saved_pending;
-	current->blocked = saved_blocked;
+	current->sigctx.pending = saved_pending;
+	current->sigctx.blocked = saved_blocked;
 }
 
 void test_waitqueue_prepare_finish(void)
@@ -174,8 +174,8 @@ void test_waitqueue_wake_one_fifo(void)
 		TEST_ASSERT_NOT_NULL(second);
 
 		init_waitqueue_head(&wq);
-		prepare_wait_entry(&wq, &first->wait_entry);
-		prepare_wait_entry(&wq, &second->wait_entry);
+		prepare_wait_entry(&wq, &first->sched.wait_entry);
+		prepare_wait_entry(&wq, &second->sched.wait_entry);
 		task_mark_uninterruptible_sleep(first);
 		task_mark_uninterruptible_sleep(second);
 
@@ -183,8 +183,8 @@ void test_waitqueue_wake_one_fifo(void)
 		TEST_ASSERT_EQ(task_state(first), (uint32_t)TASK_RUNNING);
 		TEST_ASSERT_EQ(task_state(second),
 			       (uint32_t)TASK_UNINTERRUPTIBLE);
-		TEST_ASSERT(list_empty(&first->wait_entry.node));
-		TEST_ASSERT(!list_empty(&second->wait_entry.node));
+		TEST_ASSERT(list_empty(&first->sched.wait_entry.node));
+		TEST_ASSERT(!list_empty(&second->sched.wait_entry.node));
 
 		TEST_ASSERT_EQ(wake_up_one(&wq), second);
 		TEST_ASSERT_EQ(task_state(second), (uint32_t)TASK_RUNNING);
@@ -196,15 +196,15 @@ fail:
 	TEST_FAIL("sync: waitqueue wake one fifo", "see above");
 cleanup:
 	if (first) {
-		if (!list_empty(&first->run_list))
+		if (!list_empty(&first->sched.run_list))
 			sched_dequeue(first);
-		finish_wait_entry(&first->wait_entry);
+		finish_wait_entry(&first->sched.wait_entry);
 		task_free(first);
 	}
 	if (second) {
-		if (!list_empty(&second->run_list))
+		if (!list_empty(&second->sched.run_list))
 			sched_dequeue(second);
-		finish_wait_entry(&second->wait_entry);
+		finish_wait_entry(&second->sched.wait_entry);
 		task_free(second);
 	}
 }
@@ -223,8 +223,8 @@ void test_waitqueue_wake_all(void)
 		TEST_ASSERT_NOT_NULL(second);
 
 		init_waitqueue_head(&wq);
-		prepare_wait_entry(&wq, &first->wait_entry);
-		prepare_wait_entry(&wq, &second->wait_entry);
+		prepare_wait_entry(&wq, &first->sched.wait_entry);
+		prepare_wait_entry(&wq, &second->sched.wait_entry);
 		task_mark_interruptible_sleep(first);
 		task_mark_uninterruptible_sleep(second);
 
@@ -232,8 +232,8 @@ void test_waitqueue_wake_all(void)
 		TEST_ASSERT_EQ(task_state(first), (uint32_t)TASK_RUNNING);
 		TEST_ASSERT_EQ(task_state(second), (uint32_t)TASK_RUNNING);
 		TEST_ASSERT(list_empty(&wq.task_list));
-		TEST_ASSERT(list_empty(&first->wait_entry.node));
-		TEST_ASSERT(list_empty(&second->wait_entry.node));
+		TEST_ASSERT(list_empty(&first->sched.wait_entry.node));
+		TEST_ASSERT(list_empty(&second->sched.wait_entry.node));
 	}
 	TEST_END("sync: waitqueue wake all");
 	goto cleanup;
@@ -241,15 +241,15 @@ fail:
 	TEST_FAIL("sync: waitqueue wake all", "see above");
 cleanup:
 	if (first) {
-		if (!list_empty(&first->run_list))
+		if (!list_empty(&first->sched.run_list))
 			sched_dequeue(first);
-		finish_wait_entry(&first->wait_entry);
+		finish_wait_entry(&first->sched.wait_entry);
 		task_free(first);
 	}
 	if (second) {
-		if (!list_empty(&second->run_list))
+		if (!list_empty(&second->sched.run_list))
 			sched_dequeue(second);
-		finish_wait_entry(&second->wait_entry);
+		finish_wait_entry(&second->sched.wait_entry);
 		task_free(second);
 	}
 }
@@ -263,7 +263,7 @@ void test_wait_schedule_until_timeout(void)
 						   arch_timer_now()),
 			       -ETIMEDOUT);
 		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_RUNNING);
-		TEST_ASSERT(list_empty(&current->wait_entry.node));
+		TEST_ASSERT(list_empty(&current->sched.wait_entry.node));
 	}
 	TEST_END("sync: wait_schedule_until timeout");
 	return;
@@ -286,7 +286,7 @@ void test_wait_schedule_preserves_early_wakeup(void)
 		TEST_ASSERT_EQ(wait_schedule(TASK_INTERRUPTIBLE), 0);
 		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_RUNNING);
 		TEST_ASSERT(list_empty(&wq.task_list));
-		TEST_ASSERT(list_empty(&current->wait_entry.node));
+		TEST_ASSERT(list_empty(&current->sched.wait_entry.node));
 	}
 	TEST_END("sync: wait_schedule preserves early wakeup");
 	return;
@@ -325,12 +325,12 @@ void test_mutex_blocking(void)
 
 		schedule();
 		TEST_ASSERT_EQ(mutex_test_stage, 1);
-		TEST_ASSERT_EQ(waiter->state, (uint32_t)TASK_UNINTERRUPTIBLE);
+		TEST_ASSERT_EQ(waiter->lifecycle.state, (uint32_t)TASK_UNINTERRUPTIBLE);
 
 		mutex_unlock(&mutex_test_lock);
 		schedule();
 		TEST_ASSERT_EQ(mutex_test_stage, 2);
-		TEST_ASSERT_EQ(waiter->state, (uint32_t)TASK_ZOMBIE);
+		TEST_ASSERT_EQ(waiter->lifecycle.state, (uint32_t)TASK_ZOMBIE);
 
 		release_task(waiter);
 	}

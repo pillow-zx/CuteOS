@@ -1,6 +1,22 @@
 #include <kernel/test.h>
 #include <kernel/task.h>
 #include <kernel/pid.h>
+#include <asm/asm_offsets.h>
+
+void test_task_layout_contract(void)
+{
+	TEST_BEGIN("task: layout contract");
+	{
+		TEST_ASSERT_EQ((size_t)TASK_KSTACK,
+			       offsetof(struct task_struct, arch.kstack));
+		TEST_ASSERT_EQ((size_t)TASK_SATP,
+			       offsetof(struct task_struct, arch.satp));
+	}
+	TEST_END("task: layout contract");
+	return;
+fail:
+	TEST_FAIL("task: layout contract", "see above");
+}
 
 void test_task_alloc_free(void)
 {
@@ -10,31 +26,31 @@ void test_task_alloc_free(void)
 		TEST_ASSERT_NOT_NULL(task);
 
 		/* PID 应 > 0（idle 占用了 0） */
-		TEST_ASSERT(task->pid > 0);
-		TEST_ASSERT(task->pid <= PID_MAX);
+		TEST_ASSERT(task_pid(task) > 0);
+		TEST_ASSERT(task_pid(task) <= PID_MAX);
 
 		/* 初始状态应为 RUNNING */
-		TEST_ASSERT_EQ(task->state, (uint32_t)TASK_RUNNING);
+		TEST_ASSERT_EQ(task_state(task), (uint32_t)TASK_RUNNING);
 
 		/* 内核栈应已分配 */
-		TEST_ASSERT_NOT_NULL(task->kstack);
+		TEST_ASSERT_NOT_NULL(task_kernel_stack(task));
 
 		/* 内核栈应按 KSTACK_SIZE 对齐 */
-		TEST_ASSERT_ALIGNED(task->kstack, PAGE_SIZE);
+		TEST_ASSERT_ALIGNED(task_kernel_stack(task), PAGE_SIZE);
 
 		/* mm 应为 NULL（内核线程） */
-		TEST_ASSERT_NULL(task->mm);
+		TEST_ASSERT_NULL(task_mm(task));
 
 		/* tf 应为 NULL */
-		TEST_ASSERT_NULL(task->tf);
+		TEST_ASSERT_NULL(task_trap_frame(task));
 
 		/* canary 应完好 */
 		check_canary(task);
 
 		/* 进程树链接应已初始化 */
-		TEST_ASSERT(list_empty(&task->children));
-		TEST_ASSERT(list_empty(&task->sibling));
-		TEST_ASSERT(list_empty(&task->run_list));
+		TEST_ASSERT(list_empty(task_children(task)));
+		TEST_ASSERT(!task_has_parent_link(task));
+		TEST_ASSERT(!task_is_queued(task));
 
 		task_free(task);
 	}
@@ -52,7 +68,7 @@ void test_task_canary(void)
 		TEST_ASSERT_NOT_NULL(task);
 
 		/* 直接读取 canary 值 */
-		uint64_t *canary_ptr = (uint64_t *)task->kstack;
+		uint64_t *canary_ptr = (uint64_t *)task_kernel_stack(task);
 		TEST_ASSERT_EQ(*canary_ptr, CANARY_MAGIC);
 
 		check_canary(task);
@@ -75,7 +91,7 @@ void test_task_multiple(void)
 		for (int i = 0; i < TASK_N_TASKS; i++) {
 			tasks[i] = task_alloc();
 			TEST_ASSERT_NOT_NULL(tasks[i]);
-			pids[i] = tasks[i]->pid;
+			pids[i] = task_pid(tasks[i]);
 		}
 
 		/* 所有 PID 应互不相同 */
@@ -110,24 +126,22 @@ void test_task_process_tree(void)
 		TEST_ASSERT_NOT_NULL(child2);
 
 		/* 构建父子关系 */
-		child1->parent = parent;
-		list_add_tail(&child1->sibling, &parent->children);
+		task_link_child(parent, child1);
 
-		child2->parent = parent;
-		list_add_tail(&child2->sibling, &parent->children);
+		task_link_child(parent, child2);
 
 		/* 验证 parent 有 2 个子进程 */
-		TEST_ASSERT(!list_empty(&parent->children));
+		TEST_ASSERT(!list_empty(task_children(parent)));
 
 		int child_count = 0;
 		struct task_struct *pos;
-		list_for_each_entry (pos, &parent->children, sibling)
+		task_for_each_child(pos, parent)
 			child_count++;
 		TEST_ASSERT_EQ(child_count, 2);
 
 		/* 清理 */
-		list_del(&child1->sibling);
-		list_del(&child2->sibling);
+		task_unlink_child(child1);
+		task_unlink_child(child2);
 		task_free(child2);
 		task_free(child1);
 		task_free(parent);
@@ -143,10 +157,10 @@ void test_task_idle(void)
 	TEST_BEGIN("task: idle task init");
 	{
 		TEST_ASSERT_NOT_NULL(current);
-		TEST_ASSERT_EQ(current->pid, (pid_t)0);
-		TEST_ASSERT_EQ(idle_task.pid, (pid_t)0);
+		TEST_ASSERT_EQ(task_pid(current), (pid_t)0);
+		TEST_ASSERT_EQ(task_pid(&idle_task), (pid_t)0);
 		TEST_ASSERT_EQ(current, &idle_task);
-		TEST_ASSERT_EQ(idle_task.state, (uint32_t)TASK_RUNNING);
+		TEST_ASSERT_EQ(task_state(&idle_task), (uint32_t)TASK_RUNNING);
 	}
 	TEST_END("task: idle task init");
 	return;

@@ -134,6 +134,13 @@ uint32_t sched_test_runnable_count(void);
 struct task_struct *sched_test_peek_next(void);
 void sched_test_force_boost(void);
 uint8_t sched_test_level_slice(uint8_t level);
+uint8_t sched_test_level(const struct task_struct *task);
+uint8_t sched_test_time_slice(const struct task_struct *task);
+uint8_t sched_test_ticks(const struct task_struct *task);
+uint8_t sched_test_need_resched(const struct task_struct *task);
+void sched_test_set_level(struct task_struct *task, uint8_t level);
+void sched_test_set_budget(struct task_struct *task, uint8_t slice,
+			   uint8_t ticks);
 #endif
 
 #endif

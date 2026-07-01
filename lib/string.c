@@ -81,6 +81,17 @@ size_t strlen(const char *s)
 	return s - a;
 }
 
+size_t strnlen(const char *s, const size_t maxlen)
+{
+	const char *end = s;
+	size_t n = maxlen;
+
+	while (n-- && *end)
+		end++;
+
+	return end - s;
+}
+
 int strcmp(const char *l, const char *r)
 {
 	for (; *l == *r && *l; l++, r++)

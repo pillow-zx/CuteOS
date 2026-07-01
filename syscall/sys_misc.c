@@ -15,6 +15,7 @@
 #include <kernel/string.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
+#include <kernel/signal.h>
 #include <kernel/timer.h>
 #include <uapi/random.h>
 #include <uapi/sysinfo.h>
@@ -39,8 +40,9 @@ void rlimits_init(struct rlimit64 rlimits[RLIM_NLIMITS])
 
 static void uts_copy(char dst[UTS_FIELD_LEN], const char *src)
 {
-	strncpy(dst, src, UTS_FIELD_LEN);
-	dst[UTS_FIELD_LEN - 1] = '\0';
+	size_t len = strnlen(src, UTS_FIELD_LEN - 1);
+	memcpy(dst, src, len);
+	dst[len] = '\0';
 }
 
 ssize_t sys_uname(struct trap_frame *tf)

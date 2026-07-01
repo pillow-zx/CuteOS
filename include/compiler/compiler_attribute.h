@@ -8,42 +8,147 @@
  *   封装 GCC/Clang 的 __attribute__((...)) 为简洁的内核宏。
  *   用于控制结构体布局、函数调用约定、变量/函数的段分配、
  *   以及对编译器的优化提示。
- *
- * 主要定义：
- *   __packed       - 结构体紧密排列（取消对齐填充）
- *   __aligned(n)   - 指定对齐字节数
- *   __section(s)   - 将变量/函数放入指定 ELF 段
- *   __unused       - 抑制未使用警告
- *   __used         - 强制保留符号（即使未被引用）
- *   __noreturn     - 函数不会返回
- *   __weak         - 弱符号定义
- *   __alias(name)  - 别名定义
- *   __inline       - 强制内联
- *   __noinline     - 禁止内联
- *   __printf(fmt, arg) - printf 格式字符串检查
- *   __cold         - 标记函数为冷路径（优化器可将其远离热路径）
- *   __hot          - 标记函数为热路径
- *   __maybe_unused - 可能未使用的变量/函数
  */
 
+#ifndef __has_attribute
+#define __has_attribute(x) 0
+#endif
+
+#if __has_attribute(packed)
 #define __packed	   __attribute__((__packed__))
+#else
+#define __packed
+#endif
+
+#if __has_attribute(aligned)
 #define __aligned(x)	   __attribute__((__aligned__(x)))
+#else
+#define __aligned(x)
+#endif
+
+#if __has_attribute(used)
 #define __used		   __attribute__((__used__))
+#else
+#define __used
+#endif
+
+#if __has_attribute(used)
 #define __unused	   __attribute__((__unused__))
 #define __maybe_unused	   __attribute__((__unused__))
+#else
+#define __unused
+#define __maybe_unused
+#endif
+
+#if __has_attribute(warn_unused_result)
 #define __must_check	   __attribute__((__warn_unused_result__))
+#else
+#define __must_check
+#endif
+
+#if __has_attribute(noreturn)
 #define __noreturn	   __attribute__((__noreturn__))
+#else
+#define __noreturn
+#endif
+
+#if __has_attribute(always_inline)
 #define __always_inline	   inline __attribute__((__always_inline__))
+#else
+#define __always_inline
+#endif
+
+#if __has_attribute(noinline)
 #define __noinline	   __attribute__((__noinline__))
+#else
+#define __noinline
+#endif
+
+#if __has_attribute(hot)
 #define __hot		   __attribute__((__hot__))
+#else
+#define __hot
+#endif
+
+#if __has_attribute(cold)
 #define __cold		   __attribute__((__cold__))
+#else
+#define __cold
+#endif
+
+#if __has_attribute(alias)
 #define __alias(str)	   __attribute__((__alias__(#str)))
+#else
+#define __alias(str);
+#endif
+
+#if __has_attribute(pure)
 #define __pure		   __attribute__((__pure__))
+#else
+#define __pure
+#endif
+
+#if __has_attribute(const)
 #define __const		   __attribute__((__const__))
+#else
+#define __const
+#endif
+
+#if __has_attribute(section)
 #define __section(section) __attribute__((__section__(section)))
+#else
+#define __section(section);
+#endif
+
+#if __has_attribute(weak)
 #define __weak		   __attribute__((__weak__))
+#else
+#define __weak
+#endif
+
+#if __has_attribute(format)
 #define __printf(a, b)	   __attribute__((__format__(printf, a, b)))
-#define __malloc	   __attribute__((__malloc__))
-#define __cleanup(func)	  __attribute__((__cleanup__(func)))
+#else
+#define __printf(a, b)
+#endif
+
+#if __has_attribute(malloc)
+#define __malloc           __attribute__((__malloc__))
+#else
+#define __malloc
+#endif
+
+#if __has_attribute(alloc_size)
+#define __alloc_size(...) __attribute__((__alloc_size__(__VA_ARGS__)))
+#else
+#define __alloc_size(...)
+#endif
+
+#if __has_attribute(returns_nonnull)
+#define __returns_nonnull __attribute__((__returns_nonnull__))
+#else
+#define __returns_nonnull
+#endif
+
+#if __has_attribute(nonnull)
+#define __nonnull(...) __attribute__((__nonnull__(__VA_ARGS__)))
+#else
+#define __nonnull(...)
+#endif
+
+#if __has_attribute(access)
+#define __access(mode, ref, size)                                              \
+	__attribute__((__access__(mode, ref, size)))
+#define __access_no_size(mode, ref) __attribute__((__access__(mode, ref)))
+#else
+#define __access(mode, ref, size)
+#define __access_no_size(mode, ref)
+#endif
+
+#if __has_attribute(cleanup)
+#define __cleanup(func) __attribute__((__cleanup__(func)))
+#else
+#define __cleanup(func);
+#endif
 
 #endif

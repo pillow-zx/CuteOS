@@ -232,9 +232,9 @@ void test_tty_signal_delivery_policy(void)
 		current = task;
 
 		TEST_ASSERT_EQ(tty_deliver_signal(SIGINT), 0);
-		TEST_ASSERT_EQ(task->signal->shared_pending,
+		TEST_ASSERT_EQ(task->resources.signal->shared_pending,
 			       signal_mask(SIGINT));
-		TEST_ASSERT_EQ(task->pending, (uint64_t)0);
+		TEST_ASSERT_EQ(task->sigctx.pending, (uint64_t)0);
 	}
 	TEST_END("syscall compat: tty signal delivery");
 	goto cleanup;

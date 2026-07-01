@@ -137,6 +137,7 @@ void kernel_test(void)
 	/* ---- Task ---- */
 	TEST_SECTION("Task");
 	test_task_idle();
+	test_task_layout_contract();
 	test_task_alloc_free();
 	test_task_canary();
 	test_task_multiple();

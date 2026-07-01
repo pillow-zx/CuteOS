@@ -66,8 +66,9 @@ size_t log_buffer_size(void);
 /* Formatted output */
 int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap);
 int vsprintf(char *buf, const char *fmt, va_list ap);
-int __printk(const char *fmt, ...) __printf(1, 2);
-void __noreturn __panic(const char *fmt, ...) __printf(1, 2) __cold;
+int __printk(const char *fmt, ...) __printf(1, 2) __nonnull(1);
+void __noreturn __panic(const char *fmt, ...) __printf(1, 2) __nonnull(1)
+	__cold;
 
 #define _Log(level, ...)                                                       \
 	do {                                                                   \

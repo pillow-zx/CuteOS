@@ -220,7 +220,7 @@ static void prepare_to_wait(struct wait_queue_head *wq, uint32_t state)
 	if (!wq || !current)
 		return;
 
-	prepare_wait_entry(wq, &current->wait_entry);
+	prepare_wait_entry(wq, task_wait_entry(current));
 	task_set_state(current, state);
 }
 
@@ -241,7 +241,7 @@ void finish_wait(struct wait_queue_head *wq)
 	if (!current)
 		return;
 
-	finish_wait_entry(&current->wait_entry);
+	finish_wait_entry(task_wait_entry(current));
 	wait_finish_current_state();
 }
 

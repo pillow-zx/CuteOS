@@ -111,7 +111,7 @@ static void clone_setup_frame(struct task_struct *child, struct trap_frame *tf,
 			      uintptr_t tls)
 {
 	struct trap_frame *child_tf =
-		(struct trap_frame *)((uint8_t *)child->kstack + KSTACK_SIZE -
+		(struct trap_frame *)((uint8_t *)child->arch.kstack + KSTACK_SIZE -
 				      sizeof(struct trap_frame));
 
 	memcpy(child_tf, tf, sizeof(struct trap_frame));
@@ -122,8 +122,8 @@ static void clone_setup_frame(struct task_struct *child, struct trap_frame *tf,
 		child_tf->tp = tls;
 
 	task_set_trap_frame(child, child_tf);
-	child->ctx.ra = (size_t)__trapret;
-	child->ctx.sp = (size_t)child_tf;
+	child->arch.ctx.ra = (size_t)__trapret;
+	child->arch.ctx.sp = (size_t)child_tf;
 }
 
 static int clone_copy_resources(struct task_struct *child, unsigned long flags)
@@ -151,29 +151,29 @@ static int clone_copy_resources(struct task_struct *child, unsigned long flags)
 static void clone_setup_task_links(struct task_struct *child,
 				   unsigned long flags)
 {
-	child->exit_signal = (int)(flags & CLONE_EXIT_SIGNAL_MASK);
+	child->lifecycle.exit_signal = (int)(flags & CLONE_EXIT_SIGNAL_MASK);
 	if (clone_wants_thread(flags)) {
 		struct task_struct *leader = task_group_leader(current);
 
-		child->tgid = task_tgid(current);
-		child->group_leader = leader;
-		child->exit_signal = 0;
-		child->parent = leader;
+		child->ids.tgid = task_tgid(current);
+		child->ids.group_leader = leader;
+		child->lifecycle.exit_signal = 0;
+		child->links.parent = leader;
 		return;
 	}
 
-	child->tgid = child->pid;
-	child->group_leader = child;
-	child->parent = current;
+	child->ids.tgid = child->ids.pid;
+	child->ids.group_leader = child;
+	child->links.parent = current;
 }
 
 static void clone_link_task(struct task_struct *child, unsigned long flags)
 {
 	if (clone_wants_thread(flags))
-		list_add_tail(&child->thread_node,
-			      &task_group_leader(current)->thread_group);
+		list_add_tail(&child->links.thread_node,
+			      &task_group_leader(current)->links.thread_group);
 	else
-		list_add(&child->sibling, task_children(current));
+		list_add(&child->links.sibling, task_children(current));
 }
 
 int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,

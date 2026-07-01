@@ -275,7 +275,7 @@ void do_page_fault(struct trap_frame *tf)
 
 	if (ret == -ENOMEM) {
 		pr_err("page fault: OOM at addr=%p pid=%d\n",
-		       (void *)fault_addr, current->pid);
+		       (void *)fault_addr, task_pid(current));
 		do_exit(1);
 		unreachable();
 	}
@@ -290,7 +290,7 @@ void do_page_fault(struct trap_frame *tf)
 			"type=%s addr=%p sepc=%p origin=%s pid=%d\n",
 			fault_type_name(scause), (void *)fault_addr,
 			(void *)tf->sepc, from_user_mode ? "user" : "kernel",
-			current->pid);
+			task_pid(current));
 		signal_or_exit_segv(from_user_mode);
 		return;
 	}
@@ -305,7 +305,7 @@ void do_page_fault(struct trap_frame *tf)
 			"origin=%s pid=%d\n",
 			fault_type_name(scause), (void *)fault_addr, vm_flags,
 			(void *)tf->sepc, from_user_mode ? "user" : "kernel",
-			current->pid);
+			task_pid(current));
 		signal_or_exit_segv(from_user_mode);
 		return;
 	}
@@ -315,6 +315,6 @@ void do_page_fault(struct trap_frame *tf)
 		"type=%s addr=%p pte=0x%lx sepc=%p origin=%s pid=%d\n",
 		fault_type_name(scause), (void *)fault_addr, (size_t)fault_pte,
 		(void *)tf->sepc, from_user_mode ? "user" : "kernel",
-		current->pid);
+		task_pid(current));
 	signal_or_exit_segv(from_user_mode);
 }

@@ -332,11 +332,11 @@ int init_files(struct task_struct *task)
 	if (!task)
 		return -EINVAL;
 
-	task->files = files_alloc();
-	if (!task->files)
+	task_set_files(task, files_alloc());
+	if (!task_files(task))
 		return -ENOMEM;
 
-	files_install_standard_fds(task->files);
+	files_install_standard_fds(task_files(task));
 	return 0;
 }
 
@@ -359,15 +359,21 @@ int copy_files(struct task_struct *child, bool share)
 	}
 
 	close_files(child);
-	child->files = files;
+	task_set_files(child, files);
 	return 0;
 }
 
 void close_files(struct task_struct *task)
 {
-	if (!task || !task->files)
+	struct files_struct *files;
+
+	if (!task)
 		return;
 
-	files_put(task->files);
-	task->files = NULL;
+	files = task_files(task);
+	if (!files)
+		return;
+
+	files_put(files);
+	task_set_files(task, NULL);
 }

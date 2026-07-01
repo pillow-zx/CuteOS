@@ -15,7 +15,7 @@ volatile int preempt_count;
 
 static __always_inline uintptr_t task_satp(const struct task_struct *task)
 {
-	return task && task->satp ? task->satp : arch_kernel_satp();
+	return task && task->arch.satp ? task->arch.satp : arch_kernel_satp();
 }
 
 static __always_inline void switch_address_space(const struct task_struct *prev,
@@ -76,10 +76,10 @@ static void sched_account_tick(void)
 	if (!current || current == &idle_task)
 		return;
 
-	if (current->tf && arch_from_user(current->tf))
-		current->utime_ticks++;
+	if (current->arch.tf && arch_from_user(current->arch.tf))
+		current->cputime.utime_ticks++;
 	else
-		current->stime_ticks++;
+		current->cputime.stime_ticks++;
 }
 
 void sched_tick(void)
@@ -93,7 +93,7 @@ void sched_yield(void)
 	if (!current || current == &idle_task)
 		return;
 
-	current->need_resched = 0;
+	current->sched.need_resched = 0;
 	schedule();
 }
 
@@ -109,14 +109,15 @@ void schedule(void)
 		reap_exited_threads();
 
 	if (mlfq_empty()) {
-		if (current == &idle_task || current->state == TASK_RUNNING)
+		if (current == &idle_task ||
+		    current->lifecycle.state == TASK_RUNNING)
 			return;
 
 		prev = current;
 		check_canary(prev);
 		switch_address_space(prev, &idle_task);
 		current = &idle_task;
-		switch_to(&prev->ctx, &idle_task.ctx);
+		switch_to(&prev->arch.ctx, &idle_task.arch.ctx);
 		return;
 	}
 
@@ -126,14 +127,14 @@ void schedule(void)
 	if (next == prev)
 		return;
 
-	if (prev != &idle_task && prev->state == TASK_RUNNING &&
-	    list_empty(&prev->run_list))
+	if (prev != &idle_task && prev->lifecycle.state == TASK_RUNNING &&
+	    list_empty(&prev->sched.run_list))
 		mlfq_enqueue(prev);
 
 	check_canary(prev);
 	current = next;
 	switch_address_space(prev, next);
-	switch_to(&prev->ctx, &next->ctx);
+	switch_to(&prev->arch.ctx, &next->arch.ctx);
 }
 
 #ifdef CONFIG_KERNEL_TEST
@@ -160,5 +161,45 @@ void sched_test_force_boost(void)
 uint8_t sched_test_level_slice(uint8_t level)
 {
 	return mlfq_level_slice(level);
+}
+
+uint8_t sched_test_level(const struct task_struct *task)
+{
+	return task ? task->sched.sched_level : 0;
+}
+
+uint8_t sched_test_time_slice(const struct task_struct *task)
+{
+	return task ? task->sched.time_slice : 0;
+}
+
+uint8_t sched_test_ticks(const struct task_struct *task)
+{
+	return task ? task->sched.sched_ticks : 0;
+}
+
+uint8_t sched_test_need_resched(const struct task_struct *task)
+{
+	return task ? task->sched.need_resched : 0;
+}
+
+void sched_test_set_level(struct task_struct *task, uint8_t level)
+{
+	if (!task)
+		return;
+
+	BUG_ON(level >= SCHED_MLFQ_LEVELS);
+	task->sched.sched_level = level;
+	task->sched.time_slice = mlfq_level_slice(level);
+}
+
+void sched_test_set_budget(struct task_struct *task, uint8_t slice,
+			   uint8_t ticks)
+{
+	if (!task)
+		return;
+
+	task->sched.time_slice = slice;
+	task->sched.sched_ticks = ticks;
 }
 #endif

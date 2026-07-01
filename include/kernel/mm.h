@@ -13,6 +13,7 @@
  *   - mm_struct 通过 kmalloc 分配，内核线程 mm=NULL
  */
 
+#include <kernel/compiler.h>
 #include <kernel/sync.h>
 #include <kernel/refcount.h>
 #include <kernel/types.h>
@@ -199,7 +200,8 @@ int __must_check user_range_probe(const void *addr, size_t size, bool write);
  *
  * 返回未能复制的字节数（0 表示全部成功）。
  */
-size_t __must_check copy_to_user(void *to, const void *from, size_t n);
+size_t __must_check copy_to_user(void *to, const void *from, size_t n)
+	__access(write_only, 1, 3) __access(read_only, 2, 3);
 
 /*
  * copy_from_user - 从用户空间复制数据到内核空间
@@ -209,7 +211,8 @@ size_t __must_check copy_to_user(void *to, const void *from, size_t n);
  *
  * 返回未能复制的字节数（0 表示全部成功）。
  */
-size_t __must_check copy_from_user(void *to, const void *from, size_t n);
+size_t __must_check copy_from_user(void *to, const void *from, size_t n)
+	__access(write_only, 1, 3) __access(read_only, 2, 3);
 
 /*
  * strncpy_from_user - 复制 NUL 结尾的用户字符串到内核缓冲区
@@ -220,7 +223,8 @@ size_t __must_check copy_from_user(void *to, const void *from, size_t n);
  * 成功时返回不含 NUL 的字符串长度；失败返回负 errno。
  */
 ssize_t __must_check strncpy_from_user(char *dst, const char *src,
-				       size_t maxlen);
+				      size_t maxlen)
+	__access(write_only, 1, 3) __access(read_only, 2, 3);
 
 /*
  * do_page_fault - 缺页异常处理总入口

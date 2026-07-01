@@ -33,7 +33,7 @@ void test_files_struct_copy_and_share(void)
 
 		current = parent;
 		TEST_ASSERT_EQ(copy_files(child, false), 0);
-		TEST_ASSERT(parent->files != child->files);
+		TEST_ASSERT(parent->resources.files != child->resources.files);
 		TEST_ASSERT_EQ(fd_close(KERN_STDIN), 0);
 		TEST_ASSERT_NULL(fd_get(KERN_STDIN));
 
@@ -55,7 +55,7 @@ void test_files_struct_copy_and_share(void)
 
 		current = parent;
 		TEST_ASSERT_EQ(copy_files(child, true), 0);
-		TEST_ASSERT_EQ(parent->files, child->files);
+		TEST_ASSERT_EQ(parent->resources.files, child->resources.files);
 		TEST_ASSERT_EQ(fd_close(KERN_STDIN), 0);
 
 		current = child;
@@ -89,7 +89,7 @@ void test_files_struct_copy_preserves_cloexec(void)
 		current = parent;
 		TEST_ASSERT_EQ(fd_set_close_on_exec(KERN_STDIN, true), 0);
 		TEST_ASSERT_EQ(copy_files(child, false), 0);
-		TEST_ASSERT(parent->files != child->files);
+		TEST_ASSERT(parent->resources.files != child->resources.files);
 
 		current = child;
 		TEST_ASSERT_EQ(fd_get_close_on_exec(KERN_STDIN), 1);
@@ -108,7 +108,7 @@ void test_files_struct_copy_preserves_cloexec(void)
 		current = parent;
 		TEST_ASSERT_EQ(fd_set_close_on_exec(KERN_STDIN, true), 0);
 		TEST_ASSERT_EQ(copy_files(child, true), 0);
-		TEST_ASSERT_EQ(parent->files, child->files);
+		TEST_ASSERT_EQ(parent->resources.files, child->resources.files);
 
 		current = child;
 		TEST_ASSERT_EQ(fd_get_close_on_exec(KERN_STDIN), 1);
@@ -139,11 +139,11 @@ void test_fs_struct_copy_and_share(void)
 		TEST_ASSERT_NOT_NULL(child);
 
 		current = parent;
-		TEST_ASSERT_EQ(fs_set_umask(parent->fs, 0077), 0022);
+		TEST_ASSERT_EQ(fs_set_umask(parent->resources.fs, 0077), 0022);
 		TEST_ASSERT_EQ(copy_fs(child, false), 0);
-		TEST_ASSERT(parent->fs != child->fs);
-		TEST_ASSERT_EQ(fs_set_umask(parent->fs, 0002), 0077);
-		TEST_ASSERT_EQ(fs_get_umask(child->fs), (uint32_t)0077);
+		TEST_ASSERT(parent->resources.fs != child->resources.fs);
+		TEST_ASSERT_EQ(fs_set_umask(parent->resources.fs, 0002), 0077);
+		TEST_ASSERT_EQ(fs_get_umask(child->resources.fs), (uint32_t)0077);
 
 		current = saved;
 		task_free(child);
@@ -158,9 +158,9 @@ void test_fs_struct_copy_and_share(void)
 
 		current = parent;
 		TEST_ASSERT_EQ(copy_fs(child, true), 0);
-		TEST_ASSERT_EQ(parent->fs, child->fs);
-		TEST_ASSERT_EQ(fs_set_umask(parent->fs, 0007), 0022);
-		TEST_ASSERT_EQ(fs_get_umask(child->fs), (uint32_t)0007);
+		TEST_ASSERT_EQ(parent->resources.fs, child->resources.fs);
+		TEST_ASSERT_EQ(fs_set_umask(parent->resources.fs, 0007), 0022);
+		TEST_ASSERT_EQ(fs_get_umask(child->resources.fs), (uint32_t)0007);
 	}
 	TEST_END("resources: fs copy/share");
 	goto cleanup;
@@ -189,20 +189,20 @@ void test_sighand_struct_copy_and_share(void)
 		TEST_ASSERT_NOT_NULL(child);
 
 		current = parent;
-		parent->blocked = signal_mask(SIGUSR2);
+		parent->sigctx.blocked = signal_mask(SIGUSR2);
 		TEST_ASSERT_EQ(signals_clone(child, false, false, false), 0);
-		TEST_ASSERT(parent->sighand != child->sighand);
-		TEST_ASSERT(parent->signal != child->signal);
-		TEST_ASSERT_EQ(child->blocked, signal_mask(SIGUSR2));
+		TEST_ASSERT(parent->resources.sighand != child->resources.sighand);
+		TEST_ASSERT(parent->resources.signal != child->resources.signal);
+		TEST_ASSERT_EQ(child->sigctx.blocked, signal_mask(SIGUSR2));
 
-		mutex_lock(&parent->sighand->lock);
-		parent->sighand->sigactions[SIGUSR1].sa_handler = handler;
-		mutex_unlock(&parent->sighand->lock);
-		TEST_ASSERT_NE(child->sighand->sigactions[SIGUSR1].sa_handler,
+		mutex_lock(&parent->resources.sighand->lock);
+		parent->resources.sighand->sigactions[SIGUSR1].sa_handler = handler;
+		mutex_unlock(&parent->resources.sighand->lock);
+		TEST_ASSERT_NE(child->resources.sighand->sigactions[SIGUSR1].sa_handler,
 			       handler);
 
-		parent->blocked = signal_mask(SIGTERM);
-		TEST_ASSERT_EQ(child->blocked, signal_mask(SIGUSR2));
+		parent->sigctx.blocked = signal_mask(SIGTERM);
+		TEST_ASSERT_EQ(child->sigctx.blocked, signal_mask(SIGUSR2));
 
 		current = saved;
 		task_free(child);
@@ -217,17 +217,17 @@ void test_sighand_struct_copy_and_share(void)
 
 		current = parent;
 		TEST_ASSERT_EQ(signals_clone(child, true, true, false), 0);
-		TEST_ASSERT_EQ(parent->sighand, child->sighand);
-		TEST_ASSERT_EQ(parent->signal, child->signal);
+		TEST_ASSERT_EQ(parent->resources.sighand, child->resources.sighand);
+		TEST_ASSERT_EQ(parent->resources.signal, child->resources.signal);
 
-		mutex_lock(&parent->sighand->lock);
-		parent->sighand->sigactions[SIGUSR1].sa_handler = handler;
-		mutex_unlock(&parent->sighand->lock);
-		TEST_ASSERT_EQ(child->sighand->sigactions[SIGUSR1].sa_handler,
+		mutex_lock(&parent->resources.sighand->lock);
+		parent->resources.sighand->sigactions[SIGUSR1].sa_handler = handler;
+		mutex_unlock(&parent->resources.sighand->lock);
+		TEST_ASSERT_EQ(child->resources.sighand->sigactions[SIGUSR1].sa_handler,
 			       handler);
 
-		parent->blocked = signal_mask(SIGTERM);
-		TEST_ASSERT_EQ(child->blocked, (uint64_t)0);
+		parent->sigctx.blocked = signal_mask(SIGTERM);
+		TEST_ASSERT_EQ(child->sigctx.blocked, (uint64_t)0);
 	}
 	TEST_END("resources: sighand copy/share");
 	goto cleanup;
@@ -257,13 +257,13 @@ void test_signal_struct_pending(void)
 		current = parent;
 		TEST_ASSERT_EQ(signals_clone(child, true, true, false), 0);
 		TEST_ASSERT_EQ(send_signal(SIGUSR1, child), 0);
-		TEST_ASSERT_EQ(child->pending, signal_mask(SIGUSR1));
-		TEST_ASSERT_EQ(parent->pending, (uint64_t)0);
+		TEST_ASSERT_EQ(child->sigctx.pending, signal_mask(SIGUSR1));
+		TEST_ASSERT_EQ(parent->sigctx.pending, (uint64_t)0);
 
 		TEST_ASSERT_EQ(send_group_signal(SIGUSR2, parent), 0);
-		TEST_ASSERT_EQ(parent->signal->shared_pending,
+		TEST_ASSERT_EQ(parent->resources.signal->shared_pending,
 			       signal_mask(SIGUSR2));
-		TEST_ASSERT_EQ(child->signal->shared_pending,
+		TEST_ASSERT_EQ(child->resources.signal->shared_pending,
 			       signal_mask(SIGUSR2));
 	}
 	TEST_END("resources: signal pending");
@@ -292,13 +292,13 @@ void test_signal_struct_rlimits_copy(void)
 		TEST_ASSERT_NOT_NULL(child);
 
 		current = parent;
-		parent->signal->rlimits[RLIMIT_NOFILE].rlim_cur = 16;
-		parent->signal->rlimits[RLIMIT_NOFILE].rlim_max = 16;
+		parent->resources.signal->rlimits[RLIMIT_NOFILE].rlim_cur = 16;
+		parent->resources.signal->rlimits[RLIMIT_NOFILE].rlim_max = 16;
 		TEST_ASSERT_EQ(signals_clone(child, false, false, false), 0);
-		TEST_ASSERT(parent->signal != child->signal);
-		TEST_ASSERT_EQ(child->signal->rlimits[RLIMIT_NOFILE].rlim_cur,
+		TEST_ASSERT(parent->resources.signal != child->resources.signal);
+		TEST_ASSERT_EQ(child->resources.signal->rlimits[RLIMIT_NOFILE].rlim_cur,
 			       (uint64_t)16);
-		TEST_ASSERT_EQ(child->signal->rlimits[RLIMIT_NOFILE].rlim_max,
+		TEST_ASSERT_EQ(child->resources.signal->rlimits[RLIMIT_NOFILE].rlim_max,
 			       (uint64_t)16);
 	}
 	TEST_END("resources: signal rlimits copy");

@@ -75,3 +75,4 @@ ForEachMacros:
   - 'list_for_each_entry'
   - 'list_for_each_entry_safe'
   - 'hash_table_for_each_possible'
+  - 'task_for_each_child'

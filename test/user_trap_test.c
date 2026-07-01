@@ -145,9 +145,9 @@ static void __noreturn user_trap_test_resume(void)
 	struct task_struct *prev = current;
 
 	user_trap_test_resumed = true;
-	prev->state = TASK_DEAD;
+	prev->lifecycle.state = TASK_DEAD;
 	current = &idle_task;
-	switch_to(&prev->ctx, &idle_task.ctx);
+	switch_to(&prev->arch.ctx, &idle_task.arch.ctx);
 	panic("user trap test resume returned unexpectedly");
 }
 
@@ -169,7 +169,7 @@ forge_user_return_task(size_t user_pc, size_t user_sp, size_t user_sstatus)
 		return NULL;
 
 	struct trap_frame *tf =
-		(struct trap_frame *)((uint8_t *)task->kstack + KSTACK_SIZE -
+		(struct trap_frame *)((uint8_t *)task->arch.kstack + KSTACK_SIZE -
 				      sizeof(struct trap_frame));
 
 	memset(tf, 0, sizeof(*tf));
@@ -178,9 +178,9 @@ forge_user_return_task(size_t user_pc, size_t user_sp, size_t user_sstatus)
 	tf->sp = user_sp;
 	tf->sstatus = user_sstatus;
 
-	task->tf = tf;
-	task->ctx.ra = (size_t)__trapret;
-	task->ctx.sp = (size_t)tf;
+	task->arch.tf = tf;
+	task->arch.ctx.ra = (size_t)__trapret;
+	task->arch.ctx.sp = (size_t)tf;
 
 	return task;
 }

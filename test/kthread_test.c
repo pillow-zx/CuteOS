@@ -19,9 +19,9 @@ void test_kernel_thread_basic(void)
 
 		struct task_struct *t = kernel_thread(dummy_thread_fn, NULL);
 		TEST_ASSERT_NOT_NULL(t);
-		TEST_ASSERT(t->pid > 0);
-		TEST_ASSERT_EQ(t->state, (uint32_t)TASK_RUNNING);
-		TEST_ASSERT(t->kstack != NULL);
+		TEST_ASSERT(t->ids.pid > 0);
+		TEST_ASSERT_EQ(t->lifecycle.state, (uint32_t)TASK_RUNNING);
+		TEST_ASSERT(t->arch.kstack != NULL);
 
 		/* kernel_thread 应已将任务入队 */
 		TEST_ASSERT(!sched_test_runqueue_empty());
@@ -50,27 +50,27 @@ void test_kernel_thread_ctx_setup(void)
 		TEST_ASSERT_NOT_NULL(t);
 
 		/* ctx.ra 应指向 __trapret */
-		TEST_ASSERT_EQ(t->ctx.ra, (size_t)__trapret);
+		TEST_ASSERT_EQ(t->arch.ctx.ra, (size_t)__trapret);
 
 		/* ctx.sp 应指向栈顶的 trap_frame */
 		struct trap_frame *expected_tf =
-			(struct trap_frame *)((uint8_t *)t->kstack +
+			(struct trap_frame *)((uint8_t *)t->arch.kstack +
 					      KSTACK_SIZE -
 					      sizeof(struct trap_frame));
-		TEST_ASSERT_EQ(t->ctx.sp, (size_t)expected_tf);
+		TEST_ASSERT_EQ(t->arch.ctx.sp, (size_t)expected_tf);
 
 		/* tf 指针正确 */
-		TEST_ASSERT_EQ((size_t)t->tf, (size_t)expected_tf);
+		TEST_ASSERT_EQ((size_t)t->arch.tf, (size_t)expected_tf);
 
 		/* sepc 指向入口函数 */
-		TEST_ASSERT_EQ(t->tf->sepc, (size_t)dummy_thread_fn);
+		TEST_ASSERT_EQ(t->arch.tf->sepc, (size_t)dummy_thread_fn);
 
 		/* a0 传递了 arg */
-		TEST_ASSERT_EQ(t->tf->a0, (size_t)test_arg_val);
+		TEST_ASSERT_EQ(t->arch.tf->a0, (size_t)test_arg_val);
 
 		/* sstatus 包含 SPP 和 SPIE */
-		TEST_ASSERT(t->tf->sstatus & SSTATUS_SPP);
-		TEST_ASSERT(t->tf->sstatus & SSTATUS_SPIE);
+		TEST_ASSERT(t->arch.tf->sstatus & SSTATUS_SPP);
+		TEST_ASSERT(t->arch.tf->sstatus & SSTATUS_SPIE);
 
 		/* 清理 */
 		sched_dequeue(t);

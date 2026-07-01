@@ -191,8 +191,8 @@ int init_fs(struct task_struct *task)
 	if (!task)
 		return -EINVAL;
 
-	task->fs = fs_alloc();
-	return task->fs ? 0 : -ENOMEM;
+	task_set_fs(task, fs_alloc());
+	return task_fs(task) ? 0 : -ENOMEM;
 }
 
 int copy_fs(struct task_struct *child, bool share)
@@ -214,15 +214,21 @@ int copy_fs(struct task_struct *child, bool share)
 	}
 
 	exit_fs(child);
-	child->fs = fs;
+	task_set_fs(child, fs);
 	return 0;
 }
 
 void exit_fs(struct task_struct *task)
 {
-	if (!task || !task->fs)
+	struct fs_struct *fs;
+
+	if (!task)
 		return;
 
-	fs_put(task->fs);
-	task->fs = NULL;
+	fs = task_fs(task);
+	if (!fs)
+		return;
+
+	fs_put(fs);
+	task_set_fs(task, NULL);
 }

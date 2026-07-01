@@ -432,7 +432,8 @@ int send_group_signal(int sig, struct task_struct *leader)
 	if (task_is_group_leader(leader)) {
 		struct task_struct *thread;
 
-		list_for_each_entry (thread, &leader->thread_group, thread_node)
+		list_for_each_entry (thread, &leader->links.thread_group,
+				     links.thread_node)
 			wake_signal_target(thread, sig);
 	}
 

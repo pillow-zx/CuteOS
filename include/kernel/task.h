@@ -4,46 +4,19 @@
 /*
  * include/kernel/task.h - 进程控制块与任务管理
  *
- * 声明 struct task_struct，表示进程或内核线程的核心数据结构。
- * 同时定义任务状态常量，并声明 idle/init 任务实例。
- *
- * struct task_struct fields:
- *   pid        - Process ID
- *   state      - Current task state (RUNNING/SLEEPING/ZOMBIE/DEAD)
- *   mm         - Pointer to mm_struct (NULL for kernel threads)
- *   files      - Shared file descriptor table
- *   fs         - Shared filesystem context (root/cwd/umask)
- *   sighand    - Shared signal action table
- *   signal     - Shared thread-group signal state
- *   blocked    - Per-thread blocked signal mask
- *   pending    - Per-thread pending signal mask
- *   ctx        - Saved callee-saved registers for context switch
- *   tf         - Pointer to trap_frame on kernel stack
- *   kstack     - Kernel stack base (low address)
- *   parent     - Parent task
- *   children   - List of child tasks
- *   sibling    - Linkage in parent's children list
- *   run_list   - Linkage in runqueue
- *
- * Task states:
- *   TASK_RUNNING         - Runnable or currently executing
- *   TASK_UNINTERRUPTIBLE - Waiting for an event, cannot be interrupted
- *   TASK_INTERRUPTIBLE   - Waiting for an event, interrupted by signals
- *   TASK_ZOMBIE          - Exited, waiting for parent to reap
- *   TASK_DEAD            - Fully reaped
- *
- * Globals:
- *   idle_task   - PID 0, the idle loop task (BSS static)
- *   current     - Pointer to the currently running task
+ * task_struct 是任务生命周期的聚合根。具体子系统状态按所有权分组：
+ * arch 保存低级上下文，resources 保存可共享资源，sigctx 保存每线程
+ * 信号状态，links 保存进程树/线程组关系，sched 保存调度器私有实体。
  */
 
 #include <kernel/types.h>
 #include <kernel/list.h>
 #include <kernel/wait.h>
 #include <kernel/compiler.h>
-#include <kernel/signal.h>
 #include <asm/page.h>
 #include <asm/trap.h>
+#include <uapi/futex.h>
+#include <uapi/signal.h>
 
 /* ---- 任务状态 ---- */
 
@@ -64,68 +37,96 @@
 
 #define CANARY_MAGIC 0xDEADBEEFDEADBEEFUL
 
-/* ---- 进程控制块 ---- */
+struct files_struct;
+struct fs_struct;
+struct mm_struct;
+struct sighand_struct;
+struct signal_struct;
+struct task_struct;
 
-struct task_struct {
-	pid_t pid;		 /* 进程 ID */
-	volatile uint32_t state; /* 当前任务状态 */
+bool signal_pending(struct task_struct *task);
 
-	struct context ctx;    /* callee-saved 寄存器保存区 */
-	struct trap_frame *tf; /* 指向内核栈上的 trap_frame */
+/* ---- 进程控制块分组 ---- */
 
-	/* 内核栈 */
-	void *kstack; /* 栈底（低地址） */
+struct task_arch_state {
+	struct context ctx;
+	struct trap_frame *tf;
+	void *kstack;
+	uint64_t satp;
+};
 
-	/* 内存管理 */
-	struct mm_struct *mm; /* 指向 mm_struct，内核线程为 NULL */
-	uint64_t satp; /* 预计算的 satp 值，避免 trapret 通过pgd临时计算 */
-	int exit_code; /* zombie 状态下保留的退出码 */
-	pid_t tgid;    /* 线程组 ID；单线程进程等于 pid */
-	struct task_struct *group_leader; /* 所属线程组 leader */
-	struct list_head thread_group;	  /* leader 持有的线程组成员链表 */
-	struct list_head thread_node;	  /* 在线程组链表中的节点 */
-	int exit_signal;      /* 线程组 leader 退出时发送给父进程的信号 */
-	int *clear_child_tid; /* CLONE_CHILD_CLEARTID 用户地址 */
-	struct robust_list_head *robust_list; /* per-thread robust futex 链表 */
-	size_t robust_list_len;		      /* robust_list_head ABI 大小 */
+struct task_identity {
+	pid_t pid;
+	pid_t tgid;
+	struct task_struct *group_leader;
+};
 
-	/* 可共享进程资源 */
-	struct files_struct *files;	/* 文件描述符表 */
-	struct fs_struct *fs;		/* root/cwd/umask */
-	struct sighand_struct *sighand; /* 信号处理动作 */
-	struct signal_struct *signal;	/* 线程组共享信号状态 */
-	uid_t uid;			/* 当前用户 ID */
-	gid_t gid;			/* 当前组 ID */
+struct task_lifecycle {
+	volatile uint32_t state;
+	int exit_code;
+	int exit_signal;
+};
 
-	/* 每线程信号状态 */
-	uint64_t blocked;    /* 被屏蔽的信号掩码 */
-	uint64_t pending;    /* 待处理的信号掩码 */
-	uint64_t in_handler; /* 当前正在运行其 handler 的信号掩码（防重入） */
-	struct stack_t sas;  /* 备用信号栈（sigaltstack） */
+struct task_links {
+	struct task_struct *parent;
+	struct list_head children;
+	struct list_head sibling;
+	struct list_head thread_group;
+	struct list_head thread_node;
+	struct wait_queue_head wait_child_queue;
+};
 
-	/* 进程树 */
-	struct task_struct *parent; /* 父进程 */
-	struct list_head children;  /* 子进程链表 */
-	struct list_head sibling;   /* 在父进程 children 链表中的节点 */
-	struct wait_queue_head wait_child_queue; /* 父进程等待子进程退出 */
+struct task_resources {
+	struct mm_struct *mm;
+	struct files_struct *files;
+	struct fs_struct *fs;
+	struct sighand_struct *sighand;
+	struct signal_struct *signal;
+	uid_t uid;
+	gid_t gid;
+};
 
-	/* 调度 */
-	struct list_head run_list;     /* 就绪队列节点 */
-	struct wait_queue_entry wait_entry; /* 默认等待队列节点 */
-	volatile uint8_t need_resched; /* 时钟 tick 置位，trap 返回前触发调度 */
-	uint8_t sched_level;	       /* MLFQ 当前队列等级 */
-	uint8_t time_slice;	       /* 当前等级剩余 tick */
-	uint8_t sched_ticks;	       /* 当前等级已消耗 tick */
-	uint64_t enqueue_jiffies;      /* 最近一次入队时间 */
+struct task_signal_context {
+	uint64_t blocked;
+	uint64_t pending;
+	uint64_t in_handler;
+	struct stack_t sas;
+	int *clear_child_tid;
+	struct robust_list_head *robust_list;
+	size_t robust_list_len;
+};
 
-	/* CPU time accounting, in HZ ticks. */
+struct task_sched_entity {
+	struct list_head run_list;
+	struct wait_queue_entry wait_entry;
+	volatile uint8_t need_resched;
+	uint8_t sched_level;
+	uint8_t time_slice;
+	uint8_t sched_ticks;
+	uint64_t enqueue_jiffies;
+};
+
+struct task_cputime {
 	uint64_t utime_ticks;
 	uint64_t stime_ticks;
 };
 
-static_assert(offsetof(struct task_struct, kstack) == 128,
+/* ---- 进程控制块 ---- */
+
+struct task_struct {
+	struct task_arch_state arch;
+	struct task_identity ids;
+	struct task_lifecycle lifecycle;
+	struct task_links links;
+	struct task_resources resources;
+	struct task_signal_context sigctx;
+	struct task_sched_entity sched;
+	struct task_cputime cputime;
+};
+
+static_assert(offsetof(struct task_struct, arch.kstack) == TASK_KSTACK,
 	      "TASK_KSTACK offset in entry.S out of sync with task_struct");
-static_assert(offsetof(struct task_struct, satp) == 144,
+static_assert(offsetof(struct task_struct, arch.satp) == TASK_SATP,
 	      "TASK_SATP offset in entry.S out of sync with task_struct");
 static_assert(KSTACK_SIZE == 8192, "entry.S __trapret hardcodes kstack+8192; "
 				   "update both if KSTACK_ORDER changes");
@@ -143,309 +144,462 @@ extern struct task_struct *init_task;
 
 /* ---- 窄访问器 ---- */
 
-static inline __must_check __pure struct mm_struct *
+static __always_inline __must_check __pure struct mm_struct *
 task_mm(struct task_struct *task)
 {
-	return task ? task->mm : NULL;
+	return task ? task->resources.mm : NULL;
 }
 
 static inline void task_set_mm(struct task_struct *task, struct mm_struct *mm)
 {
 	if (task)
-		task->mm = mm;
+		task->resources.mm = mm;
 }
 
-static inline __must_check __pure uint64_t
+static __always_inline __must_check __pure uint64_t
 task_address_space_satp(const struct task_struct *task)
 {
-	return task ? task->satp : 0;
+	return task ? task->arch.satp : 0;
 }
 
 static inline void task_set_satp(struct task_struct *task, uint64_t satp)
 {
 	if (task)
-		task->satp = satp;
+		task->arch.satp = satp;
 }
 
-static inline __must_check __pure struct trap_frame *
+static __always_inline __must_check __pure struct context *
+task_context(struct task_struct *task)
+{
+	return task ? &task->arch.ctx : NULL;
+}
+
+static __always_inline __must_check __pure struct trap_frame *
 task_trap_frame(struct task_struct *task)
 {
-	return task ? task->tf : NULL;
+	return task ? task->arch.tf : NULL;
 }
 
 static inline void task_set_trap_frame(struct task_struct *task,
 				       struct trap_frame *tf)
 {
 	if (task)
-		task->tf = tf;
+		task->arch.tf = tf;
 }
 
-static inline __must_check __pure struct files_struct *
+static __always_inline __must_check __pure void *
+task_kernel_stack(const struct task_struct *task)
+{
+	return task ? task->arch.kstack : NULL;
+}
+
+static inline void task_set_kernel_stack(struct task_struct *task, void *kstack)
+{
+	if (task)
+		task->arch.kstack = kstack;
+}
+
+static __always_inline __must_check __pure struct files_struct *
 task_files(struct task_struct *task)
 {
-	return task ? task->files : NULL;
+	return task ? task->resources.files : NULL;
 }
 
-static inline __must_check __pure struct fs_struct *
+static inline void task_set_files(struct task_struct *task,
+				  struct files_struct *files)
+{
+	if (task)
+		task->resources.files = files;
+}
+
+static __always_inline __must_check __pure struct fs_struct *
 task_fs(struct task_struct *task)
 {
-	return task ? task->fs : NULL;
+	return task ? task->resources.fs : NULL;
 }
 
-static inline __must_check __pure uid_t task_uid(const struct task_struct *task)
+static __always_inline void task_set_fs(struct task_struct *task,
+					struct fs_struct *fs)
+{
+	if (task)
+		task->resources.fs = fs;
+}
+
+static __always_inline __must_check __pure __nonnull(1) uid_t
+	task_uid(const struct task_struct *task)
+{
+	return task->resources.uid;
+}
+
+static __always_inline __must_check __pure __nonnull(1) gid_t
+	task_gid(const struct task_struct *task)
+{
+	return task->resources.gid;
+}
+
+static __always_inline __must_check __pure __nonnull(1) pid_t
+	task_pid(const struct task_struct *task)
+{
+	return task->ids.pid;
+}
+
+static __always_inline __must_check __pure __nonnull(1) pid_t
+	task_tgid(const struct task_struct *task)
+{
+	return task->ids.tgid;
+}
+
+static __always_inline void task_set_uid(struct task_struct *task, uid_t uid)
 {
 	BUG_ON(!task);
-	return task->uid;
+	task->resources.uid = uid;
 }
 
-static inline __must_check __pure gid_t task_gid(const struct task_struct *task)
+static __always_inline void task_set_gid(struct task_struct *task, gid_t gid)
 {
 	BUG_ON(!task);
-	return task->gid;
+	task->resources.gid = gid;
 }
 
-static inline __must_check __pure pid_t task_pid(const struct task_struct *task)
-{
-	BUG_ON(!task);
-	return task->pid;
-}
-
-static inline __must_check __pure pid_t
-task_tgid(const struct task_struct *task)
-{
-	BUG_ON(!task);
-	return task->tgid;
-}
-
-static inline void task_set_uid(struct task_struct *task, uid_t uid)
-{
-	BUG_ON(!task);
-	task->uid = uid;
-}
-
-static inline void task_set_gid(struct task_struct *task, gid_t gid)
-{
-	BUG_ON(!task);
-	task->gid = gid;
-}
-
-static inline __must_check __pure bool
+static __always_inline __must_check __pure bool
 task_signal_pending(struct task_struct *task)
 {
 	return signal_pending(task);
 }
 
-static inline __must_check __pure struct signal_struct *
+static __always_inline __must_check __pure struct signal_struct *
 task_signal_state(struct task_struct *task)
 {
-	return task ? task->signal : NULL;
+	return task ? task->resources.signal : NULL;
 }
 
-static inline __must_check __pure struct sighand_struct *
+static __always_inline __must_check __pure struct sighand_struct *
 task_sighand(struct task_struct *task)
 {
-	return task ? task->sighand : NULL;
+	return task ? task->resources.sighand : NULL;
 }
 
-static inline void task_set_sighand(struct task_struct *task,
-				    struct sighand_struct *sighand)
+static __always_inline void task_set_sighand(struct task_struct *task,
+					     struct sighand_struct *sighand)
 {
 	if (task)
-		task->sighand = sighand;
+		task->resources.sighand = sighand;
 }
 
-static inline void task_set_signal_state(struct task_struct *task,
-					 struct signal_struct *signal)
+static __always_inline void task_set_signal_state(struct task_struct *task,
+						  struct signal_struct *signal)
 {
 	if (task)
-		task->signal = signal;
+		task->resources.signal = signal;
 }
 
-static inline __must_check __pure uint64_t
+static __always_inline __must_check __pure uint64_t
 task_blocked_mask(const struct task_struct *task)
 {
-	return task ? task->blocked : 0;
+	return task ? task->sigctx.blocked : 0;
 }
 
-static inline void task_set_blocked_mask(struct task_struct *task,
-					 uint64_t mask)
+static __always_inline void task_set_blocked_mask(struct task_struct *task,
+						  uint64_t mask)
 {
 	if (task)
-		task->blocked = mask;
+		task->sigctx.blocked = mask;
 }
 
-static inline void task_or_blocked_mask(struct task_struct *task, uint64_t mask)
+static __always_inline void task_or_blocked_mask(struct task_struct *task,
+						 uint64_t mask)
 {
 	if (task)
-		task->blocked |= mask;
+		task->sigctx.blocked |= mask;
 }
 
-static inline void task_and_blocked_mask(struct task_struct *task,
-					 uint64_t mask)
+static __always_inline void task_and_blocked_mask(struct task_struct *task,
+						  uint64_t mask)
 {
 	if (task)
-		task->blocked &= mask;
+		task->sigctx.blocked &= mask;
 }
 
-static inline __must_check __pure uint64_t
+static __always_inline __must_check __pure uint64_t
 task_pending_mask(const struct task_struct *task)
 {
-	return task ? task->pending : 0;
+	return task ? task->sigctx.pending : 0;
 }
 
-static inline void task_set_pending_mask(struct task_struct *task,
-					 uint64_t mask)
+static __always_inline void task_set_pending_mask(struct task_struct *task,
+						  uint64_t mask)
 {
 	if (task)
-		task->pending = mask;
+		task->sigctx.pending = mask;
 }
 
-static inline void task_or_pending_mask(struct task_struct *task, uint64_t mask)
+static __always_inline void task_or_pending_mask(struct task_struct *task,
+						 uint64_t mask)
 {
 	if (task)
-		task->pending |= mask;
+		task->sigctx.pending |= mask;
 }
 
-static inline void task_and_pending_mask(struct task_struct *task,
-					 uint64_t mask)
+static __always_inline void task_and_pending_mask(struct task_struct *task,
+						  uint64_t mask)
 {
 	if (task)
-		task->pending &= mask;
+		task->sigctx.pending &= mask;
 }
 
-static inline __must_check __pure uint64_t
+static __always_inline __must_check __pure uint64_t
 task_in_handler_mask(const struct task_struct *task)
 {
-	return task ? task->in_handler : 0;
+	return task ? task->sigctx.in_handler : 0;
 }
 
-static inline void task_set_in_handler_mask(struct task_struct *task,
-					    uint64_t mask)
+static __always_inline void task_set_in_handler_mask(struct task_struct *task,
+						     uint64_t mask)
 {
 	if (task)
-		task->in_handler = mask;
+		task->sigctx.in_handler = mask;
 }
 
-static inline void task_or_in_handler_mask(struct task_struct *task,
-					   uint64_t mask)
+static __always_inline void task_or_in_handler_mask(struct task_struct *task,
+						    uint64_t mask)
 {
 	if (task)
-		task->in_handler |= mask;
+		task->sigctx.in_handler |= mask;
 }
 
-static inline void task_and_in_handler_mask(struct task_struct *task,
-					    uint64_t mask)
+static __always_inline void task_and_in_handler_mask(struct task_struct *task,
+						     uint64_t mask)
 {
 	if (task)
-		task->in_handler &= mask;
+		task->sigctx.in_handler &= mask;
 }
 
-static inline __must_check __pure struct stack_t *
+static __always_inline __must_check __pure struct stack_t *
 task_altstack(struct task_struct *task)
 {
-	return task ? &task->sas : NULL;
+	return task ? &task->sigctx.sas : NULL;
 }
 
-static inline __must_check __pure uint32_t
+static __always_inline __must_check __pure uint32_t
 task_state(const struct task_struct *task)
 {
-	return task ? task->state : TASK_DEAD;
+	return task ? task->lifecycle.state : TASK_DEAD;
 }
 
-static inline void task_set_state(struct task_struct *task, uint32_t state)
+static __always_inline void task_set_state(struct task_struct *task,
+					   uint32_t state)
 {
 	if (task)
-		task->state = state;
+		task->lifecycle.state = state;
 }
 
-static inline void task_mark_running(struct task_struct *task)
+static __always_inline void task_mark_running(struct task_struct *task)
 {
 	task_set_state(task, TASK_RUNNING);
 }
 
-static inline void task_mark_interruptible_sleep(struct task_struct *task)
+static __always_inline void
+task_mark_interruptible_sleep(struct task_struct *task)
 {
 	task_set_state(task, TASK_INTERRUPTIBLE);
 }
 
-static inline void task_mark_uninterruptible_sleep(struct task_struct *task)
+static __always_inline void
+task_mark_uninterruptible_sleep(struct task_struct *task)
 {
 	task_set_state(task, TASK_UNINTERRUPTIBLE);
 }
 
-static inline void task_mark_stopped(struct task_struct *task)
+static __always_inline void task_mark_stopped(struct task_struct *task)
 {
 	task_set_state(task, TASK_STOPPED);
 }
 
-static inline __must_check __pure struct task_struct *
+static __always_inline __must_check __pure struct task_struct *
 task_group_leader(struct task_struct *task)
 {
-	return task ? task->group_leader : NULL;
+	return task ? task->ids.group_leader : NULL;
 }
 
-static inline __must_check __pure struct task_struct *
+static __always_inline __must_check __pure struct task_struct *
 task_parent(struct task_struct *task)
 {
-	return task ? task->parent : NULL;
+	return task ? task->links.parent : NULL;
 }
 
 static inline struct list_head *task_children(struct task_struct *task)
 {
-	return task ? &task->children : NULL;
+	return task ? &task->links.children : NULL;
 }
 
 static inline struct wait_queue_head *
 task_wait_child_queue(struct task_struct *task)
 {
-	return task ? &task->wait_child_queue : NULL;
+	return task ? &task->links.wait_child_queue : NULL;
 }
 
-static inline __must_check __pure int *
-task_clear_child_tid(struct task_struct *task)
+static __always_inline __must_check __pure bool
+task_has_parent_link(const struct task_struct *task)
 {
-	return task ? task->clear_child_tid : NULL;
+	return task && !list_empty(&task->links.sibling);
 }
 
-static inline void task_set_clear_child_tid(struct task_struct *task,
-					    int *uaddr)
+static __always_inline void task_set_parent(struct task_struct *task,
+					    struct task_struct *parent)
 {
 	if (task)
-		task->clear_child_tid = uaddr;
+		task->links.parent = parent;
 }
 
-static inline __must_check __pure uint64_t
+static __always_inline void task_link_child(struct task_struct *parent,
+					    struct task_struct *child)
+{
+	if (!parent || !child)
+		return;
+	child->links.parent = parent;
+	list_add_tail(&child->links.sibling, &parent->links.children);
+}
+
+static __always_inline void task_unlink_child(struct task_struct *task)
+{
+	if (!task || list_empty(&task->links.sibling))
+		return;
+	list_del_init(&task->links.sibling);
+	task->links.parent = NULL;
+}
+
+#define task_for_each_child(pos, parent)                                       \
+	list_for_each_entry (pos, task_children(parent), links.sibling)
+
+static __always_inline __must_check __pure struct list_head *
+task_thread_group(struct task_struct *task)
+{
+	return task ? &task->links.thread_group : NULL;
+}
+
+static __always_inline __must_check __pure struct list_head *
+task_thread_node(struct task_struct *task)
+{
+	return task ? &task->links.thread_node : NULL;
+}
+
+static __always_inline void task_link_thread(struct task_struct *leader,
+					     struct task_struct *thread)
+{
+	if (!leader || !thread)
+		return;
+	list_add_tail(&thread->links.thread_node, &leader->links.thread_group);
+}
+
+static __always_inline void task_unlink_thread(struct task_struct *task)
+{
+	if (!task || list_empty(&task->links.thread_node))
+		return;
+	list_del_init(&task->links.thread_node);
+}
+
+static __always_inline __must_check __pure int *
+task_clear_child_tid(struct task_struct *task)
+{
+	return task ? task->sigctx.clear_child_tid : NULL;
+}
+
+static __always_inline void task_set_clear_child_tid(struct task_struct *task,
+						     int *uaddr)
+{
+	if (task)
+		task->sigctx.clear_child_tid = uaddr;
+}
+
+static __always_inline __must_check __pure uint64_t
 task_user_ticks(const struct task_struct *task)
 {
-	return task ? task->utime_ticks : 0;
+	return task ? task->cputime.utime_ticks : 0;
 }
 
-static inline __must_check __pure uint64_t
+static __always_inline __must_check __pure uint64_t
 task_system_ticks(const struct task_struct *task)
 {
-	return task ? task->stime_ticks : 0;
+	return task ? task->cputime.stime_ticks : 0;
 }
 
-static inline __must_check __pure struct robust_list_head *
+static __always_inline __must_check __pure struct robust_list_head *
 task_robust_list(struct task_struct *task)
 {
-	return task ? task->robust_list : NULL;
+	return task ? task->sigctx.robust_list : NULL;
 }
 
-static inline __must_check __pure size_t
+static __always_inline __must_check __pure size_t
 task_robust_list_len(struct task_struct *task)
 {
-	return task ? task->robust_list_len : 0;
+	return task ? task->sigctx.robust_list_len : 0;
 }
 
-static inline void task_set_robust_list(struct task_struct *task,
-					struct robust_list_head *head,
-					size_t len)
+static __always_inline void task_set_robust_list(struct task_struct *task,
+						 struct robust_list_head *head,
+						 size_t len)
 {
 	if (!task)
 		return;
-	task->robust_list = head;
-	task->robust_list_len = len;
+	task->sigctx.robust_list = head;
+	task->sigctx.robust_list_len = len;
+}
+
+static __always_inline __must_check __pure int
+task_exit_code(struct task_struct *task)
+{
+	return task ? task->lifecycle.exit_code : 0;
+}
+
+static __always_inline void task_set_exit_code(struct task_struct *task,
+					       int code)
+{
+	if (task)
+		task->lifecycle.exit_code = code;
+}
+
+static __always_inline __must_check __pure int
+task_exit_signal(struct task_struct *task)
+{
+	return task ? task->lifecycle.exit_signal : 0;
+}
+
+static __always_inline void task_set_exit_signal(struct task_struct *task,
+						 int sig)
+{
+	if (task)
+		task->lifecycle.exit_signal = sig;
+}
+
+static __always_inline __must_check __pure struct list_head *
+task_run_list(struct task_struct *task)
+{
+	return task ? &task->sched.run_list : NULL;
+}
+
+static __always_inline __must_check __pure struct wait_queue_entry *
+task_wait_entry(struct task_struct *task)
+{
+	return task ? &task->sched.wait_entry : NULL;
+}
+
+static __always_inline __must_check __pure bool
+task_is_queued(struct task_struct *task)
+{
+	return task && !list_empty(&task->sched.run_list);
+}
+
+static __always_inline __must_check __pure uint8_t
+task_need_resched(struct task_struct *task)
+{
+	return task ? task->sched.need_resched : 0;
+}
+
+static __always_inline void task_set_need_resched(struct task_struct *task,
+						  uint8_t val)
+{
+	if (task)
+		task->sched.need_resched = val;
 }
 
 /* ---- 函数声明 ---- */

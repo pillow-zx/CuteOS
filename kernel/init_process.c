@@ -27,7 +27,7 @@
 void init_process(void *arg)
 {
 	(void)arg;
-	pr_info("init running (PID %d)\n", current->pid);
+	pr_info("init running (PID %d)\n", task_pid(current));
 
 	exec_user_path("/bin/init");
 }

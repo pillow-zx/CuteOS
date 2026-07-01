@@ -118,6 +118,7 @@ void test_mm_madvise_supported_hints_are_noop(void);
  */
 
 void test_task_alloc_free(void);
+void test_task_layout_contract(void);
 void test_task_canary(void);
 void test_task_multiple(void);
 void test_task_process_tree(void);

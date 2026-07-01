@@ -26,12 +26,9 @@ void test_sched_enqueue_dequeue(void)
 		TEST_ASSERT_NOT_NULL(t2);
 		TEST_ASSERT_NOT_NULL(t3);
 
-		t1->sched_level = 2;
-		t1->time_slice = sched_test_level_slice(t1->sched_level);
-		t2->sched_level = 0;
-		t2->time_slice = sched_test_level_slice(t2->sched_level);
-		t3->sched_level = 1;
-		t3->time_slice = sched_test_level_slice(t3->sched_level);
+		sched_test_set_level(t1, 2);
+		sched_test_set_level(t2, 0);
+		sched_test_set_level(t3, 1);
 
 		sched_enqueue(t1);
 		sched_enqueue(t3);
@@ -39,11 +36,11 @@ void test_sched_enqueue_dequeue(void)
 		TEST_ASSERT(!sched_test_runqueue_empty());
 		TEST_ASSERT_EQ(sched_test_runnable_count(), (uint32_t)3);
 
-		TEST_ASSERT_EQ(sched_test_peek_next()->pid, t2->pid);
+		TEST_ASSERT_EQ(task_pid(sched_test_peek_next()), task_pid(t2));
 		sched_dequeue(t2);
-		TEST_ASSERT_EQ(sched_test_peek_next()->pid, t3->pid);
+		TEST_ASSERT_EQ(task_pid(sched_test_peek_next()), task_pid(t3));
 		sched_dequeue(t3);
-		TEST_ASSERT_EQ(sched_test_peek_next()->pid, t1->pid);
+		TEST_ASSERT_EQ(task_pid(sched_test_peek_next()), task_pid(t1));
 		sched_dequeue(t1);
 
 		TEST_ASSERT(sched_test_runqueue_empty());
@@ -69,17 +66,19 @@ void test_sched_need_resched(void)
 		t = task_alloc();
 		TEST_ASSERT_NOT_NULL(t);
 
-		TEST_ASSERT_EQ(t->need_resched, (uint8_t)0);
-		TEST_ASSERT_EQ(t->sched_level, (uint8_t)0);
-		TEST_ASSERT_EQ(t->time_slice, sched_test_level_slice(0));
+		TEST_ASSERT_EQ(sched_test_need_resched(t), (uint8_t)0);
+		TEST_ASSERT_EQ(sched_test_level(t), (uint8_t)0);
+		TEST_ASSERT_EQ(sched_test_time_slice(t),
+			       sched_test_level_slice(0));
 
 		current = t;
 		jiffies = 1;
 		sched_tick();
 
-		TEST_ASSERT_EQ(t->sched_level, (uint8_t)1);
-		TEST_ASSERT_EQ(t->time_slice, sched_test_level_slice(1));
-		TEST_ASSERT_EQ(t->need_resched, (uint8_t)1);
+		TEST_ASSERT_EQ(sched_test_level(t), (uint8_t)1);
+		TEST_ASSERT_EQ(sched_test_time_slice(t),
+			       sched_test_level_slice(1));
+		TEST_ASSERT_EQ(sched_test_need_resched(t), (uint8_t)1);
 	}
 	TEST_END("sched: tick demotes and requests resched");
 	goto cleanup;
@@ -99,15 +98,15 @@ void test_sched_wakeup_refresh(void)
 		struct task_struct *t = task_alloc();
 		TEST_ASSERT_NOT_NULL(t);
 
-		t->sched_level = 2;
-		t->time_slice = 0;
-		t->sched_ticks = 3;
+		sched_test_set_level(t, 2);
+		sched_test_set_budget(t, 0, 3);
 
 		sched_wakeup(t);
 		TEST_ASSERT_EQ(sched_test_runnable_count(), (uint32_t)1);
-		TEST_ASSERT_EQ(t->sched_level, (uint8_t)2);
-		TEST_ASSERT_EQ(t->time_slice, sched_test_level_slice(2));
-		TEST_ASSERT_EQ(t->sched_ticks, (uint8_t)0);
+		TEST_ASSERT_EQ(sched_test_level(t), (uint8_t)2);
+		TEST_ASSERT_EQ(sched_test_time_slice(t),
+			       sched_test_level_slice(2));
+		TEST_ASSERT_EQ(sched_test_ticks(t), (uint8_t)0);
 
 		sched_wakeup(t);
 		TEST_ASSERT_EQ(sched_test_runnable_count(), (uint32_t)1);
@@ -138,24 +137,27 @@ void test_sched_boost(void)
 		TEST_ASSERT_NOT_NULL(t2);
 		TEST_ASSERT_NOT_NULL(t3);
 
-		t1->sched_level = 3;
-		t1->time_slice = 0;
+		sched_test_set_level(t1, 3);
+		sched_test_set_budget(t1, 0, 0);
 		sched_enqueue(t1);
-		t2->sched_level = 2;
-		t2->time_slice = 0;
+		sched_test_set_level(t2, 2);
+		sched_test_set_budget(t2, 0, 0);
 		sched_enqueue(t2);
-		t3->sched_level = 3;
-		t3->time_slice = 0;
+		sched_test_set_level(t3, 3);
+		sched_test_set_budget(t3, 0, 0);
 		current = t3;
 
 		sched_test_force_boost();
 
-		TEST_ASSERT_EQ(t1->sched_level, (uint8_t)0);
-		TEST_ASSERT_EQ(t2->sched_level, (uint8_t)0);
-		TEST_ASSERT_EQ(t3->sched_level, (uint8_t)0);
-		TEST_ASSERT_EQ(t1->time_slice, sched_test_level_slice(0));
-		TEST_ASSERT_EQ(t2->time_slice, sched_test_level_slice(0));
-		TEST_ASSERT_EQ(t3->time_slice, sched_test_level_slice(0));
+		TEST_ASSERT_EQ(sched_test_level(t1), (uint8_t)0);
+		TEST_ASSERT_EQ(sched_test_level(t2), (uint8_t)0);
+		TEST_ASSERT_EQ(sched_test_level(t3), (uint8_t)0);
+		TEST_ASSERT_EQ(sched_test_time_slice(t1),
+			       sched_test_level_slice(0));
+		TEST_ASSERT_EQ(sched_test_time_slice(t2),
+			       sched_test_level_slice(0));
+		TEST_ASSERT_EQ(sched_test_time_slice(t3),
+			       sched_test_level_slice(0));
 		TEST_ASSERT_EQ(sched_test_runnable_count(), (uint32_t)2);
 	}
 	TEST_END("sched: periodic boost");

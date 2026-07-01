@@ -571,8 +571,9 @@ void exec_user_path(const char *path)
 	 * argv[0]，否则 applet 派发会解引用空 argv[0] 而崩溃。
 	 */
 	args.argc = 1;
-	strncpy(args.argv[0], path, EXEC_MAX_ARG_LEN - 1);
-	args.argv[0][EXEC_MAX_ARG_LEN - 1] = '\0';
+	size_t len = strnlen(path, EXEC_MAX_ARGS - 1);
+	memcpy(args.argv[0], path, len);
+	args.argv[0][len] = '\0';
 
 	struct trap_frame tf_storage;
 	int ret = kernel_execve(path, &args, &tf_storage);
