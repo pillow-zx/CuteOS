@@ -42,10 +42,10 @@ void mutex_lock(mutex_t *mutex)
 			return;
 		}
 
-		prepare_to_wait_locked(&mutex->wait);
+		prepare_to_wait_uninterruptible(&mutex->wait);
 		spin_unlock_irqrestore(&mutex->lock, flags);
 
-		schedule();
+		wait_schedule(TASK_UNINTERRUPTIBLE);
 
 		spin_lock_irqsave(&mutex->lock, &flags);
 		finish_wait(&mutex->wait);
@@ -63,6 +63,6 @@ void mutex_unlock(mutex_t *mutex)
 	BUG_ON(mutex->owner != current);
 
 	mutex->owner = NULL;
-	(void)wake_up_locked(&mutex->wait);
+	(void)wake_up_one(&mutex->wait);
 	spin_unlock_irqrestore(&mutex->lock, flags);
 }

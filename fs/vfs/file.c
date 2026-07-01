@@ -15,7 +15,6 @@
 #include <kernel/errno.h>
 #include <kernel/timer.h>
 #include <kernel/vfs.h>
-#include <asm/csr.h>
 
 #define FILE_STATUS_FLAGS	 (O_ACCMODE | O_APPEND | O_DIRECTORY)
 #define FILE_SETFL_MUTABLE_FLAGS O_APPEND
@@ -162,11 +161,8 @@ int vfs_poll_wait_until(vfs_poll_scan_t scan, void *arg, bool has_timeout,
 
 	while (true) {
 		struct vfs_poll_table table;
-		struct timer_wait timer;
-		bool timer_started = false;
-		bool local_timer_wait;
-		bool enabled_irq_for_sleep = false;
 		int ret;
+		int wait_ret;
 
 		vfs_poll_table_init(&table);
 		ret = scan(&table, arg);
@@ -183,20 +179,14 @@ int vfs_poll_wait_until(vfs_poll_scan_t scan, void *arg, bool has_timeout,
 			return -EINTR;
 		}
 
-		wait_prepare_current_interruptible();
-		if (has_timeout) {
-			timer_wait_init(&timer, current, deadline);
-			timer_wait_start(&timer);
-			timer_started = true;
-		}
+		task_mark_interruptible_sleep(current);
 
 		ret = scan(NULL, arg);
 		if (ret != 0 || signal_pending(current) ||
 		    (has_timeout && deadline <= arch_timer_now())) {
-			if (timer_started)
-				timer_wait_cancel(&timer);
 			vfs_poll_table_cleanup(&table);
-			wait_finish_current_state();
+			if (task_state(current) & TASK_ANY_SLEEP)
+				task_mark_running(current);
 			if (ret != 0)
 				return ret;
 			if (signal_pending(current))
@@ -204,30 +194,20 @@ int vfs_poll_wait_until(vfs_poll_scan_t scan, void *arg, bool has_timeout,
 			return 0;
 		}
 
-		if (irqs_disabled()) {
-			csr_set(sstatus, SSTATUS_SIE);
-			enabled_irq_for_sleep = true;
-		}
-		local_timer_wait = !sched_has_runnable();
-		if (local_timer_wait) {
-			while (!signal_pending(current) &&
-			       !(has_timeout && timer_wait_fired(&timer)) &&
-			       !sched_has_runnable())
-				wfi();
-		}
-		if (sched_has_runnable())
-			schedule();
-		if (enabled_irq_for_sleep)
-			csr_clear(sstatus, SSTATUS_SIE);
+		if (has_timeout)
+			wait_ret = wait_schedule_until(TASK_INTERRUPTIBLE,
+						       deadline);
+		else
+			wait_ret = wait_schedule(TASK_INTERRUPTIBLE);
 
-		if (timer_started)
-			timer_wait_cancel(&timer);
 		vfs_poll_table_cleanup(&table);
-		wait_finish_current_state();
+		if (task_state(current) & TASK_ANY_SLEEP)
+			task_mark_running(current);
 
-		if (signal_pending(current))
+		if (wait_ret == -EINTR || signal_pending(current))
 			return -EINTR;
-		if (has_timeout && deadline <= arch_timer_now())
+		if (wait_ret == -ETIMEDOUT ||
+		    (has_timeout && deadline <= arch_timer_now()))
 			return 0;
 	}
 }

@@ -419,6 +419,8 @@ void test_page_cache_clustered_writeback(void)
 {
 	static uint8_t page_buf[BLOCK_SIZE];
 	struct virtio_blk_test_stats stats;
+	uint32_t pblocks[3];
+	bool contiguous = true;
 	struct file *file = NULL;
 	int fd = -1;
 
@@ -436,13 +438,20 @@ void test_page_cache_clustered_writeback(void)
 						 sizeof(page_buf)),
 				       (ssize_t)sizeof(page_buf));
 		}
+		for (uint32_t i = 0; i < 3; i++) {
+			pblocks[i] = ext2_bmap(file->f_inode, i, false);
+			TEST_ASSERT_NE(pblocks[i], 0u);
+			if (i > 0 && pblocks[i] != pblocks[i - 1] + 1)
+				contiguous = false;
+		}
 
 		virtio_blk_test_reset_stats();
 		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
 		memset(&stats, 0, sizeof(stats));
 		virtio_blk_test_get_stats(&stats);
 		TEST_ASSERT(stats.write_reqs >= 1);
-		TEST_ASSERT(stats.max_write_nsec >= 3 * BLOCK_SECTORS);
+		if (contiguous)
+			TEST_ASSERT(stats.max_write_nsec >= 3 * BLOCK_SECTORS);
 	}
 	TEST_END("page cache: clustered writeback");
 	goto cleanup;

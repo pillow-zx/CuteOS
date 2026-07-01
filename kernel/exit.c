@@ -17,7 +17,7 @@
  *   kernel_wait4 支持：
  *     - pid > 0 ：等待指定 PID 的子进程。
  *     - pid == -1：等待任意子进程（等价于 waitpid(-1, ...)）。
- *     - 使用 sleep_on/wake_up 在子进程等待队列上睡眠/唤醒。
+ *     - 使用 wait_event/wake_up 在子进程等待队列上睡眠/唤醒。
  *
  * 主要函数：
  *   do_exit(code)               - 核心退出逻辑：设置 ZOMBIE 状态，
@@ -25,7 +25,7 @@
  *                                 过继孤儿给 init，发送 SIGCHLD 给父进程，
  *                                 调用 schedule() 永不返回。
  *   kernel_wait4(pid, options, result) - 等待子进程状态变化，支持 pid>0
- *                                 和 pid==-1，使用 sleep_on 在子进程
+ *                                 和 pid==-1，使用 wait_event 在子进程
  *                                 等待队列上阻塞。
  *   release_task(task)          - 最终的 task_struct 回收（供 wait4 调用）。
  *   reparent_children(dead_task)- 将死进程的子进程过继给 init 进程。
@@ -104,6 +104,13 @@ static bool has_wait_target(pid_t pid)
 	}
 
 	return find_child(pid) != NULL;
+}
+
+static bool wait4_ready(void *arg)
+{
+	pid_t pid = *(pid_t *)arg;
+
+	return !has_wait_target(pid) || find_waitable_child(pid) != NULL;
 }
 
 static void reparent_children(struct task_struct *dead)
@@ -337,7 +344,10 @@ int kernel_wait4(pid_t pid, int options, struct wait4_result *result)
 
 		struct task_struct *child = find_waitable_child(pid);
 		if (!child) {
-			sleep_on(task_wait_child_queue(current));
+			int ret = wait_event(task_wait_child_queue(current),
+					     wait4_ready, &pid);
+			if (ret < 0)
+				return ret;
 			continue;
 		}
 

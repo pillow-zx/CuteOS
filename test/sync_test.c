@@ -7,6 +7,7 @@
 #include <kernel/sync.h>
 #include <kernel/task.h>
 #include <kernel/test.h>
+#include <kernel/timer.h>
 #include <kernel/wait.h>
 #include <asm/csr.h>
 
@@ -129,6 +130,169 @@ fail:
 cleanup:
 	current->pending = saved_pending;
 	current->blocked = saved_blocked;
+}
+
+void test_waitqueue_prepare_finish(void)
+{
+	struct wait_queue_head wq;
+	struct wait_queue_entry entry;
+
+	TEST_BEGIN("sync: waitqueue prepare finish");
+	{
+		init_waitqueue_head(&wq);
+		init_waitqueue_entry(&entry, current);
+
+		prepare_wait_entry(&wq, &entry);
+		prepare_wait_entry(&wq, &entry);
+		TEST_ASSERT(!list_empty(&wq.task_list));
+		TEST_ASSERT(entry.wq == &wq);
+		TEST_ASSERT(wq.task_list.next == &entry.node);
+		TEST_ASSERT(wq.task_list.prev == &entry.node);
+
+		finish_wait_entry(&entry);
+		TEST_ASSERT(list_empty(&wq.task_list));
+		TEST_ASSERT(list_empty(&entry.node));
+		TEST_ASSERT(entry.wq == NULL);
+	}
+	TEST_END("sync: waitqueue prepare finish");
+	return;
+fail:
+	TEST_FAIL("sync: waitqueue prepare finish", "see above");
+}
+
+void test_waitqueue_wake_one_fifo(void)
+{
+	struct wait_queue_head wq;
+	struct task_struct *first = NULL;
+	struct task_struct *second = NULL;
+
+	TEST_BEGIN("sync: waitqueue wake one fifo");
+	{
+		first = task_alloc();
+		second = task_alloc();
+		TEST_ASSERT_NOT_NULL(first);
+		TEST_ASSERT_NOT_NULL(second);
+
+		init_waitqueue_head(&wq);
+		prepare_wait_entry(&wq, &first->wait_entry);
+		prepare_wait_entry(&wq, &second->wait_entry);
+		task_mark_uninterruptible_sleep(first);
+		task_mark_uninterruptible_sleep(second);
+
+		TEST_ASSERT_EQ(wake_up_one(&wq), first);
+		TEST_ASSERT_EQ(task_state(first), (uint32_t)TASK_RUNNING);
+		TEST_ASSERT_EQ(task_state(second),
+			       (uint32_t)TASK_UNINTERRUPTIBLE);
+		TEST_ASSERT(list_empty(&first->wait_entry.node));
+		TEST_ASSERT(!list_empty(&second->wait_entry.node));
+
+		TEST_ASSERT_EQ(wake_up_one(&wq), second);
+		TEST_ASSERT_EQ(task_state(second), (uint32_t)TASK_RUNNING);
+		TEST_ASSERT(list_empty(&wq.task_list));
+	}
+	TEST_END("sync: waitqueue wake one fifo");
+	goto cleanup;
+fail:
+	TEST_FAIL("sync: waitqueue wake one fifo", "see above");
+cleanup:
+	if (first) {
+		if (!list_empty(&first->run_list))
+			sched_dequeue(first);
+		finish_wait_entry(&first->wait_entry);
+		task_free(first);
+	}
+	if (second) {
+		if (!list_empty(&second->run_list))
+			sched_dequeue(second);
+		finish_wait_entry(&second->wait_entry);
+		task_free(second);
+	}
+}
+
+void test_waitqueue_wake_all(void)
+{
+	struct wait_queue_head wq;
+	struct task_struct *first = NULL;
+	struct task_struct *second = NULL;
+
+	TEST_BEGIN("sync: waitqueue wake all");
+	{
+		first = task_alloc();
+		second = task_alloc();
+		TEST_ASSERT_NOT_NULL(first);
+		TEST_ASSERT_NOT_NULL(second);
+
+		init_waitqueue_head(&wq);
+		prepare_wait_entry(&wq, &first->wait_entry);
+		prepare_wait_entry(&wq, &second->wait_entry);
+		task_mark_interruptible_sleep(first);
+		task_mark_uninterruptible_sleep(second);
+
+		wake_up_all(&wq);
+		TEST_ASSERT_EQ(task_state(first), (uint32_t)TASK_RUNNING);
+		TEST_ASSERT_EQ(task_state(second), (uint32_t)TASK_RUNNING);
+		TEST_ASSERT(list_empty(&wq.task_list));
+		TEST_ASSERT(list_empty(&first->wait_entry.node));
+		TEST_ASSERT(list_empty(&second->wait_entry.node));
+	}
+	TEST_END("sync: waitqueue wake all");
+	goto cleanup;
+fail:
+	TEST_FAIL("sync: waitqueue wake all", "see above");
+cleanup:
+	if (first) {
+		if (!list_empty(&first->run_list))
+			sched_dequeue(first);
+		finish_wait_entry(&first->wait_entry);
+		task_free(first);
+	}
+	if (second) {
+		if (!list_empty(&second->run_list))
+			sched_dequeue(second);
+		finish_wait_entry(&second->wait_entry);
+		task_free(second);
+	}
+}
+
+void test_wait_schedule_until_timeout(void)
+{
+	TEST_BEGIN("sync: wait_schedule_until timeout");
+	{
+		task_mark_interruptible_sleep(current);
+		TEST_ASSERT_EQ(wait_schedule_until(TASK_INTERRUPTIBLE,
+						   arch_timer_now()),
+			       -ETIMEDOUT);
+		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_RUNNING);
+		TEST_ASSERT(list_empty(&current->wait_entry.node));
+	}
+	TEST_END("sync: wait_schedule_until timeout");
+	return;
+fail:
+	TEST_FAIL("sync: wait_schedule_until timeout", "see above");
+}
+
+void test_wait_schedule_preserves_early_wakeup(void)
+{
+	struct wait_queue_head wq;
+
+	TEST_BEGIN("sync: wait_schedule preserves early wakeup");
+	{
+		init_waitqueue_head(&wq);
+		prepare_to_wait_interruptible(&wq);
+		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_INTERRUPTIBLE);
+		TEST_ASSERT_EQ(wake_up_one(&wq), current);
+		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_RUNNING);
+
+		TEST_ASSERT_EQ(wait_schedule(TASK_INTERRUPTIBLE), 0);
+		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_RUNNING);
+		TEST_ASSERT(list_empty(&wq.task_list));
+		TEST_ASSERT(list_empty(&current->wait_entry.node));
+	}
+	TEST_END("sync: wait_schedule preserves early wakeup");
+	return;
+fail:
+	finish_wait(&wq);
+	TEST_FAIL("sync: wait_schedule preserves early wakeup", "see above");
 }
 
 static mutex_t mutex_test_lock;

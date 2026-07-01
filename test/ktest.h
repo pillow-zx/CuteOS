@@ -66,8 +66,8 @@ void test_timer_mtime(void);
 void test_timer_mtimecmp(void);
 void test_timer_jiffies(void);
 void test_timer_constants(void);
-void test_timer_wait_expiry_wakes_task(void);
-void test_timer_wait_cancel_prevents_wake(void);
+void test_waitqueue_timeout_expiry_wakes_task(void);
+void test_waitqueue_timeout_cancel_prevents_wake(void);
 
 /* ================================================================
  *  Sync 原语测试
@@ -78,6 +78,11 @@ void test_atomic_basic(void);
 void test_spinlock_irqsave(void);
 void test_wait_event_interruptible_ready(void);
 void test_wait_event_interruptible_signal(void);
+void test_waitqueue_prepare_finish(void);
+void test_waitqueue_wake_one_fifo(void);
+void test_waitqueue_wake_all(void);
+void test_wait_schedule_until_timeout(void);
+void test_wait_schedule_preserves_early_wakeup(void);
 void test_mutex_blocking(void);
 
 /* ================================================================

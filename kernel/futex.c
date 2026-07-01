@@ -85,14 +85,10 @@ static int futex_wait(int *uaddr, int expected,
 	struct futex_key key;
 	struct futex_bucket *bucket;
 	struct futex_waiter waiter;
-	struct timer_wait timer;
 	irq_flags_t flags;
 	int ret;
 	int value;
 	bool has_timeout;
-	bool local_timer_wait;
-	bool timer_started = false;
-	bool enabled_irq_for_sleep = false;
 	uint64_t expires;
 
 	ret = futex_make_key(task_mm(current), uaddr, &key);
@@ -123,34 +119,14 @@ static int futex_wait(int *uaddr, int expected,
 		spin_unlock_irqrestore(&bucket->lock, flags);
 		return -ETIMEDOUT;
 	}
-	local_timer_wait = has_timeout && !sched_has_runnable();
-
 	list_add_tail(&waiter.node, &bucket->waiters);
 	prepare_to_wait_interruptible(&waiter.wait);
-	if (has_timeout) {
-		timer_wait_init(&timer, current, expires);
-		timer_wait_start(&timer);
-		timer_started = true;
-	}
 	spin_unlock_irqrestore(&bucket->lock, flags);
 
-	if (timer_started && irqs_disabled()) {
-		csr_set(sstatus, SSTATUS_SIE);
-		enabled_irq_for_sleep = true;
-	}
-	if (local_timer_wait) {
-		/* No runnable peer exists, so wait here for the timer IRQ. */
-		while (!timer_wait_fired(&timer) && !waiter.woken &&
-		       !task_signal_pending(current))
-			wfi();
-	} else {
-		schedule();
-	}
-	if (enabled_irq_for_sleep)
-		csr_clear(sstatus, SSTATUS_SIE);
-
-	if (timer_started)
-		timer_wait_cancel(&timer);
+	if (has_timeout)
+		ret = wait_schedule_until(TASK_INTERRUPTIBLE, expires);
+	else
+		ret = wait_schedule(TASK_INTERRUPTIBLE);
 
 	spin_lock_irqsave(&bucket->lock, &flags);
 	finish_wait(&waiter.wait);
@@ -160,9 +136,9 @@ static int futex_wait(int *uaddr, int expected,
 
 	if (waiter.woken)
 		return 0;
-	if (task_signal_pending(current))
+	if (ret == -EINTR || task_signal_pending(current))
 		return -EINTR;
-	if (timer_started && timer_wait_fired(&timer))
+	if (ret == -ETIMEDOUT)
 		return -ETIMEDOUT;
 
 	return 0;
@@ -193,7 +169,7 @@ int futex_wake_mm(struct mm_struct *mm, int *uaddr, int nr)
 
 		if (!futex_key_equal(&waiter->key, &key))
 			continue;
-		if (!wake_up_locked(&waiter->wait))
+		if (!wake_up_one(&waiter->wait))
 			continue;
 		waiter->woken = true;
 		woken++;

@@ -97,8 +97,8 @@ void kernel_test(void)
 	test_timer_mtimecmp();
 	test_timer_jiffies();
 	test_timer_constants();
-	test_timer_wait_expiry_wakes_task();
-	test_timer_wait_cancel_prevents_wake();
+	test_waitqueue_timeout_expiry_wakes_task();
+	test_waitqueue_timeout_cancel_prevents_wake();
 
 	/* ---- Sync ---- */
 	TEST_SECTION("Sync");
@@ -106,6 +106,11 @@ void kernel_test(void)
 	test_spinlock_irqsave();
 	test_wait_event_interruptible_ready();
 	test_wait_event_interruptible_signal();
+	test_waitqueue_prepare_finish();
+	test_waitqueue_wake_one_fifo();
+	test_waitqueue_wake_all();
+	test_wait_schedule_until_timeout();
+	test_wait_schedule_preserves_early_wakeup();
 	test_mutex_blocking();
 
 	/* ---- Cleanup RAII ---- */

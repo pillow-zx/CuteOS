@@ -35,16 +35,6 @@
 
 extern volatile uint64_t jiffies;
 
-struct task_struct;
-
-struct timer_wait {
-	struct list_head node;
-	struct task_struct *task;
-	uint64_t expires;
-	bool active;
-	bool fired;
-};
-
 /* ---- 函数声明 ---- */
 
 /**
@@ -58,11 +48,6 @@ uint64_t arch_timer_now(void);
  */
 void arch_timer_set(uint64_t value);
 
-void timer_wait_init(struct timer_wait *wait, struct task_struct *task,
-		     uint64_t expires);
-void timer_wait_start(struct timer_wait *wait);
-bool timer_wait_cancel(struct timer_wait *wait);
-bool timer_wait_fired(const struct timer_wait *wait);
 void timer_run_expired(uint64_t now);
 int timer_sleep_until(uint64_t expires, bool interruptible);
 

@@ -1,7 +1,9 @@
 #include <kernel/test.h>
 #include <kernel/sched.h>
 #include <kernel/task.h>
+#include <kernel/test_wait.h>
 #include <kernel/timer.h>
+#include <kernel/wait.h>
 
 void test_timer_mtime(void)
 {
@@ -79,33 +81,33 @@ fail:
 	TEST_FAIL("timer: constants", "see above");
 }
 
-void test_timer_wait_expiry_wakes_task(void)
+void test_waitqueue_timeout_expiry_wakes_task(void)
 {
 	struct task_struct *task = NULL;
-	struct timer_wait wait;
+	struct wait_timer_test_handle wait;
 
-	TEST_BEGIN("timer: wait expiry wakes task");
+	TEST_BEGIN("waitqueue: timeout expiry wakes task");
 	{
 		task = task_alloc();
 		TEST_ASSERT_NOT_NULL(task);
 		task->state = TASK_UNINTERRUPTIBLE;
 
-		timer_wait_init(&wait, task, 100);
-		timer_wait_start(&wait);
+		wait_timer_test_init(&wait, task, 100);
+		wait_timer_test_start(&wait);
 		timer_run_expired(99);
 		TEST_ASSERT_EQ(task->state, (uint32_t)TASK_UNINTERRUPTIBLE);
-		TEST_ASSERT(!timer_wait_fired(&wait));
+		TEST_ASSERT(!wait_timer_test_fired(&wait));
 
 		timer_run_expired(100);
 		TEST_ASSERT_EQ(task->state, (uint32_t)TASK_RUNNING);
-		TEST_ASSERT(timer_wait_fired(&wait));
-		TEST_ASSERT(!timer_wait_cancel(&wait));
+		TEST_ASSERT(wait_timer_test_fired(&wait));
+		TEST_ASSERT(!wait_timer_test_cancel(&wait));
 		TEST_ASSERT(!list_empty(&task->run_list));
 	}
-	TEST_END("timer: wait expiry wakes task");
+	TEST_END("waitqueue: timeout expiry wakes task");
 	goto cleanup;
 fail:
-	TEST_FAIL("timer: wait expiry wakes task", "see above");
+	TEST_FAIL("waitqueue: timeout expiry wakes task", "see above");
 cleanup:
 	if (task) {
 		if (!list_empty(&task->run_list))
@@ -114,29 +116,29 @@ cleanup:
 	}
 }
 
-void test_timer_wait_cancel_prevents_wake(void)
+void test_waitqueue_timeout_cancel_prevents_wake(void)
 {
 	struct task_struct *task = NULL;
-	struct timer_wait wait;
+	struct wait_timer_test_handle wait;
 
-	TEST_BEGIN("timer: wait cancel prevents wake");
+	TEST_BEGIN("waitqueue: timeout cancel prevents wake");
 	{
 		task = task_alloc();
 		TEST_ASSERT_NOT_NULL(task);
 		task->state = TASK_UNINTERRUPTIBLE;
 
-		timer_wait_init(&wait, task, 200);
-		timer_wait_start(&wait);
-		TEST_ASSERT(timer_wait_cancel(&wait));
+		wait_timer_test_init(&wait, task, 200);
+		wait_timer_test_start(&wait);
+		TEST_ASSERT(wait_timer_test_cancel(&wait));
 		timer_run_expired(200);
 		TEST_ASSERT_EQ(task->state, (uint32_t)TASK_UNINTERRUPTIBLE);
-		TEST_ASSERT(!timer_wait_fired(&wait));
+		TEST_ASSERT(!wait_timer_test_fired(&wait));
 		TEST_ASSERT(list_empty(&task->run_list));
 	}
-	TEST_END("timer: wait cancel prevents wake");
+	TEST_END("waitqueue: timeout cancel prevents wake");
 	goto cleanup;
 fail:
-	TEST_FAIL("timer: wait cancel prevents wake", "see above");
+	TEST_FAIL("waitqueue: timeout cancel prevents wake", "see above");
 cleanup:
 	if (task) {
 		if (!list_empty(&task->run_list))

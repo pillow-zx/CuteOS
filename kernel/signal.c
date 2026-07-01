@@ -44,7 +44,6 @@
 #include <kernel/string.h>
 #include <kernel/task.h>
 #include <kernel/user_map.h>
-#include <kernel/wait.h>
 #include <uapi/syscall.h>
 #include <asm/csr.h>
 #include <asm/page.h>
@@ -376,20 +375,22 @@ void signal_clear_handlers(struct task_struct *task)
 
 static void wake_signal_target(struct task_struct *task, int sig)
 {
+	uint32_t state;
+
 	if (!task)
 		return;
 
-	if (wait_task_is_interruptible(task) &&
+	state = task_state(task);
+	if (state == TASK_INTERRUPTIBLE &&
 	    ((signal_mask(sig) & ~task_blocked_mask(task)) ||
 	     !signal_is_catchable(sig))) {
-		wait_wake_task(task);
+		sched_wake_task(task);
 		return;
 	}
 
 	if (sig == SIGKILL || sig == SIGCONT) {
-		if (wait_task_is_stopped(task) ||
-		    wait_task_is_uninterruptible(task))
-			wait_wake_task(task);
+		if (state == TASK_STOPPED || state == TASK_UNINTERRUPTIBLE)
+			sched_wake_task(task);
 	}
 }
 
