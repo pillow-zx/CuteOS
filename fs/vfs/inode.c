@@ -136,7 +136,7 @@ int vfs_inode_writeback(struct inode *inode)
 
 static int64_t vfs_current_time_sec(void)
 {
-	struct sys_timespec ts;
+	struct timespec ts;
 
 	mtime_to_timespec(arch_timer_now(), &ts);
 	return ts.tv_sec;
@@ -236,7 +236,7 @@ int vfs_inode_permission(struct inode *inode, uint32_t mask)
 	return (perm & want) == want ? 0 : -EACCES;
 }
 
-int vfs_stat_inode(const struct inode *inode, struct kstat *st)
+int vfs_stat_inode(const struct inode *inode, struct stat *st)
 {
 	uint64_t size;
 

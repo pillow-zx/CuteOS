@@ -16,41 +16,13 @@
 #include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <kernel/timer.h>
+#include <uapi/random.h>
+#include <uapi/sysinfo.h>
+#include <uapi/utsname.h>
 #include <asm/page.h>
 #include <asm/trap.h>
 
-#define UTS_FIELD_LEN 65
-
-#define GRND_NONBLOCK	 0x0001
-#define GRND_RANDOM	 0x0002
-#define GRND_INSECURE	 0x0004
 #define GRND_VALID_FLAGS (GRND_NONBLOCK | GRND_RANDOM | GRND_INSECURE)
-
-struct sys_new_utsname {
-	char sysname[UTS_FIELD_LEN];
-	char nodename[UTS_FIELD_LEN];
-	char release[UTS_FIELD_LEN];
-	char version[UTS_FIELD_LEN];
-	char machine[UTS_FIELD_LEN];
-	char domainname[UTS_FIELD_LEN];
-};
-
-struct sys_sysinfo {
-	int64_t uptime;
-	uint64_t loads[3];
-	uint64_t totalram;
-	uint64_t freeram;
-	uint64_t sharedram;
-	uint64_t bufferram;
-	uint64_t totalswap;
-	uint64_t freeswap;
-	uint16_t procs;
-	uint16_t pad;
-	uint64_t totalhigh;
-	uint64_t freehigh;
-	uint32_t mem_unit;
-	char _f[0];
-};
 
 void rlimits_init(struct rlimit64 rlimits[RLIM_NLIMITS])
 {
@@ -73,8 +45,8 @@ static void uts_copy(char dst[UTS_FIELD_LEN], const char *src)
 
 ssize_t sys_uname(struct trap_frame *tf)
 {
-	struct sys_new_utsname *u = (struct sys_new_utsname *)tf->a0;
-	struct sys_new_utsname k;
+	struct utsname *u = (struct utsname *)tf->a0;
+	struct utsname k;
 
 	if (!u)
 		return -EFAULT;
@@ -168,8 +140,8 @@ ssize_t sys_umask(struct trap_frame *tf)
 
 ssize_t sys_sysinfo(struct trap_frame *tf)
 {
-	struct sys_sysinfo *uinfo = (struct sys_sysinfo *)tf->a0;
-	struct sys_sysinfo info;
+	struct sysinfo *uinfo = (struct sysinfo *)tf->a0;
+	struct sysinfo info;
 
 	if (!uinfo)
 		return -EFAULT;

@@ -27,15 +27,10 @@
 #include <kernel/types.h>
 #include <asm/trap.h>
 
-#define CLOCK_REALTIME	0
-#define CLOCK_MONOTONIC 1
-#define CLOCK_BOOTTIME	7
-#define TIMER_ABSTIME	1
-
 ssize_t sys_times(struct trap_frame *tf)
 {
-	struct sys_tms *utms = (struct sys_tms *)tf->a0;
-	struct sys_tms ktms = {
+	struct tms *utms = (struct tms *)tf->a0;
+	struct tms ktms = {
 		.tms_utime = (int64_t)task_user_ticks(current),
 		.tms_stime = (int64_t)task_system_ticks(current),
 		.tms_cutime = 0,
@@ -50,10 +45,10 @@ ssize_t sys_times(struct trap_frame *tf)
 
 ssize_t sys_gettimeofday(struct trap_frame *tf)
 {
-	struct sys_timeval *utv = (struct sys_timeval *)tf->a0;
-	struct sys_timezone *utz = (struct sys_timezone *)tf->a1;
+	struct timeval *utv = (struct timeval *)tf->a0;
+	struct timezone *utz = (struct timezone *)tf->a1;
 	uint64_t ticks = arch_timer_now();
-	struct sys_timeval ktv;
+	struct timeval ktv;
 
 	if (utv) {
 		ktv.tv_sec = (int64_t)(ticks / MTIME_FREQ);
@@ -64,7 +59,7 @@ ssize_t sys_gettimeofday(struct trap_frame *tf)
 	}
 
 	if (utz) {
-		struct sys_timezone ktz = {0};
+		struct timezone ktz = {0};
 
 		/*
 		 * TODO(time): 当前没有 RTC/时区配置，gettimeofday 暂以启动
@@ -80,8 +75,8 @@ ssize_t sys_gettimeofday(struct trap_frame *tf)
 ssize_t sys_clock_gettime(struct trap_frame *tf)
 {
 	int clock_id = (int)tf->a0;
-	struct sys_timespec *uts = (struct sys_timespec *)tf->a1;
-	struct sys_timespec kts;
+	struct timespec *uts = (struct timespec *)tf->a1;
+	struct timespec kts;
 
 	if (!clock_id_supported(clock_id))
 		return -EINVAL;
@@ -102,8 +97,8 @@ ssize_t sys_clock_gettime(struct trap_frame *tf)
 ssize_t sys_clock_getres(struct trap_frame *tf)
 {
 	int clock_id = (int)tf->a0;
-	struct sys_timespec *uts = (struct sys_timespec *)tf->a1;
-	struct sys_timespec kts = {
+	struct timespec *uts = (struct timespec *)tf->a1;
+	struct timespec kts = {
 		.tv_sec = 0,
 		.tv_nsec = 1000000000UL / MTIME_FREQ,
 	};
@@ -120,9 +115,9 @@ ssize_t sys_clock_getres(struct trap_frame *tf)
 
 ssize_t sys_nanosleep(struct trap_frame *tf)
 {
-	const struct sys_timespec *ureq = (const struct sys_timespec *)tf->a0;
-	struct sys_timespec *urem = (struct sys_timespec *)tf->a1;
-	struct sys_timespec req;
+	const struct timespec *ureq = (const struct timespec *)tf->a0;
+	struct timespec *urem = (struct timespec *)tf->a1;
+	struct timespec req;
 	uint64_t now;
 	uint64_t deadline;
 	uint64_t delta;
@@ -142,7 +137,7 @@ ssize_t sys_nanosleep(struct trap_frame *tf)
 
 	ret = timer_sleep_until(deadline, true);
 	if (ret == -EINTR && urem) {
-		struct sys_timespec rem = {0};
+		struct timespec rem = {0};
 		uint64_t after = arch_timer_now();
 
 		if (deadline > after)
@@ -158,9 +153,9 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 {
 	int clock_id = (int)tf->a0;
 	int flags = (int)tf->a1;
-	const struct sys_timespec *ureq = (const struct sys_timespec *)tf->a2;
-	struct sys_timespec *urem = (struct sys_timespec *)tf->a3;
-	struct sys_timespec req;
+	const struct timespec *ureq = (const struct timespec *)tf->a2;
+	struct timespec *urem = (struct timespec *)tf->a3;
+	struct timespec req;
 	uint64_t now;
 	uint64_t deadline;
 	uint64_t delta;
@@ -187,7 +182,7 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 
 	ret = timer_sleep_until(deadline, true);
 	if (ret == -EINTR && flags == 0 && urem) {
-		struct sys_timespec rem = {0};
+		struct timespec rem = {0};
 		uint64_t after = arch_timer_now();
 
 		if (deadline > after)
@@ -253,8 +248,8 @@ ssize_t sys_timer_delete(struct trap_frame *tf)
 ssize_t sys_clock_settime(struct trap_frame *tf)
 {
 	int clock_id = (int)tf->a0;
-	const struct sys_timespec *uts = (const struct sys_timespec *)tf->a1;
-	struct sys_timespec kts;
+	const struct timespec *uts = (const struct timespec *)tf->a1;
+	struct timespec kts;
 
 	if (!clock_id_supported(clock_id))
 		return -EINVAL;

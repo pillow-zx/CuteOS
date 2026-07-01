@@ -97,7 +97,7 @@ int vfs_truncate_file(struct file *file, uint64_t size)
 	return vfs_inode_truncate(file->f_inode, size);
 }
 
-int vfs_stat_file(struct file *file, struct kstat *st)
+int vfs_stat_file(struct file *file, struct stat *st)
 {
 	if (!file)
 		return -EINVAL;
@@ -105,7 +105,7 @@ int vfs_stat_file(struct file *file, struct kstat *st)
 	return vfs_stat_inode(file->f_inode, st);
 }
 
-int vfs_statfs(struct super_block *sb, struct kstatfs *buf)
+int vfs_statfs(struct super_block *sb, struct statfs64 *buf)
 {
 	if (!sb || !buf)
 		return -EINVAL;

@@ -150,6 +150,7 @@ void test_tty_signal_delivery_policy(void);
 void test_signal_rt_sigsetsize_validation(void);
 void test_root_statfs_fields(void);
 void test_pipe2_file_alloc_failure_cleanup(void);
+void test_uapi_shared_layouts(void);
 
 /* ================================================================
  *  Sched 调度器测试

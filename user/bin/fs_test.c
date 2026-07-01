@@ -674,6 +674,85 @@ static int test_utimensat_sets_mtime(void)
 	return 0;
 }
 
+static int test_empty_path_stat_and_utime(void)
+{
+	struct timespec times[2];
+	struct stat st;
+	struct statx stx;
+	long fd;
+	long ret;
+
+	fd = openat(AT_FDCWD, "/tmp/empty_path_stat", O_CREAT | O_RDWR | O_TRUNC,
+		    0644);
+	if (fd < 0) {
+		printf("FAIL: open empty path stat file: %ld\n", fd);
+		return 1;
+	}
+
+	ret = fstatat((int)fd, "", &st, AT_EMPTY_PATH);
+	if (ret != 0 || st.st_size != 0) {
+		printf("FAIL: fstatat empty path ret=%ld size=%ld\n", ret,
+		       st.st_size);
+		close((int)fd);
+		unlinkat(AT_FDCWD, "/tmp/empty_path_stat", 0);
+		return 1;
+	}
+
+	memset(&stx, 0, sizeof(stx));
+	ret = statx((int)fd, "", AT_EMPTY_PATH, STATX_BASIC_STATS, &stx);
+	if (ret != 0 || stx.stx_size != 0) {
+		printf("FAIL: statx empty path ret=%ld size=%lu\n", ret,
+		       stx.stx_size);
+		close((int)fd);
+		unlinkat(AT_FDCWD, "/tmp/empty_path_stat", 0);
+		return 1;
+	}
+
+	times[0].tv_sec = 200;
+	times[0].tv_nsec = 0;
+	times[1].tv_sec = 201;
+	times[1].tv_nsec = 0;
+	ret = utimensat((int)fd, "", times, AT_EMPTY_PATH);
+	if (ret != 0) {
+		printf("FAIL: utimensat empty string ret=%ld\n", ret);
+		close((int)fd);
+		unlinkat(AT_FDCWD, "/tmp/empty_path_stat", 0);
+		return 1;
+	}
+
+	ret = fstatat((int)fd, "", &st, AT_EMPTY_PATH);
+	if (ret != 0 || st.st_mtime_sec != 201) {
+		printf("FAIL: fstatat after empty utime ret=%ld mtime=%ld\n",
+		       ret, st.st_mtime_sec);
+		close((int)fd);
+		unlinkat(AT_FDCWD, "/tmp/empty_path_stat", 0);
+		return 1;
+	}
+
+	times[0].tv_sec = 300;
+	times[0].tv_nsec = 0;
+	times[1].tv_sec = 301;
+	times[1].tv_nsec = 0;
+	ret = utimensat((int)fd, NULL, times, AT_EMPTY_PATH);
+	if (ret != 0) {
+		printf("FAIL: utimensat null empty path ret=%ld\n", ret);
+		close((int)fd);
+		unlinkat(AT_FDCWD, "/tmp/empty_path_stat", 0);
+		return 1;
+	}
+
+	ret = fstatat((int)fd, "", &st, AT_EMPTY_PATH);
+	close((int)fd);
+	unlinkat(AT_FDCWD, "/tmp/empty_path_stat", 0);
+	if (ret != 0 || st.st_mtime_sec != 301) {
+		printf("FAIL: fstatat after null utime ret=%ld mtime=%ld\n",
+		       ret, st.st_mtime_sec);
+		return 1;
+	}
+
+	return 0;
+}
+
 static int test_statx_basic_regular_file(void)
 {
 	struct statx stx;
@@ -1364,6 +1443,8 @@ int main(void)
 	report_group("pipe epipe", test_pipe_epipe(), &failed);
 	report_group("utimensat sets mtime", test_utimensat_sets_mtime(),
 		     &failed);
+	report_group("empty path stat and utime",
+		     test_empty_path_stat_and_utime(), &failed);
 	report_group("statx basic regular file", test_statx_basic_regular_file(),
 		     &failed);
 	report_group("symlinkat creates readlink target",

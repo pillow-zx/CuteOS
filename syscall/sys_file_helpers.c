@@ -7,8 +7,10 @@
 #include <kernel/errno.h>
 #include <kernel/fdtable.h>
 #include <kernel/fs.h>
+#include <kernel/fs_struct.h>
 #include <kernel/mm.h>
 #include <kernel/stat.h>
+#include <kernel/task.h>
 #include <kernel/vfs.h>
 #include <asm/page.h>
 
@@ -67,4 +69,74 @@ int dirfd_path_base_path(int dfd, const char *path, struct path *basep)
 	path_get(basep);
 
 	return 0;
+}
+
+int copy_user_path_at(int dfd, const char *user, char **pathp,
+		      struct path *basep)
+{
+	int ret;
+
+	ret = copy_user_path(pathp, user);
+	if (ret < 0)
+		return ret;
+
+	ret = dirfd_path_base_path(dfd, *pathp, basep);
+	return ret;
+}
+
+int sys_empty_path_requested(int flags, const char *upath, bool *empty)
+{
+	char first;
+
+	if (!empty)
+		return -EINVAL;
+
+	*empty = false;
+	if (!(flags & AT_EMPTY_PATH))
+		return 0;
+	if (!upath) {
+		*empty = true;
+		return 0;
+	}
+	if (copy_from_user(&first, upath, sizeof(first)) != 0)
+		return -EFAULT;
+	if (first == '\0')
+		*empty = true;
+
+	return 0;
+}
+
+int sys_empty_path_inode(int dfd, struct path *cwd, struct file **filep,
+			 struct inode **inodep)
+{
+	struct file *file;
+	int ret;
+
+	if (!inodep)
+		return -EINVAL;
+
+	*inodep = NULL;
+	if (filep)
+		*filep = NULL;
+
+	if (dfd == AT_FDCWD) {
+		if (!cwd)
+			return -EINVAL;
+		ret = fs_get_cwd_path(task_fs(current), cwd);
+		if (ret < 0)
+			return ret;
+		if (!cwd->dentry)
+			return -ENOENT;
+		*inodep = cwd->dentry->d_inode;
+		return *inodep ? 0 : -ENOENT;
+	}
+
+	if (!filep)
+		return -EINVAL;
+	file = fd_get(dfd);
+	if (!file)
+		return -EBADF;
+	*filep = file;
+	*inodep = file->f_inode;
+	return *inodep ? 0 : -ENOENT;
 }

@@ -28,19 +28,6 @@
 
 #include "sys_file_internal.h"
 
-#define F_OK 0
-#define R_OK 4
-#define W_OK 2
-#define X_OK 1
-
-#define AT_EMPTY_PATH	    0x1000
-#define AT_EACCESS	    0x200
-#define AT_SYMLINK_NOFOLLOW 0x100
-#define AT_SYMLINK_FOLLOW   0x400
-
-#define UTIME_NOW  0x3fffffff
-#define UTIME_OMIT 0x3ffffffe
-
 struct getdents_ctx {
 	char *dirp;
 	size_t count;
@@ -85,11 +72,7 @@ static int sys_faccessat_path(int dfd, const char *upath, int mode,
 	struct path found __cleanup_with(path) = {};
 	int ret;
 
-	ret = copy_user_path(&path, upath);
-	if (ret < 0)
-		return ret;
-
-	ret = dirfd_path_base_path(dfd, path, &base);
+	ret = copy_user_path_at(dfd, upath, &path, &base);
 	if (ret < 0)
 		return ret;
 
@@ -105,24 +88,16 @@ static int sys_faccessat_path(int dfd, const char *upath, int mode,
 
 static int sys_faccessat_empty_path(int dfd, int mode)
 {
+	struct path cwd __cleanup_with(path) = {};
+	struct file *file __cleanup_with(file) = NULL;
+	struct inode *inode;
 	int ret;
 
-	if (dfd == AT_FDCWD) {
-		struct path cwd __cleanup_with(path) = {};
+	ret = sys_empty_path_inode(dfd, &cwd, &file, &inode);
+	if (ret < 0)
+		return ret;
 
-		ret = fs_get_cwd_path(task_fs(current), &cwd);
-		if (ret < 0)
-			return ret;
-		return vfs_inode_permission(cwd.dentry->d_inode,
-					    (uint32_t)mode);
-	}
-
-	struct file *file __cleanup_with(file) = fd_get(dfd);
-
-	if (!file)
-		return -EBADF;
-
-	ret = vfs_inode_permission(file->f_inode, (uint32_t)mode);
+	ret = vfs_inode_permission(inode, (uint32_t)mode);
 	return ret;
 }
 
@@ -163,11 +138,7 @@ ssize_t sys_openat(struct trap_frame *tf)
 	struct path base __cleanup_with(path) = {};
 	int ret;
 
-	ret = copy_user_path(&path, upath);
-	if (ret < 0)
-		return ret;
-
-	ret = dirfd_path_base_path(dfd, path, &base);
+	ret = copy_user_path_at(dfd, upath, &path, &base);
 	if (ret < 0)
 		return ret;
 
@@ -185,11 +156,7 @@ ssize_t sys_mkdirat(struct trap_frame *tf)
 	struct path base __cleanup_with(path) = {};
 	int ret;
 
-	ret = copy_user_path(&path, upath);
-	if (ret < 0)
-		return ret;
-
-	ret = dirfd_path_base_path(dfd, path, &base);
+	ret = copy_user_path_at(dfd, upath, &path, &base);
 	if (ret < 0)
 		return ret;
 
@@ -210,11 +177,7 @@ ssize_t sys_unlinkat(struct trap_frame *tf)
 	if (flags & ~AT_REMOVEDIR)
 		return -EINVAL;
 
-	ret = copy_user_path(&path, upath);
-	if (ret < 0)
-		return ret;
-
-	ret = dirfd_path_base_path(dfd, path, &base);
+	ret = copy_user_path_at(dfd, upath, &path, &base);
 	if (ret < 0)
 		return ret;
 
@@ -265,13 +228,15 @@ ssize_t sys_faccessat2(struct trap_frame *tf)
 	if (flags & ~(AT_EACCESS | AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW))
 		return -EINVAL;
 	if (flags & AT_EMPTY_PATH) {
-		char first;
+		bool empty;
+		int ret;
 
 		if (!upath)
 			return -EFAULT;
-		if (copy_from_user(&first, upath, sizeof(first)) != 0)
-			return -EFAULT;
-		if (first == '\0')
+		ret = sys_empty_path_requested(flags, upath, &empty);
+		if (ret < 0)
+			return ret;
+		if (empty)
 			return sys_faccessat_empty_path(dfd, mode);
 	}
 
@@ -390,12 +355,8 @@ ssize_t sys_readlinkat(struct trap_frame *tf)
 	if (!ubuf || !access_ok(ubuf, bufsiz))
 		return -EFAULT;
 
-	ret = copy_user_path(&path, upath);
-	if (ret < 0)
-		return ret;
-
 	/* readlink 操作链接本身，绝不跟随末端符号链接。 */
-	ret = dirfd_path_base_path(dfd, path, &base);
+	ret = copy_user_path_at(dfd, upath, &path, &base);
 	if (ret < 0)
 		return ret;
 
@@ -434,11 +395,7 @@ ssize_t sys_symlinkat(struct trap_frame *tf)
 	ret = copy_user_path(&target, utarget);
 	if (ret < 0)
 		return ret;
-	ret = copy_user_path(&linkpath, ulinkpath);
-	if (ret < 0)
-		return ret;
-
-	ret = dirfd_path_base_path(newdfd, linkpath, &base);
+	ret = copy_user_path_at(newdfd, ulinkpath, &linkpath, &base);
 	if (ret < 0)
 		return ret;
 
@@ -464,14 +421,7 @@ ssize_t sys_linkat(struct trap_frame *tf)
 	if (flags & ~AT_SYMLINK_FOLLOW)
 		return -EINVAL;
 
-	ret = copy_user_path(&oldpath, uoldpath);
-	if (ret < 0)
-		return ret;
-	ret = copy_user_path(&newpath, unewpath);
-	if (ret < 0)
-		return ret;
-
-	ret = dirfd_path_base_path(olddfd, oldpath, &old_base);
+	ret = copy_user_path_at(olddfd, uoldpath, &oldpath, &old_base);
 	if (ret < 0)
 		return ret;
 	ret = path_lookupat_path(
@@ -481,7 +431,7 @@ ssize_t sys_linkat(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	ret = dirfd_path_base_path(newdfd, newpath, &new_base);
+	ret = copy_user_path_at(newdfd, unewpath, &newpath, &new_base);
 	if (ret < 0)
 		return ret;
 	ret = vfs_link_at_path(old_path_found.dentry,
@@ -499,11 +449,7 @@ ssize_t sys_mknod(struct trap_frame *tf)
 	struct path base __cleanup_with(path) = {};
 	int ret;
 
-	ret = copy_user_path(&path, upath);
-	if (ret < 0)
-		return ret;
-
-	ret = dirfd_path_base_path(dfd, path, &base);
+	ret = copy_user_path_at(dfd, upath, &path, &base);
 	if (ret < 0)
 		return ret;
 
@@ -569,19 +515,11 @@ ssize_t sys_renameat2(struct trap_frame *tf)
 	if (flags & ~RENAME_NOREPLACE)
 		return -EINVAL;
 
-	ret = copy_user_path(&old_path, uold_path);
+	ret = copy_user_path_at(old_dfd, uold_path, &old_path, &old_base);
 	if (ret < 0)
 		return ret;
 
-	ret = copy_user_path(&new_path, unew_path);
-	if (ret < 0)
-		return ret;
-
-	ret = dirfd_path_base_path(old_dfd, old_path, &old_base);
-	if (ret < 0)
-		return ret;
-
-	ret = dirfd_path_base_path(new_dfd, new_path, &new_base);
+	ret = copy_user_path_at(new_dfd, unew_path, &new_path, &new_base);
 	if (ret < 0)
 		return ret;
 
@@ -591,37 +529,28 @@ ssize_t sys_renameat2(struct trap_frame *tf)
 	return ret;
 }
 
-static int sys_utimensat_empty_path(int dfd, const struct sys_timespec ktimes[2],
+static int sys_utimensat_empty_path(int dfd, const struct timespec ktimes[2],
 				    const bool set_time[2])
 {
+	struct path cwd __cleanup_with(path) = {};
+	struct file *file __cleanup_with(file) = NULL;
+	struct inode *inode;
 	int ret;
 
-	if (dfd == AT_FDCWD) {
-		struct path cwd __cleanup_with(path) = {};
-
-		ret = fs_get_cwd_path(task_fs(current), &cwd);
-		if (ret < 0)
-			return ret;
-		return vfs_inode_set_timestamps(cwd.dentry->d_inode,
-						ktimes[0].tv_sec,
-						ktimes[1].tv_sec, set_time[0],
-						set_time[1]);
-	}
-
-	struct file *file __cleanup_with(file) = fd_get(dfd);
-	if (!file)
-		return -EBADF;
-	ret = vfs_inode_set_timestamps(file->f_inode, ktimes[0].tv_sec,
+	ret = sys_empty_path_inode(dfd, &cwd, &file, &inode);
+	if (ret < 0)
+		return ret;
+	ret = vfs_inode_set_timestamps(inode, ktimes[0].tv_sec,
 				       ktimes[1].tv_sec, set_time[0],
 				       set_time[1]);
 	return ret;
 }
 
-static int sys_utimensat_read_times(const struct sys_timespec *utimes,
-				    struct sys_timespec ktimes[2],
+static int sys_utimensat_read_times(const struct timespec *utimes,
+				    struct timespec ktimes[2],
 				    bool set_time[2])
 {
-	struct sys_timespec now;
+	struct timespec now;
 
 	mtime_to_timespec(arch_timer_now(), &now);
 	if (!utimes) {
@@ -631,7 +560,7 @@ static int sys_utimensat_read_times(const struct sys_timespec *utimes,
 		set_time[1] = true;
 		return 0;
 	}
-	if (copy_from_user(ktimes, utimes, sizeof(struct sys_timespec) * 2) != 0)
+	if (copy_from_user(ktimes, utimes, sizeof(struct timespec) * 2) != 0)
 		return -EFAULT;
 
 	for (int i = 0; i < 2; i++) {
@@ -656,9 +585,9 @@ ssize_t sys_utimensat(struct trap_frame *tf)
 {
 	int dfd = (int)tf->a0;
 	const char *upath = (const char *)tf->a1;
-	const struct sys_timespec *utimes = (const struct sys_timespec *)tf->a2;
+	const struct timespec *utimes = (const struct timespec *)tf->a2;
 	int flags = (int)tf->a3;
-	struct sys_timespec ktimes[2];
+	struct timespec ktimes[2];
 	bool set_time[2];
 	char *path __cleanup_with(page0) = NULL;
 	struct path base __cleanup_with(path) = {};
@@ -672,22 +601,17 @@ ssize_t sys_utimensat(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	if ((flags & AT_EMPTY_PATH) && !upath)
-		return sys_utimensat_empty_path(dfd, ktimes, set_time);
-	if ((flags & AT_EMPTY_PATH) && upath) {
-		char first;
+	if (flags & AT_EMPTY_PATH) {
+		bool empty;
 
-		if (copy_from_user(&first, upath, sizeof(first)) != 0)
-			return -EFAULT;
-		if (first == '\0')
+		ret = sys_empty_path_requested(flags, upath, &empty);
+		if (ret < 0)
+			return ret;
+		if (empty)
 			return sys_utimensat_empty_path(dfd, ktimes, set_time);
 	}
 
-	ret = copy_user_path(&path, upath);
-	if (ret < 0)
-		return ret;
-
-	ret = dirfd_path_base_path(dfd, path, &base);
+	ret = copy_user_path_at(dfd, upath, &path, &base);
 	if (ret < 0)
 		return ret;
 

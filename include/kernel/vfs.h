@@ -35,9 +35,6 @@ extern struct dentry *root_dentry;
 #define LOOKUP_NOFOLLOW 0x0001 /* 不跟随路径末端的符号链接 */
 #define LOOKUP_NO_MOUNT 0x0002 /* 不跨越路径末端的挂载点 */
 
-/* renameat2() flags */
-#define RENAME_NOREPLACE 0x0001
-
 #define VFS_MAY_EXEC  0x1
 #define VFS_MAY_WRITE 0x2
 #define VFS_MAY_READ  0x4
@@ -69,7 +66,7 @@ int __must_check vfs_rename_at_path(const struct path *old_base,
 				    unsigned int flags);
 int __must_check vfs_mknod_at_path(const struct path *base, const char *path,
 				   uint32_t mode, dev_t dev);
-int __must_check vfs_stat_dentry(struct dentry *dentry, struct kstat *st);
+int __must_check vfs_stat_dentry(struct dentry *dentry, struct stat *st);
 int __must_check vfs_chdir_path(const struct path *path);
 void vfs_set_root_dentry(struct dentry *dentry);
 void mntget(struct vfsmount *mnt);

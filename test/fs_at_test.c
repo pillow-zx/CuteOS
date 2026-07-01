@@ -243,7 +243,7 @@ fail:
 void test_fs_mount_ext2_on_directory(void)
 {
 	struct path path = {0};
-	struct kstatfs st;
+	struct statfs64 st;
 	int ret;
 	int ignored;
 

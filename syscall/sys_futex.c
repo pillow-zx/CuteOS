@@ -11,10 +11,10 @@
 #include <kernel/timer.h>
 #include <asm/trap.h>
 
-static int futex_copy_timeout(const struct sys_timespec *utimeout,
+static int futex_copy_timeout(const struct timespec *utimeout,
 			      struct futex_deadline *deadline)
 {
-	struct sys_timespec timeout;
+	struct timespec timeout;
 	uint64_t delta;
 	int ret;
 
@@ -43,8 +43,8 @@ ssize_t sys_futex(struct trap_frame *tf)
 	int *uaddr = (int *)tf->a0;
 	int op = (int)tf->a1;
 	int val = (int)tf->a2;
-	const struct sys_timespec *timeout =
-		(const struct sys_timespec *)tf->a3;
+	const struct timespec *timeout =
+		(const struct timespec *)tf->a3;
 	struct futex_deadline deadline;
 	int ret;
 

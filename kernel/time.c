@@ -8,8 +8,8 @@
  *
  * 内部函数：
  *   clock_id_supported(clock_id) - 验证 clock_id 是否受支持
- *   mtime_to_timespec(ticks, ts) - mtime tick → struct sys_timespec
- *   timespec_to_mtime_delta(ts, delta) - struct sys_timespec → tick 增量
+ *   mtime_to_timespec(ticks, ts) - mtime tick → struct timespec
+ *   timespec_to_mtime_delta(ts, delta) - struct timespec → tick 增量
  *   mtime_deadline_after(now, delta) - 带饱和的截止时间计算
  */
 
@@ -17,10 +17,6 @@
 #include <kernel/time.h>
 #include <kernel/timer.h>
 #include <kernel/types.h>
-
-#define CLOCK_REALTIME	0
-#define CLOCK_MONOTONIC 1
-#define CLOCK_BOOTTIME	7
 
 static uint64_t nsec_from_mtime_remainder(uint64_t ticks)
 {
@@ -33,7 +29,7 @@ bool clock_id_supported(int clock_id)
 	       clock_id == CLOCK_BOOTTIME;
 }
 
-void mtime_to_timespec(uint64_t ticks, struct sys_timespec *ts)
+void mtime_to_timespec(uint64_t ticks, struct timespec *ts)
 {
 	uint64_t sec = ticks / MTIME_FREQ;
 	uint64_t rem = ticks % MTIME_FREQ;
@@ -42,7 +38,7 @@ void mtime_to_timespec(uint64_t ticks, struct sys_timespec *ts)
 	ts->tv_nsec = (int64_t)nsec_from_mtime_remainder(rem);
 }
 
-int timespec_to_mtime_delta(const struct sys_timespec *ts, uint64_t *delta)
+int timespec_to_mtime_delta(const struct timespec *ts, uint64_t *delta)
 {
 	uint64_t sec_ticks;
 	uint64_t nsec_ticks;

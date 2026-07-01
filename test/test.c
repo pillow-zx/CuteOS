@@ -154,6 +154,7 @@ void kernel_test(void)
 
 	/* ---- Syscall Compat Helpers ---- */
 	TEST_SECTION("Syscall Compat");
+	test_uapi_shared_layouts();
 	test_rlimit_defaults();
 	test_vfs_default_poll_masks();
 	test_vfs_poll_table_registers_multiple_queues();

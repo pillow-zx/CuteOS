@@ -23,21 +23,13 @@
 #include <kernel/task.h>
 #include <kernel/timer.h>
 #include <kernel/vfs.h>
+#include <uapi/uio.h>
 #include <asm/page.h>
 #include <asm/trap.h>
 #include <kernel/time.h>
 
 #include "sys_file_internal.h"
 
-#define SEEK_SET 0
-#define SEEK_CUR 1
-#define SEEK_END 2
-
-#define F_DUPFD		      0
-#define F_GETFD		      1
-#define F_SETFD		      2
-#define F_GETFL		      3
-#define F_SETFL		      4
 #define F_GETLK		      5
 #define F_SETLK		      6
 #define F_SETLKW	      7
@@ -61,7 +53,6 @@
 #define F_DUPFD_QUERY	      (F_LINUX_SPECIFIC_BASE + 3)
 #define F_CREATED_QUERY	      (F_LINUX_SPECIFIC_BASE + 4)
 #define F_CANCELLK	      (F_LINUX_SPECIFIC_BASE + 5)
-#define F_DUPFD_CLOEXEC	      (F_LINUX_SPECIFIC_BASE + 6)
 #define F_SETPIPE_SZ	      (F_LINUX_SPECIFIC_BASE + 7)
 #define F_GETPIPE_SZ	      (F_LINUX_SPECIFIC_BASE + 8)
 #define F_ADD_SEALS	      (F_LINUX_SPECIFIC_BASE + 9)
@@ -72,10 +63,6 @@
 #define F_SET_FILE_RW_HINT    (F_LINUX_SPECIFIC_BASE + 14)
 #define F_GETDELEG	      (F_LINUX_SPECIFIC_BASE + 15)
 #define F_SETDELEG	      (F_LINUX_SPECIFIC_BASE + 16)
-#define FD_CLOEXEC	      1
-
-#define FALLOC_FL_KEEP_SIZE 0x01
-
 /*
  * ftruncate/fallocate 允许设置的最大 i_size。真实上界取决于具体文件系统；
  * 此处取保守值，主要防止无界膨胀导致 fill_kstat 的 st_blocks 计算溢出，
@@ -184,10 +171,10 @@ static ssize_t rw_at_offset(struct file *file, void *buf, size_t len,
 	return ret;
 }
 
-static ssize_t rw_iovec(struct file *file, const struct sys_iovec *uiov,
+static ssize_t rw_iovec(struct file *file, const struct iovec *uiov,
 			size_t iovcnt, bool write)
 {
-	struct sys_iovec iov;
+	struct iovec iov;
 	ssize_t total = 0;
 
 	if (iovcnt > SYS_IOV_MAX)
@@ -252,7 +239,7 @@ ssize_t sys_read(struct trap_frame *tf)
 ssize_t sys_readv(struct trap_frame *tf)
 {
 	int fd = (int)tf->a0;
-	const struct sys_iovec *uiov = (const struct sys_iovec *)tf->a1;
+	const struct iovec *uiov = (const struct iovec *)tf->a1;
 	size_t iovcnt = tf->a2;
 	struct file *file __cleanup_with(file) = fd_get_readable(fd);
 	ssize_t ret;
@@ -269,7 +256,7 @@ ssize_t sys_readv(struct trap_frame *tf)
 ssize_t sys_writev(struct trap_frame *tf)
 {
 	int fd = (int)tf->a0;
-	const struct sys_iovec *uiov = (const struct sys_iovec *)tf->a1;
+	const struct iovec *uiov = (const struct iovec *)tf->a1;
 	size_t iovcnt = tf->a2;
 	struct file *file __cleanup_with(file) = fd_get_writable(fd);
 	ssize_t ret;

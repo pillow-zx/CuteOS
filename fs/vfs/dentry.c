@@ -166,7 +166,7 @@ void dput(struct dentry *dentry)
 	(void)refcount_dec_if_positive(&dentry->d_refcount);
 }
 
-int vfs_stat_dentry(struct dentry *dentry, struct kstat *st)
+int vfs_stat_dentry(struct dentry *dentry, struct stat *st)
 {
 	if (!dentry || !st)
 		return -EINVAL;

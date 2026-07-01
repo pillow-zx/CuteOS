@@ -23,15 +23,7 @@
 #include <kernel/page_mapping.h>
 #include <kernel/types.h>
 #include <kernel/compiler.h>
-
-/* 设备号编码：高 12 位主设备号，低 20 位次设备号（与 Linux 一致）。
- * 用宏实现，使 MKDEV(maj,min) 成为编译期常量，可用于静态初始化。
- * 目前仅用主设备号索引 dev_table；次设备号暂未启用（无分区/多设备）。 */
-#define MINORBITS 20u
-
-#define MKDEV(major, minor)                                                    \
-	((dev_t)(((dev_t)(major) << MINORBITS) | (dev_t)(minor)))
-#define MAJOR(dev) ((unsigned int)((dev) >> MINORBITS))
+#include <uapi/stat.h>
 
 /* 块设备扇区大小：virtio-blk 与绝大多数块设备固定 512 字节/扇区 */
 #define SECTOR_SIZE  512u

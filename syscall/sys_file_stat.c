@@ -29,47 +29,29 @@
 
 #include "sys_file_internal.h"
 
-#define AT_EMPTY_PATH	    0x1000
-#define AT_SYMLINK_NOFOLLOW 0x100
-#define AT_STATX_SYNC_TYPE  0x6000
-#define AT_STATX_FORCE_SYNC 0x2000
-#define AT_STATX_DONT_SYNC  0x4000
-
-static int stat_empty_path(int dfd, struct kstat *ustat)
+static int stat_empty_path(int dfd, struct stat *ustat)
 {
-	struct kstat st;
+	struct path cwd __cleanup_with(path) = {};
+	struct file *file __cleanup_with(file) = NULL;
+	struct inode *inode;
+	struct stat st;
 	int ret;
 
-	if (dfd == AT_FDCWD) {
-		struct path cwd __cleanup_with(path) = {};
-
-		ret = fs_get_cwd_path(task_fs(current), &cwd);
-		if (ret < 0)
-			return ret;
-		ret = vfs_stat_dentry(cwd.dentry, &st);
-		if (ret < 0)
-			return ret;
-		return copy_to_user(ustat, &st, sizeof(st)) != 0 ? -EFAULT : 0;
-	} else {
-		struct file *file __cleanup_with(file) = fd_get(dfd);
-
-		if (!file)
-			return -EBADF;
-		ret = vfs_stat_file(file, &st);
-		if (ret == 0)
-			ret = copy_to_user(ustat, &st, sizeof(st)) != 0
-				      ? -EFAULT
-				      : 0;
+	ret = sys_empty_path_inode(dfd, &cwd, &file, &inode);
+	if (ret < 0)
 		return ret;
-	}
+	ret = vfs_stat_inode(inode, &st);
+	if (ret < 0)
+		return ret;
+	return copy_to_user(ustat, &st, sizeof(st)) != 0 ? -EFAULT : 0;
 }
 
 ssize_t sys_fstat(struct trap_frame *tf)
 {
 	int fd = (int)tf->a0;
-	struct kstat *ustat = (struct kstat *)tf->a1;
+	struct stat *ustat = (struct stat *)tf->a1;
 	struct file *file __cleanup_with(file) = fd_get(fd);
-	struct kstat st;
+	struct stat st;
 	int ret;
 
 	if (!file)
@@ -88,12 +70,12 @@ ssize_t sys_newfstatat(struct trap_frame *tf)
 {
 	int dfd = (int)tf->a0;
 	const char *upath = (const char *)tf->a1;
-	struct kstat *ustat = (struct kstat *)tf->a2;
+	struct stat *ustat = (struct stat *)tf->a2;
 	int flags = (int)tf->a3;
 	char *path __cleanup_with(page0) = NULL;
 	struct path base __cleanup_with(path) = {};
 	struct path found __cleanup_with(path) = {};
-	struct kstat st;
+	struct stat st;
 	int ret;
 
 	if (!ustat || !access_ok(ustat, sizeof(*ustat)))
@@ -101,23 +83,17 @@ ssize_t sys_newfstatat(struct trap_frame *tf)
 	if (flags & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW))
 		return -EINVAL;
 
-	if ((flags & AT_EMPTY_PATH) && !upath)
-		return stat_empty_path(dfd, ustat);
-	if ((flags & AT_EMPTY_PATH) && upath) {
-		char first;
+	if (flags & AT_EMPTY_PATH) {
+		bool empty;
 
-		if (copy_from_user(&first, upath, sizeof(first)) != 0)
-			return -EFAULT;
-
-		if (first == '\0')
+		ret = sys_empty_path_requested(flags, upath, &empty);
+		if (ret < 0)
+			return ret;
+		if (empty)
 			return stat_empty_path(dfd, ustat);
 	}
 
-	ret = copy_user_path(&path, upath);
-	if (ret < 0)
-		return ret;
-
-	ret = dirfd_path_base_path(dfd, path, &base);
+	ret = copy_user_path_at(dfd, upath, &path, &base);
 	if (ret < 0)
 		return ret;
 
@@ -144,7 +120,7 @@ static void statx_timestamp_from_stat(struct statx_timestamp *dst,
 	dst->__reserved = 0;
 }
 
-static void statx_from_kstat(const struct kstat *st, struct statx *stx)
+static void statx_from_stat(const struct stat *st, struct statx *stx)
 {
 	memset(stx, 0, sizeof(*stx));
 	stx->stx_mask = STATX_BASIC_STATS;
@@ -170,35 +146,21 @@ static void statx_from_kstat(const struct kstat *st, struct statx *stx)
 
 static int statx_empty_path(int dfd, struct statx *ustatx)
 {
-	struct kstat st;
+	struct path cwd __cleanup_with(path) = {};
+	struct file *file __cleanup_with(file) = NULL;
+	struct inode *inode;
+	struct stat st;
 	struct statx stx;
 	int ret;
 
-	if (dfd == AT_FDCWD) {
-		struct path cwd __cleanup_with(path) = {};
-
-		ret = fs_get_cwd_path(task_fs(current), &cwd);
-		if (ret < 0)
-			return ret;
-		ret = vfs_stat_dentry(cwd.dentry, &st);
-		if (ret < 0)
-			return ret;
-		statx_from_kstat(&st, &stx);
-		return copy_to_user(ustatx, &stx, sizeof(stx)) != 0 ? -EFAULT : 0;
-	} else {
-		struct file *file __cleanup_with(file) = fd_get(dfd);
-
-		if (!file)
-			return -EBADF;
-		ret = vfs_stat_file(file, &st);
-		if (ret == 0) {
-			statx_from_kstat(&st, &stx);
-			ret = copy_to_user(ustatx, &stx, sizeof(stx)) != 0
-				      ? -EFAULT
-				      : 0;
-		}
+	ret = sys_empty_path_inode(dfd, &cwd, &file, &inode);
+	if (ret < 0)
 		return ret;
-	}
+	ret = vfs_stat_inode(inode, &st);
+	if (ret < 0)
+		return ret;
+	statx_from_stat(&st, &stx);
+	return copy_to_user(ustatx, &stx, sizeof(stx)) != 0 ? -EFAULT : 0;
 }
 
 ssize_t sys_statx(struct trap_frame *tf)
@@ -211,7 +173,7 @@ ssize_t sys_statx(struct trap_frame *tf)
 	char *path __cleanup_with(page0) = NULL;
 	struct path base __cleanup_with(path) = {};
 	struct path found __cleanup_with(path) = {};
-	struct kstat st;
+	struct stat st;
 	struct statx stx;
 	int ret;
 
@@ -227,22 +189,17 @@ ssize_t sys_statx(struct trap_frame *tf)
 	    (flags & AT_STATX_SYNC_TYPE) != 0)
 		return -EINVAL;
 
-	if ((flags & AT_EMPTY_PATH) && !upath)
-		return statx_empty_path(dfd, ustatx);
-	if ((flags & AT_EMPTY_PATH) && upath) {
-		char first;
+	if (flags & AT_EMPTY_PATH) {
+		bool empty;
 
-		if (copy_from_user(&first, upath, sizeof(first)) != 0)
-			return -EFAULT;
-		if (first == '\0')
+		ret = sys_empty_path_requested(flags, upath, &empty);
+		if (ret < 0)
+			return ret;
+		if (empty)
 			return statx_empty_path(dfd, ustatx);
 	}
 
-	ret = copy_user_path(&path, upath);
-	if (ret < 0)
-		return ret;
-
-	ret = dirfd_path_base_path(dfd, path, &base);
+	ret = copy_user_path_at(dfd, upath, &path, &base);
 	if (ret < 0)
 		return ret;
 
@@ -256,7 +213,7 @@ ssize_t sys_statx(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	statx_from_kstat(&st, &stx);
+	statx_from_stat(&st, &stx);
 	if (copy_to_user(ustatx, &stx, sizeof(stx)) != 0)
 		return -EFAULT;
 
@@ -266,10 +223,10 @@ ssize_t sys_statx(struct trap_frame *tf)
 ssize_t sys_statfs64(struct trap_frame *tf)
 {
 	const char *upath = (const char *)tf->a0;
-	struct kstatfs *ubuf = (struct kstatfs *)tf->a1;
+	struct statfs64 *ubuf = (struct statfs64 *)tf->a1;
 	char *path __cleanup_with(page0) = NULL;
 	struct path found __cleanup_with(path) = {};
-	struct kstatfs st;
+	struct statfs64 st;
 	int ret;
 
 	if (!ubuf || !access_ok(ubuf, sizeof(*ubuf)))
@@ -297,9 +254,9 @@ ssize_t sys_statfs64(struct trap_frame *tf)
 ssize_t sys_fstatfs64(struct trap_frame *tf)
 {
 	int fd = (int)tf->a0;
-	struct kstatfs *ubuf = (struct kstatfs *)tf->a1;
+	struct statfs64 *ubuf = (struct statfs64 *)tf->a1;
 	struct file *file __cleanup_with(file) = NULL;
-	struct kstatfs st;
+	struct statfs64 st;
 	int ret;
 
 	if (!ubuf || !access_ok(ubuf, sizeof(*ubuf)))

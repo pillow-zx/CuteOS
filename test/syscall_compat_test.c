@@ -10,6 +10,11 @@
 #include <kernel/test.h>
 #include <kernel/tty.h>
 #include <kernel/vfs.h>
+#include <uapi/dirent.h>
+#include <uapi/futex.h>
+#include <uapi/resource.h>
+#include <uapi/stat.h>
+#include <uapi/time.h>
 #include <uapi/tty.h>
 
 ssize_t console_tty_read_stream_for_test(const struct termios *termios,
@@ -19,6 +24,35 @@ ssize_t console_tty_read_stream_for_test(const struct termios *termios,
 ssize_t console_tty_write_for_test(const struct termios *termios,
 				   const char *input, size_t input_len,
 				   char *out, size_t out_size);
+
+void test_uapi_shared_layouts(void)
+{
+	TEST_BEGIN("syscall compat: shared uapi layouts");
+	{
+		TEST_ASSERT_EQ(sizeof(struct stat), (size_t)128);
+		TEST_ASSERT_EQ(offsetof(struct stat, st_mode), (size_t)16);
+		TEST_ASSERT_EQ(offsetof(struct stat, st_size), (size_t)48);
+		TEST_ASSERT_EQ(offsetof(struct stat, st_blocks), (size_t)64);
+
+		TEST_ASSERT_EQ(sizeof(struct statx), (size_t)256);
+		TEST_ASSERT_EQ(offsetof(struct statx, stx_atime), (size_t)0x40);
+		TEST_ASSERT_EQ(offsetof(struct statx, stx_rdev_major),
+			       (size_t)0x80);
+
+		TEST_ASSERT_EQ(offsetof(struct linux_dirent64, d_name),
+			       (size_t)19);
+		TEST_ASSERT_EQ(sizeof(struct timespec), (size_t)16);
+		TEST_ASSERT_EQ(sizeof(struct rlimit64), (size_t)16);
+		TEST_ASSERT_EQ(sizeof(struct robust_list_head), (size_t)24);
+		TEST_ASSERT_EQ(offsetof(struct robust_list_head,
+					list_op_pending),
+			       (size_t)16);
+	}
+	TEST_END("syscall compat: shared uapi layouts");
+	return;
+fail:
+	TEST_FAIL("syscall compat: shared uapi layouts", "see above");
+}
 
 void test_rlimit_defaults(void)
 {
@@ -252,7 +286,7 @@ fail:
 
 void test_root_statfs_fields(void)
 {
-	struct kstatfs st;
+	struct statfs64 st;
 
 	TEST_BEGIN("syscall compat: root statfs fields");
 	{

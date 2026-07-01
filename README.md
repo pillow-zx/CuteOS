@@ -226,10 +226,9 @@ ELF。
 
 ## 开发提示
 
-- 系统调用号遵循 Linux riscv64 ABI。新增 syscall 时先在
-  `include/kernel/syscall.h` 定号和声明，再在 `syscall/syscall.c` 注册。
-- 用户态 ABI 头在 `user/libc/minimal/include/user.h`，和内核头有意保持边界
-  重复；修改结构布局时需要同步两侧。
+- 公共 ABI 统一维护在 `include/uapi/`；用户态 libc 和内核头都从这里
+  include。新增 syscall 时先在 `include/uapi/syscall.h` 定号，再在
+  `include/kernel/syscall_table.h` 和对应 `syscall/` 实现中注册入口。
 - 内核返回错误统一使用负 errno，例如 `-EINVAL`、`-ENOMEM`、`-ENOSYS`。
 - `CONFIG_KERNEL_TEST=y` 时，启动后自动运行内核自测。
 - `make defconfig` 用于恢复基线配置，`make menuconfig` 用于交互式调整；`ext2` 仍是唯一可启动根文件系统。

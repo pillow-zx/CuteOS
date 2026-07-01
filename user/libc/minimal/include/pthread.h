@@ -3,16 +3,6 @@
 
 #include <user.h>
 
-#ifndef ESRCH
-#define ESRCH 3
-#endif
-#ifndef EDEADLK
-#define EDEADLK 35
-#endif
-#ifndef EBUSY
-#define EBUSY 16
-#endif
-
 typedef unsigned long pthread_t;
 
 typedef struct {

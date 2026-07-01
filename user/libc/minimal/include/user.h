@@ -13,328 +13,31 @@
 #ifndef _USER_H
 #define _USER_H
 
+#include <uapi/dirent.h>
+#include <uapi/errno.h>
+#include <uapi/fcntl.h>
+#include <uapi/futex.h>
+#include <uapi/poll.h>
+#include <uapi/random.h>
+#include <uapi/resource.h>
 #include <uapi/mman.h>
 #include <uapi/membarrier.h>
 #include <uapi/sched.h>
 #include <uapi/signal.h>
+#include <uapi/stat.h>
+#include <uapi/statfs.h>
 #include <uapi/syscall.h>
+#include <uapi/sysinfo.h>
 #include <uapi/syslog.h>
+#include <uapi/time.h>
 #include <uapi/tty.h>
+#include <uapi/uio.h>
+#include <uapi/utsname.h>
 
 typedef unsigned long size_t;
 
 /* libc convenience alias; Linux riscv64 has clone, not a separate fork nr. */
 #define SYS_fork SYS_clone
-
-#define AT_FDCWD	    -100
-#define AT_REMOVEDIR	    0x200
-#define AT_EACCESS	    0x200
-#define AT_SYMLINK_FOLLOW  0x400
-#define AT_EMPTY_PATH	    0x1000
-#define AT_SYMLINK_NOFOLLOW 0x100
-
-#define UTIME_NOW  0x3fffffff
-#define UTIME_OMIT 0x3ffffffe
-
-#define O_RDONLY    00000000
-#define O_WRONLY    00000001
-#define O_RDWR	    00000002
-#define O_CREAT	    00000100
-#define O_EXCL	    00000200
-#define O_TRUNC	    00001000
-#define O_APPEND    00002000
-#define O_NONBLOCK  00004000
-#define O_DSYNC	    00010000
-#define FASYNC	    00020000
-#define O_DIRECT    00040000
-#define O_DIRECTORY 00200000
-#define O_NOATIME   01000000
-#define O_CLOEXEC   02000000
-#define __O_SYNC    04000000
-#define O_SYNC	    (__O_SYNC | O_DSYNC)
-#define F_DUPFD	    0
-#define F_GETFD	    1
-#define F_SETFD	    2
-#define F_GETFL	    3
-#define F_SETFL	    4
-#define F_DUPFD_CLOEXEC 1030
-#define FD_CLOEXEC  1
-
-#define POLLIN	 0x0001
-#define POLLOUT	 0x0004
-#define POLLERR	 0x0008
-#define POLLHUP	 0x0010
-#define POLLNVAL 0x0020
-
-#define R_OK 4
-#define W_OK 2
-#define X_OK 1
-#define F_OK 0
-
-#define SEEK_SET 0
-#define SEEK_CUR 1
-#define SEEK_END 2
-
-#define FALLOC_FL_KEEP_SIZE 0x01
-
-#define S_IFMT	00170000
-#define S_IFLNK 0120000
-#define S_IFREG 0100000
-#define S_IFBLK 0060000
-#define S_IFDIR 0040000
-#define S_IFCHR 0020000
-#define S_IFIFO 0010000
-#define S_IRUSR 00400
-#define S_IWUSR 00200
-#define S_IXUSR 00100
-#define S_IRGRP 00040
-#define S_IWGRP 00020
-#define S_IXGRP 00010
-#define S_IROTH 00004
-#define S_IWOTH 00002
-#define S_IXOTH 00001
-
-#define S_ISREG(m)  (((m) & S_IFMT) == S_IFREG)
-#define S_ISDIR(m)  (((m) & S_IFMT) == S_IFDIR)
-#define S_ISLNK(m)  (((m) & S_IFMT) == S_IFLNK)
-#define S_ISCHR(m)  (((m) & S_IFMT) == S_IFCHR)
-#define S_ISBLK(m)  (((m) & S_IFMT) == S_IFBLK)
-#define S_ISFIFO(m) (((m) & S_IFMT) == S_IFIFO)
-
-#define MINORBITS 20u
-#define MKDEV(major, minor)                                                    \
-	(((unsigned long)(major) << MINORBITS) | (unsigned long)(minor))
-
-#define DT_UNKNOWN 0
-#define DT_FIFO	   1
-#define DT_CHR	   2
-#define DT_DIR	   4
-#define DT_BLK	   6
-#define DT_REG	   8
-#define DT_LNK	   10
-#define DT_SOCK	   12
-
-#define EPERM	  1
-#define ENOENT	  2
-#define ESRCH	  3
-#define EINTR	  4
-#define EACCES	  13
-#define EEXIST	  17
-#define ENOTDIR	  20
-#define EISDIR	  21
-#define EINVAL	  22
-#define EMFILE	  24
-#define ENOTTY	  25
-#define EFBIG	  27
-#define EAGAIN	  11
-#define EFAULT	  14
-#define ENOTBLK	  15
-#define EBUSY	  16
-#define ENODEV	  19
-#define EBADF	  9
-#define ENOSYS	  38
-#define ELOOP	  40
-#define ETIMEDOUT 110
-
-#define POLLIN	 0x0001
-#define POLLOUT	 0x0004
-#define POLLERR	 0x0008
-#define POLLHUP	 0x0010
-#define POLLNVAL 0x0020
-
-#define GRND_NONBLOCK 0x0001
-#define GRND_RANDOM   0x0002
-#define GRND_INSECURE 0x0004
-
-#define RLIM_INFINITY (~0UL)
-#define RLIMIT_CPU    0
-#define RLIMIT_FSIZE  1
-#define RLIMIT_DATA   2
-#define RLIMIT_STACK  3
-#define RLIMIT_CORE   4
-#define RLIMIT_RSS    5
-#define RLIMIT_NPROC  6
-#define RLIMIT_NOFILE 7
-#define RLIMIT_AS     9
-
-#define FUTEX_WAIT	   0
-#define FUTEX_WAKE	   1
-#define FUTEX_PRIVATE_FLAG 128
-#define FUTEX_WAITERS	   0x80000000
-#define FUTEX_OWNER_DIED   0x40000000
-#define FUTEX_TID_MASK	   0x3fffffff
-
-#define CLOCK_REALTIME	0
-#define CLOCK_MONOTONIC 1
-#define CLOCK_BOOTTIME	7
-
-#define TIMER_ABSTIME 0x01
-
-struct tms {
-	long tms_utime;
-	long tms_stime;
-	long tms_cutime;
-	long tms_cstime;
-};
-
-struct timeval {
-	long tv_sec;
-	long tv_usec;
-};
-
-struct timespec {
-	long tv_sec;
-	long tv_nsec;
-};
-
-struct pollfd {
-	int fd;
-	short events;
-	short revents;
-};
-
-struct statfs64 {
-	long f_type;
-	long f_bsize;
-	unsigned long f_blocks;
-	unsigned long f_bfree;
-	unsigned long f_bavail;
-	unsigned long f_files;
-	unsigned long f_ffree;
-	int f_fsid[2];
-	long f_namelen;
-	long f_frsize;
-	long f_flags;
-	long f_spare[4];
-};
-
-struct rlimit64 {
-	unsigned long rlim_cur;
-	unsigned long rlim_max;
-};
-
-struct robust_list {
-	struct robust_list *next;
-};
-
-struct robust_list_head {
-	struct robust_list list;
-	long futex_offset;
-	struct robust_list *list_op_pending;
-};
-
-struct iovec {
-	void *iov_base;
-	size_t iov_len;
-};
-
-struct linux_dirent64 {
-	unsigned long d_ino;
-	long d_off;
-	unsigned short d_reclen;
-	unsigned char d_type;
-	char d_name[];
-};
-
-/*
- * 必须与 include/kernel/stat.h 的 struct kstat 逐字节一致：内核 fstat/
- * newfstatat 直接 copy_to_user 一个 struct kstat 出来。修改任一侧都要同步。
- */
-struct stat {
-	unsigned long st_dev;
-	unsigned long st_ino;
-	unsigned int st_mode;
-	unsigned int st_nlink;
-	unsigned int st_uid;
-	unsigned int st_gid;
-	unsigned long st_rdev;
-	unsigned long __pad1;
-	long st_size;
-	unsigned int st_blksize;
-	unsigned int __pad2;
-	unsigned long st_blocks;
-	long st_atime_sec;
-	unsigned long st_atime_nsec;
-	long st_mtime_sec;
-	unsigned long st_mtime_nsec;
-	long st_ctime_sec;
-	unsigned long st_ctime_nsec;
-	unsigned int st_unused[2];
-};
-
-struct statx_timestamp {
-	long tv_sec;
-	unsigned int tv_nsec;
-	int __reserved;
-};
-
-struct statx {
-	unsigned int stx_mask;
-	unsigned int stx_blksize;
-	unsigned long stx_attributes;
-	unsigned int stx_nlink;
-	unsigned int stx_uid;
-	unsigned int stx_gid;
-	unsigned short stx_mode;
-	unsigned short __spare0[1];
-	unsigned long stx_ino;
-	unsigned long stx_size;
-	unsigned long stx_blocks;
-	unsigned long stx_attributes_mask;
-	struct statx_timestamp stx_atime;
-	struct statx_timestamp stx_btime;
-	struct statx_timestamp stx_ctime;
-	struct statx_timestamp stx_mtime;
-	unsigned int stx_rdev_major;
-	unsigned int stx_rdev_minor;
-	unsigned int stx_dev_major;
-	unsigned int stx_dev_minor;
-	unsigned long stx_mnt_id;
-	unsigned int stx_dio_mem_align;
-	unsigned int stx_dio_offset_align;
-	unsigned long stx_subvol;
-	unsigned long __spare3[11];
-};
-
-#define STATX_TYPE	  0x00000001U
-#define STATX_MODE	  0x00000002U
-#define STATX_NLINK	  0x00000004U
-#define STATX_UID	  0x00000008U
-#define STATX_GID	  0x00000010U
-#define STATX_ATIME	  0x00000020U
-#define STATX_MTIME	  0x00000040U
-#define STATX_CTIME	  0x00000080U
-#define STATX_INO	  0x00000100U
-#define STATX_SIZE	  0x00000200U
-#define STATX_BLOCKS	  0x00000400U
-#define STATX_BASIC_STATS 0x000007ffU
-#define STATX_BTIME	  0x00000800U
-#define STATX__RESERVED  0x80000000U
-
-struct utsname {
-	char sysname[65];
-	char nodename[65];
-	char release[65];
-	char version[65];
-	char machine[65];
-	char domainname[65];
-};
-
-struct sysinfo {
-	long uptime;
-	unsigned long loads[3];
-	unsigned long totalram;
-	unsigned long freeram;
-	unsigned long sharedram;
-	unsigned long bufferram;
-	unsigned long totalswap;
-	unsigned long freeswap;
-	unsigned short procs;
-	unsigned short pad;
-	unsigned long totalhigh;
-	unsigned long freehigh;
-	unsigned int mem_unit;
-};
 
 /* ---- syscallN: 底层内联汇编封装 (a0~a5, 最多 6 个参数) ---- */
 
@@ -571,8 +274,6 @@ static inline long renameat2(int old_dfd, const char *old_path, int new_dfd,
 	return syscall(SYS_renameat2, old_dfd, (long)old_path, new_dfd,
 		       (long)new_path, (long)flags);
 }
-
-#define RENAME_NOREPLACE 1
 
 static inline long rename(const char *old_path, const char *new_path)
 {

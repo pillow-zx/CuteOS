@@ -36,6 +36,10 @@
 #include <kernel/types.h>
 #include <kernel/compiler.h>
 #include <kernel/wait.h>
+#include <uapi/dirent.h>
+#include <uapi/fcntl.h>
+#include <uapi/poll.h>
+#include <uapi/stat.h>
 
 struct task_struct;
 struct trap_frame;
@@ -43,8 +47,7 @@ struct file;
 struct inode;
 struct dentry;
 struct super_block;
-struct kstat;
-struct kstatfs;
+struct statfs64;
 struct vfs_poll_table;
 
 #define VFS_NAME_MAX 255
@@ -59,42 +62,6 @@ struct vfs_poll_table;
 #define FMODE_READ  0x1
 #define FMODE_WRITE 0x2
 
-#define O_RDONLY    00000000
-#define O_WRONLY    00000001
-#define O_RDWR	    00000002
-#define O_ACCMODE   00000003
-#define O_CREAT	    00000100
-#define O_EXCL	    00000200
-#define O_TRUNC	    00001000
-#define O_APPEND    00002000
-#define O_NONBLOCK  00004000
-#define O_DSYNC	    00010000
-#define FASYNC	    00020000
-#define O_DIRECT    00040000
-#define O_DIRECTORY 00200000
-#define O_NOATIME   01000000
-#define O_CLOEXEC   02000000
-#define __O_SYNC    04000000
-#define O_SYNC	    (__O_SYNC | O_DSYNC)
-
-#define AT_FDCWD     -100
-#define AT_REMOVEDIR 0x200
-
-#define POLLIN	 0x0001
-#define POLLOUT	 0x0004
-#define POLLERR	 0x0008
-#define POLLHUP	 0x0010
-#define POLLNVAL 0x0020
-
-#define DT_UNKNOWN 0
-#define DT_FIFO	   1
-#define DT_CHR	   2
-#define DT_DIR	   4
-#define DT_BLK	   6
-#define DT_REG	   8
-#define DT_LNK	   10
-#define DT_SOCK	   12
-
 typedef int (*filldir_t)(void *ctx, const char *name, size_t namelen,
 			 uint64_t ino, uint8_t type, loff_t off);
 
@@ -103,7 +70,7 @@ struct super_operations {
 	int (*write_inode)(struct inode *inode);
 	void (*evict_inode)(struct inode *inode);
 	int (*sync_fs)(struct super_block *sb);
-	int (*statfs)(struct super_block *sb, struct kstatfs *buf);
+	int (*statfs)(struct super_block *sb, struct statfs64 *buf);
 };
 
 struct inode_operations {
@@ -258,9 +225,9 @@ int __must_check vfs_inode_set_timestamps(struct inode *inode,
 int __must_check vfs_inode_touch(struct inode *inode, bool atime, bool mtime,
 				 bool ctime);
 int __must_check vfs_sync_file(struct file *file);
-int __must_check vfs_stat_inode(const struct inode *inode, struct kstat *st);
-int __must_check vfs_stat_file(struct file *file, struct kstat *st);
-int __must_check vfs_statfs(struct super_block *sb, struct kstatfs *buf);
+int __must_check vfs_stat_inode(const struct inode *inode, struct stat *st);
+int __must_check vfs_stat_file(struct file *file, struct stat *st);
+int __must_check vfs_statfs(struct super_block *sb, struct statfs64 *buf);
 void vfs_poll_table_init(struct vfs_poll_table *table);
 void vfs_poll_table_cleanup(struct vfs_poll_table *table);
 void vfs_poll_wait(struct vfs_poll_table *table, struct wait_queue_head *wq);

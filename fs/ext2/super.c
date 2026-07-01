@@ -13,7 +13,7 @@
 static struct super_block *ext2_mount(struct file_system_type *fs_type,
 				      dev_t dev, void *data);
 static void ext2_evict_inode(struct inode *inode);
-static int ext2_statfs(struct super_block *sb, struct kstatfs *buf);
+static int ext2_statfs(struct super_block *sb, struct statfs64 *buf);
 
 static const struct super_operations ext2_sops = {
 	.read_inode = ext2_read_inode,
@@ -59,7 +59,7 @@ static void ext2_free_super(struct super_block *sb)
 	kfree(sb);
 }
 
-static int ext2_statfs(struct super_block *sb, struct kstatfs *buf)
+static int ext2_statfs(struct super_block *sb, struct statfs64 *buf)
 {
 	struct ext2_sb_info *sbi;
 	uint64_t free_blocks = 0;

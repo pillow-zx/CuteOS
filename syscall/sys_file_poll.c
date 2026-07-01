@@ -31,7 +31,7 @@ struct ppoll_scan_ctx {
 	size_t nfds;
 };
 
-static int sys_timespec_to_deadline(const struct sys_timespec *ts,
+static int sys_timespec_to_deadline(const struct timespec *ts,
 				    bool *has_timeout, uint64_t *deadline)
 {
 	uint64_t now;
@@ -99,12 +99,12 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 {
 	struct sys_pollfd *ufds = (struct sys_pollfd *)tf->a0;
 	size_t nfds = (size_t)tf->a1;
-	const struct sys_timespec *utimeout =
-		(const struct sys_timespec *)tf->a2;
+	const struct timespec *utimeout =
+		(const struct timespec *)tf->a2;
 	const uint64_t *usigmask = (const uint64_t *)tf->a3;
 	size_t sigsetsize = (size_t)tf->a4;
 	struct sys_pollfd fds[NR_OPEN];
-	struct sys_timespec timeout;
+	struct timespec timeout;
 	struct ppoll_scan_ctx scan_ctx;
 	bool has_timeout;
 	uint64_t deadline;
