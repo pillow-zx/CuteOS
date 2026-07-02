@@ -161,6 +161,11 @@ int __must_check mm_madvise(struct mm_struct *mm, uintptr_t addr, size_t len,
  */
 int __must_check mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len,
 			     int prot);
+ssize_t __must_check mm_mremap(struct mm_struct *mm, uintptr_t old_addr,
+			       size_t old_size, size_t new_size, int flags,
+			       uintptr_t new_addr);
+int __must_check mm_msync(struct mm_struct *mm, uintptr_t addr, size_t len,
+			  int flags);
 
 /* ---- 用户空间安全访问（uaccess） ---- */
 

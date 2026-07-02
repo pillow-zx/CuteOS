@@ -59,6 +59,27 @@ ssize_t sys_mprotect(struct trap_frame *tf)
 	return mm_mprotect(task_mm(current), addr, length, prot);
 }
 
+ssize_t sys_mremap(struct trap_frame *tf)
+{
+	uintptr_t old_addr = (uintptr_t)tf->a0;
+	size_t old_size = (size_t)tf->a1;
+	size_t new_size = (size_t)tf->a2;
+	int flags = (int)tf->a3;
+	uintptr_t new_addr = (uintptr_t)tf->a4;
+
+	return mm_mremap(task_mm(current), old_addr, old_size, new_size, flags,
+			 new_addr);
+}
+
+ssize_t sys_msync(struct trap_frame *tf)
+{
+	uintptr_t addr = (uintptr_t)tf->a0;
+	size_t length = (size_t)tf->a1;
+	int flags = (int)tf->a2;
+
+	return mm_msync(task_mm(current), addr, length, flags);
+}
+
 /*
  * sys_madvise - madvise 系统调用
  *

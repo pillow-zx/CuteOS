@@ -133,6 +133,7 @@ void kernel_test(void)
 	test_mm_vma_mprotect_split_merge();
 	test_mm_vma_mprotect_enospc_preserves_layout();
 	test_mm_madvise_supported_hints_are_noop();
+	test_mm_move_user_pages_preserves_resident_page();
 
 	/* ---- Task ---- */
 	TEST_SECTION("Task");

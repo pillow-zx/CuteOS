@@ -632,6 +632,120 @@ static int test_mincore_prot_none_resident(void)
 	return 0;
 }
 
+static int test_mremap_shrink_anon(void)
+{
+	char *m;
+	void *remapped;
+	const size_t old_len = 2 * PAGE_SIZE;
+	const size_t new_len = PAGE_SIZE;
+
+	m = mmap(NULL, old_len, PROT_READ | PROT_WRITE,
+		 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)m < 0) {
+		printf("FAIL: mmap: %ld\n", (long)m);
+		return 1;
+	}
+
+	m[0] = 0x31;
+	m[PAGE_SIZE] = 0x42;
+	remapped = mremap(m, old_len, new_len, 0, NULL);
+	if ((long)remapped < 0) {
+		printf("FAIL: mremap shrink: %ld\n", (long)remapped);
+		munmap(m, old_len);
+		return 1;
+	}
+	if (remapped != m || m[0] != 0x31) {
+		printf("FAIL: mremap shrink lost mapping/data\n");
+		munmap(remapped, new_len);
+		return 1;
+	}
+
+	munmap(remapped, new_len);
+	return 0;
+}
+
+static int test_mremap_grow_anon_fixed(void)
+{
+	char *m;
+	void *remapped;
+	const size_t old_len = PAGE_SIZE;
+	const size_t new_len = 2 * PAGE_SIZE;
+	void *base = (void *)0x40000000UL;
+
+	m = mmap(base, old_len, PROT_READ | PROT_WRITE,
+		 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+	if ((long)m < 0) {
+		printf("FAIL: fixed mmap: %ld\n", (long)m);
+		return 1;
+	}
+
+	m[0] = 0x52;
+	remapped = mremap(m, old_len, new_len, 0, NULL);
+	if ((long)remapped < 0) {
+		printf("FAIL: mremap grow: %ld\n", (long)remapped);
+		munmap(m, old_len);
+		return 1;
+	}
+	if (remapped != m || m[0] != 0x52) {
+		printf("FAIL: mremap grow lost old data\n");
+		munmap(remapped, new_len);
+		return 1;
+	}
+
+	m[PAGE_SIZE] = 0x63;
+	if (m[PAGE_SIZE] != 0x63) {
+		printf("FAIL: mremap grow new page not writable\n");
+		munmap(remapped, new_len);
+		return 1;
+	}
+
+	munmap(remapped, new_len);
+	return 0;
+}
+
+static int test_msync_anon(void)
+{
+	char *m;
+	long ret;
+
+	m = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
+		 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)m < 0) {
+		printf("FAIL: mmap: %ld\n", (long)m);
+		return 1;
+	}
+
+	m[0] = 0x27;
+	ret = msync(m, PAGE_SIZE, MS_SYNC);
+	if (ret != 0) {
+		printf("FAIL: msync anon: %ld\n", ret);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+	ret = msync(m + 1, PAGE_SIZE - 1, MS_SYNC);
+	if (ret != -22) {
+		printf("FAIL: msync unaligned expected -22 got %ld\n", ret);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+	ret = msync(m, PAGE_SIZE, MS_SYNC | MS_ASYNC);
+	if (ret != -22) {
+		printf("FAIL: msync conflicting flags expected -22 got %ld\n",
+		       ret);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+	ret = msync(m, PAGE_SIZE, 0x1000);
+	if (ret != -22) {
+		printf("FAIL: msync unknown flags expected -22 got %ld\n", ret);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	munmap(m, PAGE_SIZE);
+	return 0;
+}
+
 static void report_group(const char *name, int ret, int *failed)
 {
 	printf("mm_test: %s ... ", name);
@@ -663,6 +777,11 @@ int main(void)
 	report_group("mincore zero length", test_mincore_zero_len(), &failed);
 	report_group("mincore PROT_NONE resident",
 		     test_mincore_prot_none_resident(), &failed);
+	report_group("mremap shrink anonymous", test_mremap_shrink_anon(),
+		     &failed);
+	report_group("mremap grow anonymous fixed",
+		     test_mremap_grow_anon_fixed(), &failed);
+	report_group("msync anonymous", test_msync_anon(), &failed);
 
 	if (failed)
 		printf("mm_test: %d test group(s) FAILED\n", failed);

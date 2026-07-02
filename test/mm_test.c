@@ -3,6 +3,9 @@
 #include <kernel/syscall.h>
 #include <kernel/test.h>
 #include <asm/page.h>
+#include <asm/pte.h>
+
+#include "../mm/internal.h"
 
 #define MM_TEST_BASE 0x00400000UL
 #define MM_TEST_GAP  0x00100000UL
@@ -469,6 +472,67 @@ void test_mm_madvise_supported_hints_are_noop(void)
 	goto cleanup;
 fail:
 	TEST_FAIL("mm: madvise supported hints return 0", "see above");
+cleanup:
+	if (mm)
+		mm_destroy(mm);
+}
+
+void test_mm_move_user_pages_preserves_resident_page(void)
+{
+	struct mm_struct *mm = NULL;
+	uintptr_t src = MM_TEST_BASE + 9 * MM_TEST_GAP;
+	uintptr_t dst = MM_TEST_BASE + 10 * MM_TEST_GAP;
+
+	TEST_BEGIN("mm: move resident user page");
+	{
+		pte_t *src_pte;
+		pte_t *dst_pte;
+		paddr_t src_pa;
+		paddr_t dst_pa;
+		uint8_t *data;
+
+		mm = mm_test_alloc();
+		TEST_ASSERT_NOT_NULL(mm);
+
+		TEST_ASSERT_EQ(mm_mmap(mm, src, PAGE_SIZE,
+				       PROT_READ | PROT_WRITE,
+				       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED),
+			       (ssize_t)src);
+		TEST_ASSERT_EQ(mm_mmap(mm, dst, PAGE_SIZE,
+				       PROT_READ | PROT_WRITE,
+				       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED),
+			       (ssize_t)dst);
+		TEST_ASSERT_EQ(fault_in_user_range(mm, src, PAGE_SIZE,
+						   USER_FAULT_WRITE),
+			       0);
+
+		src_pte = arch_pt_walk(mm->pgd, src, false);
+		TEST_ASSERT(src_pte && pte_user_page(*src_pte));
+		src_pa = pte_to_pa(*src_pte);
+		data = (uint8_t *)__va(src_pa);
+		data[0] = 0x5a;
+		data[PAGE_SIZE - 1] = 0xa5;
+
+		mm_lock(mm);
+		TEST_ASSERT_EQ(mm_move_user_pages_locked(mm, src, dst,
+							 PAGE_SIZE),
+			       0);
+		mm_unlock(mm);
+
+		src_pte = arch_pt_walk(mm->pgd, src, false);
+		dst_pte = arch_pt_walk(mm->pgd, dst, false);
+		TEST_ASSERT(!src_pte || !pte_user_page(*src_pte));
+		TEST_ASSERT(dst_pte && pte_user_page(*dst_pte));
+		dst_pa = pte_to_pa(*dst_pte);
+		TEST_ASSERT_EQ(dst_pa, src_pa);
+		data = (uint8_t *)__va(dst_pa);
+		TEST_ASSERT_EQ(data[0], 0x5a);
+		TEST_ASSERT_EQ(data[PAGE_SIZE - 1], 0xa5);
+	}
+	TEST_END("mm: move resident user page");
+	goto cleanup;
+fail:
+	TEST_FAIL("mm: move resident user page", "see above");
 cleanup:
 	if (mm)
 		mm_destroy(mm);

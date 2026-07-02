@@ -36,5 +36,10 @@ int __must_check vma_unmap_range(struct mm_struct *mm,
 				 struct vm_area_struct *vma, uintptr_t start,
 				 uintptr_t end, uintptr_t *unmap_start,
 				 uintptr_t *unmap_end);
+void mm_unmap_user_pages_locked(struct mm_struct *mm, uintptr_t start,
+				uintptr_t end);
+int __must_check mm_move_user_pages_locked(struct mm_struct *mm,
+					   uintptr_t old_start,
+					   uintptr_t new_start, size_t len);
 
 #endif /* _CUTEOS_MM_INTERNAL_H */

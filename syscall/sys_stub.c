@@ -127,20 +127,6 @@ ssize_t sys_getrusage(struct trap_frame *tf)
 	return -ENOSYS;
 }
 
-ssize_t sys_mremap(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(mm): 需要 VMA 拆分/合并和页表范围迁移。 */
-	return -ENOSYS;
-}
-
-ssize_t sys_msync(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(mm/vfs): 需要文件映射回写；匿名映射可单独兼容处理。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_mlock(struct trap_frame *tf)
 {
 	(void)tf;

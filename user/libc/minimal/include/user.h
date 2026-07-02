@@ -671,6 +671,18 @@ static inline long munmap(void *addr, size_t length)
 	return syscall(SYS_munmap, (long)addr, (long)length);
 }
 
+static inline void *mremap(void *old_addr, size_t old_size, size_t new_size,
+			   int flags, void *new_addr)
+{
+	return (void *)syscall(SYS_mremap, (long)old_addr, (long)old_size,
+			       (long)new_size, flags, (long)new_addr);
+}
+
+static inline long msync(void *addr, size_t length, int flags)
+{
+	return syscall(SYS_msync, (long)addr, (long)length, flags);
+}
+
 static inline long madvise(void *addr, size_t length, int advice)
 {
 	return syscall(SYS_madvise, (long)addr, (long)length, advice);
