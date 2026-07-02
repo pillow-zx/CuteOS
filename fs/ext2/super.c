@@ -11,7 +11,7 @@
 
 #define EXT2_ROOT_DEV MKDEV(8, 0)
 static struct super_block *ext2_mount(struct file_system_type *fs_type,
-				      dev_t dev, void *data);
+				      dev_t dev, const void *data);
 static void ext2_evict_inode(struct inode *inode);
 static int ext2_statfs(struct super_block *sb, struct statfs64 *buf);
 
@@ -207,7 +207,7 @@ static int ext2_read_super(struct super_block *sb)
 }
 
 static struct super_block *ext2_mount(struct file_system_type *fs_type,
-				      dev_t dev, void *data)
+				      dev_t dev, const void *data)
 {
 	struct super_block *sb;
 	struct inode *root_inode;

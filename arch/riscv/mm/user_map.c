@@ -9,6 +9,7 @@
 #include <kernel/user_map.h>
 #include <asm/page.h>
 #include <asm/pte.h>
+#include <asm/user_map.h>
 #include <drivers/uart.h>
 #include <drivers/virtio.h>
 

@@ -179,7 +179,7 @@ static bool task_signal_target_dead(struct task_struct *task)
 
 static void reset_task_altstack(struct task_struct *task)
 {
-	struct stack_t *sas = task_altstack(task);
+	struct stack_t *sas = task_altstack_safe(task);
 
 	if (!sas)
 		return;
@@ -295,7 +295,7 @@ int signals_clone(struct task_struct *child, bool share_sighand,
 	return 0;
 }
 
-struct task_struct *find_task_by_pid(pid_t pid)
+static struct task_struct *find_task_by_pid(pid_t pid)
 {
 	return task_find_thread(pid);
 }

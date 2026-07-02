@@ -314,7 +314,7 @@ int vfs_mount(const char *source, const char *target, const char *type,
 	}
 	mutex_unlock(&mount_lock);
 
-	sb = fs_type->mount(fs_type, dev, (void *)data);
+	sb = fs_type->mount(fs_type, dev, data);
 	if (!sb) {
 		path_put(&target_path);
 		return -EINVAL;

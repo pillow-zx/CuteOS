@@ -19,7 +19,7 @@
  *   ffs(x)       - 查找 uint32_t 中第一个置位位 (find first set, 32-bit)
  */
 
-#include <kernel/types.h>
+#include <kernel/libgcc.h>
 
 /* ---- __ctzdi2 ---- */
 

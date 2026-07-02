@@ -105,24 +105,28 @@ static int filldir64(void *arg, const char *name, size_t namelen, uint64_t ino,
 		     uint8_t type, loff_t off)
 {
 	struct getdents_ctx *ctx = arg;
+	struct linux_dirent64 dirent;
+	char *dst;
+	size_t name_off = offsetof(struct linux_dirent64, d_name);
 	size_t reclen;
-	struct linux_dirent64 *dirent;
 
 	if (namelen > VFS_NAME_MAX)
 		return -EINVAL;
 
-	reclen = sizeof(struct linux_dirent64) + namelen + 1;
+	reclen = name_off + namelen + 1;
 	reclen = (reclen + 7) & ~7UL;
 	if (ctx->written + reclen > ctx->count)
 		return -EINVAL;
 
-	dirent = (struct linux_dirent64 *)(ctx->dirp + ctx->written);
-	dirent->d_ino = ino;
-	dirent->d_off = off;
-	dirent->d_reclen = (uint16_t)reclen;
-	dirent->d_type = vfs_type_to_dirent(type);
-	memcpy(dirent->d_name, name, namelen);
-	dirent->d_name[namelen] = '\0';
+	dirent.d_ino = ino;
+	dirent.d_off = off;
+	dirent.d_reclen = (uint16_t)reclen;
+	dirent.d_type = vfs_type_to_dirent(type);
+
+	dst = ctx->dirp + ctx->written;
+	memset(dst, 0, reclen);
+	memcpy(dst, &dirent, name_off);
+	memcpy(dst + name_off, name, namelen);
 
 	ctx->written += reclen;
 	return 0;

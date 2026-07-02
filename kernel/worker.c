@@ -8,8 +8,6 @@
 
 static uint64_t worker_interval_ticks(unsigned int interval_sec)
 {
-	if (interval_sec > UINT64_MAX / MTIME_FREQ)
-		return UINT64_MAX;
 	return (uint64_t)interval_sec * MTIME_FREQ;
 }
 

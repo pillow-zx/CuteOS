@@ -99,8 +99,7 @@ static struct file *fd_get_writable(int fd)
 	return file;
 }
 
-static ssize_t rw_user_buffer(struct file *file, void *buf, size_t len,
-			      bool write)
+static ssize_t read_user_buffer(struct file *file, void *buf, size_t len)
 {
 	char kbuf[SYS_FILE_BUF_SIZE];
 	size_t done = 0;
@@ -115,29 +114,20 @@ static ssize_t rw_user_buffer(struct file *file, void *buf, size_t len,
 		if (chunk > SYS_FILE_BUF_SIZE)
 			chunk = SYS_FILE_BUF_SIZE;
 
-		if (write) {
-			if (copy_from_user(kbuf, (char *)buf + done, chunk) !=
-			    0)
-				return done ? (ssize_t)done : -EFAULT;
-			ret = vfs_write(file, kbuf, chunk);
-		} else {
-			ret = vfs_read(file, kbuf, chunk);
-			if (ret > 0) {
-				size_t left = copy_to_user((char *)buf + done,
-							   kbuf, (size_t)ret);
+		ret = vfs_read(file, kbuf, chunk);
+		if (ret > 0) {
+			size_t left =
+				copy_to_user((char *)buf + done, kbuf, (size_t)ret);
 
-				if (left != 0) {
-					/*
-					 * vfs_read 已推进 f_pos 整个 ret，但只
-					 * 有 (ret - left)
-					 * 字节真正送达用户。回退
-					 * 未送达的尾部，避免下次读静默跳过这些
-					 * 字节。
-					 */
-					file->f_pos -= (loff_t)left;
-					done += (size_t)ret - left;
-					return done ? (ssize_t)done : -EFAULT;
-				}
+			if (left != 0) {
+				/*
+				 * vfs_read 已推进 f_pos 整个 ret，但只有
+				 * (ret - left) 字节真正送达用户。回退未送达的
+				 * 尾部，避免下次读静默跳过这些字节。
+				 */
+				file->f_pos -= (loff_t)left;
+				done += (size_t)ret - left;
+				return done ? (ssize_t)done : -EFAULT;
 			}
 		}
 
@@ -154,8 +144,40 @@ static ssize_t rw_user_buffer(struct file *file, void *buf, size_t len,
 	return (ssize_t)done;
 }
 
-static ssize_t rw_at_offset(struct file *file, void *buf, size_t len,
-			    loff_t offset, bool write)
+static ssize_t write_user_buffer(struct file *file, const void *buf, size_t len)
+{
+	char kbuf[SYS_FILE_BUF_SIZE];
+	size_t done = 0;
+
+	if (!access_ok(buf, len))
+		return -EFAULT;
+
+	while (done < len) {
+		size_t chunk = len - done;
+		ssize_t ret;
+
+		if (chunk > SYS_FILE_BUF_SIZE)
+			chunk = SYS_FILE_BUF_SIZE;
+
+		if (copy_from_user(kbuf, (const char *)buf + done, chunk) != 0)
+			return done ? (ssize_t)done : -EFAULT;
+
+		ret = vfs_write(file, kbuf, chunk);
+		if (ret < 0)
+			return ret;
+		if (ret == 0)
+			break;
+
+		done += (size_t)ret;
+		if ((size_t)ret < chunk)
+			break;
+	}
+
+	return (ssize_t)done;
+}
+
+static ssize_t read_at_offset(struct file *file, void *buf, size_t len,
+			      loff_t offset)
 {
 	loff_t old_pos;
 	ssize_t ret;
@@ -165,7 +187,24 @@ static ssize_t rw_at_offset(struct file *file, void *buf, size_t len,
 
 	old_pos = file->f_pos;
 	file->f_pos = offset;
-	ret = rw_user_buffer(file, buf, len, write);
+	ret = read_user_buffer(file, buf, len);
+	file->f_pos = old_pos;
+
+	return ret;
+}
+
+static ssize_t write_at_offset(struct file *file, const void *buf, size_t len,
+			       loff_t offset)
+{
+	loff_t old_pos;
+	ssize_t ret;
+
+	if (offset < 0)
+		return -EINVAL;
+
+	old_pos = file->f_pos;
+	file->f_pos = offset;
+	ret = write_user_buffer(file, buf, len);
 	file->f_pos = old_pos;
 
 	return ret;
@@ -181,17 +220,27 @@ static ssize_t rw_iovec(struct file *file, const struct iovec *uiov,
 		return -EINVAL;
 
 	for (size_t i = 0; i < iovcnt; i++) {
+		uintptr_t base;
 		size_t done = 0;
 
 		if (copy_from_user(&iov, uiov + i, sizeof(iov)) != 0)
 			return total ? total : -EFAULT;
-		if (!access_ok((void *)(uintptr_t)iov.iov_base, iov.iov_len))
+		base = (uintptr_t)iov.iov_base;
+		if (!access_ok((void *)base, iov.iov_len))
 			return total ? total : -EFAULT;
 
 		while (done < iov.iov_len) {
-			ssize_t ret = rw_user_buffer(
-				file, (void *)(uintptr_t)(iov.iov_base + done),
-				(size_t)(iov.iov_len - done), write);
+			uintptr_t chunk_base = base + done;
+			size_t chunk_len = (size_t)(iov.iov_len - done);
+			ssize_t ret;
+
+			if (write)
+				ret = write_user_buffer(file,
+							(const void *)chunk_base,
+							chunk_len);
+			else
+				ret = read_user_buffer(file, (void *)chunk_base,
+						       chunk_len);
 
 			if (ret < 0)
 				return total ? total : ret;
@@ -217,7 +266,7 @@ ssize_t sys_write(struct trap_frame *tf)
 	if (!file)
 		return -EBADF;
 
-	ret = rw_user_buffer(file, (void *)buf, len, true);
+	ret = write_user_buffer(file, buf, len);
 	return ret;
 }
 
@@ -232,7 +281,7 @@ ssize_t sys_read(struct trap_frame *tf)
 	if (!file)
 		return -EBADF;
 
-	ret = rw_user_buffer(file, buf, len, false);
+	ret = read_user_buffer(file, buf, len);
 	return ret;
 }
 
@@ -282,7 +331,7 @@ ssize_t sys_pread64(struct trap_frame *tf)
 	if (!file)
 		return -EBADF;
 
-	ret = rw_at_offset(file, buf, len, offset, false);
+	ret = read_at_offset(file, buf, len, offset);
 	return ret;
 }
 
@@ -298,7 +347,7 @@ ssize_t sys_pwrite64(struct trap_frame *tf)
 	if (!file)
 		return -EBADF;
 
-	ret = rw_at_offset(file, (void *)buf, len, offset, true);
+	ret = write_at_offset(file, buf, len, offset);
 	return ret;
 }
 
@@ -419,7 +468,7 @@ ssize_t sys_ftruncate64(struct trap_frame *tf)
 		return -EBADF;
 	if (!(file->f_mode & FMODE_WRITE))
 		return -EBADF;
-	if (length < 0 || length > MAX_FILE_SIZE)
+	if (length < 0 || length > (int64_t)MAX_FILE_SIZE)
 		return -EINVAL;
 	if (!file->f_inode)
 		return -EINVAL;

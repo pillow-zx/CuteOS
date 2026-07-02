@@ -198,6 +198,7 @@ static int futex_wake(int *uaddr, int nr)
 static void robust_wake_owner(struct task_struct *task,
 			      struct robust_list *node, long futex_offset)
 {
+	uintptr_t addr;
 	int old_value;
 	int new_value;
 	int *uaddr;
@@ -205,12 +206,13 @@ static void robust_wake_owner(struct task_struct *task,
 	if (!task || !task_mm(task) || !node)
 		return;
 
-	uaddr = (int *)((char *)node + futex_offset);
-	if ((uintptr_t)uaddr & (sizeof(int) - 1))
+	addr = (uintptr_t)node + (uintptr_t)futex_offset;
+	if (addr & (sizeof(int) - 1))
 		return;
+	uaddr = (int *)addr;
 	if (copy_from_user(&old_value, uaddr, sizeof(old_value)) != 0)
 		return;
-	if ((old_value & FUTEX_TID_MASK) != (int)task_pid(task))
+	if (((uint32_t)old_value & FUTEX_TID_MASK) != (uint32_t)task_pid(task))
 		return;
 
 	new_value = (old_value & FUTEX_WAITERS) | FUTEX_OWNER_DIED;

@@ -180,7 +180,7 @@ static void vblk_negotiate_features(vaddr_t base)
  */
 
 /* 组织一次请求：请求头 + 3 描述符链（头→数据→状态） */
-static void vblk_build_req(void *buf, uint64_t sector, uint32_t nsec,
+static void vblk_build_req(uintptr_t buf_addr, uint64_t sector, uint32_t nsec,
 			   bool write)
 {
 	vblk_req.hdr.type = write ? VIRTIO_BLK_T_OUT : VIRTIO_BLK_T_IN;
@@ -195,7 +195,7 @@ static void vblk_build_req(void *buf, uint64_t sector, uint32_t nsec,
 	vblk_desc[0].next = 1;
 
 	/* desc 1：数据缓冲。写→设备可读，读→设备可写 */
-	vblk_desc[1].addr = __pa(buf);
+	vblk_desc[1].addr = __pa(buf_addr);
 	vblk_desc[1].len = (uint32_t)nsec * SECTOR_SIZE;
 	vblk_desc[1].flags =
 		VRING_DESC_F_NEXT | (write ? 0 : VRING_DESC_F_WRITE);
@@ -240,7 +240,7 @@ static int vblk_submit_and_wait(vaddr_t base, uint16_t expected)
 	return 0;
 }
 
-static int virtio_blk_rw(struct block_device *bdev, bool write, void *buf,
+static int virtio_blk_rw(struct block_device *bdev, bool write, uintptr_t buf_addr,
 			 uint64_t sector, uint32_t nsec)
 {
 	struct virtio_blk_dev *vd = bdev->bd_private;
@@ -263,7 +263,7 @@ static int virtio_blk_rw(struct block_device *bdev, bool write, void *buf,
 	}
 #endif
 
-	vblk_build_req(buf, sector, nsec, write);
+	vblk_build_req(buf_addr, sector, nsec, write);
 	expected = (uint16_t)(vblk_avail.idx + 1);
 	return vblk_submit_and_wait(vd->mmio_base, expected);
 }
@@ -273,13 +273,13 @@ static int virtio_blk_rw(struct block_device *bdev, bool write, void *buf,
 static int virtio_blk_read_sectors(struct block_device *bdev, void *buf,
 				   uint64_t sector, uint32_t nsec)
 {
-	return virtio_blk_rw(bdev, false, buf, sector, nsec);
+	return virtio_blk_rw(bdev, false, (uintptr_t)buf, sector, nsec);
 }
 
 static int virtio_blk_write_sectors(struct block_device *bdev, const void *buf,
 				    uint64_t sector, uint32_t nsec)
 {
-	return virtio_blk_rw(bdev, true, (void *)buf, sector, nsec);
+	return virtio_blk_rw(bdev, true, (uintptr_t)buf, sector, nsec);
 }
 
 /* ---- 只读 smoke test：读扇区 0 并 hexdump 前 32 字节 ---- */
@@ -289,7 +289,7 @@ static void vblk_smoke_test(void)
 	static uint8_t sect0[SECTOR_SIZE];
 	int ret;
 
-	ret = virtio_blk_rw(&vblk_bdev, false, sect0, 0, 1);
+	ret = virtio_blk_rw(&vblk_bdev, false, (uintptr_t)sect0, 0, 1);
 	if (ret) {
 		pr_err("virtio_blk: sector 0 read failed (%d)\n", ret);
 		return;

@@ -151,4 +151,10 @@
 #define __cleanup(func);
 #endif
 
+#if __has_attribute(deprecated)
+#define __deprecated(msg) __attribute__((deprecated(msg)))
+#else
+#define __deprecated(msg);
+#endif
+
 #endif

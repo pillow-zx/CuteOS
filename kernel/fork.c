@@ -110,9 +110,7 @@ static void clone_setup_frame(struct task_struct *child, struct trap_frame *tf,
 			      unsigned long flags, uintptr_t child_stack,
 			      uintptr_t tls)
 {
-	struct trap_frame *child_tf =
-		(struct trap_frame *)((uint8_t *)child->arch.kstack + KSTACK_SIZE -
-				      sizeof(struct trap_frame));
+	struct trap_frame *child_tf = task_kernel_trap_frame(child);
 
 	memcpy(child_tf, tf, sizeof(struct trap_frame));
 	child_tf->a0 = 0;

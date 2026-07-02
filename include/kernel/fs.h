@@ -105,7 +105,7 @@ struct file_operations {
 struct file_system_type {
 	const char *name;
 	struct super_block *(*mount)(struct file_system_type *fs_type,
-				     dev_t dev, void *data);
+				     dev_t dev, const void *data);
 	struct file_system_type *next;
 };
 

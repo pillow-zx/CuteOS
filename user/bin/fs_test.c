@@ -556,6 +556,58 @@ static int test_getdents64_d_off_resume(void)
 	return 0;
 }
 
+static int test_getdents64_names_are_path_usable(void)
+{
+	char buf[512];
+	char full[PATH_MAX];
+	struct stat st;
+	long fd;
+	long n;
+	long off = 0;
+
+	fd = open("/", O_RDONLY | O_DIRECTORY);
+	if (fd < 0) {
+		printf("FAIL: open / for getdents64 path names: %ld\n", fd);
+		return 1;
+	}
+
+	n = getdents64((int)fd, buf, sizeof(buf));
+	close((int)fd);
+	if (n <= 0) {
+		printf("FAIL: getdents64 path names ret=%ld\n", n);
+		return 1;
+	}
+
+	while (off < n) {
+		struct linux_dirent64 *de =
+			(struct linux_dirent64 *)(buf + off);
+
+		if (de->d_reclen == 0 || off + de->d_reclen > n) {
+			printf("FAIL: getdents64 bad reclen=%u off=%ld n=%ld\n",
+			       de->d_reclen, off, n);
+			return 1;
+		}
+		if (!has_nul(de->d_name, de->d_reclen -
+					     OFFSETOF(struct linux_dirent64,
+						      d_name))) {
+			printf("FAIL: getdents64 path name not terminated\n");
+			return 1;
+		}
+		if (path_join(full, sizeof(full), "/", de->d_name) < 0) {
+			printf("FAIL: getdents64 path join for %s\n", de->d_name);
+			return 1;
+		}
+		if (fstatat(AT_FDCWD, full, &st, AT_SYMLINK_NOFOLLOW) != 0) {
+			printf("FAIL: getdents64 path unusable: %s\n", full);
+			return 1;
+		}
+
+		off += de->d_reclen;
+	}
+
+	return 0;
+}
+
 static int test_pipe_eof(void)
 {
 	int fds[2];
@@ -1439,6 +1491,8 @@ int main(void)
 		     &failed);
 	report_group("getdents64 d_off resume", test_getdents64_d_off_resume(),
 		     &failed);
+	report_group("getdents64 names are path usable",
+		     test_getdents64_names_are_path_usable(), &failed);
 	report_group("pipe eof", test_pipe_eof(), &failed);
 	report_group("pipe epipe", test_pipe_epipe(), &failed);
 	report_group("utimensat sets mtime", test_utimensat_sets_mtime(),

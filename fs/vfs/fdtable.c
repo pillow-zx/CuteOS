@@ -12,7 +12,7 @@
 
 static struct files_struct *current_files(void)
 {
-	return task_files(current);
+	return task_files_safe(current);
 }
 
 struct files_struct *files_alloc(void)
@@ -333,10 +333,10 @@ int init_files(struct task_struct *task)
 		return -EINVAL;
 
 	task_set_files(task, files_alloc());
-	if (!task_files(task))
+	if (!task_files_safe(task))
 		return -ENOMEM;
 
-	files_install_standard_fds(task_files(task));
+	files_install_standard_fds(task_files_safe(task));
 	return 0;
 }
 
@@ -348,12 +348,12 @@ int copy_files(struct task_struct *child, bool share)
 		return -EINVAL;
 
 	if (share) {
-		files = task_files(current);
+		files = task_files_safe(current);
 		if (!files)
 			return init_files(child);
 		files_get(files);
 	} else {
-		files = files_dup(task_files(current));
+		files = files_dup(task_files_safe(current));
 		if (!files)
 			return -ENOMEM;
 	}
@@ -370,7 +370,7 @@ void close_files(struct task_struct *task)
 	if (!task)
 		return;
 
-	files = task_files(task);
+	files = task_files_safe(task);
 	if (!files)
 		return;
 

@@ -130,6 +130,10 @@ static_assert(offsetof(struct task_struct, arch.satp) == TASK_SATP,
 	      "TASK_SATP offset in entry.S out of sync with task_struct");
 static_assert(KSTACK_SIZE == 8192, "entry.S __trapret hardcodes kstack+8192; "
 				   "update both if KSTACK_ORDER changes");
+static_assert((KSTACK_SIZE - sizeof(struct trap_frame)) %
+			      __alignof__(struct trap_frame) ==
+		      0,
+	      "kernel trap frame must be aligned at the top of each kstack");
 
 /* ---- 全局变量 ---- */
 
@@ -187,10 +191,25 @@ static inline void task_set_trap_frame(struct task_struct *task,
 		task->arch.tf = tf;
 }
 
-static __always_inline __must_check __pure void *
-task_kernel_stack(const struct task_struct *task)
+static __always_inline __must_check __pure __nonnull(1) __returns_nonnull
+	struct trap_frame *task_kernel_trap_frame(struct task_struct *task)
 {
-	return task ? task->arch.kstack : NULL;
+	uintptr_t frame = (uintptr_t)task->arch.kstack + KSTACK_SIZE -
+			  sizeof(struct trap_frame);
+
+	return (struct trap_frame *)frame;
+}
+
+static __always_inline __must_check __pure __nonnull(1)
+void *task_kernel_stack(const struct task_struct *task)
+{
+	return task->arch.kstack;
+}
+
+static __always_inline __must_check __pure void *
+task_kernel_stack_safe(const struct task_struct *task)
+{
+	return task ? task_kernel_stack(task) : NULL;
 }
 
 static inline void task_set_kernel_stack(struct task_struct *task, void *kstack)
@@ -199,10 +218,17 @@ static inline void task_set_kernel_stack(struct task_struct *task, void *kstack)
 		task->arch.kstack = kstack;
 }
 
-static __always_inline __must_check __pure struct files_struct *
-task_files(struct task_struct *task)
+
+static __always_inline __must_check __pure __nonnull(1)
+struct files_struct *task_files(struct task_struct *task)
 {
-	return task ? task->resources.files : NULL;
+	return task->resources.files;
+}
+
+static __always_inline __must_check __pure struct files_struct *
+task_files_safe(struct task_struct *task)
+{
+	return task ? task_files(task) : NULL;
 }
 
 static inline void task_set_files(struct task_struct *task,
@@ -374,10 +400,16 @@ static __always_inline void task_and_in_handler_mask(struct task_struct *task,
 		task->sigctx.in_handler &= mask;
 }
 
-static __always_inline __must_check __pure struct stack_t *
-task_altstack(struct task_struct *task)
+static __always_inline __must_check __pure __nonnull(1) __returns_nonnull
+	struct stack_t *task_altstack(struct task_struct *task)
 {
-	return task ? &task->sigctx.sas : NULL;
+	return &task->sigctx.sas;
+}
+
+static __always_inline __must_check __pure struct stack_t *
+task_altstack_safe(struct task_struct *task)
+{
+	return task ? task_altstack(task) : NULL;
 }
 
 static __always_inline __must_check __pure uint32_t
@@ -415,10 +447,16 @@ static __always_inline void task_mark_stopped(struct task_struct *task)
 	task_set_state(task, TASK_STOPPED);
 }
 
-static __always_inline __must_check __pure struct task_struct *
-task_group_leader(struct task_struct *task)
+static __always_inline __must_check __pure __nonnull(1)
+	struct task_struct *task_group_leader(struct task_struct *task)
 {
-	return task ? task->ids.group_leader : NULL;
+	return task->ids.group_leader;
+}
+
+static __always_inline __must_check __pure struct task_struct *
+task_group_leader_safe(struct task_struct *task)
+{
+	return task ? task_group_leader(task) : NULL;
 }
 
 static __always_inline __must_check __pure struct task_struct *
@@ -427,12 +465,19 @@ task_parent(struct task_struct *task)
 	return task ? task->links.parent : NULL;
 }
 
-static inline struct list_head *task_children(struct task_struct *task)
+static __always_inline __must_check __pure __nonnull(1) __returns_nonnull
+	struct list_head *task_children(struct task_struct *task)
 {
-	return task ? &task->links.children : NULL;
+	return &task->links.children;
 }
 
-static inline struct wait_queue_head *
+static __always_inline __must_check __pure struct list_head *
+task_children_safe(struct task_struct *task)
+{
+	return task ? task_children(task) : NULL;
+}
+
+static __always_inline __must_check __pure struct wait_queue_head *
 task_wait_child_queue(struct task_struct *task)
 {
 	return task ? &task->links.wait_child_queue : NULL;

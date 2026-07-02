@@ -20,7 +20,7 @@
  *   strrchr(s, c)           - 字符串中反向查找字符
  */
 
-#include <kernel/types.h>
+#include <kernel/string.h>
 
 void *memcpy(void *restrict dst, const void *restrict src, size_t n)
 {
@@ -96,12 +96,14 @@ int strcmp(const char *l, const char *r)
 {
 	for (; *l == *r && *l; l++, r++)
 		;
-	return *(unsigned char *)l - *(unsigned char *)r;
+	return *(const unsigned char *)l - *(const unsigned char *)r;
 }
 
 int strncmp(const char *_l, const char *_r, size_t n)
 {
-	const unsigned char *l = (void *)_l, *r = (void *)_r;
+	const unsigned char *l = (const unsigned char *)_l;
+	const unsigned char *r = (const unsigned char *)_r;
+
 	if (!n--)
 		return 0;
 	for (; *l && *r && n && *l == *r; l++, r++, n--)
@@ -138,24 +140,25 @@ char *strchr(const char *s, int c)
 {
 	c = (unsigned char)c;
 	if (!c)
-		return (char *)s + strlen(s);
+		return (char *)(uintptr_t)(s + strlen(s));
 
-	for (; *s && *(unsigned char *)s != c; s++)
+	for (; *s && *(const unsigned char *)s != c; s++)
 		;
-	char *r = (char *)s;
 
-	return *(unsigned char *)r == (unsigned char)c ? r : 0;
+	return *(const unsigned char *)s == (unsigned char)c ?
+		       (char *)(uintptr_t)s :
+		       NULL;
 }
 
 char *strrchr(const char *s, int c)
 {
-	const unsigned char *m = (void *)s;
+	const unsigned char *m = (const unsigned char *)s;
 	c = (unsigned char)c;
 	size_t n = strlen(s) + 1;
 
 	while (n--) {
 		if (m[n] == c)
-			return (void *)(m + n);
+			return (char *)(uintptr_t)(m + n);
 	}
-	return 0;
+	return NULL;
 }

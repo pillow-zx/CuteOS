@@ -190,7 +190,9 @@ static int setup_user_stack(struct mm_struct *mm,
 	sp -= frame_bytes + padding;
 
 	uint8_t *frame = stack_sp_to_kernel(stack_page, sp);
-	*(uintptr_t *)frame = (uintptr_t)args->argc;
+	uintptr_t argc = (uintptr_t)args->argc;
+
+	memcpy(frame, &argc, sizeof(argc));
 	memcpy(frame + sizeof(uintptr_t), user_argv, argv_bytes);
 	memcpy(frame + sizeof(uintptr_t) + argv_bytes, user_envp, envp_bytes);
 
@@ -613,7 +615,7 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 	install_exec_mm(mm, tf, entry, sp);
 
 	/* 关闭所有设置了 FD_CLOEXEC 的文件描述符。 */
-	files_close_on_exec(task_files(current));
+	files_close_on_exec(task_files_safe(current));
 
 	return 0;
 }

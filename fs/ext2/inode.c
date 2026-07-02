@@ -38,6 +38,14 @@ static inline uint32_t ext2_branch_span(int depth)
 static const struct inode_operations ext2_file_inode_operations;
 static uint32_t ext2_bmap_ro_scratch[BLOCK_SIZE / sizeof(uint32_t)];
 
+static uint32_t *ext2_block_words(struct page_cache *page)
+{
+	static_assert(BLOCK_SIZE % sizeof(uint32_t) == 0,
+		      "ext2 indirect blocks are uint32_t arrays");
+
+	return (uint32_t *)(uintptr_t)page_cache_data(page);
+}
+
 static int ext2_inode_location(struct inode *inode, uint32_t *block,
 			       uint32_t *offset)
 {
@@ -79,7 +87,7 @@ static void ext2_free_indirect_chain(struct super_block *sb, uint32_t block,
 
 	page = page_cache_get_block(sb->s_dev, block);
 	if (page) {
-		entries = (uint32_t *)page_cache_data(page);
+		entries = ext2_block_words(page);
 		for (uint32_t i = 0; i < ptrs; i++) {
 			if (!entries[i])
 				continue;
@@ -130,7 +138,7 @@ static uint32_t ext2_count_tree_blocks(struct super_block *sb, uint32_t block,
 	if (!page)
 		return total;
 
-	entries = (uint32_t *)page_cache_data(page);
+	entries = ext2_block_words(page);
 	for (uint32_t i = 0; i < ptrs; i++) {
 		if (!entries[i])
 			continue;
@@ -165,7 +173,7 @@ static int ext2_truncate_branch_slot(struct inode *inode, uint32_t *slot,
 	if (!page)
 		return -EIO;
 
-	entries = (uint32_t *)page_cache_data(page);
+	entries = ext2_block_words(page);
 	for (uint32_t i = 0; i < ptrs; i++) {
 		uint32_t child_keep = remaining > span ? span : remaining;
 		int ret = ext2_truncate_branch_slot(inode, &entries[i],
@@ -500,7 +508,7 @@ static uint32_t ext2_ind_bmap(struct inode *inode, uint32_t ind_block,
 	if (!page)
 		return 0;
 
-	blocks = (uint32_t *)page_cache_data(page);
+	blocks = ext2_block_words(page);
 	block = blocks[index];
 	if (!block && create) {
 		block = ext2_alloc_bmap_block(inode);
@@ -553,8 +561,7 @@ static uint32_t ext2_ind_bmap_readonly(struct super_block *sb,
 		page = page_cache_get_page(mapping, ind_block, false, NULL);
 		if (page) {
 			if (page_cache_is_uptodate(page))
-				block = ((uint32_t *)page_cache_data(
-					page))[index];
+				block = ext2_block_words(page)[index];
 			else
 				block = 0;
 			page_cache_put_page(page);
@@ -637,7 +644,7 @@ uint32_t ext2_bmap(struct inode *inode, uint32_t block, bool create)
 	if (!page)
 		return 0;
 
-	blocks = (uint32_t *)page_cache_data(page);
+	blocks = ext2_block_words(page);
 	if (!blocks[first] && create) {
 		blocks[first] = ext2_alloc_bmap_block(inode);
 		if (blocks[first])

@@ -20,11 +20,6 @@ static int sys_write_tid(int *uaddr, pid_t tid)
 	return 0;
 }
 
-ssize_t sys_fork(struct trap_frame *tf)
-{
-	return kernel_clone_from_frame(tf, SIGCHLD, 0, NULL, 0, NULL);
-}
-
 ssize_t sys_clone(struct trap_frame *tf)
 {
 	unsigned long flags = (unsigned long)tf->a0;

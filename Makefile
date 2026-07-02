@@ -79,7 +79,7 @@ help:
 	@printf '  make .gdbinit                Generate GDB startup file\n'
 	@printf '  make user                    Build user-space ELFs only\n'
 	@printf '  make cuteos.img              Build filesystem image\n'
-	@printf '  make analyze                 Run GCC -fanalyzer over C sources\n'
+	@printf '  make analyze                 Run GCC analyzer and extra diagnostics\n'
 	@printf '  make tags                    Generate a ctags index for the project\n'
 	@printf '  make gtags                   Generate GNU Global tag databases\n'
 	@printf '  make asm | make sym          Generate disassembly or symbol table\n'
@@ -245,17 +245,39 @@ FMT_FILES := $(shell find . \( -name '*.c' -o -name '*.h' \))
 format:
 	$(Q)clang-format -i $(FMT_FILES)
 
-# GCC static analyzer. It is useful as a bug-finding pass, but it is too noisy
-# and expensive to run as part of the normal build.
+# GCC static analyzer plus compile-only diagnostics. This pass is too noisy and
+# expensive to run as part of the normal build.
 ANALYZE_OUT = $(OUTROOT)/analyze
 ANALYZE_KERNEL_SRCS = $(wildcard $(OBJ_REL:.o=.c))
 ANALYZE_USER_SRCS = user/init/init.c user/init/shell.c
 ANALYZE_USER_SRCS += $(USER_BIN_SRCS) $(USER_LIBC_SRCS)
 
-ANALYZE_CFLAGS = $(filter-out -Werror -MD -flto%,$(CFLAGS))
-ANALYZE_CFLAGS += -fanalyzer -fsyntax-only
-ANALYZE_USER_CFLAGS = $(filter-out -Werror -MD -flto%,$(USER_CFLAGS))
-ANALYZE_USER_CFLAGS += -fanalyzer -fsyntax-only
+ANALYZE_WARN_CFLAGS = -Wextra
+ANALYZE_WARN_CFLAGS += -Wstrict-prototypes
+ANALYZE_WARN_CFLAGS += -Wmissing-prototypes
+ANALYZE_WARN_CFLAGS += -Wmissing-declarations
+ANALYZE_WARN_CFLAGS += -Wold-style-definition
+ANALYZE_WARN_CFLAGS += -Wimplicit-fallthrough=5
+ANALYZE_WARN_CFLAGS += -Wswitch-enum
+ANALYZE_WARN_CFLAGS += -Wcast-align=strict
+ANALYZE_WARN_CFLAGS += -Wcast-qual
+ANALYZE_WARN_CFLAGS += -Wwrite-strings
+ANALYZE_WARN_CFLAGS += -Wpointer-arith
+ANALYZE_WARN_CFLAGS += -Warray-bounds=2
+ANALYZE_WARN_CFLAGS += -Wstringop-overflow=4
+ANALYZE_WARN_CFLAGS += -Wstringop-overread
+ANALYZE_WARN_CFLAGS += -Wnull-dereference
+ANALYZE_WARN_CFLAGS += -Wstrict-overflow=2
+ANALYZE_WARN_CFLAGS += -Wvla
+ANALYZE_WARN_CFLAGS += -Wshadow=local
+ANALYZE_WARN_CFLAGS += -Wformat=2
+
+ANALYZE_FILTER_OUT = -Werror -MD -flto% -Wno-unknown-attributes
+
+ANALYZE_CFLAGS = $(filter-out $(ANALYZE_FILTER_OUT),$(CFLAGS))
+ANALYZE_CFLAGS += -fanalyzer $(ANALYZE_WARN_CFLAGS)
+ANALYZE_USER_CFLAGS = $(filter-out $(ANALYZE_FILTER_OUT),$(USER_CFLAGS))
+ANALYZE_USER_CFLAGS += -fanalyzer $(ANALYZE_WARN_CFLAGS)
 
 ANALYZE_WERROR ?= 0
 ifeq ($(ANALYZE_WERROR),1)
@@ -276,11 +298,11 @@ analyze-user: $(ANALYZE_USER_TARGETS)
 
 $(ANALYZE_OUT)/kernel/%.analyze: %.c $(AUTOCONF_H) FORCE
 	$(QUIET_ANALYZE)
-	$(Q)$(CC) $(ANALYZE_CFLAGS) $<
+	$(Q)$(CC) $(ANALYZE_CFLAGS) -c -o /dev/null $<
 
 $(ANALYZE_OUT)/user/%.analyze: user/%.c $(AUTOCONF_H) FORCE
 	$(QUIET_ANALYZE)
-	$(Q)$(USER_CC) $(ANALYZE_USER_CFLAGS) $<
+	$(Q)$(USER_CC) $(ANALYZE_USER_CFLAGS) -c -o /dev/null $<
 
 # Disassembly and analysis
 ifeq ($(V),1)

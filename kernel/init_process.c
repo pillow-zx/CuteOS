@@ -15,6 +15,7 @@
  */
 
 #include <kernel/exec.h>
+#include <kernel/init.h>
 #include <kernel/printk.h>
 #include <kernel/task.h>
 

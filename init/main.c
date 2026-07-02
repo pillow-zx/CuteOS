@@ -32,6 +32,7 @@
 
 #include <kernel/printk.h>
 #include <kernel/buddy.h>
+#include <kernel/init.h>
 #include <kernel/slab.h>
 #include <kernel/page_cache.h>
 #include <kernel/task.h>
@@ -50,9 +51,6 @@
 #ifdef CONFIG_KERNEL_TEST
 #include <kernel/test.h>
 #endif
-
-/* PID 1 init 内核线程入口 (kernel/init_process.c) */
-extern void init_process(void *arg);
 
 void kernel_main(void)
 {

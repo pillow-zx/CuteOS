@@ -21,6 +21,7 @@
 #include <kernel/buddy.h>
 #include <kernel/errno.h>
 #include <kernel/fdtable.h>
+#include <kernel/pipe.h>
 #include <kernel/slab.h>
 #include <kernel/signal.h>
 #include <kernel/string.h>

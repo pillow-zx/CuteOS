@@ -21,10 +21,10 @@
 	statement_expr(auto __ptr = &(p); auto __val = *__ptr;                 \
 		       *__ptr = (nullvalue); __val;)
 
-static __always_inline __must_check const volatile void *
+static __always_inline __must_check uintptr_t
 __cleanup_must_check(const volatile void *val)
 {
-	return val;
+	return (uintptr_t)val;
 }
 
 #define cleanup_take_ptr(p)                                                    \

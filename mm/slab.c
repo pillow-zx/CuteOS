@@ -50,6 +50,16 @@ struct kmem_cache {
 	struct list_head free_list;
 };
 
+struct slab_slot_header {
+	uint32_t cache_idx;
+	uint32_t pad;
+};
+
+static_assert(sizeof(struct slab_slot_header) == SLOT_HDR_SIZE,
+	      "slab slot header size changed");
+static_assert(SLOT_HDR_SIZE % __alignof__(struct list_head) == 0,
+	      "slab free-list nodes must be naturally aligned");
+
 static struct kmem_cache caches[NR_CACHES];
 
 /* ---- 内部辅助 ---- */
@@ -87,12 +97,15 @@ static void refill_cache(struct kmem_cache *cache, uint32_t cache_idx)
 
 	for (size_t i = 0; i < nr_objs; i++) {
 		char *slot = (char *)page + i * slot_size;
+		struct slab_slot_header *hdr =
+			(struct slab_slot_header *)(uintptr_t)slot;
+		struct list_head *node =
+			(struct list_head *)(uintptr_t)(slot + SLOT_HDR_SIZE);
+
 		/* 在 slot 头部写入缓存索引，供 kfree 定位 */
-		*(uint32_t *)slot = cache_idx;
+		hdr->cache_idx = cache_idx;
 		/* 用户数据区起始 = slot + SLOT_HDR_SIZE，
 		 * 空闲时作为 list_head 使用 */
-		struct list_head *node =
-			(struct list_head *)(slot + SLOT_HDR_SIZE);
 		INIT_LIST_HEAD(node);
 		list_add_tail(node, &cache->free_list);
 	}
@@ -156,12 +169,13 @@ void kfree(void *ptr)
 	if (!ptr)
 		return;
 
-	/* 读取 slot 头部的缓存索引（ptr - SLOT_HDR_SIZE） */
-	uint32_t cache_idx = *((uint32_t *)((char *)ptr - SLOT_HDR_SIZE));
+	struct slab_slot_header *hdr =
+		(struct slab_slot_header *)(uintptr_t)((char *)ptr - SLOT_HDR_SIZE);
+	uint32_t cache_idx = hdr->cache_idx;
 
 	if (cache_idx >= NR_CACHES)
 		panic("kfree: invalid cache index %d", (int)cache_idx);
 
-	struct list_head *node = (struct list_head *)ptr;
+	struct list_head *node = (struct list_head *)(uintptr_t)ptr;
 	list_add(node, &caches[cache_idx].free_list);
 }

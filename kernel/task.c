@@ -246,9 +246,7 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 	}
 
 	/* 在内核栈顶预留 trap_frame 空间 */
-	struct trap_frame *tf =
-		(struct trap_frame *)((uint8_t *)task->arch.kstack + KSTACK_SIZE -
-				      sizeof(struct trap_frame));
+	struct trap_frame *tf = task_kernel_trap_frame(task);
 
 	memset(tf, 0, sizeof(struct trap_frame));
 
