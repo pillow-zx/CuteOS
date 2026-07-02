@@ -6,6 +6,7 @@
 
 #define EPIPE 32
 #define EXDEV 18
+#define EFBIG 27
 #define EXT2_SUPER_MAGIC 0xef53
 
 #define MOUNT_DEV "/tmp/mount_dev"
@@ -939,6 +940,63 @@ static int test_sendfile_file_to_stdout(void)
 	return 0;
 }
 
+static int test_sendfile_rejects_append_output(void)
+{
+	long in_fd;
+	long out_fd;
+	long offset = 0;
+	long in_pos;
+	long ret;
+	int failed = 0;
+
+	if (make_file("/tmp/sendfile_append_src", "abc", 3) < 0 ||
+	    make_file("/tmp/sendfile_append_dst", "old", 3) < 0) {
+		printf("FAIL: make sendfile append files\n");
+		unlinkat(AT_FDCWD, "/tmp/sendfile_append_src", 0);
+		unlinkat(AT_FDCWD, "/tmp/sendfile_append_dst", 0);
+		return 1;
+	}
+
+	in_fd = openat(AT_FDCWD, "/tmp/sendfile_append_src", O_RDONLY, 0);
+	out_fd = openat(AT_FDCWD, "/tmp/sendfile_append_dst",
+			O_WRONLY | O_APPEND, 0);
+	if (in_fd < 0 || out_fd < 0) {
+		printf("FAIL: open sendfile append fds in=%ld out=%ld\n", in_fd,
+		       out_fd);
+		if (in_fd >= 0)
+			close((int)in_fd);
+		if (out_fd >= 0)
+			close((int)out_fd);
+		unlinkat(AT_FDCWD, "/tmp/sendfile_append_src", 0);
+		unlinkat(AT_FDCWD, "/tmp/sendfile_append_dst", 0);
+		return 1;
+	}
+
+	ret = sendfile((int)out_fd, (int)in_fd, &offset, 3);
+	if (ret != -EINVAL) {
+		printf("FAIL: sendfile append expected -EINVAL got %ld\n", ret);
+		failed++;
+	}
+	if (offset != 0) {
+		printf("FAIL: sendfile append changed offset to %ld\n", offset);
+		failed++;
+	}
+	in_pos = lseek((int)in_fd, 0, SEEK_CUR);
+	if (in_pos != 0) {
+		printf("FAIL: sendfile append moved input to %ld\n", in_pos);
+		failed++;
+	}
+
+	close((int)in_fd);
+	close((int)out_fd);
+	if (read_check("/tmp/sendfile_append_dst", "old", 3) != 0)
+		failed++;
+
+	unlinkat(AT_FDCWD, "/tmp/sendfile_append_src", 0);
+	unlinkat(AT_FDCWD, "/tmp/sendfile_append_dst", 0);
+	return failed;
+}
+
 static int test_splice_pipe_to_file_explicit_offset(void)
 {
 	int pipefd[2];
@@ -988,6 +1046,56 @@ static int test_splice_pipe_to_file_explicit_offset(void)
 		failed++;
 
 	unlinkat(AT_FDCWD, "/tmp/splice_pipe_dst", 0);
+	return failed;
+}
+
+static int test_splice_pipe_to_file_write_error_preserves_pipe(void)
+{
+	char buf[8];
+	int pipefd[2];
+	long out_fd;
+	long off_out = 0xffffffffL;
+	long ret;
+	int failed = 0;
+
+	out_fd = openat(AT_FDCWD, "/tmp/splice_pipe_err_dst",
+			O_CREAT | O_RDWR | O_TRUNC, 0644);
+	if (out_fd < 0 || pipe(pipefd) != 0) {
+		printf("FAIL: open splice pipe error fds out=%ld\n", out_fd);
+		if (out_fd >= 0)
+			close((int)out_fd);
+		unlinkat(AT_FDCWD, "/tmp/splice_pipe_err_dst", 0);
+		return 1;
+	}
+
+	ret = write(pipefd[1], "keep", 4);
+	if (ret != 4) {
+		printf("FAIL: write splice preserve pipe ret=%ld\n", ret);
+		failed++;
+	}
+
+	ret = splice(pipefd[0], NULL, (int)out_fd, &off_out, 4, 0);
+	if (ret != -EFBIG) {
+		printf("FAIL: splice write error expected -EFBIG got %ld\n", ret);
+		failed++;
+	}
+	if (off_out != 0xffffffffL) {
+		printf("FAIL: splice write error changed offset to %ld\n", off_out);
+		failed++;
+	}
+
+	close(pipefd[1]);
+	memset(buf, 0, sizeof(buf));
+	ret = read(pipefd[0], buf, 4);
+	if (ret != 4 || strncmp(buf, "keep", 4) != 0) {
+		printf("FAIL: splice write error pipe ret=%ld data=%s\n", ret,
+		       buf);
+		failed++;
+	}
+
+	close(pipefd[0]);
+	close((int)out_fd);
+	unlinkat(AT_FDCWD, "/tmp/splice_pipe_err_dst", 0);
 	return failed;
 }
 
@@ -1877,8 +1985,13 @@ int main(void)
 		     test_sendfile_file_to_pipe_null_offset(), &failed);
 	report_group("sendfile file to stdout",
 		     test_sendfile_file_to_stdout(), &failed);
+	report_group("sendfile rejects append output",
+		     test_sendfile_rejects_append_output(), &failed);
 	report_group("splice pipe to file explicit offset",
 		     test_splice_pipe_to_file_explicit_offset(), &failed);
+	report_group("splice pipe write error preserves pipe",
+		     test_splice_pipe_to_file_write_error_preserves_pipe(),
+		     &failed);
 	report_group("splice file to pipe explicit offset and eof",
 		     test_splice_file_to_pipe_explicit_offset_and_eof(),
 		     &failed);

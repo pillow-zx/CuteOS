@@ -212,77 +212,9 @@ static ssize_t write_at_offset(struct file *file, const void *buf, size_t len,
 	return ret;
 }
 
-static ssize_t sendfile_copy(struct file *out_file, struct file *in_file,
-			     loff_t *offset, size_t count)
-{
-	char kbuf[SYS_FILE_BUF_SIZE];
-	ssize_t total = 0;
-
-	while (count > 0) {
-		loff_t old_pos = in_file->f_pos;
-		size_t chunk = count;
-		ssize_t nr_read;
-		ssize_t nr_written;
-
-		if (chunk > SYS_FILE_BUF_SIZE)
-			chunk = SYS_FILE_BUF_SIZE;
-		if (offset)
-			in_file->f_pos = *offset;
-
-		nr_read = vfs_read(in_file, kbuf, chunk);
-		if (offset)
-			in_file->f_pos = old_pos;
-		if (nr_read < 0)
-			return total ? total : nr_read;
-		if (nr_read == 0)
-			break;
-
-		nr_written = vfs_write(out_file, kbuf, (size_t)nr_read);
-		if (nr_written < 0) {
-			if (!offset)
-				in_file->f_pos -= nr_read;
-			return total ? total : nr_written;
-		}
-		if (nr_written == 0) {
-			if (!offset)
-				in_file->f_pos -= nr_read;
-			break;
-		}
-
-		if (offset)
-			*offset += nr_written;
-		else if (nr_written < nr_read)
-			in_file->f_pos -= nr_read - nr_written;
-
-		total += nr_written;
-		count -= (size_t)nr_written;
-		if (nr_written < nr_read)
-			break;
-	}
-
-	return total;
-}
-
-static bool splice_regular_file(struct file *file)
-{
-	return file && file->f_inode && S_ISREG(file->f_inode->i_mode);
-}
-
-static int splice_copy_user_offset(loff_t *uoffset, loff_t *offset)
-{
-	if (!access_ok(uoffset, sizeof(*uoffset)))
-		return -EFAULT;
-	if (copy_from_user(offset, uoffset, sizeof(*offset)) != 0)
-		return -EFAULT;
-	if (*offset < 0)
-		return -EINVAL;
-
-	return 0;
-}
-
-static ssize_t splice_copy_transfer(struct file *out_file,
-				    struct file *in_file, loff_t *in_offset,
-				    loff_t *out_offset, size_t len)
+static ssize_t copy_file_buffered(struct file *out_file, struct file *in_file,
+				  loff_t *in_offset, loff_t *out_offset,
+				  size_t len)
 {
 	char kbuf[SYS_FILE_BUF_SIZE];
 	ssize_t total = 0;
@@ -296,9 +228,9 @@ static ssize_t splice_copy_transfer(struct file *out_file,
 
 		if (chunk > SYS_FILE_BUF_SIZE)
 			chunk = SYS_FILE_BUF_SIZE;
-
 		if (in_offset)
 			in_file->f_pos = *in_offset;
+
 		nr_read = vfs_read(in_file, kbuf, chunk);
 		if (in_offset)
 			in_file->f_pos = old_in_pos;
@@ -313,19 +245,19 @@ static ssize_t splice_copy_transfer(struct file *out_file,
 		if (out_offset)
 			out_file->f_pos = old_out_pos;
 		if (nr_written < 0) {
-			if (!in_offset && splice_regular_file(in_file))
+			if (!in_offset)
 				in_file->f_pos -= nr_read;
 			return total ? total : nr_written;
 		}
 		if (nr_written == 0) {
-			if (!in_offset && splice_regular_file(in_file))
+			if (!in_offset)
 				in_file->f_pos -= nr_read;
 			break;
 		}
 
 		if (in_offset)
 			*in_offset += nr_written;
-		else if (nr_written < nr_read && splice_regular_file(in_file))
+		else if (nr_written < nr_read)
 			in_file->f_pos -= nr_read - nr_written;
 		if (out_offset)
 			*out_offset += nr_written;
@@ -337,6 +269,23 @@ static ssize_t splice_copy_transfer(struct file *out_file,
 	}
 
 	return total;
+}
+
+static bool splice_regular_file(struct file *file)
+{
+	return file && file->f_inode && S_ISREG(file->f_inode->i_mode);
+}
+
+static int copy_user_offset(loff_t *uoffset, loff_t *offset)
+{
+	if (!access_ok(uoffset, sizeof(*uoffset)))
+		return -EFAULT;
+	if (copy_from_user(offset, uoffset, sizeof(*offset)) != 0)
+		return -EFAULT;
+	if (*offset < 0)
+		return -EINVAL;
+
+	return 0;
 }
 
 static ssize_t rw_iovec(struct file *file, const struct iovec *uiov,
@@ -496,24 +445,24 @@ ssize_t sys_sendfile(struct trap_frame *tf)
 	if (!in_file->f_inode ||
 	    (in_file->f_inode->i_mode & S_IFMT) != S_IFREG)
 		return -EINVAL;
+	if (out_file->f_flags & O_APPEND)
+		return -EINVAL;
 	if (count == 0)
 		return 0;
 
 	if (uoffset) {
-		if (!access_ok(uoffset, sizeof(*uoffset)))
-			return -EFAULT;
-		if (copy_from_user(&offset, uoffset, sizeof(offset)) != 0)
-			return -EFAULT;
-		if (offset < 0)
-			return -EINVAL;
-		ret = sendfile_copy(out_file, in_file, &offset, count);
+		ret = copy_user_offset(uoffset, &offset);
+		if (ret < 0)
+			return ret;
+		ret = copy_file_buffered(out_file, in_file, &offset, NULL,
+					 count);
 		if (ret > 0 &&
 		    copy_to_user(uoffset, &offset, sizeof(offset)) != 0)
 			return -EFAULT;
 		return ret;
 	}
 
-	ret = sendfile_copy(out_file, in_file, NULL, count);
+	ret = copy_file_buffered(out_file, in_file, NULL, NULL, count);
 	return ret;
 }
 
@@ -558,20 +507,23 @@ ssize_t sys_splice(struct trap_frame *tf)
 		return -EINVAL;
 
 	if (uoff_in) {
-		ret = splice_copy_user_offset(uoff_in, &in_offset);
+		ret = copy_user_offset(uoff_in, &in_offset);
 		if (ret < 0)
 			return ret;
 		in_offsetp = &in_offset;
 	}
 	if (uoff_out) {
-		ret = splice_copy_user_offset(uoff_out, &out_offset);
+		ret = copy_user_offset(uoff_out, &out_offset);
 		if (ret < 0)
 			return ret;
 		out_offsetp = &out_offset;
 	}
 
-	ret = splice_copy_transfer(out_file, in_file, in_offsetp, out_offsetp,
-				   len);
+	if (in_pipe)
+		ret = pipe_splice_to_file(in_file, out_file, out_offsetp, len);
+	else
+		ret = copy_file_buffered(out_file, in_file, in_offsetp,
+					 out_offsetp, len);
 	if (ret > 0 && uoff_in &&
 	    copy_to_user(uoff_in, &in_offset, sizeof(in_offset)) != 0)
 		return -EFAULT;

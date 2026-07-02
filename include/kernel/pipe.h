@@ -14,6 +14,8 @@ struct file;
 
 int do_pipe2(int fds[2], int flags);
 bool pipe_file(struct file *file);
+ssize_t pipe_splice_to_file(struct file *pipe_file, struct file *out_file,
+			    loff_t *out_offset, size_t len);
 
 #ifdef CONFIG_KERNEL_TEST
 void pipe_test_set_file_alloc_fail_at(int fail_at);

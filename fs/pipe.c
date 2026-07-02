@@ -21,6 +21,7 @@
 #include <kernel/buddy.h>
 #include <kernel/errno.h>
 #include <kernel/fdtable.h>
+#include <kernel/fs.h>
 #include <kernel/pipe.h>
 #include <kernel/slab.h>
 #include <kernel/signal.h>
@@ -133,6 +134,13 @@ static bool pipe_write_ready(void *arg)
 	return pipe->used < PIPE_SIZE || pipe->readers == 0;
 }
 
+static void pipe_commit_read(struct pipe_buffer *pipe, size_t count)
+{
+	pipe->tail = (pipe->tail + count) % PIPE_SIZE;
+	pipe->used -= count;
+	wake_up(&pipe->writers_wq);
+}
+
 static struct pipe_buffer *pipe_buffer_alloc(void)
 {
 	struct pipe_buffer *pipe = kmalloc(sizeof(*pipe));
@@ -196,11 +204,8 @@ static ssize_t pipe_read(struct file *file, char *buf, size_t count)
 			chunk = linear;
 
 		memcpy(buf + done, pipe->data + pipe->tail, chunk);
-		pipe->tail = (pipe->tail + chunk) % PIPE_SIZE;
-		pipe->used -= chunk;
+		pipe_commit_read(pipe, chunk);
 		done += chunk;
-
-		wake_up(&pipe->writers_wq);
 	}
 
 	return (ssize_t)done;
@@ -297,6 +302,60 @@ static int pipe_release(struct file *file)
 		pipe_buffer_free(pipe);
 
 	return 0;
+}
+
+ssize_t pipe_splice_to_file(struct file *pipe_file, struct file *out_file,
+			    loff_t *out_offset, size_t len)
+{
+	struct pipe_buffer *pipe = pipe_file ? pipe_file->private_data : NULL;
+	size_t done = 0;
+
+	if (!pipe || !out_file)
+		return -EINVAL;
+
+	while (done < len) {
+		size_t chunk;
+		loff_t old_out_pos;
+		ssize_t ret;
+
+		if (pipe->used == 0) {
+			if (pipe->writers == 0 || done > 0)
+				break;
+
+			ret = wait_event_interruptible(&pipe->readers_wq,
+						       pipe_read_ready, pipe);
+			if (ret < 0)
+				return done ? (ssize_t)done : ret;
+			continue;
+		}
+
+		chunk = len - done;
+		if (chunk > pipe_linear_tail(pipe))
+			chunk = pipe_linear_tail(pipe);
+
+		if (out_offset) {
+			old_out_pos = out_file->f_pos;
+			out_file->f_pos = *out_offset;
+		}
+		ret = vfs_write(out_file, (const char *)pipe->data + pipe->tail,
+				chunk);
+		if (out_offset)
+			out_file->f_pos = old_out_pos;
+
+		if (ret < 0)
+			return done ? (ssize_t)done : ret;
+		if (ret == 0)
+			break;
+
+		pipe_commit_read(pipe, (size_t)ret);
+		if (out_offset)
+			*out_offset += ret;
+		done += (size_t)ret;
+		if ((size_t)ret < chunk)
+			break;
+	}
+
+	return (ssize_t)done;
 }
 
 int do_pipe2(int fds[2], int flags)
