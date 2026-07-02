@@ -49,13 +49,6 @@ ssize_t sys_pselect6(struct trap_frame *tf)
 	return -ENOSYS;
 }
 
-ssize_t sys_splice(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(vfs): 需要 pipe/file 间数据搬运和 offset 语义。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 {
 	long pid = (long)tf->a0;

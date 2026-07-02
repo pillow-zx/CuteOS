@@ -49,6 +49,11 @@
 
 #define FALLOC_FL_KEEP_SIZE 0x01
 
+#define SPLICE_F_MOVE	   1
+#define SPLICE_F_NONBLOCK 2
+#define SPLICE_F_MORE	   4
+#define SPLICE_F_GIFT	   8
+
 #define RENAME_NOREPLACE 0x0001
 
 #endif

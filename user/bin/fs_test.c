@@ -939,6 +939,124 @@ static int test_sendfile_file_to_stdout(void)
 	return 0;
 }
 
+static int test_splice_pipe_to_file_explicit_offset(void)
+{
+	int pipefd[2];
+	long out_fd;
+	long off_out = 4;
+	long out_pos;
+	long ret;
+	int failed = 0;
+
+	out_fd = openat(AT_FDCWD, "/tmp/splice_pipe_dst",
+			O_CREAT | O_RDWR | O_TRUNC, 0644);
+	if (out_fd < 0 || pipe(pipefd) != 0) {
+		printf("FAIL: open splice pipe->file fds out=%ld\n", out_fd);
+		if (out_fd >= 0)
+			close((int)out_fd);
+		unlinkat(AT_FDCWD, "/tmp/splice_pipe_dst", 0);
+		return 1;
+	}
+
+	ret = write(pipefd[1], "pipe-data", 9);
+	if (ret != 9) {
+		printf("FAIL: write splice pipe input ret=%ld\n", ret);
+		failed++;
+	}
+
+	ret = splice(pipefd[0], NULL, (int)out_fd, &off_out, 9, 0);
+	if (ret != 9) {
+		printf("FAIL: splice pipe->file expected 9 got %ld\n", ret);
+		failed++;
+	}
+	if (off_out != 13) {
+		printf("FAIL: splice pipe->file offset expected 13 got %ld\n",
+		       off_out);
+		failed++;
+	}
+	out_pos = lseek((int)out_fd, 0, SEEK_CUR);
+	if (out_pos != 0) {
+		printf("FAIL: splice explicit output offset moved fd to %ld\n",
+		       out_pos);
+		failed++;
+	}
+
+	close(pipefd[0]);
+	close(pipefd[1]);
+	close((int)out_fd);
+	if (read_check("/tmp/splice_pipe_dst", "\0\0\0\0pipe-data", 13) != 0)
+		failed++;
+
+	unlinkat(AT_FDCWD, "/tmp/splice_pipe_dst", 0);
+	return failed;
+}
+
+static int test_splice_file_to_pipe_explicit_offset_and_eof(void)
+{
+	char buf[16];
+	int pipefd[2];
+	long in_fd;
+	long off_in = 4;
+	long eof_off = 10;
+	long in_pos;
+	long ret;
+	int failed = 0;
+
+	if (make_file("/tmp/splice_file_src", "0123456789", 10) < 0) {
+		printf("FAIL: make splice file source\n");
+		return 1;
+	}
+
+	in_fd = openat(AT_FDCWD, "/tmp/splice_file_src", O_RDONLY, 0);
+	if (in_fd < 0 || pipe(pipefd) != 0) {
+		printf("FAIL: open splice file->pipe fds in=%ld\n", in_fd);
+		if (in_fd >= 0)
+			close((int)in_fd);
+		unlinkat(AT_FDCWD, "/tmp/splice_file_src", 0);
+		return 1;
+	}
+
+	ret = splice((int)in_fd, &off_in, pipefd[1], NULL, 5, 0);
+	if (ret != 5) {
+		printf("FAIL: splice file->pipe expected 5 got %ld\n", ret);
+		failed++;
+	}
+	if (off_in != 9) {
+		printf("FAIL: splice file->pipe offset expected 9 got %ld\n",
+		       off_in);
+		failed++;
+	}
+	in_pos = lseek((int)in_fd, 0, SEEK_CUR);
+	if (in_pos != 0) {
+		printf("FAIL: splice explicit input offset moved fd to %ld\n",
+		       in_pos);
+		failed++;
+	}
+
+	if (ret == 5) {
+		memset(buf, 0, sizeof(buf));
+		ret = read(pipefd[0], buf, 5);
+		if (ret != 5 || strncmp(buf, "45678", 5) != 0) {
+			printf("FAIL: splice file->pipe read ret=%ld data=%s\n",
+			       ret, buf);
+			failed++;
+		}
+	}
+
+	ret = splice((int)in_fd, &eof_off, pipefd[1], NULL, 5, 0);
+	if (ret != 0 || eof_off != 10) {
+		printf("FAIL: splice file->pipe eof ret=%ld off=%ld\n", ret,
+		       eof_off);
+		failed++;
+	}
+
+	close(pipefd[0]);
+	close(pipefd[1]);
+	close((int)in_fd);
+	unlinkat(AT_FDCWD, "/tmp/splice_file_src", 0);
+	return failed;
+}
+
 static int test_statx_basic_regular_file(void)
 {
 	struct statx stx;
@@ -1639,6 +1757,11 @@ int main(void)
 		     test_sendfile_file_to_pipe_null_offset(), &failed);
 	report_group("sendfile file to stdout",
 		     test_sendfile_file_to_stdout(), &failed);
+	report_group("splice pipe to file explicit offset",
+		     test_splice_pipe_to_file_explicit_offset(), &failed);
+	report_group("splice file to pipe explicit offset and eof",
+		     test_splice_file_to_pipe_explicit_offset_and_eof(),
+		     &failed);
 	report_group("statx basic regular file", test_statx_basic_regular_file(),
 		     &failed);
 	report_group("symlinkat creates readlink target",

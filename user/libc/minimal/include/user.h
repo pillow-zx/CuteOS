@@ -334,6 +334,13 @@ static inline long sendfile(int out_fd, int in_fd, long *offset, size_t count)
 	return syscall(SYS_sendfile, out_fd, in_fd, (long)offset, (long)count);
 }
 
+static inline long splice(int fd_in, long *off_in, int fd_out, long *off_out,
+			  size_t len, unsigned int flags)
+{
+	return syscall(SYS_splice, fd_in, (long)off_in, fd_out, (long)off_out,
+		       (long)len, flags);
+}
+
 static inline long dup(int oldfd)
 {
 	return syscall(SYS_dup, oldfd);

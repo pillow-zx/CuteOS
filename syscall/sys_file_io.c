@@ -63,6 +63,8 @@
 #define F_SET_FILE_RW_HINT    (F_LINUX_SPECIFIC_BASE + 14)
 #define F_GETDELEG	      (F_LINUX_SPECIFIC_BASE + 15)
 #define F_SETDELEG	      (F_LINUX_SPECIFIC_BASE + 16)
+#define SPLICE_F_SUPPORTED_HINTS                                             \
+	(SPLICE_F_MOVE | SPLICE_F_MORE | SPLICE_F_GIFT)
 /*
  * ftruncate/fallocate 允许设置的最大 i_size。真实上界取决于具体文件系统；
  * 此处取保守值，主要防止无界膨胀导致 fill_kstat 的 st_blocks 计算溢出，
@@ -261,6 +263,82 @@ static ssize_t sendfile_copy(struct file *out_file, struct file *in_file,
 	return total;
 }
 
+static bool splice_regular_file(struct file *file)
+{
+	return file && file->f_inode && S_ISREG(file->f_inode->i_mode);
+}
+
+static int splice_copy_user_offset(loff_t *uoffset, loff_t *offset)
+{
+	if (!access_ok(uoffset, sizeof(*uoffset)))
+		return -EFAULT;
+	if (copy_from_user(offset, uoffset, sizeof(*offset)) != 0)
+		return -EFAULT;
+	if (*offset < 0)
+		return -EINVAL;
+
+	return 0;
+}
+
+static ssize_t splice_copy_transfer(struct file *out_file,
+				    struct file *in_file, loff_t *in_offset,
+				    loff_t *out_offset, size_t len)
+{
+	char kbuf[SYS_FILE_BUF_SIZE];
+	ssize_t total = 0;
+
+	while (len > 0) {
+		loff_t old_in_pos = in_file->f_pos;
+		loff_t old_out_pos = out_file->f_pos;
+		size_t chunk = len;
+		ssize_t nr_read;
+		ssize_t nr_written;
+
+		if (chunk > SYS_FILE_BUF_SIZE)
+			chunk = SYS_FILE_BUF_SIZE;
+
+		if (in_offset)
+			in_file->f_pos = *in_offset;
+		nr_read = vfs_read(in_file, kbuf, chunk);
+		if (in_offset)
+			in_file->f_pos = old_in_pos;
+		if (nr_read < 0)
+			return total ? total : nr_read;
+		if (nr_read == 0)
+			break;
+
+		if (out_offset)
+			out_file->f_pos = *out_offset;
+		nr_written = vfs_write(out_file, kbuf, (size_t)nr_read);
+		if (out_offset)
+			out_file->f_pos = old_out_pos;
+		if (nr_written < 0) {
+			if (!in_offset && splice_regular_file(in_file))
+				in_file->f_pos -= nr_read;
+			return total ? total : nr_written;
+		}
+		if (nr_written == 0) {
+			if (!in_offset && splice_regular_file(in_file))
+				in_file->f_pos -= nr_read;
+			break;
+		}
+
+		if (in_offset)
+			*in_offset += nr_written;
+		else if (nr_written < nr_read && splice_regular_file(in_file))
+			in_file->f_pos -= nr_read - nr_written;
+		if (out_offset)
+			*out_offset += nr_written;
+
+		total += nr_written;
+		len -= (size_t)nr_written;
+		if (nr_written < nr_read)
+			break;
+	}
+
+	return total;
+}
+
 static ssize_t rw_iovec(struct file *file, const struct iovec *uiov,
 			size_t iovcnt, bool write)
 {
@@ -436,6 +514,70 @@ ssize_t sys_sendfile(struct trap_frame *tf)
 	}
 
 	ret = sendfile_copy(out_file, in_file, NULL, count);
+	return ret;
+}
+
+ssize_t sys_splice(struct trap_frame *tf)
+{
+	int fd_in = (int)tf->a0;
+	loff_t *uoff_in = (loff_t *)tf->a1;
+	int fd_out = (int)tf->a2;
+	loff_t *uoff_out = (loff_t *)tf->a3;
+	size_t len = tf->a4;
+	unsigned int flags = (unsigned int)tf->a5;
+	struct file *in_file __cleanup_with(file) = fd_get_readable(fd_in);
+	struct file *out_file __cleanup_with(file) = fd_get_writable(fd_out);
+	bool in_pipe;
+	bool out_pipe;
+	loff_t in_offset;
+	loff_t out_offset;
+	loff_t *in_offsetp = NULL;
+	loff_t *out_offsetp = NULL;
+	ssize_t ret;
+
+	if (!in_file || !out_file)
+		return -EBADF;
+	if (flags & ~SPLICE_F_SUPPORTED_HINTS)
+		return -EINVAL;
+	if (len == 0)
+		return 0;
+
+	in_pipe = pipe_file(in_file);
+	out_pipe = pipe_file(out_file);
+	if (in_pipe == out_pipe)
+		return -EINVAL;
+	if (in_pipe && uoff_in)
+		return -ESPIPE;
+	if (out_pipe && uoff_out)
+		return -ESPIPE;
+	if (!in_pipe && !splice_regular_file(in_file))
+		return -EINVAL;
+	if (!out_pipe && !splice_regular_file(out_file))
+		return -EINVAL;
+	if (!out_pipe && (out_file->f_flags & O_APPEND))
+		return -EINVAL;
+
+	if (uoff_in) {
+		ret = splice_copy_user_offset(uoff_in, &in_offset);
+		if (ret < 0)
+			return ret;
+		in_offsetp = &in_offset;
+	}
+	if (uoff_out) {
+		ret = splice_copy_user_offset(uoff_out, &out_offset);
+		if (ret < 0)
+			return ret;
+		out_offsetp = &out_offset;
+	}
+
+	ret = splice_copy_transfer(out_file, in_file, in_offsetp, out_offsetp,
+				   len);
+	if (ret > 0 && uoff_in &&
+	    copy_to_user(uoff_in, &in_offset, sizeof(in_offset)) != 0)
+		return -EFAULT;
+	if (ret > 0 && uoff_out &&
+	    copy_to_user(uoff_out, &out_offset, sizeof(out_offset)) != 0)
+		return -EFAULT;
 	return ret;
 }
 

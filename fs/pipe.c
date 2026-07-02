@@ -64,6 +64,12 @@ static const struct file_operations pipe_write_fops = {
 	.release = pipe_release,
 };
 
+bool pipe_file(struct file *file)
+{
+	return file && (file->f_op == &pipe_read_fops ||
+			file->f_op == &pipe_write_fops);
+}
+
 #ifdef CONFIG_KERNEL_TEST
 static int pipe_test_file_alloc_fail_at;
 static int pipe_test_file_alloc_calls;
