@@ -329,6 +329,11 @@ static inline long fallocate(int fd, int mode, long offset, long len)
 	return syscall(SYS_fallocate, fd, mode, offset, len);
 }
 
+static inline long sendfile(int out_fd, int in_fd, long *offset, size_t count)
+{
+	return syscall(SYS_sendfile, out_fd, in_fd, (long)offset, (long)count);
+}
+
 static inline long dup(int oldfd)
 {
 	return syscall(SYS_dup, oldfd);

@@ -42,13 +42,6 @@ ssize_t sys_epoll_pwait(struct trap_frame *tf)
 	return -ENOSYS;
 }
 
-ssize_t sys_sendfile(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(vfs): 需要内核缓冲区复制和 offset/文件位置规则。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_pselect6(struct trap_frame *tf)
 {
 	(void)tf;

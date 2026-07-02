@@ -805,6 +805,140 @@ static int test_empty_path_stat_and_utime(void)
 	return 0;
 }
 
+static int test_sendfile_regular_to_regular_offset(void)
+{
+	long in_fd;
+	long out_fd;
+	long offset = 4;
+	long in_pos;
+	long ret;
+	int failed = 0;
+
+	if (make_file("/tmp/sendfile_src", "0123456789abcdef", 16) < 0) {
+		printf("FAIL: make sendfile source\n");
+		return 1;
+	}
+
+	in_fd = openat(AT_FDCWD, "/tmp/sendfile_src", O_RDONLY, 0);
+	out_fd = openat(AT_FDCWD, "/tmp/sendfile_dst",
+			O_CREAT | O_WRONLY | O_TRUNC, 0644);
+	if (in_fd < 0 || out_fd < 0) {
+		printf("FAIL: open sendfile files in=%ld out=%ld\n", in_fd,
+		       out_fd);
+		if (in_fd >= 0)
+			close((int)in_fd);
+		if (out_fd >= 0)
+			close((int)out_fd);
+		unlinkat(AT_FDCWD, "/tmp/sendfile_src", 0);
+		unlinkat(AT_FDCWD, "/tmp/sendfile_dst", 0);
+		return 1;
+	}
+
+	ret = sendfile((int)out_fd, (int)in_fd, &offset, 6);
+	if (ret != 6) {
+		printf("FAIL: sendfile regular expected 6 got %ld\n", ret);
+		failed++;
+	}
+	if (offset != 10) {
+		printf("FAIL: sendfile offset expected 10 got %ld\n", offset);
+		failed++;
+	}
+	in_pos = lseek((int)in_fd, 0, SEEK_CUR);
+	if (in_pos != 0) {
+		printf("FAIL: sendfile explicit offset moved input to %ld\n",
+		       in_pos);
+		failed++;
+	}
+
+	close((int)in_fd);
+	close((int)out_fd);
+	if (read_check("/tmp/sendfile_dst", "456789", 6) != 0)
+		failed++;
+
+	unlinkat(AT_FDCWD, "/tmp/sendfile_src", 0);
+	unlinkat(AT_FDCWD, "/tmp/sendfile_dst", 0);
+	return failed;
+}
+
+static int test_sendfile_file_to_pipe_null_offset(void)
+{
+	char buf[16];
+	int pipefd[2];
+	long in_fd;
+	long in_pos;
+	long ret;
+	int failed = 0;
+
+	if (make_file("/tmp/sendfile_pipe_src", "pipe-data", 9) < 0) {
+		printf("FAIL: make sendfile pipe source\n");
+		return 1;
+	}
+
+	in_fd = openat(AT_FDCWD, "/tmp/sendfile_pipe_src", O_RDONLY, 0);
+	if (in_fd < 0 || pipe(pipefd) != 0) {
+		printf("FAIL: open pipe sendfile source/fds in=%ld\n", in_fd);
+		if (in_fd >= 0)
+			close((int)in_fd);
+		unlinkat(AT_FDCWD, "/tmp/sendfile_pipe_src", 0);
+		return 1;
+	}
+
+	ret = sendfile(pipefd[1], (int)in_fd, NULL, 7);
+	if (ret != 7) {
+		printf("FAIL: sendfile pipe expected 7 got %ld\n", ret);
+		failed++;
+	}
+	in_pos = lseek((int)in_fd, 0, SEEK_CUR);
+	if (in_pos != 7) {
+		printf("FAIL: sendfile null offset input pos expected 7 got %ld\n",
+		       in_pos);
+		failed++;
+	}
+
+	memset(buf, 0, sizeof(buf));
+	ret = read(pipefd[0], buf, 7);
+	if (ret != 7 || strncmp(buf, "pipe-da", 7) != 0) {
+		printf("FAIL: sendfile pipe read ret=%ld data=%s\n", ret, buf);
+		failed++;
+	}
+
+	close(pipefd[0]);
+	close(pipefd[1]);
+	close((int)in_fd);
+	unlinkat(AT_FDCWD, "/tmp/sendfile_pipe_src", 0);
+	return failed;
+}
+
+static int test_sendfile_file_to_stdout(void)
+{
+	long in_fd;
+	long offset = 0;
+	long ret;
+
+	if (make_file("/tmp/sendfile_stdout_src", "sfout", 5) < 0) {
+		printf("FAIL: make sendfile stdout source\n");
+		return 1;
+	}
+
+	in_fd = openat(AT_FDCWD, "/tmp/sendfile_stdout_src", O_RDONLY, 0);
+	if (in_fd < 0) {
+		printf("FAIL: open sendfile stdout source: %ld\n", in_fd);
+		unlinkat(AT_FDCWD, "/tmp/sendfile_stdout_src", 0);
+		return 1;
+	}
+
+	ret = sendfile(1, (int)in_fd, &offset, 5);
+	close((int)in_fd);
+	unlinkat(AT_FDCWD, "/tmp/sendfile_stdout_src", 0);
+	if (ret != 5 || offset != 5) {
+		printf("FAIL: sendfile stdout ret=%ld offset=%ld\n", ret,
+		       offset);
+		return 1;
+	}
+
+	return 0;
+}
+
 static int test_statx_basic_regular_file(void)
 {
 	struct statx stx;
@@ -1499,6 +1633,12 @@ int main(void)
 		     &failed);
 	report_group("empty path stat and utime",
 		     test_empty_path_stat_and_utime(), &failed);
+	report_group("sendfile regular to regular explicit offset",
+		     test_sendfile_regular_to_regular_offset(), &failed);
+	report_group("sendfile file to pipe null offset",
+		     test_sendfile_file_to_pipe_null_offset(), &failed);
+	report_group("sendfile file to stdout",
+		     test_sendfile_file_to_stdout(), &failed);
 	report_group("statx basic regular file", test_statx_basic_regular_file(),
 		     &failed);
 	report_group("symlinkat creates readlink target",

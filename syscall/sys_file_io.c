@@ -210,6 +210,57 @@ static ssize_t write_at_offset(struct file *file, const void *buf, size_t len,
 	return ret;
 }
 
+static ssize_t sendfile_copy(struct file *out_file, struct file *in_file,
+			     loff_t *offset, size_t count)
+{
+	char kbuf[SYS_FILE_BUF_SIZE];
+	ssize_t total = 0;
+
+	while (count > 0) {
+		loff_t old_pos = in_file->f_pos;
+		size_t chunk = count;
+		ssize_t nr_read;
+		ssize_t nr_written;
+
+		if (chunk > SYS_FILE_BUF_SIZE)
+			chunk = SYS_FILE_BUF_SIZE;
+		if (offset)
+			in_file->f_pos = *offset;
+
+		nr_read = vfs_read(in_file, kbuf, chunk);
+		if (offset)
+			in_file->f_pos = old_pos;
+		if (nr_read < 0)
+			return total ? total : nr_read;
+		if (nr_read == 0)
+			break;
+
+		nr_written = vfs_write(out_file, kbuf, (size_t)nr_read);
+		if (nr_written < 0) {
+			if (!offset)
+				in_file->f_pos -= nr_read;
+			return total ? total : nr_written;
+		}
+		if (nr_written == 0) {
+			if (!offset)
+				in_file->f_pos -= nr_read;
+			break;
+		}
+
+		if (offset)
+			*offset += nr_written;
+		else if (nr_written < nr_read)
+			in_file->f_pos -= nr_read - nr_written;
+
+		total += nr_written;
+		count -= (size_t)nr_written;
+		if (nr_written < nr_read)
+			break;
+	}
+
+	return total;
+}
+
 static ssize_t rw_iovec(struct file *file, const struct iovec *uiov,
 			size_t iovcnt, bool write)
 {
@@ -348,6 +399,43 @@ ssize_t sys_pwrite64(struct trap_frame *tf)
 		return -EBADF;
 
 	ret = write_at_offset(file, buf, len, offset);
+	return ret;
+}
+
+ssize_t sys_sendfile(struct trap_frame *tf)
+{
+	int out_fd = (int)tf->a0;
+	int in_fd = (int)tf->a1;
+	loff_t *uoffset = (loff_t *)tf->a2;
+	size_t count = tf->a3;
+	struct file *out_file __cleanup_with(file) = fd_get_writable(out_fd);
+	struct file *in_file __cleanup_with(file) = fd_get_readable(in_fd);
+	loff_t offset;
+	ssize_t ret;
+
+	if (!out_file || !in_file)
+		return -EBADF;
+	if (!in_file->f_inode ||
+	    (in_file->f_inode->i_mode & S_IFMT) != S_IFREG)
+		return -EINVAL;
+	if (count == 0)
+		return 0;
+
+	if (uoffset) {
+		if (!access_ok(uoffset, sizeof(*uoffset)))
+			return -EFAULT;
+		if (copy_from_user(&offset, uoffset, sizeof(offset)) != 0)
+			return -EFAULT;
+		if (offset < 0)
+			return -EINVAL;
+		ret = sendfile_copy(out_file, in_file, &offset, count);
+		if (ret > 0 &&
+		    copy_to_user(uoffset, &offset, sizeof(offset)) != 0)
+			return -EFAULT;
+		return ret;
+	}
+
+	ret = sendfile_copy(out_file, in_file, NULL, count);
 	return ret;
 }
 
