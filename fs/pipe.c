@@ -315,7 +315,6 @@ ssize_t pipe_splice_to_file(struct file *pipe_file, struct file *out_file,
 
 	while (done < len) {
 		size_t chunk;
-		loff_t old_out_pos;
 		ssize_t ret;
 
 		if (pipe->used == 0) {
@@ -333,14 +332,9 @@ ssize_t pipe_splice_to_file(struct file *pipe_file, struct file *out_file,
 		if (chunk > pipe_linear_tail(pipe))
 			chunk = pipe_linear_tail(pipe);
 
-		if (out_offset) {
-			old_out_pos = out_file->f_pos;
-			out_file->f_pos = *out_offset;
-		}
-		ret = vfs_write(out_file, (const char *)pipe->data + pipe->tail,
-				chunk);
-		if (out_offset)
-			out_file->f_pos = old_out_pos;
+		ret = vfs_write_pos(out_file,
+				    (const char *)pipe->data + pipe->tail,
+				    chunk, out_offset);
 
 		if (ret < 0)
 			return done ? (ssize_t)done : ret;
@@ -348,8 +342,6 @@ ssize_t pipe_splice_to_file(struct file *pipe_file, struct file *out_file,
 			break;
 
 		pipe_commit_read(pipe, (size_t)ret);
-		if (out_offset)
-			*out_offset += ret;
 		done += (size_t)ret;
 		if ((size_t)ret < chunk)
 			break;

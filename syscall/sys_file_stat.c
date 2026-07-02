@@ -29,23 +29,6 @@
 
 #include "sys_file_internal.h"
 
-static int stat_empty_path(int dfd, struct stat *ustat)
-{
-	struct path cwd __cleanup_with(path) = {};
-	struct file *file __cleanup_with(file) = NULL;
-	struct inode *inode;
-	struct stat st;
-	int ret;
-
-	ret = sys_empty_path_inode(dfd, &cwd, &file, &inode);
-	if (ret < 0)
-		return ret;
-	ret = vfs_stat_inode(inode, &st);
-	if (ret < 0)
-		return ret;
-	return copy_to_user(ustat, &st, sizeof(st)) != 0 ? -EFAULT : 0;
-}
-
 ssize_t sys_fstat(struct trap_frame *tf)
 {
 	int fd = (int)tf->a0;
@@ -72,9 +55,7 @@ ssize_t sys_newfstatat(struct trap_frame *tf)
 	const char *upath = (const char *)tf->a1;
 	struct stat *ustat = (struct stat *)tf->a2;
 	int flags = (int)tf->a3;
-	char *path __cleanup_with(page0) = NULL;
-	struct path base __cleanup_with(path) = {};
-	struct path found __cleanup_with(path) = {};
+	struct sys_at_lookup_result lookup __cleanup_with(sys_at_lookup) = {};
 	struct stat st;
 	int ret;
 
@@ -83,27 +64,13 @@ ssize_t sys_newfstatat(struct trap_frame *tf)
 	if (flags & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW))
 		return -EINVAL;
 
-	if (flags & AT_EMPTY_PATH) {
-		bool empty;
-
-		ret = sys_empty_path_requested(flags, upath, &empty);
-		if (ret < 0)
-			return ret;
-		if (empty)
-			return stat_empty_path(dfd, ustat);
-	}
-
-	ret = copy_user_path_at(dfd, upath, &path, &base);
+	ret = sys_at_lookup(&lookup, dfd, upath, flags,
+			    (flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0,
+			    true);
 	if (ret < 0)
 		return ret;
 
-	ret = path_lookupat_path(
-		base.dentry ? &base : NULL, path,
-		(flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0, &found);
-	if (ret < 0)
-		return ret;
-
-	ret = vfs_stat_dentry(found.dentry, &st);
+	ret = vfs_stat_inode(lookup.inode, &st);
 	if (ret < 0)
 		return ret;
 	if (copy_to_user(ustat, &st, sizeof(st)) != 0)
@@ -144,25 +111,6 @@ static void statx_from_stat(const struct stat *st, struct statx *stx)
 	stx->stx_dev_minor = (uint32_t)(st->st_dev & ((1u << MINORBITS) - 1));
 }
 
-static int statx_empty_path(int dfd, struct statx *ustatx)
-{
-	struct path cwd __cleanup_with(path) = {};
-	struct file *file __cleanup_with(file) = NULL;
-	struct inode *inode;
-	struct stat st;
-	struct statx stx;
-	int ret;
-
-	ret = sys_empty_path_inode(dfd, &cwd, &file, &inode);
-	if (ret < 0)
-		return ret;
-	ret = vfs_stat_inode(inode, &st);
-	if (ret < 0)
-		return ret;
-	statx_from_stat(&st, &stx);
-	return copy_to_user(ustatx, &stx, sizeof(stx)) != 0 ? -EFAULT : 0;
-}
-
 ssize_t sys_statx(struct trap_frame *tf)
 {
 	int dfd = (int)tf->a0;
@@ -170,9 +118,7 @@ ssize_t sys_statx(struct trap_frame *tf)
 	int flags = (int)tf->a2;
 	uint32_t mask = (uint32_t)tf->a3;
 	struct statx *ustatx = (struct statx *)tf->a4;
-	char *path __cleanup_with(page0) = NULL;
-	struct path base __cleanup_with(path) = {};
-	struct path found __cleanup_with(path) = {};
+	struct sys_at_lookup_result lookup __cleanup_with(sys_at_lookup) = {};
 	struct stat st;
 	struct statx stx;
 	int ret;
@@ -189,27 +135,13 @@ ssize_t sys_statx(struct trap_frame *tf)
 	    (flags & AT_STATX_SYNC_TYPE) != 0)
 		return -EINVAL;
 
-	if (flags & AT_EMPTY_PATH) {
-		bool empty;
-
-		ret = sys_empty_path_requested(flags, upath, &empty);
-		if (ret < 0)
-			return ret;
-		if (empty)
-			return statx_empty_path(dfd, ustatx);
-	}
-
-	ret = copy_user_path_at(dfd, upath, &path, &base);
+	ret = sys_at_lookup(&lookup, dfd, upath, flags,
+			    (flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0,
+			    true);
 	if (ret < 0)
 		return ret;
 
-	ret = path_lookupat_path(
-		base.dentry ? &base : NULL, path,
-		(flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0, &found);
-	if (ret < 0)
-		return ret;
-
-	ret = vfs_stat_dentry(found.dentry, &st);
+	ret = vfs_stat_inode(lookup.inode, &st);
 	if (ret < 0)
 		return ret;
 

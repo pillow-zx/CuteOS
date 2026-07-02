@@ -412,10 +412,16 @@ task_altstack_safe(struct task_struct *task)
 	return task ? task_altstack(task) : NULL;
 }
 
-static __always_inline __must_check __pure uint32_t
+static __always_inline __must_check __pure __nonnull(1) uint32_t
 task_state(const struct task_struct *task)
 {
-	return task ? task->lifecycle.state : TASK_DEAD;
+	return task->lifecycle.state;
+}
+
+static __always_inline __must_check __pure uint32_t
+task_state_safe(const struct task_struct *task)
+{
+	return task ? task_state(task) : TASK_DEAD;
 }
 
 static __always_inline void task_set_state(struct task_struct *task,

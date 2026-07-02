@@ -9,6 +9,7 @@
 #include <kernel/fs.h>
 #include <kernel/fs_struct.h>
 #include <kernel/mm.h>
+#include <kernel/string.h>
 #include <kernel/stat.h>
 #include <kernel/task.h>
 #include <kernel/vfs.h>
@@ -139,4 +140,61 @@ int sys_empty_path_inode(int dfd, struct path *cwd, struct file **filep,
 	*filep = file;
 	*inodep = file->f_inode;
 	return *inodep ? 0 : -ENOENT;
+}
+
+void sys_at_lookup_release(struct sys_at_lookup_result *lookup)
+{
+	if (!lookup)
+		return;
+
+	if (lookup->path)
+		free_page(lookup->path, 0);
+	path_put(&lookup->base);
+	path_put(&lookup->found);
+	path_put(&lookup->cwd);
+	file_put(lookup->file);
+	memset(lookup, 0, sizeof(*lookup));
+}
+
+int sys_at_lookup(struct sys_at_lookup_result *lookup, int dfd,
+		  const char *upath, int at_flags, uint32_t lookup_flags,
+		  bool null_is_empty)
+{
+	bool empty;
+	int ret;
+
+	if (!lookup)
+		return -EINVAL;
+	memset(lookup, 0, sizeof(*lookup));
+
+	if (at_flags & AT_EMPTY_PATH) {
+		if (!upath && !null_is_empty)
+			return -EFAULT;
+		ret = sys_empty_path_requested(at_flags, upath, &empty);
+		if (ret < 0)
+			return ret;
+		if (empty) {
+			ret = sys_empty_path_inode(dfd, &lookup->cwd,
+						   &lookup->file,
+						   &lookup->inode);
+			if (ret < 0)
+				return ret;
+			lookup->empty_path = true;
+			return 0;
+		}
+	}
+
+	ret = copy_user_path_at(dfd, upath, &lookup->path, &lookup->base);
+	if (ret < 0)
+		return ret;
+
+	ret = path_lookupat_path(lookup->base.dentry ? &lookup->base : NULL,
+				 lookup->path, lookup_flags, &lookup->found);
+	if (ret < 0)
+		return ret;
+
+	lookup->inode = lookup->found.dentry ?
+				lookup->found.dentry->d_inode :
+				NULL;
+	return lookup->inode ? 0 : -ENOENT;
 }

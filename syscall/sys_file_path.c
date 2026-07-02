@@ -65,39 +65,17 @@ static uint8_t vfs_type_to_dirent(uint8_t type)
 }
 
 static int sys_faccessat_path(int dfd, const char *upath, int mode,
-			      uint32_t lookup_flags)
+			      int flags, uint32_t lookup_flags)
 {
-	char *path __cleanup_with(page0) = NULL;
-	struct path base __cleanup_with(path) = {};
-	struct path found __cleanup_with(path) = {};
+	struct sys_at_lookup_result lookup __cleanup_with(sys_at_lookup) = {};
 	int ret;
 
-	ret = copy_user_path_at(dfd, upath, &path, &base);
+	ret = sys_at_lookup(&lookup, dfd, upath, flags, lookup_flags, false);
 	if (ret < 0)
 		return ret;
 
-	ret = path_lookupat_path(base.dentry ? &base : NULL, path,
-				 lookup_flags, &found);
-	if (ret < 0)
-		return ret;
+	ret = vfs_inode_permission(lookup.inode, (uint32_t)mode);
 
-	ret = vfs_inode_permission(found.dentry->d_inode, (uint32_t)mode);
-
-	return ret;
-}
-
-static int sys_faccessat_empty_path(int dfd, int mode)
-{
-	struct path cwd __cleanup_with(path) = {};
-	struct file *file __cleanup_with(file) = NULL;
-	struct inode *inode;
-	int ret;
-
-	ret = sys_empty_path_inode(dfd, &cwd, &file, &inode);
-	if (ret < 0)
-		return ret;
-
-	ret = vfs_inode_permission(inode, (uint32_t)mode);
 	return ret;
 }
 
@@ -217,7 +195,7 @@ ssize_t sys_faccessat(struct trap_frame *tf)
 	if (mode & ~(R_OK | W_OK | X_OK))
 		return -EINVAL;
 
-	return sys_faccessat_path(dfd, upath, mode, 0);
+	return sys_faccessat_path(dfd, upath, mode, 0, 0);
 }
 
 ssize_t sys_faccessat2(struct trap_frame *tf)
@@ -231,21 +209,8 @@ ssize_t sys_faccessat2(struct trap_frame *tf)
 		return -EINVAL;
 	if (flags & ~(AT_EACCESS | AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW))
 		return -EINVAL;
-	if (flags & AT_EMPTY_PATH) {
-		bool empty;
-		int ret;
-
-		if (!upath)
-			return -EFAULT;
-		ret = sys_empty_path_requested(flags, upath, &empty);
-		if (ret < 0)
-			return ret;
-		if (empty)
-			return sys_faccessat_empty_path(dfd, mode);
-	}
-
 	return sys_faccessat_path(
-		dfd, upath, mode,
+		dfd, upath, mode, flags,
 		(flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0);
 }
 
@@ -533,23 +498,6 @@ ssize_t sys_renameat2(struct trap_frame *tf)
 	return ret;
 }
 
-static int sys_utimensat_empty_path(int dfd, const struct timespec ktimes[2],
-				    const bool set_time[2])
-{
-	struct path cwd __cleanup_with(path) = {};
-	struct file *file __cleanup_with(file) = NULL;
-	struct inode *inode;
-	int ret;
-
-	ret = sys_empty_path_inode(dfd, &cwd, &file, &inode);
-	if (ret < 0)
-		return ret;
-	ret = vfs_inode_set_timestamps(inode, ktimes[0].tv_sec,
-				       ktimes[1].tv_sec, set_time[0],
-				       set_time[1]);
-	return ret;
-}
-
 static int sys_utimensat_read_times(const struct timespec *utimes,
 				    struct timespec ktimes[2],
 				    bool set_time[2])
@@ -593,9 +541,7 @@ ssize_t sys_utimensat(struct trap_frame *tf)
 	int flags = (int)tf->a3;
 	struct timespec ktimes[2];
 	bool set_time[2];
-	char *path __cleanup_with(page0) = NULL;
-	struct path base __cleanup_with(path) = {};
-	struct path found __cleanup_with(path) = {};
+	struct sys_at_lookup_result lookup __cleanup_with(sys_at_lookup) = {};
 	int ret;
 
 	if (flags & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW))
@@ -605,27 +551,13 @@ ssize_t sys_utimensat(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	if (flags & AT_EMPTY_PATH) {
-		bool empty;
-
-		ret = sys_empty_path_requested(flags, upath, &empty);
-		if (ret < 0)
-			return ret;
-		if (empty)
-			return sys_utimensat_empty_path(dfd, ktimes, set_time);
-	}
-
-	ret = copy_user_path_at(dfd, upath, &path, &base);
+	ret = sys_at_lookup(&lookup, dfd, upath, flags,
+			    (flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0,
+			    true);
 	if (ret < 0)
 		return ret;
 
-	ret = path_lookupat_path(
-		base.dentry ? &base : NULL, path,
-		(flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0, &found);
-	if (ret < 0)
-		return ret;
-
-	ret = vfs_inode_set_timestamps(found.dentry->d_inode, ktimes[0].tv_sec,
+	ret = vfs_inode_set_timestamps(lookup.inode, ktimes[0].tv_sec,
 				       ktimes[1].tv_sec, set_time[0],
 				       set_time[1]);
 	return ret;

@@ -179,16 +179,16 @@ static void detach_task_queues(struct task_struct *task)
 		list_del_init(&task->sched.wait_entry.node);
 }
 
-static void finish_task_exit(struct task_struct *task, int code,
-			     bool notify_parent)
+static void __nonnull(1) finish_task_exit(struct task_struct *task, int code,
+					  bool notify_parent)
 {
-	if (!task || task_state(task) == TASK_ZOMBIE ||
+	if (task_state(task) == TASK_ZOMBIE ||
 	    task_state(task) == TASK_DEAD)
 		return;
 
 	detach_task_queues(task);
 
-	task->lifecycle.exit_code = code;
+	task_set_exit_code(task, code);
 	futex_exit_robust_list(task);
 	clear_child_tid(task);
 	close_files(task);
@@ -263,11 +263,14 @@ static void reap_other_threads(struct task_struct *leader, int code)
  */
 void __noreturn do_exit(int code)
 {
-	if (!task_is_group_leader(current)) {
-		finish_task_exit(current, code, false);
+	struct task_struct *task = current;
+
+	BUG_ON(!task);
+	if (!task_is_group_leader(task)) {
+		finish_task_exit(task, code, false);
 	} else {
-		reap_other_threads(current, code);
-		finish_task_exit(current, code, true);
+		reap_other_threads(task, code);
+		finish_task_exit(task, code, true);
 	}
 
 	/*
@@ -287,19 +290,23 @@ void __noreturn do_exit(int code)
 
 void __noreturn do_exit_group(int code)
 {
-	struct task_struct *leader = task_group_leader(current);
+	struct task_struct *task = current;
+	struct task_struct *leader;
 
-	pr_info("exit_group: pid=%d tgid=%d exit_code=%d\n", task_pid(current),
-		task_tgid(current), code);
+	BUG_ON(!task);
+	leader = task_group_leader(task);
 
-	if (leader && leader != current) {
+	pr_info("exit_group: pid=%d tgid=%d exit_code=%d\n", task_pid(task),
+		task_tgid(task), code);
+
+	if (leader && leader != task) {
 		finish_task_exit(leader, code, true);
 	}
 
 	if (leader)
 		reap_other_threads(leader, code);
 
-	finish_task_exit(current, code, current == leader);
+	finish_task_exit(task, code, task == leader);
 	schedule();
 
 	unreachable();
@@ -352,7 +359,7 @@ int kernel_wait4(pid_t pid, int options, struct wait4_result *result)
 		}
 
 		pid_t child_pid = task_pid(child);
-		int status = WEXITCODE(child->lifecycle.exit_code);
+		int status = WEXITCODE(task_exit_code(child));
 
 		result->task = child;
 		result->pid = child_pid;

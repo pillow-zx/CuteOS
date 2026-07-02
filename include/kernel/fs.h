@@ -217,6 +217,15 @@ int __must_check file_set_status_flags(struct file *file, uint32_t flags);
 ssize_t __must_check vfs_read(struct file *file, char *buf, size_t count);
 ssize_t __must_check vfs_write(struct file *file, const char *buf,
 			       size_t count);
+ssize_t __must_check vfs_read_pos(struct file *file, char *buf, size_t count,
+				  loff_t *pos);
+ssize_t __must_check vfs_write_pos(struct file *file, const char *buf,
+				   size_t count, loff_t *pos);
+void vfs_rewind_pos(struct file *file, loff_t count);
+ssize_t __must_check vfs_copy_file_buffered(struct file *out_file,
+					    struct file *in_file,
+					    loff_t *in_pos,
+					    loff_t *out_pos, size_t len);
 loff_t __must_check vfs_llseek(struct file *file, loff_t offset, int whence);
 int __must_check vfs_readdir(struct file *file, void *ctx, filldir_t filldir);
 int __must_check vfs_truncate_file(struct file *file, uint64_t size);
