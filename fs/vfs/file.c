@@ -97,6 +97,21 @@ int vfs_truncate_file(struct file *file, uint64_t size)
 	return vfs_inode_truncate(file->f_inode, size);
 }
 
+int vfs_fallocate_file(struct file *file, int mode, uint64_t offset,
+		       uint64_t len)
+{
+	struct inode *inode = file ? file->f_inode : NULL;
+
+	if (!inode)
+		return -EINVAL;
+	if (!S_ISREG(inode->i_mode))
+		return -EINVAL;
+	if (!inode->i_op || !inode->i_op->fallocate)
+		return -EINVAL;
+
+	return inode->i_op->fallocate(inode, mode, offset, len);
+}
+
 int vfs_stat_file(struct file *file, struct stat *st)
 {
 	if (!file)

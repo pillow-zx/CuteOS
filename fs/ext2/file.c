@@ -5,9 +5,6 @@
 #include <kernel/page_cache.h>
 #include <kernel/string.h>
 
-#define EXT2_MAX_FILE_SIZE  ((uint64_t)UINT32_MAX)
-#define EXT2_MAX_FILE_INDEX ((EXT2_MAX_FILE_SIZE - 1) / BLOCK_SIZE)
-
 static bool ext2_file_index_valid(uint64_t index)
 {
 	return index <= EXT2_MAX_FILE_INDEX;

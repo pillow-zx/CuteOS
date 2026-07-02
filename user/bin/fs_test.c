@@ -1096,6 +1096,126 @@ static int test_statx_basic_regular_file(void)
 	return 0;
 }
 
+static int test_fallocate_mode0_allocates_blocks(void)
+{
+	char buf[16];
+	struct stat before;
+	struct stat after;
+	struct statx stx;
+	long fd;
+	long rofd;
+	long ret;
+	int failed = 0;
+
+	memset(&before, 0, sizeof(before));
+	memset(&after, 0, sizeof(after));
+	unlinkat(AT_FDCWD, "/tmp/fallocate_file", 0);
+	fd = openat(AT_FDCWD, "/tmp/fallocate_file",
+		    O_CREAT | O_RDWR | O_TRUNC, 0644);
+	if (fd < 0) {
+		printf("FAIL: open fallocate file: %ld\n", fd);
+		return 1;
+	}
+
+	ret = write((int)fd, "abc", 3);
+	if (ret != 3 || fstat((int)fd, &before) != 0) {
+		printf("FAIL: prepare fallocate file ret=%ld\n", ret);
+		close((int)fd);
+		unlinkat(AT_FDCWD, "/tmp/fallocate_file", 0);
+		return 1;
+	}
+
+	ret = fallocate((int)fd, 0, 8192, 4096);
+	if (ret != 0) {
+		printf("FAIL: fallocate mode 0 expected 0 got %ld\n", ret);
+		close((int)fd);
+		unlinkat(AT_FDCWD, "/tmp/fallocate_file", 0);
+		return 1;
+	}
+
+	if (fstat((int)fd, &after) != 0) {
+		printf("FAIL: fstat after fallocate\n");
+		failed++;
+	} else {
+		if (after.st_size != 12288) {
+			printf("FAIL: fallocate size expected 12288 got %ld\n",
+			       after.st_size);
+			failed++;
+		}
+		if (after.st_blocks <= before.st_blocks) {
+			printf("FAIL: fallocate blocks before=%lu after=%lu\n",
+			       before.st_blocks, after.st_blocks);
+			failed++;
+		}
+	}
+
+	memset(&stx, 0, sizeof(stx));
+	ret = statx((int)fd, "", AT_EMPTY_PATH, STATX_BASIC_STATS, &stx);
+	if (ret != 0 || stx.stx_size != 12288 ||
+	    stx.stx_blocks != after.st_blocks) {
+		printf("FAIL: fallocate statx ret=%ld size=%lu blocks=%lu\n",
+		       ret, stx.stx_size, stx.stx_blocks);
+		failed++;
+	}
+
+	memset(buf, 0, sizeof(buf));
+	lseek((int)fd, 0, SEEK_SET);
+	ret = read((int)fd, buf, 3);
+	if (ret != 3 || strncmp(buf, "abc", 3) != 0) {
+		printf("FAIL: fallocate changed prefix ret=%ld data=%s\n", ret,
+		       buf);
+		failed++;
+	}
+
+	memset(buf, 0x5a, sizeof(buf));
+	lseek((int)fd, 8192, SEEK_SET);
+	ret = read((int)fd, buf, sizeof(buf));
+	if (ret != (long)sizeof(buf)) {
+		printf("FAIL: fallocate zero read ret=%ld\n", ret);
+		failed++;
+	} else {
+		for (int i = 0; i < (int)sizeof(buf); i++) {
+			if (buf[i] != 0) {
+				printf("FAIL: fallocate byte[%d]=0x%x\n", i,
+				       (unsigned char)buf[i]);
+				failed++;
+				break;
+			}
+		}
+	}
+
+	ret = fallocate((int)fd, FALLOC_FL_KEEP_SIZE, 0, 4096);
+	if (ret != -EINVAL) {
+		printf("FAIL: fallocate KEEP_SIZE expected -EINVAL got %ld\n",
+		       ret);
+		failed++;
+	}
+	ret = fallocate((int)fd, 0, -1, 4096);
+	if (ret != -EINVAL) {
+		printf("FAIL: fallocate negative offset got %ld\n", ret);
+		failed++;
+	}
+	ret = fallocate((int)fd, 0, 0, 0);
+	if (ret != -EINVAL) {
+		printf("FAIL: fallocate zero len got %ld\n", ret);
+		failed++;
+	}
+
+	rofd = openat(AT_FDCWD, "/tmp/fallocate_file", O_RDONLY, 0);
+	ret = rofd >= 0 ? fallocate((int)rofd, 0, 0, 4096) : rofd;
+	if (rofd >= 0)
+		close((int)rofd);
+	if (ret != -EBADF) {
+		printf("FAIL: fallocate readonly expected -EBADF got %ld\n",
+		       ret);
+		failed++;
+	}
+
+	close((int)fd);
+	unlinkat(AT_FDCWD, "/tmp/fallocate_file", 0);
+	return failed;
+}
+
 static int test_symlinkat_creates_readlink_target(void)
 {
 	char buf[32];
@@ -1764,6 +1884,8 @@ int main(void)
 		     &failed);
 	report_group("statx basic regular file", test_statx_basic_regular_file(),
 		     &failed);
+	report_group("fallocate mode 0 allocates blocks",
+		     test_fallocate_mode0_allocates_blocks(), &failed);
 	report_group("symlinkat creates readlink target",
 		     test_symlinkat_creates_readlink_target(), &failed);
 	report_group("linkat regular file shares inode",

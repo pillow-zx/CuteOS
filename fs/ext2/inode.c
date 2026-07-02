@@ -119,6 +119,7 @@ void ext2_free_inode_blocks(struct inode *inode)
 	raw->i_blocks = 0;
 	raw->i_size = 0;
 	inode->i_size = 0;
+	inode->i_blocks = 0;
 }
 
 static uint32_t ext2_count_tree_blocks(struct super_block *sb, uint32_t block,
@@ -347,6 +348,7 @@ static void ext2_fill_vfs_inode(struct inode *inode)
 	inode->i_gid = raw->i_gid;
 	inode->i_nlink = raw->i_links_count;
 	inode->i_size = raw->i_size;
+	inode->i_blocks = raw->i_blocks;
 	inode->i_atime_sec = raw->i_atime;
 	inode->i_mtime_sec = raw->i_mtime;
 	inode->i_ctime_sec = raw->i_ctime;
@@ -397,6 +399,44 @@ static int ext2_readlink(struct inode *inode, char *buf, size_t size)
 	return (int)len;
 }
 
+static int ext2_fallocate_inode(struct inode *inode, int mode, uint64_t offset,
+				uint64_t len)
+{
+	struct ext2_inode *raw;
+	uint64_t end;
+	uint32_t first_block;
+	uint32_t last_block;
+	int ret;
+
+	if (!inode || !inode->i_private)
+		return -EINVAL;
+	if (mode != 0)
+		return -EINVAL;
+	if (len == 0 || offset > EXT2_MAX_FILE_SIZE ||
+	    len > EXT2_MAX_FILE_SIZE - offset)
+		return -EFBIG;
+
+	end = offset + len;
+	first_block = (uint32_t)(offset / BLOCK_SIZE);
+	last_block = (uint32_t)((end - 1) / BLOCK_SIZE);
+	for (uint32_t block = first_block; block <= last_block; block++) {
+		if (!ext2_bmap(inode, block, true))
+			return -ENOSPC;
+	}
+
+	raw = &EXT2_I(inode)->raw_inode;
+	if (end > inode->i_size) {
+		ret = ext2_zero_extend_tail(inode, inode->i_size);
+		if (ret < 0)
+			return ret;
+		inode->i_size = end;
+		raw->i_size = (uint32_t)end;
+	}
+	raw->i_blocks = (uint32_t)inode->i_blocks;
+
+	return ext2_write_inode(inode);
+}
+
 const struct inode_operations ext2_symlink_inode_operations = {
 	.readlink = ext2_readlink,
 	.truncate = ext2_truncate_inode,
@@ -404,6 +444,7 @@ const struct inode_operations ext2_symlink_inode_operations = {
 
 static const struct inode_operations ext2_file_inode_operations = {
 	.truncate = ext2_truncate_inode,
+	.fallocate = ext2_fallocate_inode,
 };
 
 int ext2_read_inode(struct inode *inode)
@@ -461,6 +502,7 @@ int ext2_write_inode(struct inode *inode)
 	ei->raw_inode.i_gid = (uint16_t)inode->i_gid;
 	ei->raw_inode.i_links_count = (uint16_t)inode->i_nlink;
 	ei->raw_inode.i_size = (uint32_t)inode->i_size;
+	ei->raw_inode.i_blocks = (uint32_t)inode->i_blocks;
 	ei->raw_inode.i_atime = (uint32_t)inode->i_atime_sec;
 	ei->raw_inode.i_mtime = (uint32_t)inode->i_mtime_sec;
 	ei->raw_inode.i_ctime = (uint32_t)inode->i_ctime_sec;
@@ -489,8 +531,10 @@ static uint32_t ext2_alloc_bmap_block(struct inode *inode)
 	struct ext2_inode *raw = &EXT2_I(inode)->raw_inode;
 	uint32_t block = ext2_alloc_block(inode);
 
-	if (block)
+	if (block) {
 		raw->i_blocks += BLOCK_SIZE / SECTOR_SIZE;
+		inode->i_blocks = raw->i_blocks;
+	}
 	return block;
 }
 
@@ -647,8 +691,10 @@ uint32_t ext2_bmap(struct inode *inode, uint32_t block, bool create)
 	blocks = ext2_block_words(page);
 	if (!blocks[first] && create) {
 		blocks[first] = ext2_alloc_bmap_block(inode);
-		if (blocks[first])
+		if (blocks[first]) {
 			page_cache_sync_block(page);
+			ext2_write_inode(inode);
+		}
 	}
 	first = blocks[first];
 	page_cache_put_page(page);
@@ -763,6 +809,7 @@ int ext2_truncate_inode(struct inode *inode, uint64_t size)
 	inode->i_size = size;
 	raw->i_blocks =
 		ext2_inode_tree_blocks(inode) * (BLOCK_SIZE / SECTOR_SIZE);
+	inode->i_blocks = raw->i_blocks;
 
 	return ext2_write_inode(inode);
 }

@@ -709,9 +709,30 @@ ssize_t sys_ftruncate64(struct trap_frame *tf)
 
 ssize_t sys_fallocate(struct trap_frame *tf)
 {
-	(void)tf;
-	/* TODO(ext2): 需要真正分配/预留数据块后才能实现 fallocate 语义。 */
-	return -ENOSYS;
+	struct file *file __cleanup_with(file) = fd_get((int)tf->a0);
+	int mode = (int)tf->a1;
+	int64_t offset = (int64_t)tf->a2;
+	int64_t len = (int64_t)tf->a3;
+	uint64_t uoffset;
+	uint64_t ulen;
+	ssize_t ret;
+
+	if (!file)
+		return -EBADF;
+	if (!(file->f_mode & FMODE_WRITE))
+		return -EBADF;
+	if (mode != 0)
+		return -EINVAL;
+	if (offset < 0 || len <= 0)
+		return -EINVAL;
+
+	uoffset = (uint64_t)offset;
+	ulen = (uint64_t)len;
+	if (uoffset > MAX_FILE_SIZE || ulen > MAX_FILE_SIZE - uoffset)
+		return -EFBIG;
+
+	ret = vfs_fallocate_file(file, mode, uoffset, ulen);
+	return ret;
 }
 
 ssize_t sys_pipe2(struct trap_frame *tf)

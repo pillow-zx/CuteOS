@@ -85,6 +85,8 @@ struct inode_operations {
 	int (*rmdir)(struct inode *dir, struct dentry *dentry);
 	int (*readlink)(struct inode *inode, char *buf, size_t size);
 	int (*truncate)(struct inode *inode, uint64_t size);
+	int (*fallocate)(struct inode *inode, int mode, uint64_t offset,
+			 uint64_t len);
 	int (*rename)(struct inode *old_dir, struct dentry *old_dentry,
 		      struct inode *new_dir, struct dentry *new_dentry,
 		      unsigned int flags);
@@ -127,6 +129,7 @@ struct inode {
 	uint32_t i_gid;
 	uint32_t i_nlink;
 	uint64_t i_size;
+	uint64_t i_blocks;
 	int64_t i_atime_sec;
 	int64_t i_mtime_sec;
 	int64_t i_ctime_sec;
@@ -217,6 +220,8 @@ ssize_t __must_check vfs_write(struct file *file, const char *buf,
 loff_t __must_check vfs_llseek(struct file *file, loff_t offset, int whence);
 int __must_check vfs_readdir(struct file *file, void *ctx, filldir_t filldir);
 int __must_check vfs_truncate_file(struct file *file, uint64_t size);
+int __must_check vfs_fallocate_file(struct file *file, int mode,
+				    uint64_t offset, uint64_t len);
 int __must_check vfs_inode_truncate(struct inode *inode, uint64_t size);
 int __must_check vfs_inode_writeback(struct inode *inode);
 int __must_check vfs_inode_set_timestamps(struct inode *inode,
@@ -243,6 +248,12 @@ static __always_inline __must_check __pure uint64_t
 vfs_inode_size(const struct inode *inode)
 {
 	return inode ? inode->i_size : 0;
+}
+
+static __always_inline __must_check __pure uint64_t
+vfs_inode_blocks(const struct inode *inode)
+{
+	return inode ? inode->i_blocks : 0;
 }
 
 static __always_inline __must_check __pure uint64_t

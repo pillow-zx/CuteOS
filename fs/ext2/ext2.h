@@ -51,6 +51,9 @@
 #define EXT2_TIND_BLOCK	 14
 #define EXT2_N_BLOCKS	 15
 
+#define EXT2_MAX_FILE_SIZE  ((uint64_t)UINT32_MAX)
+#define EXT2_MAX_FILE_INDEX ((EXT2_MAX_FILE_SIZE - 1) / BLOCK_SIZE)
+
 #define EXT2_FT_UNKNOWN	 0
 #define EXT2_FT_REG_FILE 1
 #define EXT2_FT_DIR	 2

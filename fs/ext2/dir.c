@@ -366,6 +366,7 @@ static int ext2_create(struct inode *dir, struct dentry *dentry, uint32_t mode)
 	inode->i_mode = inode_mode;
 	inode->i_nlink = 1;
 	inode->i_size = 0;
+	inode->i_blocks = 0;
 	inode->i_rdev = 0;
 	ext2_init_inode_ops(inode);
 	ext2_write_inode(inode);
@@ -416,6 +417,7 @@ static int ext2_symlink(struct inode *dir, struct dentry *dentry,
 	inode->i_mode = EXT2_S_IFLNK | 0777;
 	inode->i_nlink = 1;
 	inode->i_size = len;
+	inode->i_blocks = 0;
 	inode->i_rdev = 0;
 	ext2_init_inode_ops(inode);
 
@@ -570,6 +572,8 @@ static int ext2_mkdir(struct inode *dir, struct dentry *dentry, uint32_t mode)
 	memset(&ei->raw_inode, 0, sizeof(ei->raw_inode));
 	inode->i_mode = EXT2_S_IFDIR | mode;
 	inode->i_nlink = 2;
+	inode->i_size = 0;
+	inode->i_blocks = 0;
 	ext2_init_inode_ops(inode);
 	ext2_write_inode(inode);
 
