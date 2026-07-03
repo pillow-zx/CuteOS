@@ -42,13 +42,6 @@ ssize_t sys_epoll_pwait(struct trap_frame *tf)
 	return -ENOSYS;
 }
 
-ssize_t sys_pselect6(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(poll): 需要 fd_set 扫描、超时和临时信号屏蔽语义。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 {
 	long pid = (long)tf->a0;

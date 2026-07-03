@@ -23,6 +23,7 @@
 #include <uapi/mman.h>
 #include <uapi/membarrier.h>
 #include <uapi/sched.h>
+#include <uapi/select.h>
 #include <uapi/signal.h>
 #include <uapi/stat.h>
 #include <uapi/statfs.h>
@@ -38,6 +39,18 @@ typedef unsigned long size_t;
 
 /* libc convenience alias; Linux riscv64 has clone, not a separate fork nr. */
 #define SYS_fork SYS_clone
+
+#define __FD_ELT(fd)	 ((fd) / __NFDBITS)
+#define __FD_MASK(fd)	 (1UL << ((fd) % __NFDBITS))
+#define FD_SETSIZE	 __FD_SETSIZE
+#define FD_ZERO(set)	 memset((set), 0, sizeof(*(set)))
+#define FD_SET(fd, set)	 ((set)->fds_bits[__FD_ELT(fd)] |= __FD_MASK(fd))
+#define FD_CLR(fd, set)	 ((set)->fds_bits[__FD_ELT(fd)] &= ~__FD_MASK(fd))
+#define FD_ISSET(fd, set) (((set)->fds_bits[__FD_ELT(fd)] & __FD_MASK(fd)) != 0)
+
+_Static_assert(sizeof(fd_set) == 128, "fd_set ABI mismatch");
+_Static_assert(sizeof(struct pselect6_sigmask) == 16,
+	       "pselect6 sigmask ABI mismatch");
 
 /* ---- syscallN: 底层内联汇编封装 (a0~a5, 最多 6 个参数) ---- */
 
@@ -362,6 +375,21 @@ static inline long ppoll(struct pollfd *fds, size_t nfds,
 {
 	return syscall(SYS_ppoll, (long)fds, nfds, (long)timeout, (long)sigmask,
 		       sizeof(unsigned long));
+}
+
+static inline long pselect6(int nfds, fd_set *readfds, fd_set *writefds,
+			    fd_set *exceptfds,
+			    const struct timespec *timeout,
+			    const unsigned long *sigmask)
+{
+	struct pselect6_sigmask pack = {
+		.ss = sigmask,
+		.ss_len = sigmask ? sizeof(*sigmask) : 0,
+	};
+
+	return syscall(SYS_pselect6, nfds, (long)readfds, (long)writefds,
+		       (long)exceptfds, (long)timeout,
+		       (long)(sigmask ? &pack : 0));
 }
 
 static inline void exit(int code)
