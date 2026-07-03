@@ -3,10 +3,64 @@
  */
 
 #include <ulib.h>
+#include <uapi/fcntl.h>
 #include <uapi/mman.h>
 #include <uapi/signal.h>
 
 #define PAGE_SIZE 4096UL
+
+#define MMAP_TEST_FILE "/mmap_file_test"
+
+static char mmap_file_data[PAGE_SIZE];
+static char mmap_file_readback[PAGE_SIZE];
+
+static int write_full(int fd, const char *buf, size_t len)
+{
+	size_t done = 0;
+
+	while (done < len) {
+		long ret = write(fd, buf + done, len - done);
+
+		if (ret <= 0)
+			return 1;
+		done += (size_t)ret;
+	}
+	return 0;
+}
+
+static int read_full(int fd, char *buf, size_t len)
+{
+	size_t done = 0;
+
+	while (done < len) {
+		long ret = read(fd, buf + done, len - done);
+
+		if (ret <= 0)
+			return 1;
+		done += (size_t)ret;
+	}
+	return 0;
+}
+
+static int create_mmap_test_file(const char *data, size_t len)
+{
+	int fd;
+
+	unlinkat(AT_FDCWD, MMAP_TEST_FILE, 0);
+	fd = openat(AT_FDCWD, MMAP_TEST_FILE, O_CREAT | O_RDWR | O_TRUNC,
+		    0644);
+	if (fd < 0) {
+		printf("FAIL: open mmap test file: %d\n", fd);
+		return -1;
+	}
+	if (write_full(fd, data, len)) {
+		printf("FAIL: write mmap test file\n");
+		close(fd);
+		return -1;
+	}
+	close(fd);
+	return 0;
+}
 
 /* ---- test 1: brk growth ---- */
 
@@ -703,6 +757,83 @@ static int test_mremap_grow_anon_fixed(void)
 	return 0;
 }
 
+static int test_mremap_maymove_preserves_data(void)
+{
+	char *m;
+	char *blocker;
+	char *remapped;
+	unsigned char vec[2] = {0};
+	const size_t old_len = 2 * PAGE_SIZE;
+	const size_t new_len = 3 * PAGE_SIZE;
+	void *base = (void *)0x41000000UL;
+	long ret;
+
+	m = mmap(base, old_len, PROT_READ | PROT_WRITE,
+		 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+	if ((long)m < 0) {
+		printf("FAIL: fixed mmap for maymove: %ld\n", (long)m);
+		return 1;
+	}
+
+	blocker = mmap(m + old_len, PAGE_SIZE, PROT_READ | PROT_WRITE,
+		       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+	if ((long)blocker < 0) {
+		printf("FAIL: blocker mmap for maymove: %ld\n", (long)blocker);
+		munmap(m, old_len);
+		return 1;
+	}
+
+	m[0] = 0x21;
+	m[PAGE_SIZE] = 0x32;
+	m[old_len - 1] = 0x43;
+
+	remapped = mremap(m, old_len, new_len, MREMAP_MAYMOVE, NULL);
+	if ((long)remapped < 0) {
+		printf("FAIL: mremap maymove: %ld\n", (long)remapped);
+		munmap(blocker, PAGE_SIZE);
+		munmap(m, old_len);
+		return 1;
+	}
+	if (remapped == m) {
+		printf("FAIL: mremap maymove did not move blocked mapping\n");
+		munmap(remapped, new_len);
+		munmap(blocker, PAGE_SIZE);
+		return 1;
+	}
+	if (remapped[0] != 0x21 || remapped[PAGE_SIZE] != 0x32 ||
+	    remapped[old_len - 1] != 0x43) {
+		printf("FAIL: mremap maymove lost old data\n");
+		munmap(remapped, new_len);
+		munmap(blocker, PAGE_SIZE);
+		return 1;
+	}
+	if (remapped[old_len] != 0) {
+		printf("FAIL: mremap maymove new page not zero-filled\n");
+		munmap(remapped, new_len);
+		munmap(blocker, PAGE_SIZE);
+		return 1;
+	}
+	remapped[new_len - 1] = 0x54;
+	if (remapped[new_len - 1] != 0x54) {
+		printf("FAIL: mremap maymove new page not writable\n");
+		munmap(remapped, new_len);
+		munmap(blocker, PAGE_SIZE);
+		return 1;
+	}
+
+	ret = mincore(m, old_len, vec);
+	if (ret != -12) {
+		printf("FAIL: mremap maymove old range mincore=%ld\n", ret);
+		munmap(remapped, new_len);
+		munmap(blocker, PAGE_SIZE);
+		return 1;
+	}
+
+	munmap(remapped, new_len);
+	munmap(blocker, PAGE_SIZE);
+	return 0;
+}
+
 static int test_msync_anon(void)
 {
 	char *m;
@@ -746,6 +877,213 @@ static int test_msync_anon(void)
 	return 0;
 }
 
+static int test_mmap_shared_file_read(void)
+{
+	char *m;
+	int fd;
+
+	for (size_t i = 0; i < PAGE_SIZE; i++)
+		mmap_file_data[i] = (char)(0x31 + (i % 23));
+
+	if (create_mmap_test_file(mmap_file_data, sizeof(mmap_file_data)) < 0)
+		return 1;
+
+	fd = openat(AT_FDCWD, MMAP_TEST_FILE, O_RDWR, 0);
+	if (fd < 0) {
+		printf("FAIL: open shared mmap file: %d\n", fd);
+		return 1;
+	}
+
+	m = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	close(fd);
+	if ((long)m < 0) {
+		printf("FAIL: shared file mmap: %ld\n", (long)m);
+		return 1;
+	}
+
+	for (size_t i = 0; i < PAGE_SIZE; i++) {
+		if (m[i] != mmap_file_data[i]) {
+			printf("FAIL: shared file mmap data mismatch at %zu\n",
+			       i);
+			munmap(m, PAGE_SIZE);
+			return 1;
+		}
+	}
+
+	munmap(m, PAGE_SIZE);
+	return 0;
+}
+
+static int test_msync_shared_file_writeback(void)
+{
+	char *m;
+	int fd;
+	long ret;
+
+	for (size_t i = 0; i < PAGE_SIZE; i++)
+		mmap_file_data[i] = (char)(0x41 + (i % 17));
+
+	if (create_mmap_test_file(mmap_file_data, sizeof(mmap_file_data)) < 0)
+		return 1;
+
+	fd = openat(AT_FDCWD, MMAP_TEST_FILE, O_RDWR, 0);
+	if (fd < 0) {
+		printf("FAIL: open shared writeback file: %d\n", fd);
+		return 1;
+	}
+
+	m = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	close(fd);
+	if ((long)m < 0) {
+		printf("FAIL: shared writeback mmap: %ld\n", (long)m);
+		return 1;
+	}
+
+	m[7] = 0x55;
+	m[PAGE_SIZE - 9] = 0x66;
+	ret = msync(m, PAGE_SIZE, MS_SYNC);
+	if (ret != 0) {
+		printf("FAIL: shared writeback msync: %ld\n", ret);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+	munmap(m, PAGE_SIZE);
+
+	fd = openat(AT_FDCWD, MMAP_TEST_FILE, O_RDONLY, 0);
+	if (fd < 0) {
+		printf("FAIL: reopen shared writeback file: %d\n", fd);
+		return 1;
+	}
+	if (read_full(fd, mmap_file_readback, PAGE_SIZE)) {
+		printf("FAIL: read shared writeback file\n");
+		close(fd);
+		return 1;
+	}
+	close(fd);
+
+	if (mmap_file_readback[7] != 0x55 ||
+	    mmap_file_readback[PAGE_SIZE - 9] != 0x66) {
+		printf("FAIL: shared writeback data not persisted\n");
+		return 1;
+	}
+
+	return 0;
+}
+
+static int test_mmap_private_file_no_writeback(void)
+{
+	char *m;
+	int fd;
+	long ret;
+
+	for (size_t i = 0; i < PAGE_SIZE; i++)
+		mmap_file_data[i] = (char)(0x21 + (i % 29));
+
+	if (create_mmap_test_file(mmap_file_data, sizeof(mmap_file_data)) < 0)
+		return 1;
+
+	fd = openat(AT_FDCWD, MMAP_TEST_FILE, O_RDWR, 0);
+	if (fd < 0) {
+		printf("FAIL: open private mmap file: %d\n", fd);
+		return 1;
+	}
+
+	m = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+	close(fd);
+	if ((long)m < 0) {
+		printf("FAIL: private file mmap: %ld\n", (long)m);
+		return 1;
+	}
+	if (m[11] != mmap_file_data[11]) {
+		printf("FAIL: private mmap initial read mismatch\n");
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	m[11] = 0x12;
+	m[PAGE_SIZE - 13] = 0x34;
+	ret = msync(m, PAGE_SIZE, MS_SYNC);
+	if (ret != 0) {
+		printf("FAIL: private mmap msync: %ld\n", ret);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+	munmap(m, PAGE_SIZE);
+
+	fd = openat(AT_FDCWD, MMAP_TEST_FILE, O_RDONLY, 0);
+	if (fd < 0) {
+		printf("FAIL: reopen private mmap file: %d\n", fd);
+		return 1;
+	}
+	if (read_full(fd, mmap_file_readback, PAGE_SIZE)) {
+		printf("FAIL: read private mmap file\n");
+		close(fd);
+		return 1;
+	}
+	close(fd);
+
+	if (mmap_file_readback[11] != mmap_file_data[11] ||
+	    mmap_file_readback[PAGE_SIZE - 13] !=
+		    mmap_file_data[PAGE_SIZE - 13]) {
+		printf("FAIL: private mmap wrote back to file\n");
+		return 1;
+	}
+
+	return 0;
+}
+
+static int test_mmap_fixed_replaces_mapping(void)
+{
+	char *anon;
+	char *fixed;
+	int fd;
+	void *base = (void *)0x42000000UL;
+
+	for (size_t i = 0; i < PAGE_SIZE; i++)
+		mmap_file_data[i] = (char)(0x61 + (i % 19));
+
+	if (create_mmap_test_file(mmap_file_data, sizeof(mmap_file_data)) < 0)
+		return 1;
+
+	anon = mmap(base, PAGE_SIZE, PROT_READ | PROT_WRITE,
+		    MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+	if ((long)anon < 0) {
+		printf("FAIL: fixed anonymous mmap: %ld\n", (long)anon);
+		return 1;
+	}
+	anon[0] = 0x7a;
+
+	fd = openat(AT_FDCWD, MMAP_TEST_FILE, O_RDWR, 0);
+	if (fd < 0) {
+		printf("FAIL: open fixed replacement file: %d\n", fd);
+		munmap(anon, PAGE_SIZE);
+		return 1;
+	}
+
+	fixed = mmap(base, PAGE_SIZE, PROT_READ | PROT_WRITE,
+		     MAP_SHARED | MAP_FIXED, fd, 0);
+	close(fd);
+	if (fixed != anon) {
+		printf("FAIL: MAP_FIXED replacement returned %ld\n",
+		       (long)fixed);
+		if ((long)fixed >= 0)
+			munmap(fixed, PAGE_SIZE);
+		else
+			munmap(anon, PAGE_SIZE);
+		return 1;
+	}
+
+	if (fixed[0] != mmap_file_data[0] ||
+	    fixed[PAGE_SIZE - 1] != mmap_file_data[PAGE_SIZE - 1]) {
+		printf("FAIL: MAP_FIXED replacement did not expose file data\n");
+		munmap(fixed, PAGE_SIZE);
+		return 1;
+	}
+
+	munmap(fixed, PAGE_SIZE);
+	return 0;
+}
+
 static void report_group(const char *name, int ret, int *failed)
 {
 	printf("mm_test: %s ... ", name);
@@ -781,7 +1119,17 @@ int main(void)
 		     &failed);
 	report_group("mremap grow anonymous fixed",
 		     test_mremap_grow_anon_fixed(), &failed);
+	report_group("mremap maymove preserves data",
+		     test_mremap_maymove_preserves_data(), &failed);
 	report_group("msync anonymous", test_msync_anon(), &failed);
+	report_group("mmap shared file read", test_mmap_shared_file_read(),
+		     &failed);
+	report_group("msync shared file writeback",
+		     test_msync_shared_file_writeback(), &failed);
+	report_group("mmap private file no writeback",
+		     test_mmap_private_file_no_writeback(), &failed);
+	report_group("mmap fixed replaces mapping",
+		     test_mmap_fixed_replaces_mapping(), &failed);
 
 	if (failed)
 		printf("mm_test: %d test group(s) FAILED\n", failed);

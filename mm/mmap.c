@@ -14,7 +14,10 @@
  */
 
 #include <kernel/mm.h>
+#include <kernel/fdtable.h>
 #include <kernel/errno.h>
+#include <kernel/fs.h>
+#include <kernel/page_cache.h>
 #include <kernel/printk.h>
 #include <kernel/string.h>
 #include <kernel/slab.h>
@@ -29,6 +32,9 @@
 #include "internal.h"
 
 /* ---- 内部辅助函数 ---- */
+
+static int __must_check mm_unmap_range_locked(struct mm_struct *mm,
+					      uintptr_t addr, uintptr_t end);
 
 static uintptr_t find_unmapped_area(struct mm_struct *mm, size_t length)
 {
@@ -65,8 +71,41 @@ static bool mm_owns_page_frame(paddr_t pa)
 	return pa >= DRAM_BASE && pa < DRAM_BASE + DRAM_SIZE;
 }
 
-void mm_unmap_user_pages_locked(struct mm_struct *mm, uintptr_t start,
-				uintptr_t end)
+static uint64_t vma_page_index(const struct vm_area_struct *vma, uintptr_t va)
+{
+	return vma->vm_pgoff + (va - vma->vm_start) / PAGE_SIZE;
+}
+
+static struct page_cache *vma_page_cache_get(const struct vm_area_struct *vma,
+					     uintptr_t va)
+{
+	if (!vma || !vma->vm_file || !vma->vm_file->f_inode)
+		return NULL;
+
+	return page_cache_get_page(&vma->vm_file->f_inode->i_pages,
+				   vma_page_index(vma, va), false, NULL);
+}
+
+static void vma_mark_shared_page_dirty(const struct vm_area_struct *vma,
+				       uintptr_t va)
+{
+	struct page_cache *page;
+
+	if (!vma || !vma->vm_file || !vma->vm_shared ||
+	    !(vma->vm_flags & VM_WRITE))
+		return;
+
+	page = vma_page_cache_get(vma, va);
+	if (!page)
+		return;
+
+	page_cache_mark_dirty(page);
+	page_cache_put_page(page);
+}
+
+void mm_unmap_user_pages_locked(struct mm_struct *mm,
+				const struct vm_area_struct *vma,
+				uintptr_t start, uintptr_t end)
 {
 	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
 		pte_t *pte = arch_pt_walk(mm->pgd, va, false);
@@ -74,9 +113,21 @@ void mm_unmap_user_pages_locked(struct mm_struct *mm, uintptr_t start,
 		if (!pte || !pte_user_page(*pte))
 			continue;
 
-		paddr_t pa = pte_to_pa(*pte);
-		if (mm_owns_page_frame(pa))
-			free_page(__va(pa), 0);
+		if (vma && vma->vm_file && vma->vm_shared) {
+			struct page_cache *page;
+
+			vma_mark_shared_page_dirty(vma, va);
+			page = vma_page_cache_get(vma, va);
+			if (page) {
+				page_cache_put_page(page);
+				page_cache_put_page(page);
+			}
+		} else {
+			paddr_t pa = pte_to_pa(*pte);
+
+			if (mm_owns_page_frame(pa))
+				free_page(__va(pa), 0);
+		}
 
 		*pte = 0;
 		arch_tlb_flush_page(va);
@@ -145,27 +196,8 @@ static void free_user_page_tables(pte_t *pgd)
 				continue;
 
 			pte_t *pt = (pte_t *)__va(pte_to_pa(pmd[j]));
-			for (int k = 0; k < 512; k++) {
-				if (!pte_user_page(pt[k]))
-					continue;
-
-				vaddr_t va = ((vaddr_t)i << 30) |
-					     ((vaddr_t)j << 21) |
-					     ((vaddr_t)k << 12);
-				paddr_t pa = pte_to_pa(pt[k]);
-				if (user_map_reserved_contains(va))
-					continue;
-				/*
-				 * mm_create_user_pgd() currently injects a low
-				 * UART MMIO mapping so trap-time printk works
-				 * while still running on the user page table.
-				 * Only DRAM pages are owned by this mm; MMIO
-				 * and other shared mappings must not be
-				 * returned to the buddy allocator.
-				 */
-				if (mm_owns_page_frame(pa))
-					free_page(__va(pa), 0);
-			}
+			for (int k = 0; k < 512; k++)
+				pt[k] = 0;
 			free_page(pt, 0);
 		}
 		free_page(pmd, 0);
@@ -249,9 +281,15 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 	newmm->code_end = oldmm->code_end;
 	newmm->membarrier_registrations = oldmm->membarrier_registrations;
 	memcpy(newmm->vma, oldmm->vma, sizeof(oldmm->vma));
+	for (int i = 0; i < NR_VMA; i++) {
+		if (newmm->vma[i].used && newmm->vma[i].vm_file)
+			file_get(newmm->vma[i].vm_file);
+	}
 
 	for (int i = 0; i < NR_VMA; i++) {
 		if (!oldmm->vma[i].used)
+			continue;
+		if (oldmm->vma[i].vm_file && oldmm->vma[i].vm_shared)
 			continue;
 
 		uintptr_t start = oldmm->vma[i].vm_start;
@@ -288,9 +326,12 @@ void mm_destroy(struct mm_struct *mm)
 	if (!mm)
 		return;
 
-	/* 释放用户地址空间中所有映射的物理页和页表页 */
-	if (mm->pgd)
+	if (mm->pgd) {
+		int ret = mm_unmap_range_locked(mm, 0, TASK_SIZE);
+
+		BUG_ON(ret < 0);
 		free_user_page_tables(mm->pgd);
+	}
 
 	kfree(mm);
 }
@@ -401,31 +442,41 @@ out:
 	return ret;
 }
 
-ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot,
-		int flags)
+ssize_t mm_mmap_file(struct mm_struct *mm, uintptr_t addr, size_t length,
+		     int prot, int flags, int fd, uint64_t offset)
 {
 	uintptr_t start;
 	uintptr_t end;
 	uint32_t vm_flags = 0;
 	struct vm_area_struct *vma;
+	struct file *file = NULL;
+	bool anonymous;
+	bool shared;
+	bool private;
 	ssize_t ret;
 
 	if (!mm)
 		return -ENOMEM;
 
-	if (!(flags & MAP_ANONYMOUS))
-		return -ENOSYS;
-
-	if (!(flags & MAP_PRIVATE))
+	if (flags & ~(MAP_SHARED | MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS))
 		return -EINVAL;
 
 	if (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC))
+		return -EINVAL;
+
+	anonymous = (flags & MAP_ANONYMOUS) != 0;
+	shared = (flags & MAP_SHARED) != 0;
+	private = (flags & MAP_PRIVATE) != 0;
+	if (shared == private)
 		return -EINVAL;
 
 	if (flags & MAP_FIXED) {
 		if (addr == 0 || (addr & (PAGE_SIZE - 1)))
 			return -EINVAL;
 	}
+
+	if (!anonymous && (offset & (PAGE_SIZE - 1)))
+		return -EINVAL;
 
 	if (prot & PROT_READ)
 		vm_flags |= VM_READ;
@@ -436,6 +487,25 @@ ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot,
 
 	if (length == 0 || length > TASK_SIZE)
 		return -EINVAL;
+
+	if (!anonymous) {
+		file = fd_get(fd);
+		if (!file)
+			return -EBADF;
+		if (!file->f_inode || !S_ISREG(file->f_inode->i_mode)) {
+			ret = -EINVAL;
+			goto put_file;
+		}
+		if (!(file->f_mode & FMODE_READ)) {
+			ret = -EACCES;
+			goto put_file;
+		}
+		if (shared && (vm_flags & VM_WRITE) &&
+		    !(file->f_mode & FMODE_WRITE)) {
+			ret = -EACCES;
+			goto put_file;
+		}
+	}
 
 	mm_lock(mm);
 
@@ -465,7 +535,11 @@ ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot,
 		goto out;
 	}
 
-	if (vma_range_overlaps(mm, start, end)) {
+	if (flags & MAP_FIXED) {
+		ret = mm_unmap_range_locked(mm, start, end);
+		if (ret < 0)
+			goto out;
+	} else if (vma_range_overlaps(mm, start, end)) {
 		ret = -EINVAL;
 		goto out;
 	}
@@ -480,13 +554,25 @@ ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot,
 	vma->vm_end = end;
 	vma->vm_flags = vm_flags;
 	vma->vm_type = VMA_MMAP;
+	vma->vm_file = file;
+	vma->vm_pgoff = anonymous ? 0 : offset / PAGE_SIZE;
+	vma->vm_shared = shared;
 	vma->used = true;
+	file = NULL;
 	vma_merge_all(mm);
 	ret = start;
 
 out:
 	mm_unlock(mm);
+put_file:
+	file_put(file);
 	return ret;
+}
+
+ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot,
+		int flags)
+{
+	return mm_mmap_file(mm, addr, length, prot, flags, -1, 0);
 }
 
 static int mm_unmap_range_locked(struct mm_struct *mm, uintptr_t addr,
@@ -500,15 +586,20 @@ static int mm_unmap_range_locked(struct mm_struct *mm, uintptr_t addr,
 	for (int i = 0; i < NR_VMA; i++) {
 		uintptr_t unmap_start = 0;
 		uintptr_t unmap_end = 0;
+		struct vm_area_struct *vma = &mm->vma[i];
 
-		ret = vma_unmap_range(mm, &mm->vma[i], addr, end, &unmap_start,
-				      &unmap_end);
+		if (!vma_overlaps(vma, addr, end))
+			continue;
+
+		unmap_start = addr > vma->vm_start ? addr : vma->vm_start;
+		unmap_end = end < vma->vm_end ? end : vma->vm_end;
+		mm_unmap_user_pages_locked(mm, vma, unmap_start, unmap_end);
+
+		ret = vma_unmap_range(mm, vma, addr, end, NULL, NULL);
 		if (ret < 0)
 			return ret;
-		if (ret > 0) {
-			mm_unmap_user_pages_locked(mm, unmap_start, unmap_end);
+		if (ret > 0)
 			ret = 0;
-		}
 	}
 
 	return ret;
@@ -537,8 +628,9 @@ int mm_munmap(struct mm_struct *mm, uintptr_t addr, size_t length)
 
 static bool vma_is_anonymous(const struct vm_area_struct *vma)
 {
-	return vma->vm_type == VMA_HEAP || vma->vm_type == VMA_STACK ||
-	       vma->vm_type == VMA_MMAP;
+	return !vma->vm_file &&
+	       (vma->vm_type == VMA_HEAP || vma->vm_type == VMA_STACK ||
+		vma->vm_type == VMA_MMAP);
 }
 
 static void madvise_dontneed_range(struct mm_struct *mm, uintptr_t start,
@@ -618,6 +710,57 @@ static bool vma_covers_range(const struct vm_area_struct *vma, uintptr_t start,
 	return vma && vma->used && start >= vma->vm_start && end <= vma->vm_end;
 }
 
+static ssize_t mremap_move_locked(struct mm_struct *mm,
+				  const struct vm_area_struct *old_vma,
+				  uintptr_t old_addr, uintptr_t old_end,
+				  size_t old_len, size_t new_len)
+{
+	struct vm_area_struct *new_vma;
+	uintptr_t new_start;
+	uintptr_t new_end;
+	int ret;
+
+	if (vma_munmap_slots_needed(mm, old_addr, old_end) + 1 >
+	    vma_free_slot_count(mm))
+		return -ENOMEM;
+
+	new_start = find_unmapped_area(mm, new_len);
+	if (!new_start)
+		return -ENOMEM;
+
+	ret = mm_range_end_page_aligned(new_start, new_len, &new_end);
+	if (ret < 0)
+		return ret;
+
+	new_vma = vma_alloc_slot(mm);
+	if (!new_vma)
+		return -ENOMEM;
+
+	*new_vma = *old_vma;
+	if (new_vma->vm_file)
+		file_get(new_vma->vm_file);
+	new_vma->vm_start = new_start;
+	new_vma->vm_end = new_end;
+
+	ret = mm_move_user_pages_locked(mm, old_addr, new_start, old_len);
+	if (ret < 0) {
+		vma_free_slot(new_vma);
+		return ret;
+	}
+
+	ret = mm_unmap_range_locked(mm, old_addr, old_end);
+	if (ret < 0) {
+		/*
+		 * This is guarded by the slot check above.  If it ever fails,
+		 * keep the new mapping rather than dropping moved pages.
+		 */
+		return ret;
+	}
+
+	vma_merge_all(mm);
+	return (ssize_t)new_start;
+}
+
 ssize_t mm_mremap(struct mm_struct *mm, uintptr_t old_addr, size_t old_size,
 		  size_t new_size, int flags, uintptr_t new_addr)
 {
@@ -674,13 +817,23 @@ ssize_t mm_mremap(struct mm_struct *mm, uintptr_t old_addr, size_t old_size,
 	}
 
 	if (old_end != vma->vm_end) {
-		ret = -ENOMEM;
+		if (!(flags & MREMAP_MAYMOVE)) {
+			ret = -ENOMEM;
+			goto out;
+		}
+		ret = mremap_move_locked(mm, vma, old_addr, old_end, old_len,
+					 new_len);
 		goto out;
 	}
 	if (new_end > USER_STACK_BASE ||
 	    user_map_reserved_overlaps(old_end, new_end) ||
 	    vma_range_overlaps_other(mm, vma, old_end, new_end)) {
-		ret = -ENOMEM;
+		if (!(flags & MREMAP_MAYMOVE)) {
+			ret = -ENOMEM;
+			goto out;
+		}
+		ret = mremap_move_locked(mm, vma, old_addr, old_end, old_len,
+					 new_len);
 		goto out;
 	}
 
@@ -695,7 +848,9 @@ out:
 
 int mm_msync(struct mm_struct *mm, uintptr_t addr, size_t len, int flags)
 {
+	struct file *sync_files[NR_VMA];
 	uintptr_t end;
+	size_t nr_sync = 0;
 	int ret = 0;
 
 	if (!mm)
@@ -716,19 +871,48 @@ int mm_msync(struct mm_struct *mm, uintptr_t addr, size_t len, int flags)
 	mm_lock(mm);
 	for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {
 		struct vm_area_struct *vma = find_vma(mm, va);
+		pte_t *pte;
+		bool seen;
 
 		if (!vma) {
 			ret = -ENOMEM;
 			goto out;
 		}
-		if (!vma_is_anonymous(vma)) {
+		if (!vma_is_anonymous(vma) && !vma->vm_file) {
 			ret = -EINVAL;
 			goto out;
+		}
+		if (!vma->vm_file || !vma->vm_shared)
+			continue;
+
+		pte = arch_pt_walk(mm->pgd, va, false);
+		if (pte && pte_user_page(*pte))
+			vma_mark_shared_page_dirty(vma, va);
+
+		if (!(flags & MS_SYNC))
+			continue;
+
+		seen = false;
+		for (size_t i = 0; i < nr_sync; i++) {
+			if (sync_files[i] == vma->vm_file) {
+				seen = true;
+				break;
+			}
+		}
+		if (!seen && nr_sync < NR_VMA) {
+			sync_files[nr_sync] = vma->vm_file;
+			file_get(sync_files[nr_sync]);
+			nr_sync++;
 		}
 	}
 
 out:
 	mm_unlock(mm);
+	for (size_t i = 0; i < nr_sync; i++) {
+		if (ret == 0)
+			ret = vfs_sync_file(sync_files[i]);
+		file_put(sync_files[i]);
+	}
 	return ret;
 }
 
@@ -799,6 +983,18 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 	    vma_free_slot_count(mm)) {
 		ret = -ENOMEM;
 		goto out;
+	}
+
+	if (new_vm_flags & VM_WRITE) {
+		for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {
+			struct vm_area_struct *vma = find_vma(mm, va);
+
+			if (vma && vma->vm_file && vma->vm_shared &&
+			    !(vma->vm_file->f_mode & FMODE_WRITE)) {
+				ret = -EACCES;
+				goto out;
+			}
+		}
 	}
 
 	ret = vma_split_range(mm, addr, end);

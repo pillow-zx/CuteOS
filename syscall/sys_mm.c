@@ -38,8 +38,11 @@ ssize_t sys_mmap(struct trap_frame *tf)
 	size_t length = (size_t)tf->a1;
 	int prot = (int)tf->a2;
 	int flags = (int)tf->a3;
+	int fd = (int)tf->a4;
+	uint64_t offset = (uint64_t)tf->a5;
 
-	return mm_mmap(task_mm(current), addr, length, prot, flags);
+	return mm_mmap_file(task_mm(current), addr, length, prot, flags, fd,
+			    offset);
 }
 
 ssize_t sys_munmap(struct trap_frame *tf)

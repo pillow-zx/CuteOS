@@ -27,6 +27,7 @@
 #include <kernel/buddy.h>
 #include <kernel/errno.h>
 #include <kernel/exit.h>
+#include <kernel/page_cache.h>
 #include <kernel/printk.h>
 #include <kernel/signal.h>
 #include <kernel/string.h>
@@ -142,14 +143,16 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 				     int access, pte_t *fault_pte)
 {
 	struct vm_area_struct *vma = find_vma(mm, fault_addr);
+	uintptr_t page_addr;
+	pte_t *existing;
 
 	if (!vma)
 		return -EFAULT;
 	if (!check_vma_permission(access, vma))
 		return -EFAULT;
 
-	vaddr_t page_addr = fault_addr & PAGE_MASK;
-	pte_t *existing = arch_pt_walk(mm->pgd, page_addr, false);
+	page_addr = fault_addr & PAGE_MASK;
+	existing = arch_pt_walk(mm->pgd, page_addr, false);
 
 	if (existing && pte_present(*existing)) {
 		if (pte_allows_fault(access, *existing)) {
@@ -160,6 +163,41 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		if (fault_pte)
 			*fault_pte = *existing;
 		return -EFAULT;
+	}
+
+	if (vma->vm_file) {
+		struct page_cache *file_page;
+		uint64_t page_index;
+		pte_t pte_flags;
+
+		page_index = vma->vm_pgoff +
+			     (page_addr - vma->vm_start) / PAGE_SIZE;
+		file_page = page_cache_read_page(&vma->vm_file->f_inode->i_pages,
+						 page_index);
+		if (!file_page)
+			return -EIO;
+
+		pte_flags = vma_flags_to_pte(vma->vm_flags);
+		if (vma->vm_shared) {
+			arch_map_page(mm->pgd, page_addr,
+				      __pa((uintptr_t)page_cache_data(file_page)),
+				      pte_flags);
+			arch_tlb_flush_page(page_addr);
+			return 0;
+		}
+
+		void *page = get_free_page(0);
+		if (!page) {
+			page_cache_put_page(file_page);
+			return -ENOMEM;
+		}
+
+		memcpy(page, page_cache_data(file_page), PAGE_SIZE);
+		page_cache_put_page(file_page);
+		arch_map_page(mm->pgd, page_addr, __pa((uintptr_t)page),
+			      pte_flags);
+		arch_tlb_flush_page(page_addr);
+		return 0;
 	}
 
 	void *page = get_free_page(0);

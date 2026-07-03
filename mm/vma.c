@@ -8,6 +8,7 @@
 #include "internal.h"
 
 #include <kernel/errno.h>
+#include <kernel/fdtable.h>
 #include <kernel/printk.h>
 #include <kernel/string.h>
 #include <asm/page.h>
@@ -47,6 +48,7 @@ struct vm_area_struct *vma_alloc_slot(struct mm_struct *mm)
 
 void vma_free_slot(struct vm_area_struct *vma)
 {
+	file_put(vma->vm_file);
 	memset(vma, 0, sizeof(*vma));
 }
 
@@ -100,10 +102,24 @@ bool vma_contains_split_addr(const struct vm_area_struct *vma, uintptr_t addr)
 static bool vma_can_merge(const struct vm_area_struct *a,
 			  const struct vm_area_struct *b)
 {
+	uint64_t a_pages;
+	uint64_t b_pages;
+
 	if (!a->used || !b->used || a == b)
 		return false;
 	if (a->vm_flags != b->vm_flags || a->vm_type != b->vm_type)
 		return false;
+	if (a->vm_file != b->vm_file || a->vm_shared != b->vm_shared)
+		return false;
+	if (a->vm_file) {
+		a_pages = (a->vm_end - a->vm_start) / PAGE_SIZE;
+		b_pages = (b->vm_end - b->vm_start) / PAGE_SIZE;
+		if (a->vm_end == b->vm_start)
+			return a->vm_pgoff + a_pages == b->vm_pgoff;
+		if (b->vm_end == a->vm_start)
+			return b->vm_pgoff + b_pages == a->vm_pgoff;
+		return false;
+	}
 	return a->vm_end == b->vm_start || b->vm_end == a->vm_start;
 }
 
@@ -145,6 +161,10 @@ int vma_split_at(struct mm_struct *mm, struct vm_area_struct *vma,
 		return -ENOMEM;
 
 	*tail = *vma;
+	if (tail->vm_file) {
+		file_get(tail->vm_file);
+		tail->vm_pgoff += (addr - vma->vm_start) / PAGE_SIZE;
+	}
 	tail->vm_start = addr;
 	vma->vm_end = addr;
 	return 0;
@@ -260,6 +280,9 @@ int vma_unmap_range(struct mm_struct *mm, struct vm_area_struct *vma,
 	}
 
 	if (trim_start == vma->vm_start) {
+		if (vma->vm_file)
+			vma->vm_pgoff += (trim_end - vma->vm_start) /
+					 PAGE_SIZE;
 		vma->vm_start = trim_end;
 		return 1;
 	}
@@ -276,6 +299,8 @@ int vma_unmap_range(struct mm_struct *mm, struct vm_area_struct *vma,
 	right = find_vma(mm, trim_start);
 	BUG_ON(!right || right == vma);
 
+	if (right->vm_file)
+		right->vm_pgoff += (trim_end - trim_start) / PAGE_SIZE;
 	right->vm_start = trim_end;
 	return 1;
 }

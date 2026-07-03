@@ -20,6 +20,8 @@
 #include <asm/trap.h>
 #include <asm/pte.h>
 
+struct file;
+
 /* ---- VMA 权限标志 ---- */
 
 #define VM_READ	 0x01 /* 可读 */
@@ -44,6 +46,9 @@ struct vm_area_struct {
 	uintptr_t vm_end;   /* 区域结束虚拟地址（不含） */
 	uint32_t vm_flags;  /* VM_READ | VM_WRITE | VM_EXEC */
 	uint32_t vm_type;   /* VMA_CODE | VMA_HEAP | VMA_STACK */
+	struct file *vm_file; /* file-backed mmap；匿名映射为 NULL */
+	uint64_t vm_pgoff;    /* vm_start 对应的文件页偏移 */
+	bool vm_shared;	     /* MAP_SHARED file/anonymous 映射 */
 	bool used;	    /* 该槽位是否在用 */
 };
 
@@ -129,12 +134,17 @@ uintptr_t __must_check mm_brk(struct mm_struct *mm, uintptr_t addr);
  * @addr:   建议起始地址，0 表示由内核选择
  * @length: 映射长度，按页向上取整
  * @prot:   Linux PROT_* 权限位
- * @flags:  Linux MAP_* 标志，当前仅支持 MAP_ANONYMOUS
+ * @flags:  Linux MAP_* 标志
+ * @fd:     file-backed mmap 的文件描述符；匿名映射忽略
+ * @offset: file-backed mmap 的字节偏移，必须页对齐
  *
  * 返回映射起始地址，失败返回负 errno。
  */
 ssize_t __must_check mm_mmap(struct mm_struct *mm, uintptr_t addr,
 			     size_t length, int prot, int flags);
+ssize_t __must_check mm_mmap_file(struct mm_struct *mm, uintptr_t addr,
+				  size_t length, int prot, int flags, int fd,
+				  uint64_t offset);
 
 /*
  * mm_munmap - 解除用户映射
