@@ -2,7 +2,6 @@
 #include <kernel/fdtable.h>
 #include <kernel/fs.h>
 #include <kernel/mm.h>
-#include <kernel/string.h>
 #include <kernel/syscall.h>
 #include <kernel/test.h>
 #include <kernel/vfs.h>

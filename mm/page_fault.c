@@ -30,7 +30,6 @@
 #include <kernel/page_cache.h>
 #include <kernel/printk.h>
 #include <kernel/signal.h>
-#include <kernel/string.h>
 #include <kernel/task.h>
 #include <asm/page.h>
 #include <asm/pte.h>

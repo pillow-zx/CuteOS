@@ -2,7 +2,6 @@
 
 #include <kernel/errno.h>
 #include <kernel/page_cache.h>
-#include <kernel/string.h>
 
 static bool bitmap_test_bit(uint8_t *bitmap, uint32_t bit)
 {

@@ -16,7 +16,6 @@
 #include <kernel/fdtable.h>
 #include <kernel/statfs.h>
 #include <kernel/stat.h>
-#include <kernel/string.h>
 #include <kernel/test.h>
 #include <kernel/vfs.h>
 

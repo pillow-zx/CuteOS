@@ -24,7 +24,6 @@
 #include <kernel/fs.h>
 #include <kernel/hash.h>
 #include <kernel/slab.h>
-#include <kernel/string.h>
 #include <kernel/vfs.h>
 
 #define DCACHE_HASH_BITS 7

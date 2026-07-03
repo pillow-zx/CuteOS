@@ -19,7 +19,6 @@
 #include <kernel/mm.h>
 #include <kernel/buddy.h>
 #include <kernel/pipe.h>
-#include <kernel/string.h>
 #include <kernel/task.h>
 #include <kernel/timer.h>
 #include <kernel/vfs.h>

@@ -36,7 +36,6 @@
  */
 
 #include <kernel/printk.h>
-#include <kernel/string.h>
 #include <kernel/buddy.h>
 #include <asm/page.h>
 #include <asm/pte.h>

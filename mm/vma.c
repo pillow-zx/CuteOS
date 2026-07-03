@@ -10,7 +10,6 @@
 #include <kernel/errno.h>
 #include <kernel/fdtable.h>
 #include <kernel/printk.h>
-#include <kernel/string.h>
 #include <asm/page.h>
 
 int mm_range_end_page_aligned(uintptr_t start, size_t length, uintptr_t *end)

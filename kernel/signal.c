@@ -41,7 +41,6 @@
 #include <kernel/sched.h>
 #include <kernel/signal.h>
 #include <kernel/slab.h>
-#include <kernel/string.h>
 #include <kernel/task.h>
 #include <kernel/user_map.h>
 #include <uapi/syscall.h>

@@ -12,7 +12,6 @@
 #include <kernel/mm.h>
 #include <kernel/slab.h>
 #include <kernel/signal.h>
-#include <kernel/string.h>
 #include <kernel/types.h>
 #include <kernel/errno.h>
 #include <kernel/syscall.h>

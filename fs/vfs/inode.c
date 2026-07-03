@@ -24,7 +24,6 @@
 #include <kernel/hash.h>
 #include <kernel/slab.h>
 #include <kernel/stat.h>
-#include <kernel/string.h>
 #include <kernel/task.h>
 #include <kernel/time.h>
 #include <kernel/timer.h>

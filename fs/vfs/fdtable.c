@@ -6,7 +6,6 @@
 #include <kernel/blkdev.h>
 #include <kernel/fdtable.h>
 #include <kernel/slab.h>
-#include <kernel/string.h>
 #include <kernel/task.h>
 #include <kernel/vfs.h>
 

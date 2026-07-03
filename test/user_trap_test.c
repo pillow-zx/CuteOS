@@ -12,7 +12,6 @@
 
 #include <kernel/test.h>
 #include <kernel/printk.h>
-#include <kernel/string.h>
 #include <kernel/buddy.h>
 #include <kernel/task.h>
 #include <kernel/sched.h>

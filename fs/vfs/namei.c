@@ -23,7 +23,6 @@
 #include <kernel/buddy.h>
 #include <kernel/fs_struct.h>
 #include <kernel/stat.h>
-#include <kernel/string.h>
 #include <kernel/task.h>
 #include <kernel/vfs.h>
 #include <asm/page.h>

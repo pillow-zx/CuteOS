@@ -91,14 +91,14 @@ $(USER_OUT)/%.o: user/%.c $(AUTOCONF_H)
 	$(QUIET_CC)
 	$(Q)$(USER_CC) $(USER_CFLAGS) -c -o $@ $<
 
-$(USER_INIT_ELF): $(USER_INIT_OBJS) $(USER_LIBC_A) user/user.ld
+$(USER_INIT_ELF): $(USER_INIT_OBJS) $(USER_LIBC_OBJS) user/user.ld
 	$(QUIET_LD)
-	$(Q)$(USER_LD) $(USER_LDFLAGS) $(USER_LD_SCRIPT) -o $@ $(filter %.o,$^) $(filter %.a,$^)
+	$(Q)$(USER_LD) $(USER_LDFLAGS) $(USER_LD_SCRIPT) -o $@ $(filter %.o,$^)
 
-$(USER_SH_ELF): $(USER_SH_OBJS) $(USER_LIBC_A) user/user.ld
+$(USER_SH_ELF): $(USER_SH_OBJS) $(USER_LIBC_OBJS) user/user.ld
 	$(QUIET_LD)
-	$(Q)$(USER_LD) $(USER_LDFLAGS) $(USER_LD_SCRIPT) -o $@ $(filter %.o,$^) $(filter %.a,$^)
+	$(Q)$(USER_LD) $(USER_LDFLAGS) $(USER_LD_SCRIPT) -o $@ $(filter %.o,$^)
 
-$(USER_OUT)/bin/%.elf: $(USER_CRT_OBJS) $(USER_OUT)/bin/%.o $(USER_LIBC_A) user/user.ld
+$(USER_OUT)/bin/%.elf: $(USER_CRT_OBJS) $(USER_OUT)/bin/%.o $(USER_LIBC_OBJS) user/user.ld
 	$(QUIET_LD)
-	$(Q)$(USER_LD) $(USER_LDFLAGS) $(USER_LD_SCRIPT) -o $@ $(filter %.o,$^) $(filter %.a,$^)
+	$(Q)$(USER_LD) $(USER_LDFLAGS) $(USER_LD_SCRIPT) -o $@ $(filter %.o,$^)

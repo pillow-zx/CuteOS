@@ -5,7 +5,6 @@
 #include <kernel/page_cache.h>
 #include <kernel/slab.h>
 #include <kernel/stat.h>
-#include <kernel/string.h>
 
 static inline uint32_t ext2_encode_dev(dev_t dev)
 {

@@ -10,7 +10,6 @@
 #include <kernel/printk.h>
 #include <kernel/sched.h>
 #include <kernel/signal.h>
-#include <kernel/string.h>
 #include <kernel/task.h>
 #include <uapi/sched.h>
 #include <asm/trap.h>

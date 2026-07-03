@@ -1,5 +1,4 @@
 #include <kernel/test.h>
-#include <kernel/string.h>
 #include <asm/trap.h>
 
 /* ================================================================

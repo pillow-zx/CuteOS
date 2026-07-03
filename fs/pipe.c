@@ -25,7 +25,6 @@
 #include <kernel/pipe.h>
 #include <kernel/slab.h>
 #include <kernel/signal.h>
-#include <kernel/string.h>
 #include <kernel/wait.h>
 #include <asm/page.h>
 

@@ -18,7 +18,6 @@
 #include <kernel/blkdev.h>
 #include <kernel/errno.h>
 #include <drivers/virtio_blk.h>
-#include <kernel/string.h>
 
 void test_virtio_blk(void)
 {

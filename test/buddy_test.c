@@ -1,5 +1,4 @@
 #include <kernel/test.h>
-#include <kernel/string.h>
 #include <kernel/buddy.h>
 #include <kernel/task.h>
 

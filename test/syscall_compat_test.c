@@ -4,7 +4,6 @@
 #include <kernel/resource.h>
 #include <kernel/signal.h>
 #include <kernel/statfs.h>
-#include <kernel/string.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <kernel/test.h>

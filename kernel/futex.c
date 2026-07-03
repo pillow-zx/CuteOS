@@ -3,7 +3,6 @@
 #include <kernel/list.h>
 #include <kernel/mm.h>
 #include <kernel/sched.h>
-#include <kernel/string.h>
 #include <kernel/sync.h>
 #include <kernel/task.h>
 #include <kernel/timer.h>

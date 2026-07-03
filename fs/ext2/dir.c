@@ -3,7 +3,6 @@
 #include <kernel/errno.h>
 #include <kernel/page_cache.h>
 #include <kernel/slab.h>
-#include <kernel/string.h>
 #include <kernel/vfs.h>
 
 #define EXT2_DIR_REC_LEN(name_len) (((name_len) + 8 + 3) & ~3u)

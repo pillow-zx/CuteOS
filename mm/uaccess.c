@@ -27,7 +27,6 @@
 
 #include <kernel/mm.h>
 #include <kernel/errno.h>
-#include <kernel/string.h>
 #include <kernel/task.h>
 #include <asm/page.h>
 #include <asm/uaccess.h>

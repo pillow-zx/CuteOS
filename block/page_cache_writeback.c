@@ -7,7 +7,6 @@
 #include <kernel/blkdev.h>
 #include <kernel/buddy.h>
 #include <kernel/errno.h>
-#include <kernel/string.h>
 #include <kernel/worker.h>
 
 #define PAGE_CACHE_WB_ORDER 5U

@@ -21,9 +21,10 @@ CFLAGS += -std=gnu17
 CFLAGS += -I include
 ASFLAGS += -I include
 CFLAGS += -include include/generated/autoconf.h
+CFLAGS += -include include/kernel/compiler.h
 ASFLAGS += -include include/generated/autoconf.h
 
-CFLAGS += -ffreestanding -fno-common -nostdlib -fno-builtin -nostdinc
+CFLAGS += -ffreestanding -fno-common -nostdlib -nostdinc
 CFLAGS += $(COMMON_NO_STACK_PROTECTOR_CFLAGS)
 CFLAGS += $(COMMON_NO_PIE_CFLAGS)
 CFLAGS += -Wno-maybe-uninitialized

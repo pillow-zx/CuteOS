@@ -19,7 +19,6 @@
 #include <kernel/errno.h>
 #include <kernel/fs.h>
 #include <kernel/slab.h>
-#include <kernel/string.h>
 #include <kernel/vfs.h>
 
 #define NR_FILESYSTEMS 8

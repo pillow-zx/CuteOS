@@ -10,7 +10,6 @@
 #include <kernel/exec.h>
 #include <kernel/fs.h>
 #include <kernel/mm.h>
-#include <kernel/string.h>
 #include <kernel/syscall.h>
 #include <asm/page.h>
 #include <asm/trap.h>

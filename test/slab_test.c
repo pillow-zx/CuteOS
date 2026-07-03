@@ -1,7 +1,6 @@
 #include <kernel/slab.h>
 #include <kernel/buddy.h>
 #include <kernel/test.h>
-#include <kernel/string.h>
 
 #include "ktest.h"
 

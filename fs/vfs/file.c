@@ -11,7 +11,6 @@
 #include <kernel/stat.h>
 #include <kernel/statfs.h>
 #include <kernel/blkdev.h>
-#include <kernel/string.h>
 #include <kernel/errno.h>
 #include <kernel/timer.h>
 #include <kernel/vfs.h>

@@ -10,7 +10,6 @@
 #include "page_cache_internal.h"
 
 #include <kernel/blkdev.h>
-#include <kernel/string.h>
 
 void page_cache_alias_refresh(struct page_mapping *mapping, uint32_t blocknr,
 			      const void *data)

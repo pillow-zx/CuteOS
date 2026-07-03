@@ -3,7 +3,6 @@
 #include <kernel/errno.h>
 #include <kernel/fdtable.h>
 #include <kernel/page_cache.h>
-#include <kernel/string.h>
 #include <kernel/test.h>
 #include <kernel/vfs.h>
 

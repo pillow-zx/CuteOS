@@ -14,7 +14,6 @@
 #include <kernel/mm.h>
 #include <kernel/printk.h>
 #include <kernel/slab.h>
-#include <kernel/string.h>
 #include <kernel/task.h>
 #include <kernel/vfs.h>
 #include <uapi/mman.h>

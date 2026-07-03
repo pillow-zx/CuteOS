@@ -8,7 +8,6 @@
 #include <kernel/errno.h>
 #include <kernel/mm.h>
 #include <kernel/printk.h>
-#include <kernel/string.h>
 #include <kernel/tty.h>
 #include <kernel/vfs.h>
 #include <uapi/signal.h>

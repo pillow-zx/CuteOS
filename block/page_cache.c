@@ -21,7 +21,6 @@
 #include <kernel/hash.h>
 #include <kernel/list.h>
 #include <kernel/slab.h>
-#include <kernel/string.h>
 
 #define PAGE_CACHE_HASH_BITS 7
 #define PAGE_CACHE_NR_PAGES  512U

@@ -12,7 +12,6 @@
 #include <kernel/mm.h>
 #include <kernel/pid.h>
 #include <kernel/resource.h>
-#include <kernel/string.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <kernel/signal.h>

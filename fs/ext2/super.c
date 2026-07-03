@@ -6,7 +6,6 @@
 #include <kernel/printk.h>
 #include <kernel/slab.h>
 #include <kernel/statfs.h>
-#include <kernel/string.h>
 #include <kernel/vfs.h>
 
 #define EXT2_ROOT_DEV MKDEV(8, 0)

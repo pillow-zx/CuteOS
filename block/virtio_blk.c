@@ -29,7 +29,6 @@
 #include <kernel/blkdev.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <kernel/string.h>
 #include <kernel/tools.h>
 #include <asm/page.h>
 

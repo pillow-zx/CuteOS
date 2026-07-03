@@ -21,7 +21,6 @@
 #include <kernel/syscall.h>
 #include <kernel/mm.h>
 #include <kernel/buddy.h>
-#include <kernel/string.h>
 #include <kernel/task.h>
 #include <kernel/vfs.h>
 #include <asm/page.h>

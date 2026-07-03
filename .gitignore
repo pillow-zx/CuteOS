@@ -48,6 +48,7 @@
 !init/**/*.c
 !kernel/**/*.c
 !lib/**/*.c
+!lib/**/*.S
 !mm/**/*.c
 !configs/**/*
 !tools/kconfig/.gitignore

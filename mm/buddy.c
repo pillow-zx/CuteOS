@@ -26,7 +26,6 @@
 #include <kernel/buddy.h>
 #include <kernel/page.h>
 #include <kernel/printk.h>
-#include <kernel/string.h>
 #include <kernel/bitops.h>
 #include <kernel/tools.h>
 #include <asm/page.h>

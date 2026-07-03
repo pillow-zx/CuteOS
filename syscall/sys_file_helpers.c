@@ -9,7 +9,6 @@
 #include <kernel/fs.h>
 #include <kernel/fs_struct.h>
 #include <kernel/mm.h>
-#include <kernel/string.h>
 #include <kernel/stat.h>
 #include <kernel/task.h>
 #include <kernel/vfs.h>

@@ -3,7 +3,6 @@
 #include <kernel/blkdev.h>
 #include <kernel/errno.h>
 #include <kernel/page_cache.h>
-#include <kernel/string.h>
 
 static bool ext2_file_index_valid(uint64_t index)
 {

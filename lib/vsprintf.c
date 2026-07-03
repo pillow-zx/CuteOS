@@ -29,7 +29,6 @@
 
 #include <kernel/types.h>
 #include <kernel/printk.h>
-#include <kernel/string.h>
 
 /* 向缓冲区写入一个字符（不越界），返回新的写入位置 */
 static char *emit(char *buf, char *end, char c)

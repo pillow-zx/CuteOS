@@ -30,7 +30,6 @@
 #include <kernel/slab.h>
 #include <kernel/buddy.h>
 #include <kernel/printk.h>
-#include <kernel/string.h>
 #include <kernel/sched.h>
 #include <kernel/signal.h>
 #include <kernel/fdtable.h>

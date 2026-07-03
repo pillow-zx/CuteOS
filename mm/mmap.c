@@ -19,7 +19,6 @@
 #include <kernel/fs.h>
 #include <kernel/page_cache.h>
 #include <kernel/printk.h>
-#include <kernel/string.h>
 #include <kernel/slab.h>
 #include <kernel/buddy.h>
 #include <kernel/task.h>

@@ -17,7 +17,6 @@
 #include <kernel/bitmap.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <kernel/string.h>
 
 BITMAP_DECLARE_STATIC(pid_map, PID_COUNT);
 static struct task_struct *pid_tasks[PID_COUNT];

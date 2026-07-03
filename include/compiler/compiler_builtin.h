@@ -55,4 +55,17 @@
 	__atomic_compare_exchange_n(ptr, expected, desired, weak, succ_mo,     \
 				    fail_mo)
 
+#define memcpy(dst, src, n)	    __builtin_memcpy((dst), (src), (n))
+#define memset(dst, c, n)	    __builtin_memset((dst), (c), (n))
+#define memcmp(lhs, rhs, n)	    __builtin_memcmp((lhs), (rhs), (n))
+#define memmove(dst, src, n)	    __builtin_memmove((dst), (src), (n))
+#define strlen(s)		    __builtin_strlen((s))
+#define strnlen(s, maxlen)	    __builtin_strnlen((s), (maxlen))
+#define strcmp(lhs, rhs)	    __builtin_strcmp((lhs), (rhs))
+#define strncmp(lhs, rhs, n)	    __builtin_strncmp((lhs), (rhs), (n))
+#define strcpy(dst, src)	    __builtin_strcpy((dst), (src))
+#define strncpy(dst, src, n)	    __builtin_strncpy((dst), (src), (n))
+#define strchr(s, c)		    __builtin_strchr((s), (c))
+#define strrchr(s, c)		    __builtin_strrchr((s), (c))
+
 #endif

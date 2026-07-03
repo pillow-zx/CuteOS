@@ -1,8 +1,6 @@
 #ifndef _CUTEOS_UAPI_SELECT_H
 #define _CUTEOS_UAPI_SELECT_H
 
-#include <compiler/compiler_builtin.h>
-
 #define __FD_SETSIZE 1024
 #define __NFDBITS    (8 * (int)sizeof(unsigned long))
 #define FD_SETSIZE   __FD_SETSIZE

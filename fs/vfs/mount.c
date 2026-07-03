@@ -7,7 +7,6 @@
 #include <kernel/fs.h>
 #include <kernel/slab.h>
 #include <kernel/stat.h>
-#include <kernel/string.h>
 #include <kernel/sync.h>
 #include <kernel/vfs.h>
 
