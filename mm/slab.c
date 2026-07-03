@@ -4,15 +4,15 @@
  * 功能：
  *   在伙伴系统之上实现简化版 SLAB 分配器。提供 8 个固定大小级别：
  *   16 / 32 / 64 / 128 / 256 / 512 / 1024 / 2048 字节。每个 kmem_cache
- *   维护一个 free_list 空闲对象链表。无 full/partial/empty 链表跟踪。
+ *   维护一个 free_list 空闲对象链表。slab 页记录空闲对象计数，整页空闲
+ *   时返回 buddy。
  *
  * 数据结构：
  *   kmem_cache {obj_size, free_list}  - 共 8 个缓存，对应 8 个大小级别
  *
- * Slot 布局（每个 slot = 8 字节头 + obj_size 字节）：
- *   +0  uint32_t cache_idx  — 所属缓存索引，kfree 时用于定位缓存
- *   +4  uint32_t _pad       — 对齐填充
- *   +8  用户数据 / list_head — 空闲时前 16 字节作为 list_head
+ * 页布局：
+ *   slab_page_header | slot[]，每个 slot = slab_slot_header + obj_size。
+ *   slot 空闲时用户数据区作为 list_head 挂入 cache free_list。
  *
  * 分配流程：
  *   kmalloc(size) 遍历 8 个缓存，找到第一个 obj_size >= 请求大小的缓存，
@@ -20,20 +20,21 @@
  *   请求一个物理页，按 slot 大小切割为多个对象挂入 free_list。
  *
  * 回收流程：
- *   kfree(ptr) 读取 ptr 前 8 字节处的 cache_idx，确定所属缓存，
- *   将对象归还 free_list。不回收物理页回伙伴系统（简单实现）。
+ *   kfree(ptr) 读取 ptr 前面的 slot header，确定所属 slab 页并增加空闲
+ *   计数。整页空闲时先摘除该页所有 free_list 节点，再释放页回 buddy。
  */
 
 #include <kernel/slab.h>
 #include <kernel/buddy.h>
+#include <kernel/bitops.h>
 #include <kernel/printk.h>
 #include <kernel/list.h>
+#include <kernel/compiler.h>
 #include <asm/page.h>
 
 /* ---- 常量 ---- */
 
 #define NR_CACHES     8
-#define SLOT_HDR_SIZE 8 /* cache_idx(4) + pad(4) */
 
 static const size_t cache_sizes[NR_CACHES] = {16,  32,	64,   128,
 					      256, 512, 1024, 2048};
@@ -50,14 +51,20 @@ struct kmem_cache {
 	struct list_head free_list;
 };
 
-struct slab_slot_header {
+struct slab_page_header {
+	struct kmem_cache *cache;
+	size_t total_objs;
+	size_t free_objs;
 	uint32_t cache_idx;
-	uint32_t pad;
 };
 
-static_assert(sizeof(struct slab_slot_header) == SLOT_HDR_SIZE,
-	      "slab slot header size changed");
-static_assert(SLOT_HDR_SIZE % __alignof__(struct list_head) == 0,
+struct slab_slot_header {
+	struct slab_page_header *slab;
+	bool free;
+};
+
+static_assert(sizeof(struct slab_slot_header) % alignof(struct list_head) ==
+		      0,
 	      "slab free-list nodes must be naturally aligned");
 
 static struct kmem_cache caches[NR_CACHES];
@@ -89,26 +96,61 @@ static int find_cache(size_t size)
 static void refill_cache(struct kmem_cache *cache, uint32_t cache_idx)
 {
 	void *page = get_free_page(0);
+	struct slab_page_header *slab;
+	uintptr_t cursor;
+	size_t slot_size;
+	size_t nr_objs;
+
 	if (!page)
 		return;
 
-	size_t slot_size = SLOT_HDR_SIZE + cache->obj_size;
-	size_t nr_objs = PAGE_SIZE / slot_size;
+	slab = page;
+	slot_size = sizeof(struct slab_slot_header) + cache->obj_size;
+	cursor = ALIGN_UP((uintptr_t)page + sizeof(*slab),
+			  __alignof__(struct slab_slot_header));
+	nr_objs = ((uintptr_t)page + PAGE_SIZE - cursor) / slot_size;
+	if (nr_objs == 0) {
+		free_page(page, 0);
+		return;
+	}
+
+	slab->cache = cache;
+	slab->total_objs = nr_objs;
+	slab->free_objs = nr_objs;
+	slab->cache_idx = cache_idx;
 
 	for (size_t i = 0; i < nr_objs; i++) {
-		char *slot = (char *)page + i * slot_size;
+		char *slot = (char *)cursor + i * slot_size;
 		struct slab_slot_header *hdr =
 			(struct slab_slot_header *)(uintptr_t)slot;
 		struct list_head *node =
-			(struct list_head *)(uintptr_t)(slot + SLOT_HDR_SIZE);
+			(struct list_head *)(uintptr_t)(slot + sizeof(*hdr));
 
-		/* 在 slot 头部写入缓存索引，供 kfree 定位 */
-		hdr->cache_idx = cache_idx;
-		/* 用户数据区起始 = slot + SLOT_HDR_SIZE，
-		 * 空闲时作为 list_head 使用 */
+		hdr->slab = slab;
+		hdr->free = true;
 		INIT_LIST_HEAD(node);
 		list_add_tail(node, &cache->free_list);
 	}
+}
+
+static void slab_reclaim_page(struct slab_page_header *slab)
+{
+	struct kmem_cache *cache = slab->cache;
+	uintptr_t cursor = ALIGN_UP((uintptr_t)slab + sizeof(*slab),
+				    __alignof__(struct slab_slot_header));
+	size_t slot_size =
+		sizeof(struct slab_slot_header) + cache->obj_size;
+
+	for (size_t i = 0; i < slab->total_objs; i++) {
+		struct slab_slot_header *hdr =
+			(struct slab_slot_header *)(cursor + i * slot_size);
+		struct list_head *node = (struct list_head *)(hdr + 1);
+
+		BUG_ON(!hdr->free);
+		list_del(node);
+	}
+
+	free_page(slab, 0);
 }
 
 /* ---- 公共接口 ---- */
@@ -153,6 +195,12 @@ void *kmalloc(size_t size)
 	/* free_list.next 指向第一个空闲 slot 的用户数据区 */
 	struct list_head *node = cache->free_list.next;
 	list_del(node);
+	struct slab_slot_header *hdr =
+		(struct slab_slot_header *)((char *)node - sizeof(*hdr));
+
+	BUG_ON(!hdr->free);
+	hdr->free = false;
+	hdr->slab->free_objs--;
 
 	return (void *)node;
 }
@@ -170,12 +218,21 @@ void kfree(void *ptr)
 		return;
 
 	struct slab_slot_header *hdr =
-		(struct slab_slot_header *)(uintptr_t)((char *)ptr - SLOT_HDR_SIZE);
-	uint32_t cache_idx = hdr->cache_idx;
+		(struct slab_slot_header *)(uintptr_t)((char *)ptr -
+						       sizeof(*hdr));
+	struct slab_page_header *slab = hdr->slab;
+	uint32_t cache_idx = slab->cache_idx;
 
 	if (cache_idx >= NR_CACHES)
 		panic("kfree: invalid cache index %d", (int)cache_idx);
+	if (hdr->free)
+		panic("kfree: double free");
 
 	struct list_head *node = (struct list_head *)(uintptr_t)ptr;
+	hdr->free = true;
+	slab->free_objs++;
 	list_add(node, &caches[cache_idx].free_list);
+
+	if (slab->free_objs == slab->total_objs)
+		slab_reclaim_page(slab);
 }

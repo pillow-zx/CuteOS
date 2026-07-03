@@ -2,82 +2,29 @@
 #define _CUTEOS_KERNEL_MM_H
 
 /*
- * include/kernel/mm.h - 用户地址空间管理与虚拟内存
+ * include/kernel/mm.h - 用户地址空间管理与虚拟内存公共接口
  *
- * 声明进程级虚拟内存管理所需的结构体与常量。每个用户进程拥有一个
- * mm_struct 描述其完整地址空间，内部划分为若干 vm_area_struct 区域。
- *
- * 设计决策：
- *   - VMA 使用固定大小数组（NR_VMA=16），不用链表/红黑树
- *   - 用户栈纳入 VMA 管理（缺页处理需要）
- *   - mm_struct 通过 kmalloc 分配，内核线程 mm=NULL
+ * mm_struct 的布局和 VMA 存储方式属于 mm/ 内部实现细节。外部子系统只能
+ * 通过本文件声明的接口创建、复制、查询和修改用户地址空间。
  */
 
 #include <kernel/compiler.h>
-#include <kernel/sync.h>
-#include <kernel/refcount.h>
 #include <kernel/types.h>
-#include <asm/trap.h>
-#include <asm/pte.h>
 
-struct file;
-
-/* ---- VMA 权限标志 ---- */
-
-#define VM_READ	 0x01 /* 可读 */
-#define VM_WRITE 0x02 /* 可写 */
-#define VM_EXEC	 0x04 /* 可执行 */
-
-/* ---- VMA 类型标志 ---- */
-
-#define VMA_CODE  0x01 /* 代码段 (ELF PT_LOAD) */
-#define VMA_HEAP  0x02 /* 堆 (brk 扩展) */
-#define VMA_STACK 0x04 /* 栈 */
-#define VMA_MMAP  0x08 /* mmap 匿名映射 */
-
-/* ---- VMA 数量上限 ---- */
-
-#define NR_VMA 16
-
-/* ---- vm_area_struct - 一段连续的虚拟内存区域 ---- */
-
-struct vm_area_struct {
-	uintptr_t vm_start; /* 区域起始虚拟地址（含） */
-	uintptr_t vm_end;   /* 区域结束虚拟地址（不含） */
-	uint32_t vm_flags;  /* VM_READ | VM_WRITE | VM_EXEC */
-	uint32_t vm_type;   /* VMA_CODE | VMA_HEAP | VMA_STACK */
-	struct file *vm_file; /* file-backed mmap；匿名映射为 NULL */
-	uint64_t vm_pgoff;    /* vm_start 对应的文件页偏移 */
-	bool vm_shared;	     /* MAP_SHARED file/anonymous 映射 */
-	bool used;	    /* 该槽位是否在用 */
-};
-
-/* ---- mm_struct - 进程地址空间描述符 ---- */
-
-struct mm_struct {
-	refcount_t refcount;		   /* 共享地址空间引用计数 */
-	mutex_t mmap_lock;		   /* 保护 VMA 与用户页表结构 */
-	pte_t *pgd;			   /* 用户页表根（PGD 页虚拟地址） */
-	uintptr_t brk;			   /* 当前堆顶 */
-	uintptr_t code_start;		   /* 代码段起始 */
-	uintptr_t code_end;		   /* 代码段结束 */
-	uint32_t membarrier_registrations; /* membarrier 已注册命令位 */
-	struct vm_area_struct vma[NR_VMA]; /* VMA 固定数组 */
-};
+struct mm_struct;
+struct trap_frame;
 
 /* ---- 函数声明 ---- */
 
 /*
- * mm_alloc - 分配并初始化一个 mm_struct
+ * mm_create_user - 创建用户地址空间
  *
- * 返回初始化后的 mm_struct 指针，失败返回 NULL。
+ * 分配 mm_struct 和用户页表，并应用用户页表特殊映射。失败返回 NULL。
  */
-struct mm_struct *__must_check mm_alloc(void);
+struct mm_struct *__must_check mm_create_user(void);
 
 void mm_get(struct mm_struct *mm);
 void mm_put(struct mm_struct *mm);
-void mm_lock(struct mm_struct *mm);
-void mm_unlock(struct mm_struct *mm);
 void mm_membarrier_register(struct mm_struct *mm, uint32_t cmd);
 uint32_t __must_check mm_membarrier_registrations(const struct mm_struct *mm);
 
@@ -91,32 +38,25 @@ uint32_t __must_check mm_membarrier_registrations(const struct mm_struct *mm);
 struct mm_struct *__must_check dup_mm(struct mm_struct *oldmm);
 
 /*
- * mm_destroy - 销毁用户地址空间
- * @mm: 要销毁的 mm_struct
- *
- * 释放用户页表中所有映射的物理页、页表页，最后 kfree mm_struct。
- * 不释放内核共享的映射（PGD 高 256 项指向的内核页表页）。
+ * mm_user_satp - 返回该用户地址空间可安装到 task 的 SATP 值
  */
-void mm_destroy(struct mm_struct *mm);
+uintptr_t __must_check mm_user_satp(const struct mm_struct *mm);
 
 /*
- * mm_create_user_pgd - 创建用户页表并应用特殊映射
+ * mm_user_page_resident - 查询用户页是否已经有有效用户 PTE 映射
  *
- * 分配 PGD 页，清零，复制内核高地址映射（PGD[256-511]），
- * 应用已注册的用户页表特殊映射。返回 PGD 虚拟地址，失败返回 NULL。
+ * 地址没有 VMA 覆盖时返回 -ENOMEM；成功时通过 resident 返回驻留状态。
  */
-pte_t *__must_check mm_create_user_pgd(void);
+int __must_check mm_user_page_resident(struct mm_struct *mm, uintptr_t addr,
+				       bool *resident);
 
-/*
- * find_vma - 查找包含指定地址的 VMA
- * @mm:   进程地址空间描述符
- * @addr: 要查找的虚拟地址
- *
- * 线性扫描 VMA 数组，返回满足 vm_start <= addr < vm_end 的 VMA 指针。
- * 调用者必须持有 mm->mmap_lock；返回指针只在锁内有效。未找到返回 NULL。
- */
-struct vm_area_struct *__must_check find_vma(struct mm_struct *mm,
-					     uintptr_t addr);
+int __must_check mm_exec_map_page(struct mm_struct *mm, uintptr_t va,
+				  void *page, int prot);
+int __must_check mm_exec_map_segment(struct mm_struct *mm, uintptr_t start,
+				     uintptr_t end, int prot);
+int __must_check mm_exec_add_stack(struct mm_struct *mm, void *stack_page);
+int __must_check mm_exec_finalize(struct mm_struct *mm, uintptr_t first_vaddr,
+				  uintptr_t last_end);
 
 /*
  * mm_brk - brk 内部实现

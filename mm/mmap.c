@@ -219,6 +219,22 @@ struct mm_struct *mm_alloc(void)
 	return mm;
 }
 
+struct mm_struct *mm_create_user(void)
+{
+	struct mm_struct *mm = mm_alloc();
+
+	if (!mm)
+		return NULL;
+
+	mm->pgd = mm_create_user_pgd();
+	if (!mm->pgd) {
+		mm_destroy(mm);
+		return NULL;
+	}
+
+	return mm;
+}
+
 void mm_get(struct mm_struct *mm)
 {
 	if (mm)
@@ -256,6 +272,12 @@ uint32_t mm_membarrier_registrations(const struct mm_struct *mm)
 {
 	BUG_ON(!mm);
 	return mm->membarrier_registrations;
+}
+
+uintptr_t mm_user_satp(const struct mm_struct *mm)
+{
+	BUG_ON(!mm || !mm->pgd);
+	return SATP_MODE_SV39 | (__pa((uintptr_t)mm->pgd) >> PAGE_SHIFT);
 }
 
 struct mm_struct *dup_mm(struct mm_struct *oldmm)
@@ -372,6 +394,25 @@ struct vm_area_struct *find_vma(struct mm_struct *mm, uintptr_t addr)
 			return &mm->vma[i];
 	}
 	return NULL;
+}
+
+int mm_user_page_resident(struct mm_struct *mm, uintptr_t addr, bool *resident)
+{
+	pte_t *pte;
+
+	if (!mm || !resident)
+		return -EINVAL;
+
+	mm_lock(mm);
+	if (!find_vma(mm, addr)) {
+		mm_unlock(mm);
+		return -ENOMEM;
+	}
+
+	pte = arch_pt_walk(mm->pgd, addr, false);
+	*resident = pte && pte_user_page(*pte);
+	mm_unlock(mm);
+	return 0;
 }
 
 /*
@@ -942,6 +983,110 @@ static pte_t prot_to_pte_flags(int prot)
 	if (prot & PROT_EXEC)
 		flags |= PTE_X;
 	return flags;
+}
+
+int mm_exec_map_page(struct mm_struct *mm, uintptr_t va, void *page, int prot)
+{
+	pte_t *pte;
+
+	if (!mm || !page)
+		return -EINVAL;
+	if (va & (PAGE_SIZE - 1))
+		return -EINVAL;
+	if (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC))
+		return -EINVAL;
+
+	mm_lock(mm);
+	pte = arch_pt_walk(mm->pgd, va, false);
+	if (pte && pte_user_page(*pte)) {
+		mm_unlock(mm);
+		return -EEXIST;
+	}
+	arch_map_page(mm->pgd, va, __pa((uintptr_t)page),
+		      prot_to_pte_flags(prot));
+	mm_unlock(mm);
+	return 0;
+}
+
+int mm_exec_map_segment(struct mm_struct *mm, uintptr_t start, uintptr_t end,
+			int prot)
+{
+	struct vm_area_struct *vma;
+	int ret = 0;
+
+	if (!mm)
+		return -EINVAL;
+	if (start >= end || end > USER_STACK_BASE)
+		return -EINVAL;
+	if (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC))
+		return -EINVAL;
+
+	mm_lock(mm);
+	if (vma_range_overlaps(mm, start, end)) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	vma = vma_alloc_slot(mm);
+	if (!vma) {
+		ret = -E2BIG;
+		goto out;
+	}
+
+	vma->vm_start = start;
+	vma->vm_end = end;
+	vma->vm_flags = prot_to_vm_flags(prot);
+	vma->vm_type = VMA_CODE;
+	vma->used = true;
+out:
+	mm_unlock(mm);
+	return ret;
+}
+
+int mm_exec_add_stack(struct mm_struct *mm, void *stack_page)
+{
+	struct vm_area_struct *vma;
+	int ret = 0;
+
+	if (!mm || !stack_page)
+		return -EINVAL;
+
+	mm_lock(mm);
+	if (vma_range_overlaps(mm, USER_STACK_BASE, USER_STACK_TOP)) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	vma = vma_alloc_slot(mm);
+	if (!vma) {
+		ret = -E2BIG;
+		goto out;
+	}
+
+	vma->vm_start = USER_STACK_BASE;
+	vma->vm_end = USER_STACK_TOP;
+	vma->vm_flags = VM_READ | VM_WRITE;
+	vma->vm_type = VMA_STACK;
+	vma->used = true;
+	arch_map_page(mm->pgd, USER_STACK_BASE, __pa((uintptr_t)stack_page),
+		      PTE_USER_RW);
+out:
+	mm_unlock(mm);
+	return ret;
+}
+
+int mm_exec_finalize(struct mm_struct *mm, uintptr_t first_vaddr,
+		     uintptr_t last_end)
+{
+	if (!mm || first_vaddr >= last_end || last_end > USER_STACK_BASE)
+		return -EINVAL;
+
+	mm_lock(mm);
+	mm->code_start = first_vaddr;
+	mm->code_end = PFN_UP(last_end) << PAGE_SHIFT;
+	mm->brk = mm->code_end;
+	mm_unlock(mm);
+	return 0;
 }
 
 /*

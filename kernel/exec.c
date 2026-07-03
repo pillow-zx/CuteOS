@@ -17,10 +17,13 @@
 #include <kernel/string.h>
 #include <kernel/task.h>
 #include <kernel/vfs.h>
+#include <uapi/mman.h>
 #include <asm/csr.h>
 #include <asm/page.h>
 #include <asm/pte.h>
 #include <asm/trap.h>
+
+#include "../mm/internal.h"
 
 struct exec_image {
 	struct file *file;
@@ -35,37 +38,21 @@ struct elf_phdr_table {
 struct elf_load_layout {
 	vaddr_t first_vaddr;
 	vaddr_t last_end;
-	int vma_idx;
 	bool loaded_segment;
 };
 
-static pte_t elf_flags_to_pte(uint32_t p_flags)
+static int elf_flags_to_prot(uint32_t p_flags)
 {
-	const bool w = p_flags & PF_W;
-	const bool x = p_flags & PF_X;
-
-	if (w && x)
-		return PTE_USER_RWX;
-	if (w)
-		return PTE_USER_RW;
-	if (x)
-		return PTE_USER_RX;
-
-	return PTE_USER_R;
-}
-
-static uint32_t elf_flags_to_vma(uint32_t p_flags)
-{
-	uint32_t flags = 0;
+	int prot = 0;
 
 	if (p_flags & PF_R)
-		flags |= VM_READ;
+		prot |= PROT_READ;
 	if (p_flags & PF_W)
-		flags |= VM_WRITE;
+		prot |= PROT_WRITE;
 	if (p_flags & PF_X)
-		flags |= VM_EXEC;
+		prot |= PROT_EXEC;
 
-	return flags;
+	return prot;
 }
 
 static int open_exec_image(const char *path, struct exec_image *image)
@@ -153,9 +140,6 @@ static int setup_user_stack(struct mm_struct *mm,
 		return -ENOMEM;
 	memset(stack_page, 0, PAGE_SIZE);
 
-	arch_map_page(mm->pgd, USER_STACK_BASE, __pa((uintptr_t)stack_page),
-		      PTE_USER_RW);
-
 	uintptr_t user_argv[EXEC_MAX_ARGS + 1];
 	uintptr_t user_envp[EXEC_MAX_ENVS + 1];
 	uintptr_t sp = USER_STACK_TOP;
@@ -197,6 +181,12 @@ static int setup_user_stack(struct mm_struct *mm,
 	memcpy(frame + sizeof(uintptr_t) + argv_bytes, user_envp, envp_bytes);
 
 	*sp_out = sp;
+	ret = mm_exec_add_stack(mm, stack_page);
+	if (ret < 0) {
+		free_page(stack_page, 0);
+		return ret;
+	}
+
 	return 0;
 }
 
@@ -281,15 +271,9 @@ static int create_exec_mm(struct mm_struct **mm_out)
 		return -EINVAL;
 	*mm_out = NULL;
 
-	mm = mm_alloc();
+	mm = mm_create_user();
 	if (!mm)
 		return -ENOMEM;
-
-	mm->pgd = mm_create_user_pgd();
-	if (!mm->pgd) {
-		mm_destroy(mm);
-		return -ENOMEM;
-	}
 
 	*mm_out = mm;
 	return 0;
@@ -364,8 +348,11 @@ static int map_segment_page(struct exec_image *image, struct mm_struct *mm,
 		return ret;
 	}
 
-	arch_map_page(mm->pgd, va, __pa((uintptr_t)page),
-		      elf_flags_to_pte(ph->p_flags));
+	ret = mm_exec_map_page(mm, va, page, elf_flags_to_prot(ph->p_flags));
+	if (ret < 0) {
+		free_page(page, 0);
+		return ret;
+	}
 	return 0;
 }
 
@@ -396,23 +383,6 @@ static void record_load_bounds(struct elf_load_layout *layout, vaddr_t start,
 	layout->loaded_segment = true;
 }
 
-static int add_load_vma(struct mm_struct *mm, struct elf_load_layout *layout,
-			const Elf64_Phdr *ph, vaddr_t start, vaddr_t end)
-{
-	struct vm_area_struct *vma;
-
-	if (layout->vma_idx >= NR_VMA)
-		return -E2BIG;
-
-	vma = &mm->vma[layout->vma_idx++];
-	vma->vm_start = start;
-	vma->vm_end = end;
-	vma->vm_flags = elf_flags_to_vma(ph->p_flags);
-	vma->vm_type = VMA_CODE;
-	vma->used = true;
-	return 0;
-}
-
 static int load_elf_segment(struct exec_image *image, struct mm_struct *mm,
 			    const Elf64_Phdr *ph,
 			    struct elf_load_layout *layout)
@@ -430,7 +400,8 @@ static int load_elf_segment(struct exec_image *image, struct mm_struct *mm,
 	ret = map_load_segment(image, mm, ph, seg_start, seg_end);
 	if (ret < 0)
 		return ret;
-	ret = add_load_vma(mm, layout, ph, seg_start, seg_end);
+	ret = mm_exec_map_segment(mm, seg_start, seg_end,
+				  elf_flags_to_prot(ph->p_flags));
 	if (ret < 0)
 		return ret;
 
@@ -454,22 +425,6 @@ static int load_elf_segments(struct exec_image *image,
 	return layout->loaded_segment ? 0 : -ENOEXEC;
 }
 
-static int add_stack_vma(struct mm_struct *mm, struct elf_load_layout *layout)
-{
-	struct vm_area_struct *vma;
-
-	if (layout->vma_idx >= NR_VMA)
-		return -E2BIG;
-
-	vma = &mm->vma[layout->vma_idx++];
-	vma->vm_start = USER_STACK_BASE;
-	vma->vm_end = USER_STACK_TOP;
-	vma->vm_flags = VM_READ | VM_WRITE;
-	vma->vm_type = VMA_STACK;
-	vma->used = true;
-	return 0;
-}
-
 static int finish_exec_mm(struct mm_struct *mm,
 			  const struct exec_args_envp *args,
 			  struct elf_load_layout *layout, vaddr_t *sp_out)
@@ -478,15 +433,11 @@ static int finish_exec_mm(struct mm_struct *mm,
 
 	arch_icache_flush();
 
-	mm->code_start = layout->first_vaddr;
-	mm->code_end = PFN_UP(layout->last_end) << PAGE_SHIFT;
-	mm->brk = mm->code_end;
-
-	ret = setup_user_stack(mm, args, sp_out);
+	ret = mm_exec_finalize(mm, layout->first_vaddr, layout->last_end);
 	if (ret < 0)
 		return ret;
-
-	return add_stack_vma(mm, layout);
+	ret = setup_user_stack(mm, args, sp_out);
+	return ret;
 }
 
 static int load_elf_file(struct exec_image *image,
@@ -549,8 +500,7 @@ static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
 			    vaddr_t entry, vaddr_t sp)
 {
 	struct mm_struct *oldmm = task_mm(current);
-	paddr_t user_pgd_pa = __pa((uintptr_t)mm->pgd);
-	uintptr_t satp_val = SATP_MODE_SV39 | (user_pgd_pa >> PAGE_SHIFT);
+	uintptr_t satp_val = mm_user_satp(mm);
 
 	task_set_mm(current, mm);
 	task_set_satp(current, satp_val);

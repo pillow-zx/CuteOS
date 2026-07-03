@@ -82,6 +82,7 @@ void kernel_test(void)
 	test_slab_basic();
 	test_slab_cross_cache();
 	test_slab_stress();
+	test_slab_returns_empty_page_to_buddy();
 
 	/* ---- Trap ---- */
 	TEST_SECTION("Trap");

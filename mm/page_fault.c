@@ -37,6 +37,8 @@
 #include <asm/trap.h>
 #include <asm/csr.h>
 
+#include "internal.h"
+
 /* ---- 内部辅助函数 ---- */
 
 /*

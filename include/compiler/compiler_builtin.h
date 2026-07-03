@@ -29,6 +29,8 @@
 #define popcountl(x)		  __builtin_popcountl(x)
 #define popcountll(x)		  __builtin_popcountll(x)
 
+#define alignof(x)		  __alignof__(x)
+
 #define constant_p(exp) __builtin_constant_p(exp)
 
 #define compiletime_choose(cond, true_expr, false_expr)                        \

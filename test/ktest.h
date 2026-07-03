@@ -45,6 +45,7 @@ void test_buddy_split(void);
 void test_slab_basic(void);
 void test_slab_cross_cache(void);
 void test_slab_stress(void);
+void test_slab_returns_empty_page_to_buddy(void);
 
 /* ================================================================
  *  Trap 测试

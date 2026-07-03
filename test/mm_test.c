@@ -20,17 +20,7 @@ struct vma_snapshot {
 
 static struct mm_struct *mm_test_alloc(void)
 {
-	struct mm_struct *mm = mm_alloc();
-	if (!mm)
-		return NULL;
-
-	mm->pgd = mm_create_user_pgd();
-	if (!mm->pgd) {
-		mm_destroy(mm);
-		return NULL;
-	}
-
-	return mm;
+	return mm_create_user();
 }
 
 static int mm_test_count_vmas(struct mm_struct *mm)
@@ -38,9 +28,9 @@ static int mm_test_count_vmas(struct mm_struct *mm)
 	int count = 0;
 
 	mm_lock(mm);
-	for (int i = 0; i < NR_VMA; i++) {
-		if (mm->vma[i].used)
-			count++;
+		for (int i = 0; i < mm_vma_capacity(); i++) {
+			if (mm->vma[i].used)
+				count++;
 	}
 	mm_unlock(mm);
 
@@ -52,7 +42,7 @@ static int mm_test_count_type(struct mm_struct *mm, uint32_t type)
 	int count = 0;
 
 	mm_lock(mm);
-	for (int i = 0; i < NR_VMA; i++) {
+	for (int i = 0; i < mm_vma_capacity(); i++) {
 		if (mm->vma[i].used && mm->vma[i].vm_type == type)
 			count++;
 	}
@@ -212,7 +202,7 @@ void test_mm_vma_split_enospc_preserves_layout(void)
 				       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED),
 			       (ssize_t)base);
 
-		for (int i = 0; i < NR_VMA - 1; i++) {
+		for (int i = 0; i < mm_vma_capacity() - 1; i++) {
 			uintptr_t addr = base + MM_TEST_GAP +
 					 (uintptr_t)i * 2 * PAGE_SIZE;
 			TEST_ASSERT_EQ(mm_mmap(mm, addr, PAGE_SIZE, PROT_READ,
@@ -221,14 +211,14 @@ void test_mm_vma_split_enospc_preserves_layout(void)
 				       (ssize_t)addr);
 		}
 
-		TEST_ASSERT_EQ(mm_test_count_vmas(mm), NR_VMA);
+		TEST_ASSERT_EQ(mm_test_count_vmas(mm), mm_vma_capacity());
 		TEST_ASSERT_EQ(mm_munmap(mm, base + PAGE_SIZE, PAGE_SIZE),
 			       -ENOMEM);
 
 		struct vma_snapshot vma =
 			mm_test_snapshot(mm, base + PAGE_SIZE);
 		TEST_ASSERT(vma.found);
-		TEST_ASSERT_EQ(mm_test_count_vmas(mm), NR_VMA);
+		TEST_ASSERT_EQ(mm_test_count_vmas(mm), mm_vma_capacity());
 		TEST_ASSERT_EQ(vma.start, base);
 		TEST_ASSERT_EQ(vma.end, base + 3 * PAGE_SIZE);
 	}
@@ -256,7 +246,7 @@ void test_mm_vma_munmap_full_table_edge_trim(void)
 				       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED),
 			       (ssize_t)base);
 
-		for (int i = 0; i < NR_VMA - 1; i++) {
+		for (int i = 0; i < mm_vma_capacity() - 1; i++) {
 			uintptr_t addr = base + MM_TEST_GAP +
 					 (uintptr_t)i * 2 * PAGE_SIZE;
 			TEST_ASSERT_EQ(mm_mmap(mm, addr, PAGE_SIZE, PROT_READ,
@@ -265,13 +255,13 @@ void test_mm_vma_munmap_full_table_edge_trim(void)
 				       (ssize_t)addr);
 		}
 
-		TEST_ASSERT_EQ(mm_test_count_vmas(mm), NR_VMA);
+		TEST_ASSERT_EQ(mm_test_count_vmas(mm), mm_vma_capacity());
 		TEST_ASSERT_EQ(mm_munmap(mm, base, PAGE_SIZE), 0);
 
 		struct vma_snapshot after_head =
 			mm_test_snapshot(mm, base + PAGE_SIZE);
 		TEST_ASSERT(after_head.found);
-		TEST_ASSERT_EQ(mm_test_count_vmas(mm), NR_VMA);
+		TEST_ASSERT_EQ(mm_test_count_vmas(mm), mm_vma_capacity());
 		TEST_ASSERT_EQ(after_head.start, base + PAGE_SIZE);
 		TEST_ASSERT_EQ(after_head.end, base + 3 * PAGE_SIZE);
 
@@ -281,7 +271,7 @@ void test_mm_vma_munmap_full_table_edge_trim(void)
 		struct vma_snapshot after_tail =
 			mm_test_snapshot(mm, base + PAGE_SIZE);
 		TEST_ASSERT(after_tail.found);
-		TEST_ASSERT_EQ(mm_test_count_vmas(mm), NR_VMA);
+		TEST_ASSERT_EQ(mm_test_count_vmas(mm), mm_vma_capacity());
 		TEST_ASSERT_EQ(after_tail.start, base + PAGE_SIZE);
 		TEST_ASSERT_EQ(after_tail.end, base + 2 * PAGE_SIZE);
 	}
@@ -413,7 +403,7 @@ void test_mm_vma_mprotect_enospc_preserves_layout(void)
 				       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED),
 			       (ssize_t)base);
 
-		for (int i = 0; i < NR_VMA - 1; i++) {
+		for (int i = 0; i < mm_vma_capacity() - 1; i++) {
 			uintptr_t addr = base + MM_TEST_GAP +
 					 (uintptr_t)i * 2 * PAGE_SIZE;
 			TEST_ASSERT_EQ(mm_mmap(mm, addr, PAGE_SIZE, PROT_READ,
@@ -422,7 +412,7 @@ void test_mm_vma_mprotect_enospc_preserves_layout(void)
 				       (ssize_t)addr);
 		}
 
-		TEST_ASSERT_EQ(mm_test_count_vmas(mm), NR_VMA);
+		TEST_ASSERT_EQ(mm_test_count_vmas(mm), mm_vma_capacity());
 		TEST_ASSERT_EQ(
 			mm_mprotect(mm, base + PAGE_SIZE, PAGE_SIZE, PROT_READ),
 			-ENOMEM);
@@ -430,7 +420,7 @@ void test_mm_vma_mprotect_enospc_preserves_layout(void)
 		struct vma_snapshot vma =
 			mm_test_snapshot(mm, base + PAGE_SIZE);
 		TEST_ASSERT(vma.found);
-		TEST_ASSERT_EQ(mm_test_count_vmas(mm), NR_VMA);
+		TEST_ASSERT_EQ(mm_test_count_vmas(mm), mm_vma_capacity());
 		TEST_ASSERT_EQ(vma.start, base);
 		TEST_ASSERT_EQ(vma.end, base + 3 * PAGE_SIZE);
 		TEST_ASSERT_EQ(vma.flags, (uint32_t)(VM_READ | VM_WRITE));

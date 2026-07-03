@@ -64,6 +64,11 @@ int vma_free_slot_count(struct mm_struct *mm)
 	return count;
 }
 
+int mm_vma_capacity(void)
+{
+	return NR_VMA;
+}
+
 bool vma_overlaps(const struct vm_area_struct *vma, uintptr_t start,
 		  uintptr_t end)
 {

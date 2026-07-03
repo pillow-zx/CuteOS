@@ -1,4 +1,5 @@
 #include <kernel/slab.h>
+#include <kernel/buddy.h>
 #include <kernel/test.h>
 #include <kernel/string.h>
 
@@ -91,4 +92,50 @@ void test_slab_stress(void)
 	return;
 fail:
 	TEST_FAIL("slab: stress cycle", "see above");
+}
+
+void test_slab_returns_empty_page_to_buddy(void)
+{
+	TEST_BEGIN("slab: returns empty page to buddy");
+	{
+#define SLAB_RECLAIM_PTRS 512
+		void *ptrs[SLAB_RECLAIM_PTRS];
+		size_t nr_ptrs = 0;
+		size_t free_before;
+		size_t free_after_refill;
+		size_t free_after_partial;
+
+		free_before = buddy_free_pages();
+
+		while (nr_ptrs < SLAB_RECLAIM_PTRS &&
+		       buddy_free_pages() == free_before) {
+			ptrs[nr_ptrs] = kmalloc(16);
+			TEST_ASSERT_NOT_NULL(ptrs[nr_ptrs]);
+			memset(ptrs[nr_ptrs], 0x5a, 16);
+			nr_ptrs++;
+		}
+
+		TEST_ASSERT(nr_ptrs > 0);
+		TEST_ASSERT(buddy_free_pages() < free_before);
+		free_after_refill = buddy_free_pages();
+
+		for (size_t i = 0; i + 1 < nr_ptrs; i++)
+			kfree(ptrs[i]);
+
+		free_after_partial = buddy_free_pages();
+		TEST_ASSERT_EQ(free_after_partial, free_after_refill);
+
+		kfree(ptrs[nr_ptrs - 1]);
+		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
+
+		ptrs[0] = kmalloc(16);
+		TEST_ASSERT_NOT_NULL(ptrs[0]);
+		kfree(ptrs[0]);
+		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
+#undef SLAB_RECLAIM_PTRS
+	}
+	TEST_END("slab: returns empty page to buddy");
+	return;
+fail:
+	TEST_FAIL("slab: returns empty page to buddy", "see above");
 }

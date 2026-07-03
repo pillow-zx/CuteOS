@@ -32,6 +32,8 @@
 #include <asm/page.h>
 #include <asm/uaccess.h>
 
+#include "internal.h"
+
 bool access_ok(const void *addr, size_t size)
 {
 	vaddr_t a = (vaddr_t)addr;

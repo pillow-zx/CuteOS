@@ -18,7 +18,6 @@
 #include <kernel/mm.h>
 #include <kernel/task.h>
 #include <uapi/mman.h>
-#include <asm/pte.h>
 #include <asm/trap.h>
 
 /*
@@ -157,19 +156,16 @@ ssize_t sys_mincore(struct trap_frame *tf)
 		if (batch > sizeof(kbuf))
 			batch = sizeof(kbuf);
 
-		mm_lock(mm);
 		for (i = 0; i < batch; i++) {
-			pte_t *pte;
+			bool resident;
+			int ret;
 
 			va = addr + (done + i) * PAGE_SIZE;
-			if (!find_vma(mm, va)) {
-				mm_unlock(mm);
-				return -ENOMEM;
-			}
-			pte = arch_pt_walk(mm->pgd, va, false);
-			kbuf[i] = (pte && pte_user_page(*pte)) ? 1 : 0;
+			ret = mm_user_page_resident(mm, va, &resident);
+			if (ret < 0)
+				return ret;
+			kbuf[i] = resident ? 1 : 0;
 		}
-		mm_unlock(mm);
 
 		if (copy_to_user(uvec + done, kbuf, batch) != 0)
 			return -EFAULT;

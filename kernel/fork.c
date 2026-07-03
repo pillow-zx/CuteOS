@@ -13,8 +13,6 @@
 #include <kernel/string.h>
 #include <kernel/task.h>
 #include <uapi/sched.h>
-#include <asm/csr.h>
-#include <asm/page.h>
 #include <asm/trap.h>
 
 #define CLONE_EXIT_SIGNAL_MASK 0xffUL
@@ -98,10 +96,8 @@ static int clone_setup_mm(struct task_struct *child, unsigned long flags)
 	}
 
 	mm = task_mm(child);
-	if (mm) {
-		paddr_t pgd_pa = __pa((uintptr_t)mm->pgd);
-		task_set_satp(child, SATP_MODE_SV39 | (pgd_pa >> PAGE_SHIFT));
-	}
+	if (mm)
+		task_set_satp(child, mm_user_satp(mm));
 
 	return 0;
 }
