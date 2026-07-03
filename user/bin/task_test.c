@@ -66,6 +66,58 @@ static int test_pid_error_paths(void)
 	return failed;
 }
 
+static int rusage_unsupported_zero(const struct rusage *usage)
+{
+	return usage->ru_maxrss == 0 && usage->ru_ixrss == 0 &&
+	       usage->ru_idrss == 0 && usage->ru_isrss == 0 &&
+	       usage->ru_minflt == 0 && usage->ru_majflt == 0 &&
+	       usage->ru_nswap == 0 && usage->ru_inblock == 0 &&
+	       usage->ru_oublock == 0 && usage->ru_msgsnd == 0 &&
+	       usage->ru_msgrcv == 0 && usage->ru_nsignals == 0 &&
+	       usage->ru_nvcsw == 0 && usage->ru_nivcsw == 0;
+}
+
+static int test_getrusage_self(void)
+{
+	struct rusage usage;
+	int failed = 0;
+
+	memset(&usage, 0xff, sizeof(usage));
+	failed += task_pid_expect_ret("getrusage self",
+				      getrusage(RUSAGE_SELF, &usage), 0);
+
+	if (usage.ru_utime.tv_sec < 0 || usage.ru_utime.tv_usec < 0 ||
+	    usage.ru_utime.tv_usec >= 1000000L) {
+		printf("FAIL: invalid user time %ld usec %ld\n",
+		       usage.ru_utime.tv_sec, usage.ru_utime.tv_usec);
+		failed++;
+	}
+	if (usage.ru_stime.tv_sec < 0 || usage.ru_stime.tv_usec < 0 ||
+	    usage.ru_stime.tv_usec >= 1000000L) {
+		printf("FAIL: invalid system time %ld usec %ld\n",
+		       usage.ru_stime.tv_sec, usage.ru_stime.tv_usec);
+		failed++;
+	}
+	if (!rusage_unsupported_zero(&usage)) {
+		printf("FAIL: unsupported rusage fields not zero\n");
+		failed++;
+	}
+
+	failed += task_pid_expect_ret("getrusage null",
+				      getrusage(RUSAGE_SELF, NULL), -EFAULT);
+	failed += task_pid_expect_ret("getrusage children",
+				      getrusage(RUSAGE_CHILDREN, &usage),
+				      -EINVAL);
+	failed += task_pid_expect_ret("getrusage thread",
+				      getrusage(RUSAGE_THREAD, &usage),
+				      -EINVAL);
+	failed += task_pid_expect_ret("getrusage both",
+				      getrusage(RUSAGE_BOTH, &usage),
+				      -EINVAL);
+
+	return failed;
+}
+
 /* Shared state between parent and child thread. */
 static volatile int ready_flag;
 static volatile int tid_word = -1;
@@ -455,6 +507,7 @@ int main(void)
 
 	report_group("wait any child", test_wait_any_child(), &failed);
 	report_group("pid error paths", test_pid_error_paths(), &failed);
+	report_group("getrusage self", test_getrusage_self(), &failed);
 	report_group("clone thread basic wake", test_basic_thread_wake(),
 		     &failed);
 	report_group("clone thread shared counter", test_shared_counter(),

@@ -211,6 +211,24 @@ ssize_t sys_prlimit64(struct trap_frame *tf)
 	return 0;
 }
 
+ssize_t sys_getrusage(struct trap_frame *tf)
+{
+	int who = (int)tf->a0;
+	struct rusage *uusage = (struct rusage *)tf->a1;
+	struct rusage usage;
+
+	if (who != RUSAGE_SELF)
+		return -EINVAL;
+	if (!uusage)
+		return -EFAULT;
+
+	task_rusage_self(current, &usage);
+	if (copy_to_user(uusage, &usage, sizeof(usage)) != 0)
+		return -EFAULT;
+
+	return 0;
+}
+
 static uint64_t random_state;
 
 static uint64_t random_next_u64(void)

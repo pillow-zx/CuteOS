@@ -92,13 +92,6 @@ ssize_t sys_getpgid(struct trap_frame *tf)
 	return -ENOSYS;
 }
 
-ssize_t sys_getrusage(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(proc): 需要 rusage ABI 结构和资源计费汇总。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_mlock(struct trap_frame *tf)
 {
 	(void)tf;

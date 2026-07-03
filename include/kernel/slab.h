@@ -26,4 +26,14 @@ void slab_init(void);
 void *kmalloc(size_t size) __must_check __malloc __alloc_size(1);
 void kfree(void *ptr);
 
+static __always_inline void *__must_check __malloc __alloc_size(1)
+	kzalloc(size_t size)
+{
+	void *ptr = kmalloc(size);
+	if (ptr)
+		memset(ptr, 0, size);
+
+	return ptr;
+}
+
 #endif

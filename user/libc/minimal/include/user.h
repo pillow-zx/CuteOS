@@ -47,6 +47,11 @@ _Static_assert(sizeof(struct pselect6_sigmask) == 16,
 _Static_assert(sizeof(struct pollfd) == 8, "pollfd ABI mismatch");
 _Static_assert(sizeof(struct epoll_event) == 16, "epoll_event ABI mismatch");
 _Static_assert(EPOLL_CLOEXEC == O_CLOEXEC, "epoll cloexec ABI mismatch");
+_Static_assert(sizeof(struct rusage) == 144, "rusage ABI mismatch");
+_Static_assert((size_t)&(((struct rusage *)0)->ru_stime) == 16,
+	       "rusage ru_stime offset mismatch");
+_Static_assert((size_t)&(((struct rusage *)0)->ru_nivcsw) == 136,
+	       "rusage ru_nivcsw offset mismatch");
 
 /* ---- syscallN: 底层内联汇编封装 (a0~a5, 最多 6 个参数) ---- */
 
@@ -639,6 +644,11 @@ static inline long execve(const char *path, char *const argv[],
 static inline long wait4(long pid, int *status, int options, void *rusage)
 {
 	return syscall(SYS_wait4, pid, (long)status, options, (long)rusage);
+}
+
+static inline long getrusage(int who, struct rusage *usage)
+{
+	return syscall(SYS_getrusage, who, (long)usage);
 }
 
 static inline long wait(int *status)
