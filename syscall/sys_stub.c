@@ -21,27 +21,6 @@ static struct task_struct *affinity_target_task(pid_t pid)
 	return task_find_thread(pid);
 }
 
-ssize_t sys_epoll_create1(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(epoll): 需要 pollable file、等待队列聚合和 epoll fd 对象。 */
-	return -ENOSYS;
-}
-
-ssize_t sys_epoll_ctl(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(epoll): 需要 epoll interest list 和 ready list。 */
-	return -ENOSYS;
-}
-
-ssize_t sys_epoll_pwait(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(epoll): 需要可被信号中断的等待和事件复制语义。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 {
 	long pid = (long)tf->a0;

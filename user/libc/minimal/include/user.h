@@ -15,6 +15,7 @@
 
 #include <uapi/dirent.h>
 #include <uapi/errno.h>
+#include <uapi/eventpoll.h>
 #include <uapi/fcntl.h>
 #include <uapi/futex.h>
 #include <uapi/poll.h>
@@ -40,17 +41,12 @@ typedef unsigned long size_t;
 /* libc convenience alias; Linux riscv64 has clone, not a separate fork nr. */
 #define SYS_fork SYS_clone
 
-#define __FD_ELT(fd)	 ((fd) / __NFDBITS)
-#define __FD_MASK(fd)	 (1UL << ((fd) % __NFDBITS))
-#define FD_SETSIZE	 __FD_SETSIZE
-#define FD_ZERO(set)	 memset((set), 0, sizeof(*(set)))
-#define FD_SET(fd, set)	 ((set)->fds_bits[__FD_ELT(fd)] |= __FD_MASK(fd))
-#define FD_CLR(fd, set)	 ((set)->fds_bits[__FD_ELT(fd)] &= ~__FD_MASK(fd))
-#define FD_ISSET(fd, set) (((set)->fds_bits[__FD_ELT(fd)] & __FD_MASK(fd)) != 0)
-
 _Static_assert(sizeof(fd_set) == 128, "fd_set ABI mismatch");
 _Static_assert(sizeof(struct pselect6_sigmask) == 16,
 	       "pselect6 sigmask ABI mismatch");
+_Static_assert(sizeof(struct pollfd) == 8, "pollfd ABI mismatch");
+_Static_assert(sizeof(struct epoll_event) == 16, "epoll_event ABI mismatch");
+_Static_assert(EPOLL_CLOEXEC == O_CLOEXEC, "epoll cloexec ABI mismatch");
 
 /* ---- syscallN: 底层内联汇编封装 (a0~a5, 最多 6 个参数) ---- */
 
@@ -390,6 +386,25 @@ static inline long pselect6(int nfds, fd_set *readfds, fd_set *writefds,
 	return syscall(SYS_pselect6, nfds, (long)readfds, (long)writefds,
 		       (long)exceptfds, (long)timeout,
 		       (long)(sigmask ? &pack : 0));
+}
+
+static inline long epoll_create1(int flags)
+{
+	return syscall(SYS_epoll_create1, flags);
+}
+
+static inline long epoll_ctl(int epfd, int op, int fd,
+			     struct epoll_event *event)
+{
+	return syscall(SYS_epoll_ctl, epfd, op, fd, (long)event);
+}
+
+static inline long epoll_pwait(int epfd, struct epoll_event *events,
+			       int maxevents, int timeout,
+			       const unsigned long *sigmask)
+{
+	return syscall(SYS_epoll_pwait, epfd, (long)events, maxevents, timeout,
+		       (long)sigmask, sigmask ? sizeof(*sigmask) : 0);
 }
 
 static inline void exit(int code)

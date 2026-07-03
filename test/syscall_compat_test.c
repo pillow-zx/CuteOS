@@ -11,8 +11,11 @@
 #include <kernel/tty.h>
 #include <kernel/vfs.h>
 #include <uapi/dirent.h>
+#include <uapi/eventpoll.h>
 #include <uapi/futex.h>
+#include <uapi/poll.h>
 #include <uapi/resource.h>
+#include <uapi/select.h>
 #include <uapi/stat.h>
 #include <uapi/time.h>
 #include <uapi/tty.h>
@@ -43,6 +46,17 @@ void test_uapi_shared_layouts(void)
 			       (size_t)19);
 		TEST_ASSERT_EQ(sizeof(struct timespec), (size_t)16);
 		TEST_ASSERT_EQ(sizeof(struct rlimit64), (size_t)16);
+		TEST_ASSERT_EQ(sizeof(struct pollfd), (size_t)8);
+		TEST_ASSERT_EQ(offsetof(struct pollfd, events), (size_t)4);
+		TEST_ASSERT_EQ(offsetof(struct pollfd, revents), (size_t)6);
+		TEST_ASSERT_EQ(sizeof(fd_set), (size_t)128);
+		TEST_ASSERT_EQ(sizeof(struct pselect6_sigmask), (size_t)16);
+		TEST_ASSERT_EQ(sizeof(struct epoll_event), (size_t)16);
+		TEST_ASSERT_EQ(offsetof(struct epoll_event, data), (size_t)8);
+		TEST_ASSERT_EQ(POLLRDNORM, 0x40);
+		TEST_ASSERT_EQ(POLLWRNORM, 0x100);
+		TEST_ASSERT_EQ(EPOLLRDNORM, 0x40U);
+		TEST_ASSERT_EQ(EPOLLWRNORM, 0x100U);
 		TEST_ASSERT_EQ(sizeof(struct robust_list_head), (size_t)24);
 		TEST_ASSERT_EQ(offsetof(struct robust_list_head,
 					list_op_pending),

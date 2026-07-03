@@ -1,17 +1,16 @@
 /*
- * syscall/sys_file_poll.c - ppoll 系统调用
+ * syscall/sys_file_poll.c - poll/select/epoll 系统调用
  *
  * 覆盖范围：
- *   超时时间戳转换（sys_timespec_to_deadline）、fd 就绪扫描（ppoll_scan）、
- *   以及带信号掩码的 ppoll 等待循环。
+ *   超时时间戳转换、fd 就绪扫描，以及带信号掩码的等待循环。
  */
 
 #include <kernel/fdtable.h>
-#include <kernel/bitops.h>
 #include <kernel/cleanup.h>
 #include <kernel/tools.h>
 #include <kernel/fs.h>
 #include <kernel/mm.h>
+#include <kernel/slab.h>
 #include <kernel/signal.h>
 #include <kernel/string.h>
 #include <kernel/types.h>
@@ -23,16 +22,12 @@
 #include <asm/page.h>
 #include <asm/trap.h>
 #include <kernel/time.h>
+#include <uapi/eventpoll.h>
+#include <uapi/poll.h>
 #include <uapi/select.h>
 
-struct sys_pollfd {
-	int32_t fd;
-	int16_t events;
-	int16_t revents;
-};
-
 struct ppoll_scan_ctx {
-	struct sys_pollfd *fds;
+	struct pollfd *fds;
 	size_t nfds;
 };
 
@@ -46,17 +41,63 @@ struct pselect_scan_ctx {
 	size_t nfds;
 };
 
+struct epoll_scan_ctx {
+	struct eventpoll *ep;
+	struct epoll_event *events;
+	size_t maxevents;
+	size_t nr_ready;
+};
+
 struct poll_sigmask_guard {
 	struct task_struct *task;
 	uint64_t old_blocked;
 	bool active;
 };
 
+struct epitem {
+	struct list_head node;
+	struct file *file;
+	struct epoll_event event;
+	int fd;
+};
+
+struct eventpoll {
+	struct list_head items;
+	struct wait_queue_head waitq;
+};
+
 CLEANUP_DEFINE(poll_sigmask_restore, struct poll_sigmask_guard,
 	       if (_T.active)
 		       task_set_blocked_mask(_T.task, _T.old_blocked);)
+CLEANUP_DEFINE(epitem, struct epitem *, if (_T) {
+		       file_put(_T->file);
+		       kfree(_T);
+	       });
+CLEANUP_DEFINE(eventpoll, struct eventpoll *, if (_T) kfree(_T));
+CLEANUP_DEFINE(file, struct file *, if (_T) file_put(_T));
 
 static_assert(NR_OPEN <= __FD_SETSIZE, "NR_OPEN exceeds fd_set ABI limit");
+static_assert(EPOLL_CLOEXEC == O_CLOEXEC, "epoll cloexec flag ABI mismatch");
+static_assert(sizeof(struct pollfd) == 8, "pollfd ABI layout mismatch");
+static_assert(sizeof(struct epoll_event) == 16,
+	      "epoll_event ABI layout mismatch");
+static_assert(offsetof(struct epoll_event, data) == 8,
+	      "epoll_event data ABI offset mismatch");
+
+static int eventpoll_release(struct file *file);
+static uint32_t eventpoll_poll(struct file *file, uint32_t events,
+			       struct vfs_poll_table *table);
+
+static const struct file_operations eventpoll_fops = {
+	.poll = eventpoll_poll,
+	.release = eventpoll_release,
+};
+
+static __always_inline __must_check __pure bool
+eventpoll_file(struct file *file)
+{
+	return file && file->f_op == &eventpoll_fops;
+}
 
 static __always_inline __must_check __pure size_t
 sys_fdset_nwords(size_t nfds)
@@ -74,9 +115,41 @@ sys_fdset_nbytes(size_t nfds)
 }
 
 static __always_inline __must_check __pure bool
+sys_epoll_create1_flags_ok(int flags)
+{
+	return (flags & ~EPOLL_CLOEXEC) == 0;
+}
+
+static __always_inline __must_check __pure bool
+sys_epoll_op_valid(int op)
+{
+	return op == EPOLL_CTL_ADD || op == EPOLL_CTL_MOD || op == EPOLL_CTL_DEL;
+}
+
+static __always_inline __must_check __pure bool
+sys_epoll_events_ok(uint32_t events)
+{
+	const uint32_t supported =
+		EPOLLIN | EPOLLOUT | EPOLLPRI | EPOLLERR | EPOLLHUP |
+		EPOLLRDNORM | EPOLLRDBAND | EPOLLWRNORM | EPOLLWRBAND |
+		EPOLLMSG | EPOLLRDHUP | EPOLLONESHOT | EPOLLET;
+
+	return (events & ~supported) == 0;
+}
+
+static __always_inline __must_check __pure bool
+sys_epoll_wait_sigmask_ok(const unsigned long *usigmask, size_t sigsetsize)
+{
+	if (usigmask)
+		return sigsetsize == sizeof(unsigned long);
+
+	return sigsetsize == 0 || sigsetsize == sizeof(unsigned long);
+}
+
+static __always_inline __must_check __pure bool
 sys_fdset_test(const fd_set *set, int fd)
 {
-	return set && (set->fds_bits[fd / __NFDBITS] & BIT(fd % __NFDBITS));
+	return set && FD_ISSET(fd, set);
 }
 
 static __always_inline void sys_fdset_assign(fd_set *set, int fd, bool ready)
@@ -85,9 +158,58 @@ static __always_inline void sys_fdset_assign(fd_set *set, int fd, bool ready)
 		return;
 
 	if (ready)
-		set->fds_bits[fd / __NFDBITS] |= BIT(fd % __NFDBITS);
+		FD_SET(fd, set);
 	else
-		set->fds_bits[fd / __NFDBITS] &= ~BIT(fd % __NFDBITS);
+		FD_CLR(fd, set);
+}
+
+static __always_inline __must_check __pure uint32_t
+poll_req(uint32_t events)
+{
+	uint32_t req = events;
+
+	if (events & (POLLRDNORM | POLLRDBAND))
+		req |= POLLIN;
+	if (events & (POLLWRNORM | POLLWRBAND))
+		req |= POLLOUT;
+	if (events & POLLRDHUP)
+		req |= POLLIN;
+
+	return req;
+}
+
+static __always_inline __must_check __pure uint32_t
+poll_res(uint32_t mask, uint32_t requested)
+{
+	uint32_t res = mask;
+
+	if ((requested & POLLRDNORM) && (mask & POLLIN))
+		res |= POLLRDNORM;
+	if ((requested & POLLRDBAND) && (mask & POLLIN))
+		res |= POLLRDBAND;
+	if ((requested & POLLWRNORM) && (mask & POLLOUT))
+		res |= POLLWRNORM;
+	if ((requested & POLLWRBAND) && (mask & POLLOUT))
+		res |= POLLWRBAND;
+
+	return res;
+}
+
+static __always_inline __must_check __pure uint32_t
+epoll_res(uint32_t events, uint32_t requested)
+{
+	uint32_t res = events;
+
+	if ((requested & EPOLLRDNORM) && (events & EPOLLIN))
+		res |= EPOLLRDNORM;
+	if ((requested & EPOLLRDBAND) && (events & EPOLLIN))
+		res |= EPOLLRDBAND;
+	if ((requested & EPOLLWRNORM) && (events & EPOLLOUT))
+		res |= EPOLLWRNORM;
+	if ((requested & EPOLLWRBAND) && (events & EPOLLOUT))
+		res |= EPOLLWRBAND;
+
+	return res;
 }
 
 static int sys_timespec_to_deadline(const struct timespec *ts,
@@ -119,6 +241,39 @@ static int sys_timespec_to_deadline(const struct timespec *ts,
 	else
 		*deadline = now + delta + nsec_delta;
 	*has_timeout = true;
+	return 0;
+}
+
+static int sys_timeout_ms_to_deadline(long timeout_ms, bool *has_timeout,
+				      uint64_t *deadline)
+{
+	uint64_t now;
+	uint64_t delta;
+	uint64_t ms;
+
+	*has_timeout = false;
+	*deadline = 0;
+	if (timeout_ms < 0)
+		return 0;
+
+	now = arch_timer_now();
+	*has_timeout = true;
+	if (timeout_ms == 0) {
+		*deadline = now;
+		return 0;
+	}
+
+	ms = (uint64_t)timeout_ms;
+	if (ms > (UINT64_MAX - 999ULL) / MTIME_FREQ) {
+		*deadline = UINT64_MAX;
+		return 0;
+	}
+
+	delta = (ms * MTIME_FREQ + 999ULL) / 1000ULL;
+	if (delta > UINT64_MAX - now)
+		*deadline = UINT64_MAX;
+	else
+		*deadline = now + delta;
 	return 0;
 }
 
@@ -210,7 +365,9 @@ static int ppoll_scan(struct vfs_poll_table *table, void *arg)
 			continue;
 		}
 
-		mask = vfs_poll(file, (uint32_t)ctx->fds[i].events, table);
+		mask = vfs_poll(file, poll_req((uint32_t)ctx->fds[i].events),
+				table);
+		mask = poll_res(mask, (uint32_t)ctx->fds[i].events);
 		file_put(file);
 		ctx->fds[i].revents =
 			(int16_t)(mask & (ctx->fds[i].events | POLLERR |
@@ -267,15 +424,348 @@ static int pselect_scan(struct vfs_poll_table *table, void *arg)
 	return ready;
 }
 
+static struct epitem *eventpoll_find(struct eventpoll *ep, int fd,
+				     struct file *file)
+{
+	struct epitem *item;
+
+	if (!ep || !file)
+		return NULL;
+
+	list_for_each_entry (item, &ep->items, node) {
+		if (item->fd == fd && item->file == file)
+			return item;
+	}
+
+	return NULL;
+}
+
+static __always_inline __must_check __pure bool
+epitem_trigger_supported(const struct epitem *item)
+{
+	return item && (item->event.events & (EPOLLET | EPOLLONESHOT)) == 0;
+}
+
+static __always_inline __must_check __pure uint32_t
+epitem_poll_events(const struct epitem *item)
+{
+	uint32_t events = 0;
+
+	if (!item || !item->file)
+		return 0;
+	if (item->file->f_mode & FMODE_READ)
+		events |= POLLIN;
+	if (item->file->f_mode & FMODE_WRITE)
+		events |= POLLOUT;
+	if (item->event.events & EPOLLPRI)
+		events |= POLLPRI;
+
+	if (item->event.events & (EPOLLRDNORM | EPOLLRDBAND | EPOLLRDHUP))
+		events |= POLLIN;
+	if (item->event.events & (EPOLLWRNORM | EPOLLWRBAND))
+		events |= POLLOUT;
+
+	return events;
+}
+
+static __always_inline __must_check __pure uint32_t
+epoll_result_events(const struct epitem *item, uint32_t mask)
+{
+	uint32_t events = 0;
+	uint32_t wanted;
+
+	if (!item)
+		return 0;
+	if (mask & POLLIN)
+		events |= EPOLLIN;
+	if (mask & POLLOUT)
+		events |= EPOLLOUT;
+	if (mask & POLLPRI)
+		events |= EPOLLPRI;
+	if (mask & POLLERR)
+		events |= EPOLLERR;
+	if (mask & POLLHUP)
+		events |= EPOLLHUP;
+	if (mask & POLLNVAL)
+		events |= EPOLLNVAL;
+
+	events = epoll_res(events, item->event.events);
+	wanted = item->event.events &
+		 (EPOLLIN | EPOLLOUT | EPOLLPRI | EPOLLRDNORM |
+		  EPOLLRDBAND | EPOLLWRNORM | EPOLLWRBAND);
+	return events & (wanted | EPOLLERR | EPOLLHUP | EPOLLNVAL);
+}
+
+static int epoll_scan(struct vfs_poll_table *table, void *arg)
+{
+	struct epoll_scan_ctx *ctx = arg;
+	struct epitem *item;
+
+	if (!ctx || !ctx->ep)
+		return -EINVAL;
+
+	ctx->nr_ready = 0;
+	if (table)
+		vfs_poll_wait(table, &ctx->ep->waitq);
+
+	list_for_each_entry (item, &ctx->ep->items, node) {
+		uint32_t mask;
+		uint32_t events;
+
+		if (!epitem_trigger_supported(item))
+			return -EINVAL;
+
+		mask = vfs_poll(item->file, epitem_poll_events(item), table);
+		events = epoll_result_events(item, mask);
+		if (!events)
+			continue;
+		if (ctx->nr_ready >= ctx->maxevents)
+			continue;
+
+		ctx->events[ctx->nr_ready].events = events;
+		ctx->events[ctx->nr_ready].data = item->event.data;
+		ctx->nr_ready++;
+	}
+
+	return (int)ctx->nr_ready;
+}
+
+static uint32_t eventpoll_poll(struct file *file, uint32_t events,
+			       struct vfs_poll_table *table)
+{
+	struct eventpoll *ep = file ? file->private_data : NULL;
+
+	if (!ep)
+		return POLLERR;
+
+	if (events & (POLLIN | POLLOUT))
+		vfs_poll_wait(table, &ep->waitq);
+
+	return 0;
+}
+
+static int eventpoll_release(struct file *file)
+{
+	struct eventpoll *ep;
+	struct list_head *pos;
+	struct list_head *next;
+
+	if (!file)
+		return 0;
+
+	ep = file->private_data;
+	file->private_data = NULL;
+	if (!ep)
+		return 0;
+
+	list_for_each_safe (pos, next, &ep->items) {
+		struct epitem *item = list_entry(pos, struct epitem, node);
+
+		list_del_init(&item->node);
+		file_put(item->file);
+		kfree(item);
+	}
+	kfree(ep);
+	return 0;
+}
+
+ssize_t sys_epoll_create1(struct trap_frame *tf)
+{
+	int flags = (int)tf->a0;
+	struct eventpoll *ep __cleanup_with(eventpoll) = NULL;
+	struct file *file __cleanup_with(file) = NULL;
+	int fd;
+
+	if (!sys_epoll_create1_flags_ok(flags))
+		return -EINVAL;
+
+	ep = kmalloc(sizeof(*ep));
+	if (!ep)
+		return -ENOMEM;
+
+	INIT_LIST_HEAD(&ep->items);
+	init_waitqueue_head(&ep->waitq);
+
+	file = file_alloc(&eventpoll_fops, FMODE_READ | FMODE_WRITE, ep);
+	if (!file)
+		return -ENOMEM;
+
+	fd = fd_alloc_flags(file, flags);
+	if (fd < 0)
+		return fd;
+
+	cleanup_forget_ptr(file);
+	cleanup_forget_ptr(ep);
+	return fd;
+}
+
+ssize_t sys_epoll_ctl(struct trap_frame *tf)
+{
+	int epfd = (int)tf->a0;
+	int op = (int)tf->a1;
+	int fd = (int)tf->a2;
+	const struct epoll_event *uevent = (const struct epoll_event *)tf->a3;
+	struct file *epfile __cleanup_with(file) = NULL;
+	struct file *file __cleanup_with(file) = NULL;
+	struct epitem *item __cleanup_with(epitem) = NULL;
+	struct epitem *found;
+	struct epoll_event event;
+	struct eventpoll *ep;
+
+	if (!sys_epoll_op_valid(op))
+		return -EINVAL;
+
+	epfile = fd_get(epfd);
+	if (!epfile)
+		return -EBADF;
+	if (!eventpoll_file(epfile))
+		return -EINVAL;
+	if (fd == epfd)
+		return -EINVAL;
+
+	file = fd_get(fd);
+	if (!file)
+		return -EBADF;
+	if (eventpoll_file(file))
+		return -EINVAL;
+	if (!file->f_op || !file->f_op->poll)
+		return -EPERM;
+
+	ep = epfile->private_data;
+	if (!ep)
+		return -EINVAL;
+
+	switch (op) {
+	case EPOLL_CTL_ADD:
+		if (!uevent)
+			return -EFAULT;
+		if (copy_from_user(&event, uevent, sizeof(event)) != 0)
+			return -EFAULT;
+		if (!sys_epoll_events_ok(event.events))
+			return -EINVAL;
+		if (eventpoll_find(ep, fd, file))
+			return -EEXIST;
+
+		item = kmalloc(sizeof(*item));
+		if (!item)
+			return -ENOMEM;
+
+		INIT_LIST_HEAD(&item->node);
+		item->file = file;
+		item->event = event;
+		item->fd = fd;
+		list_add_tail(&item->node, &ep->items);
+		wake_up_all(&ep->waitq);
+
+		cleanup_forget_ptr(file);
+		cleanup_forget_ptr(item);
+		return 0;
+
+	case EPOLL_CTL_MOD:
+		if (!uevent)
+			return -EFAULT;
+		if (copy_from_user(&event, uevent, sizeof(event)) != 0)
+			return -EFAULT;
+		if (!sys_epoll_events_ok(event.events))
+			return -EINVAL;
+
+		found = eventpoll_find(ep, fd, file);
+		if (!found)
+			return -ENOENT;
+		found->event = event;
+		wake_up_all(&ep->waitq);
+		return 0;
+
+	case EPOLL_CTL_DEL:
+		found = eventpoll_find(ep, fd, file);
+		if (!found)
+			return -ENOENT;
+
+		list_del_init(&found->node);
+		file_put(found->file);
+		kfree(found);
+		wake_up_all(&ep->waitq);
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
+ssize_t sys_epoll_pwait(struct trap_frame *tf)
+{
+	int epfd = (int)tf->a0;
+	struct epoll_event *uevents = (struct epoll_event *)tf->a1;
+	int maxevents = (int)tf->a2;
+	long timeout = (long)tf->a3;
+	const unsigned long *usigmask = (const unsigned long *)tf->a4;
+	size_t sigsetsize = (size_t)tf->a5;
+	struct epoll_event kevents[NR_OPEN];
+	struct file *epfile __cleanup_with(file) = NULL;
+	struct poll_sigmask_guard sigmask_guard
+		__cleanup_with(poll_sigmask_restore) = {
+			.task = current,
+			.old_blocked = 0,
+			.active = false,
+		};
+	struct epoll_scan_ctx scan_ctx;
+	struct eventpoll *ep;
+	bool has_timeout;
+	uint64_t deadline;
+	size_t scan_limit;
+	int ret;
+
+	if (maxevents <= 0)
+		return -EINVAL;
+	if (!uevents)
+		return -EFAULT;
+	if (!sys_epoll_wait_sigmask_ok(usigmask, sigsetsize))
+		return -EINVAL;
+
+	epfile = fd_get(epfd);
+	if (!epfile)
+		return -EBADF;
+	if (!eventpoll_file(epfile))
+		return -EINVAL;
+
+	ret = sys_timeout_ms_to_deadline(timeout, &has_timeout, &deadline);
+	if (ret < 0)
+		return ret;
+
+	ret = poll_apply_sigmask(usigmask, sigsetsize, &sigmask_guard);
+	if (ret < 0)
+		return ret;
+
+	ep = epfile->private_data;
+	if (!ep)
+		return -EINVAL;
+
+	scan_limit = (size_t)maxevents;
+	if (scan_limit > ARRLEN(kevents))
+		scan_limit = ARRLEN(kevents);
+
+	scan_ctx.ep = ep;
+	scan_ctx.events = kevents;
+	scan_ctx.maxevents = scan_limit;
+	scan_ctx.nr_ready = 0;
+
+	ret = vfs_poll_wait_until(epoll_scan, &scan_ctx, has_timeout, deadline);
+	if (ret > 0 &&
+	    copy_to_user(uevents, kevents, (size_t)ret * sizeof(kevents[0])) !=
+		    0)
+		return -EFAULT;
+
+	return ret;
+}
+
 ssize_t sys_ppoll(struct trap_frame *tf)
 {
-	struct sys_pollfd *ufds = (struct sys_pollfd *)tf->a0;
+	struct pollfd *ufds = (struct pollfd *)tf->a0;
 	size_t nfds = (size_t)tf->a1;
 	const struct timespec *utimeout =
 		(const struct timespec *)tf->a2;
 	const unsigned long *usigmask = (const unsigned long *)tf->a3;
 	size_t sigsetsize = (size_t)tf->a4;
-	struct sys_pollfd fds[NR_OPEN];
+	struct pollfd fds[NR_OPEN];
 	struct timespec timeout;
 	struct ppoll_scan_ctx scan_ctx;
 	struct poll_sigmask_guard sigmask_guard
