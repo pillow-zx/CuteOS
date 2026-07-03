@@ -13,11 +13,6 @@
 #include <kernel/string.h>
 #include <asm/page.h>
 
-uintptr_t mm_align_up_page(uintptr_t addr)
-{
-	return (addr + PAGE_SIZE - 1) & PAGE_MASK;
-}
-
 int mm_range_end_page_aligned(uintptr_t start, size_t length, uintptr_t *end)
 {
 	uintptr_t aligned_len;
@@ -27,7 +22,7 @@ int mm_range_end_page_aligned(uintptr_t start, size_t length, uintptr_t *end)
 	if (length > TASK_SIZE)
 		return -EINVAL;
 
-	aligned_len = mm_align_up_page(length);
+	aligned_len = mm_page_align_up(length);
 	if (aligned_len == 0 || start + aligned_len < start)
 		return -EINVAL;
 	if (start + aligned_len > TASK_SIZE)
@@ -64,17 +59,6 @@ int vma_free_slot_count(struct mm_struct *mm)
 	return count;
 }
 
-int mm_vma_capacity(void)
-{
-	return NR_VMA;
-}
-
-bool vma_overlaps(const struct vm_area_struct *vma, uintptr_t start,
-		  uintptr_t end)
-{
-	return vma->used && start < vma->vm_end && end > vma->vm_start;
-}
-
 bool vma_range_overlaps(struct mm_struct *mm, uintptr_t start, uintptr_t end)
 {
 	for (int i = 0; i < NR_VMA; i++) {
@@ -98,31 +82,22 @@ bool vma_range_overlaps_other(struct mm_struct *mm,
 
 	return false;
 }
-
-bool vma_contains_split_addr(const struct vm_area_struct *vma, uintptr_t addr)
-{
-	return vma->used && addr > vma->vm_start && addr < vma->vm_end;
-}
-
 static bool vma_can_merge(const struct vm_area_struct *a,
 			  const struct vm_area_struct *b)
 {
-	uint64_t a_pages;
-	uint64_t b_pages;
-
-	if (!a->used || !b->used || a == b)
+	if (!a || !b || a == b)
+		return false;
+	if (!a->used || !b->used)
 		return false;
 	if (a->vm_flags != b->vm_flags || a->vm_type != b->vm_type)
 		return false;
 	if (a->vm_file != b->vm_file || a->vm_shared != b->vm_shared)
 		return false;
 	if (a->vm_file) {
-		a_pages = (a->vm_end - a->vm_start) / PAGE_SIZE;
-		b_pages = (b->vm_end - b->vm_start) / PAGE_SIZE;
 		if (a->vm_end == b->vm_start)
-			return a->vm_pgoff + a_pages == b->vm_pgoff;
+			return vma_offset_at(a, a->vm_end) == b->vm_offset;
 		if (b->vm_end == a->vm_start)
-			return b->vm_pgoff + b_pages == a->vm_pgoff;
+			return vma_offset_at(b, b->vm_end) == a->vm_offset;
 		return false;
 	}
 	return a->vm_end == b->vm_start || b->vm_end == a->vm_start;
@@ -168,7 +143,7 @@ int vma_split_at(struct mm_struct *mm, struct vm_area_struct *vma,
 	*tail = *vma;
 	if (tail->vm_file) {
 		file_get(tail->vm_file);
-		tail->vm_pgoff += (addr - vma->vm_start) / PAGE_SIZE;
+		tail->vm_offset = vma_offset_at(vma, addr);
 	}
 	tail->vm_start = addr;
 	vma->vm_end = addr;
@@ -286,8 +261,7 @@ int vma_unmap_range(struct mm_struct *mm, struct vm_area_struct *vma,
 
 	if (trim_start == vma->vm_start) {
 		if (vma->vm_file)
-			vma->vm_pgoff += (trim_end - vma->vm_start) /
-					 PAGE_SIZE;
+			vma->vm_offset = vma_offset_at(vma, trim_end);
 		vma->vm_start = trim_end;
 		return 1;
 	}
@@ -305,7 +279,7 @@ int vma_unmap_range(struct mm_struct *mm, struct vm_area_struct *vma,
 	BUG_ON(!right || right == vma);
 
 	if (right->vm_file)
-		right->vm_pgoff += (trim_end - trim_start) / PAGE_SIZE;
+		right->vm_offset = vma_offset_at(right, trim_end);
 	right->vm_start = trim_end;
 	return 1;
 }

@@ -42,26 +42,6 @@
 /* ---- 内部辅助函数 ---- */
 
 /*
- * vma_flags_to_pte - 将 VMA 权限标志转换为 PTE 权限位
- * @vm_flags: VM_READ | VM_WRITE | VM_EXEC 的组合
- *
- * 返回对应的 PTE 权限位（含 PTE_V, PTE_U, PTE_A, PTE_D）。
- */
-static pte_t vma_flags_to_pte(uint32_t vm_flags)
-{
-	pte_t perm = PTE_V | PTE_U | PTE_A | PTE_D;
-
-	if (vm_flags & VM_READ)
-		perm |= PTE_R;
-	if (vm_flags & VM_WRITE)
-		perm |= PTE_W;
-	if (vm_flags & VM_EXEC)
-		perm |= PTE_X;
-
-	return perm;
-}
-
-/*
  * fault_type_name - 获取缺页类型名称（调试用）
  */
 static const char *fault_type_name(uint64_t scause)
@@ -172,18 +152,18 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		uint64_t page_index;
 		pte_t pte_flags;
 
-		page_index = vma->vm_pgoff +
-			     (page_addr - vma->vm_start) / PAGE_SIZE;
-		file_page = page_cache_read_page(&vma->vm_file->f_inode->i_pages,
-						 page_index);
+		page_index = vma_page_index(vma, page_addr);
+		file_page = page_cache_read_page(
+			&vma->vm_file->f_inode->i_pages, page_index);
 		if (!file_page)
 			return -EIO;
 
 		pte_flags = vma_flags_to_pte(vma->vm_flags);
 		if (vma->vm_shared) {
-			arch_map_page(mm->pgd, page_addr,
-				      __pa((uintptr_t)page_cache_data(file_page)),
-				      pte_flags);
+			arch_map_page(
+				mm->pgd, page_addr,
+				__pa((uintptr_t)page_cache_data(file_page)),
+				pte_flags);
 			arch_tlb_flush_page(page_addr);
 			return 0;
 		}
@@ -195,6 +175,13 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		}
 
 		memcpy(page, page_cache_data(file_page), PAGE_SIZE);
+		if (page_addr < vma->vm_start)
+			memset(page, 0, vma->vm_start - page_addr);
+		if (page_addr + PAGE_SIZE > vma->vm_end) {
+			uintptr_t keep = vma->vm_end - page_addr;
+
+			memset((uint8_t *)page + keep, 0, PAGE_SIZE - keep);
+		}
 		page_cache_put_page(file_page);
 		arch_map_page(mm->pgd, page_addr, __pa((uintptr_t)page),
 			      pte_flags);
@@ -253,7 +240,7 @@ int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size,
 		}
 
 		va = cursor & PAGE_MASK;
-		page_end = (segment_end + PAGE_SIZE - 1) & PAGE_MASK;
+		page_end = mm_page_align_up(segment_end);
 		while (va < page_end) {
 			uintptr_t fault_addr = va < cursor ? cursor : va;
 

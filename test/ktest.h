@@ -113,6 +113,11 @@ void test_mm_vma_mprotect_split_merge(void);
 void test_mm_vma_mprotect_enospc_preserves_layout(void);
 void test_mm_madvise_supported_hints_are_noop(void);
 void test_mm_move_user_pages_preserves_resident_page(void);
+void test_mm_exec_file_segment_faults_lazily(void);
+void test_mm_exec_file_segment_zero_fills_tail(void);
+void test_mm_exec_file_segment_split_keeps_offset(void);
+void test_mm_exec_file_segment_trim_keeps_offset(void);
+void test_mm_exec_file_segment_merge_requires_contiguous_offset(void);
 
 /* ================================================================
  *  Task 管理测试

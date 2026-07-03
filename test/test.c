@@ -135,6 +135,11 @@ void kernel_test(void)
 	test_mm_vma_mprotect_enospc_preserves_layout();
 	test_mm_madvise_supported_hints_are_noop();
 	test_mm_move_user_pages_preserves_resident_page();
+	test_mm_exec_file_segment_faults_lazily();
+	test_mm_exec_file_segment_zero_fills_tail();
+	test_mm_exec_file_segment_split_keeps_offset();
+	test_mm_exec_file_segment_trim_keeps_offset();
+	test_mm_exec_file_segment_merge_requires_contiguous_offset();
 
 	/* ---- Task ---- */
 	TEST_SECTION("Task");

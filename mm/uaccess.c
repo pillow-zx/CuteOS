@@ -50,11 +50,6 @@ bool access_ok(const void *addr, size_t size)
 	return true;
 }
 
-static size_t min_size(size_t a, size_t b)
-{
-	return a < b ? a : b;
-}
-
 int user_range_probe(const void *addr, size_t size, bool write)
 {
 	struct mm_struct *mm;
@@ -110,8 +105,8 @@ ssize_t strncpy_from_user(char *dst, const char *src, size_t maxlen)
 	while (done < maxlen) {
 		uintptr_t addr = (uintptr_t)src + done;
 		struct vm_area_struct *vma;
-		size_t chunk = min_size(maxlen - done,
-					PAGE_SIZE - (addr & (PAGE_SIZE - 1)));
+		size_t chunk = MIN(maxlen - done,
+				   PAGE_SIZE - (addr & (PAGE_SIZE - 1)));
 		struct mm_struct *mm;
 
 		if (!access_ok((const void *)addr, 1))
@@ -119,14 +114,13 @@ ssize_t strncpy_from_user(char *dst, const char *src, size_t maxlen)
 		mm = task_mm(current);
 		if (!mm)
 			return -EFAULT;
-		mm_lock(mm);
-		vma = find_vma(mm, addr);
-		if (!vma || !(vma->vm_flags & VM_READ)) {
-			mm_unlock(mm);
-			return -EFAULT;
+		with_guard(mm_guard, mm) {
+			vma = find_vma(mm, addr);
+			if (!vma || !(vma->vm_flags & VM_READ))
+				return -EFAULT;
+
+			chunk = MIN(chunk, vma->vm_end - addr);
 		}
-		chunk = min_size(chunk, vma->vm_end - addr);
-		mm_unlock(mm);
 		if (chunk == 0)
 			return -EFAULT;
 

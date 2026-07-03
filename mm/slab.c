@@ -196,7 +196,8 @@ void *kmalloc(size_t size)
 	struct list_head *node = cache->free_list.next;
 	list_del(node);
 	struct slab_slot_header *hdr =
-		(struct slab_slot_header *)((char *)node - sizeof(*hdr));
+		(struct slab_slot_header *)(uintptr_t)((char *)node -
+						       sizeof(*hdr));
 
 	BUG_ON(!hdr->free);
 	hdr->free = false;

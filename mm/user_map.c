@@ -24,23 +24,34 @@ int user_map_register(const char *name, user_map_fn_t map)
 	return user_map_register_reserved(name, 0, 0, map);
 }
 
+int user_map_reserve(const char *name, vaddr_t start, vaddr_t end)
+{
+	return user_map_register_reserved(name, start, end, NULL);
+}
+
 int user_map_register_reserved(const char *name, vaddr_t start, vaddr_t end,
 			       user_map_fn_t map)
 {
-	if (!name || !map)
+	if (!name)
 		return -EINVAL;
 	if ((start == 0) != (end == 0))
 		return -EINVAL;
 	if (start && (start >= end || end > TASK_SIZE))
 		return -EINVAL;
+	if (!map && !start)
+		return -EINVAL;
 
 	for (int i = 0; i < NR_USER_MAPS; i++) {
-		if (user_maps[i].map == map)
+		if (map && user_maps[i].map == map)
+			return 0;
+		if (!map && !user_maps[i].map &&
+		    user_maps[i].reserved_start == start &&
+		    user_maps[i].reserved_end == end)
 			return 0;
 	}
 
 	for (int i = 0; i < NR_USER_MAPS; i++) {
-		if (user_maps[i].map)
+		if (user_maps[i].map || user_maps[i].reserved_end)
 			continue;
 		user_maps[i].name = name;
 		user_maps[i].map = map;

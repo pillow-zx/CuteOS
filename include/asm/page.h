@@ -30,10 +30,12 @@
  * TASK_SIZE        用户虚拟地址空间上界，影响 access_ok / brk 检查
  * USER_STACK_TOP   栈顶地址（初始 SP 值），等于 TASK_SIZE
  * USER_STACK_BASE  栈底地址（1 页栈），紧贴 TASK_SIZE 下方
+ * USER_STACK_GUARD_BASE 栈下方 guard 页，必须保持未映射
  */
 #define TASK_SIZE	0x80000000UL
 #define USER_STACK_TOP	0x80000000UL
 #define USER_STACK_BASE 0x7FFFF000UL
+#define USER_STACK_GUARD_BASE (USER_STACK_BASE - PAGE_SIZE)
 
 /* 内核直接映射虚拟地址基址 (高地址区) */
 #define KERNEL_VBASE 0xFFFFFFC000000000

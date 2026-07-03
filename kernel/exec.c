@@ -23,8 +23,6 @@
 #include <asm/pte.h>
 #include <asm/trap.h>
 
-#include "../mm/internal.h"
-
 struct exec_image {
 	struct file *file;
 	uint64_t size;
@@ -373,6 +371,16 @@ static int map_load_segment(struct exec_image *image, struct mm_struct *mm,
 	return 0;
 }
 
+static bool can_map_file_backed_text(const Elf64_Phdr *ph)
+{
+	if (!(ph->p_flags & PF_X) || (ph->p_flags & PF_W))
+		return false;
+	if (ph->p_filesz != ph->p_memsz)
+		return false;
+	return (ph->p_offset & (PAGE_SIZE - 1)) ==
+	       (ph->p_vaddr & (PAGE_SIZE - 1));
+}
+
 static void record_load_bounds(struct elf_load_layout *layout, vaddr_t start,
 			       vaddr_t end)
 {
@@ -397,13 +405,23 @@ static int load_elf_segment(struct exec_image *image, struct mm_struct *mm,
 	ret = validate_load_segment(image, ph, &seg_start, &seg_end);
 	if (ret < 0)
 		return ret;
-	ret = map_load_segment(image, mm, ph, seg_start, seg_end);
-	if (ret < 0)
-		return ret;
-	ret = mm_exec_map_segment(mm, seg_start, seg_end,
-				  elf_flags_to_prot(ph->p_flags));
-	if (ret < 0)
-		return ret;
+
+	if (can_map_file_backed_text(ph)) {
+		ret = mm_exec_map_file_segment(mm, image->file, seg_start,
+					       seg_end,
+					       elf_flags_to_prot(ph->p_flags),
+					       ph->p_offset);
+		if (ret < 0)
+			return ret;
+	} else {
+		ret = map_load_segment(image, mm, ph, seg_start, seg_end);
+		if (ret < 0)
+			return ret;
+		ret = mm_exec_map_segment(mm, seg_start, seg_end,
+					  elf_flags_to_prot(ph->p_flags));
+		if (ret < 0)
+			return ret;
+	}
 
 	record_load_bounds(layout, seg_start, seg_end);
 	return 0;
@@ -481,7 +499,7 @@ static int load_elf_file(struct exec_image *image,
 	return 0;
 
 fail:
-	mm_destroy(mm);
+	mm_put(mm);
 	free_elf_phdr_table(&phdrs);
 	return ret;
 }

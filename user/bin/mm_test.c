@@ -8,6 +8,8 @@
 #include <uapi/signal.h>
 
 #define PAGE_SIZE 4096UL
+#define USER_STACK_GUARD_BASE 0x7FFFE000UL
+#define USER_STACK_BASE 0x7FFFF000UL
 
 #define MMAP_TEST_FILE "/mmap_file_test"
 
@@ -1084,6 +1086,51 @@ static int test_mmap_fixed_replaces_mapping(void)
 	return 0;
 }
 
+static int test_mmap_rejects_stack_guard(void)
+{
+	void *guard = (void *)USER_STACK_GUARD_BASE;
+	void *ret;
+
+	ret = mmap(guard, PAGE_SIZE, PROT_READ | PROT_WRITE,
+		   MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+	if ((long)ret != -EINVAL) {
+		printf("FAIL: stack guard mmap expected %d got %ld\n", -EINVAL,
+		       (long)ret);
+		if ((long)ret >= 0)
+			munmap(ret, PAGE_SIZE);
+		return 1;
+	}
+
+	return 0;
+}
+
+static int test_stack_underflow_sigsegv(void)
+{
+	volatile char *underflow = (volatile char *)(USER_STACK_BASE - 1);
+	long pid;
+	int status;
+
+	pid = fork();
+	if (pid == 0) {
+		*underflow = 0x5a;
+		exit(7);
+	}
+	if (pid < 0) {
+		printf("FAIL: fork stack underflow: %ld\n", pid);
+		return 1;
+	}
+	if (wait4(pid, &status, 0, NULL) != pid) {
+		printf("FAIL: wait4 stack underflow child\n");
+		return 1;
+	}
+	if (status != (SIGNAL_EXIT_CODE(SIGSEGV) << 8)) {
+		printf("FAIL: stack underflow status=0x%x\n", status);
+		return 1;
+	}
+
+	return 0;
+}
+
 static void report_group(const char *name, int ret, int *failed)
 {
 	printf("mm_test: %s ... ", name);
@@ -1130,6 +1177,10 @@ int main(void)
 		     test_mmap_private_file_no_writeback(), &failed);
 	report_group("mmap fixed replaces mapping",
 		     test_mmap_fixed_replaces_mapping(), &failed);
+	report_group("mmap rejects stack guard",
+		     test_mmap_rejects_stack_guard(), &failed);
+	report_group("stack underflow SIGSEGV",
+		     test_stack_underflow_sigsegv(), &failed);
 
 	if (failed)
 		printf("mm_test: %d test group(s) FAILED\n", failed);

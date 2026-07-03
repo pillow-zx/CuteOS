@@ -49,7 +49,7 @@ struct signal_struct {
 	struct rlimit64 rlimits[RLIM_NLIMITS];
 };
 
-#define SIGNAL_TRAMPOLINE_ADDR (USER_STACK_BASE - PAGE_SIZE)
+#define SIGNAL_TRAMPOLINE_ADDR (USER_STACK_GUARD_BASE - PAGE_SIZE)
 
 struct signal_frame {
 	struct trap_frame tf;

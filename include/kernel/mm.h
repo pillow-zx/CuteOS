@@ -12,6 +12,7 @@
 #include <kernel/types.h>
 
 struct mm_struct;
+struct file;
 struct trap_frame;
 
 /* ---- 函数声明 ---- */
@@ -54,6 +55,10 @@ int __must_check mm_exec_map_page(struct mm_struct *mm, uintptr_t va,
 				  void *page, int prot);
 int __must_check mm_exec_map_segment(struct mm_struct *mm, uintptr_t start,
 				     uintptr_t end, int prot);
+int __must_check mm_exec_map_file_segment(struct mm_struct *mm,
+					  struct file *file, uintptr_t start,
+					  uintptr_t end, int prot,
+					  uint64_t file_offset);
 int __must_check mm_exec_add_stack(struct mm_struct *mm, void *stack_page);
 int __must_check mm_exec_finalize(struct mm_struct *mm, uintptr_t first_vaddr,
 				  uintptr_t last_end);
@@ -128,23 +133,6 @@ int __must_check mm_msync(struct mm_struct *mm, uintptr_t addr, size_t len,
  */
 bool __must_check access_ok(const void *addr, size_t size);
 
-#define USER_FAULT_READ	 0
-#define USER_FAULT_WRITE 1
-#define USER_FAULT_EXEC	 2
-
-/*
- * fault_in_user_range - 预缺页用户地址范围
- * @mm:     目标用户地址空间
- * @addr:   用户空间起始地址
- * @size:   要访问的字节数
- * @access: 预期访问类型
- *
- * 仅执行 VMA/PTE 校验和合法 lazy allocation。失败返回负 errno，
- * 不发送 signal、不退出当前任务。
- */
-int __must_check fault_in_user_range(struct mm_struct *mm, uintptr_t addr,
-				     size_t size, int access);
-
 int __must_check user_range_probe(const void *addr, size_t size, bool write);
 
 /*
@@ -188,6 +176,6 @@ ssize_t __must_check strncpy_from_user(char *dst, const char *src,
  * 从 tf->stval 读取故障地址，从 tf->scause 区分缺页类型，
  * 查找 VMA 判断合法性。合法则分配物理页并映射，非法则 do_exit。
  */
-void do_page_fault(struct trap_frame *tf);
+void __nonnull(1) do_page_fault(struct trap_frame *tf);
 
 #endif
