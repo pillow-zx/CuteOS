@@ -1,42 +1,10 @@
 /*
  * arch/riscv/mm/page_table.c - Sv39 三级页表操作
- *
- * 功能：
- *   实现 RISC-V Sv39 分页机制的页表创建、映射和地址转换。
- *   Sv39 使用三级页表（level 2 → level 1 → level 0），每级 9 bits 索引，
- *   页大小 4KB，虚拟地址高 25 位为符号扩展，虚拟地址空间 512GB。
- *
- * 主要函数：
- *   arch_pt_init() - 初始化内核全局页表。两步映射：
- *     步骤一：为配置的 DRAM 物理内存建立 4KB 细粒度页映射
- *             (恒等映射 + 高地址映射)，权限为 R+W+X（内核代码/数据）。
- *             恒等映射与高地址映射共享同一组 L1/L0 页表页。
- *     步骤二：root[0] 建立 1GB mega page 映射 MMIO 设备空间
- *             (0x10000000 区域)，权限为 R+W（设备寄存器不可执行）。
- *
- *   arch_map_page(pgtbl, va, pa, perm) - 建立单个 4KB 页的虚拟地址到
- *             物理地址映射。自动分配中间层页表页，无需预先创建。
- *
- *   arch_pt_walk(pgtbl, va) - 三级页表遍历。从 L2 → L1 → L0 逐级查找，
- *             返回最终 PTE 的指针（虚拟地址）。若中间级页表不存在则分配新页。
- *             是 arch_map_page / unmap_page / va_to_pa 的核心实现。
- *
- * Sv39 地址分解（4KB 页）：
- *   [63:39] 符号扩展  [38:30] L2 索引  [29:21] L1 索引
- *   [20:12] L0 索引   [11:0]  页内偏移
- *
- * PTE 格式：
- *   [63:54] 保留  [53:10] PPN  [9:8] RSW  [7] D  [6] A
- *   [5] G  [4] U  [3] X  [2] W  [1] R  [0] V
- *
- * 注意事项：
- *   - 页表页使用 early bump allocator 从 _end 之后分配（不依赖 buddy）
- *   - buddy_init() 通过 arch_bootmem_end() 获取空闲内存起始位置
- *   - buddy_init() 后通过 arch_pt_use_buddy() 切换到 buddy 分配
  */
 
 #include <kernel/printk.h>
 #include <kernel/buddy.h>
+#include <kernel/errno.h>
 #include <asm/page.h>
 #include <asm/pte.h>
 #include <asm/csr.h>
@@ -51,6 +19,10 @@
 typedef void *(*page_alloc_fn)(void);
 static page_alloc_fn pt_alloc;
 static uintptr_t kernel_satp_val;
+
+#ifdef CONFIG_KERNEL_TEST
+static int32_t pt_alloc_fail_after = -1;
+#endif
 
 /* ---- Early bump allocator ---- */
 
@@ -94,6 +66,32 @@ static void *buddy_alloc_page(void)
 	return p;
 }
 
+static void *pt_alloc_page(void)
+{
+	BUG_ON(!pt_alloc);
+
+#ifdef CONFIG_KERNEL_TEST
+	if (pt_alloc_fail_after == 0)
+		return NULL;
+	if (pt_alloc_fail_after > 0)
+		pt_alloc_fail_after--;
+#endif
+
+	return pt_alloc();
+}
+
+#ifdef CONFIG_KERNEL_TEST
+void arch_pt_test_fail_alloc_after(uint32_t successful_allocs)
+{
+	pt_alloc_fail_after = (int32_t)successful_allocs;
+}
+
+void arch_pt_test_clear_alloc_failure(void)
+{
+	pt_alloc_fail_after = -1;
+}
+#endif
+
 /*
  * arch_pt_use_buddy - 将页表分配器切换到 buddy
  *
@@ -106,6 +104,56 @@ void arch_pt_use_buddy(void)
 
 /* ---- 页表遍历与映射 ---- */
 
+static bool pte_is_leaf(pte_t pte)
+{
+	return (pte & (PTE_R | PTE_W | PTE_X)) != 0;
+}
+
+static int pt_walk_create(pte_t *root, vaddr_t va, pte_t **out)
+{
+	bool new_l1 = false;
+
+	int idx2 = (va >> 30) & 0x1FF;
+	pte_t *l2e = &root[idx2];
+	pte_t *l1;
+
+	if (!(*l2e & PTE_V)) {
+		l1 = pt_alloc_page();
+		if (!l1)
+			return -ENOMEM;
+		*l2e = PA_TO_PTE(__pa((uintptr_t)l1)) | PTE_TABLE;
+		new_l1 = true;
+	} else {
+		if (pte_is_leaf(*l2e))
+			return -EINVAL;
+		l1 = (pte_t *)__va(PTE_TO_PA(*l2e));
+	}
+
+	int idx1 = (va >> 21) & 0x1FF;
+	pte_t *l1e = &l1[idx1];
+	pte_t *l0;
+
+	if (!(*l1e & PTE_V)) {
+		l0 = pt_alloc_page();
+		if (!l0) {
+			if (new_l1) {
+				*l2e = 0;
+				free_page(l1, 0);
+			}
+			return -ENOMEM;
+		}
+		*l1e = PA_TO_PTE(__pa((uintptr_t)l0)) | PTE_TABLE;
+	} else {
+		if (pte_is_leaf(*l1e))
+			return -EINVAL;
+		l0 = (pte_t *)__va(PTE_TO_PA(*l1e));
+	}
+
+	int idx0 = (va >> 12) & 0x1FF;
+	*out = &l0[idx0];
+	return 0;
+}
+
 /*
  * arch_pt_walk - 遍历/创建 Sv39 三级页表，返回叶子 PTE 指针
  * @root:  root page table 页的虚拟地址
@@ -116,34 +164,26 @@ void arch_pt_use_buddy(void)
  * 则分配新页并安装。返回最终 PTE 条目的虚拟地址指针。
  * 若 alloc 为假且中间级缺失，返回 NULL。
  */
-pte_t *arch_pt_walk(pte_t *root, vaddr_t va, bool alloc)
+pte_t *arch_pt_lookup(pte_t *root, vaddr_t va)
 {
-	BUG_ON(!pt_alloc);
 	/* L2: root page table index [38:30] */
 	int idx2 = (va >> 30) & 0x1FF;
 	pte_t *l2e = &root[idx2];
 
-	if (!(*l2e & PTE_V)) {
-		if (!alloc)
-			return NULL;
-		void *new_page = pt_alloc();
-		BUG_ON(!new_page);
-		/* 安装下一级页表指针: PPN | PTE_TABLE (V=1, R=W=X=0) */
-		*l2e = PA_TO_PTE(__pa((uintptr_t)new_page)) | PTE_TABLE;
-	}
+	if (!(*l2e & PTE_V))
+		return NULL;
+	if (pte_is_leaf(*l2e))
+		return NULL;
 
 	/* L1: 从 L2 PTE 提取物理地址，转回虚拟地址以读写 */
 	pte_t *l1 = (pte_t *)__va(PTE_TO_PA(*l2e));
 	int idx1 = (va >> 21) & 0x1FF;
 	pte_t *l1e = &l1[idx1];
 
-	if (!(*l1e & PTE_V)) {
-		if (!alloc)
-			return NULL;
-		void *new_page = pt_alloc();
-		BUG_ON(!new_page);
-		*l1e = PA_TO_PTE(__pa((uintptr_t)new_page)) | PTE_TABLE;
-	}
+	if (!(*l1e & PTE_V))
+		return NULL;
+	if (pte_is_leaf(*l1e))
+		return NULL;
 
 	/* L0: 返回叶子 PTE 条目的指针 */
 	pte_t *l0 = (pte_t *)__va(PTE_TO_PA(*l1e));
@@ -152,18 +192,27 @@ pte_t *arch_pt_walk(pte_t *root, vaddr_t va, bool alloc)
 }
 
 /*
- * arch_map_page - 建立单个 4KB 页的映射
+ * map_page - 建立单个 4KB 页的映射
  * @root: root page table 页虚拟地址
  * @va:   虚拟地址（必须页对齐）
  * @pa:   物理地址（必须页对齐）
  * @perm: 叶子 PTE 权限位（可直接传入 PTE_KERN_* / PTE_USER_*，需包含 PTE_V）
  */
-void arch_map_page(pte_t *root, vaddr_t va, paddr_t pa, pte_t perm)
+int map_page(pte_t *root, vaddr_t va, paddr_t pa, uint64_t perm)
 {
-	pte_t *pte = arch_pt_walk(root, va, true);
-	if (!pte)
-		panic("arch_map_page: walk failed for va=%p", (void *)va);
+	pte_t *pte;
+	int ret;
+
+	if ((va & (PAGE_SIZE - 1)) || (pa & (PAGE_SIZE - 1)))
+		return -EINVAL;
+	if (!(perm & PTE_V))
+		return -EINVAL;
+
+	ret = pt_walk_create(root, va, &pte);
+	if (ret < 0)
+		return ret;
 	*pte = PA_TO_PTE(pa) | perm;
+	return 0;
 }
 
 pte_t *arch_current_pt(void)
@@ -181,7 +230,7 @@ uintptr_t arch_kernel_satp(void)
 
 pte_t *arch_pt_lookup_current(uintptr_t va)
 {
-	return arch_pt_walk(arch_current_pt(), va, false);
+	return arch_pt_lookup(arch_current_pt(), va);
 }
 
 void arch_pt_write_current(uintptr_t va, uintptr_t pa, pte_t perm)
@@ -234,7 +283,7 @@ void arch_pt_init(void)
 	for (paddr_t pa = DRAM_BASE; pa < DRAM_BASE + DRAM_SIZE;
 	     pa += PAGE_SIZE) {
 		vaddr_t va = KERNEL_VBASE + pa;
-		arch_map_page(root, va, pa, PTE_KERN_RWX);
+		BUG_ON(map_page(root, va, pa, PTE_KERN_RWX) < 0);
 	}
 
 	/* 3. 恒等映射：L2[2] 复用 L2[258] 的 L1 页

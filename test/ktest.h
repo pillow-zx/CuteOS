@@ -36,6 +36,8 @@ void test_buddy_multi_order(void);
 void test_buddy_merge(void);
 void test_buddy_stress(void);
 void test_buddy_split(void);
+void test_buddy_over_order_preserves_free_count(void);
+void test_buddy_multi_order_preserves_free_count(void);
 
 /* ================================================================
  *  SLAB 分配器测试
@@ -46,6 +48,9 @@ void test_slab_basic(void);
 void test_slab_cross_cache(void);
 void test_slab_stress(void);
 void test_slab_returns_empty_page_to_buddy(void);
+void test_kmalloc_large_alloc_free(void);
+void test_kzalloc_large_zeroes_requested_size(void);
+void test_kmalloc_oversize_preserves_free_count(void);
 
 /* ================================================================
  *  Trap 测试
@@ -122,6 +127,8 @@ void test_mm_exec_file_segment_zero_fills_tail(void);
 void test_mm_exec_file_segment_split_keeps_offset(void);
 void test_mm_exec_file_segment_trim_keeps_offset(void);
 void test_mm_exec_file_segment_merge_requires_contiguous_offset(void);
+void test_map_page_first_table_oom_rolls_back(void);
+void test_map_page_second_table_oom_rolls_back(void);
 
 /* ================================================================
  *  Task 管理测试

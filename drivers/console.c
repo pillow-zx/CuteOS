@@ -308,6 +308,14 @@ static ssize_t console_write(struct file *file, const char *buf, size_t count)
 }
 
 #ifdef CONFIG_KERNEL_TEST
+ssize_t console_tty_write_for_test(const struct termios *termios,
+				   const char *input, size_t input_len,
+				   char *out, size_t out_size);
+ssize_t console_tty_read_stream_for_test(const struct termios *termios,
+					 const char *input, size_t input_len,
+					 char *out, size_t out_size, char *echo,
+					 size_t echo_size, int *signal);
+
 struct console_emit_buffer {
 	char *data;
 	size_t len;

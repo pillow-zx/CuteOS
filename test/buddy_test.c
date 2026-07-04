@@ -148,3 +148,45 @@ void test_buddy_split(void)
 fail:
 	TEST_FAIL("buddy: order split", "see above");
 }
+
+void test_buddy_over_order_preserves_free_count(void)
+{
+	TEST_BEGIN("buddy: over-order preserves free count");
+	{
+		size_t free_before = buddy_free_pages();
+		void *ptr = get_free_page(MAX_ORDER + 1);
+
+		TEST_ASSERT_NULL(ptr);
+		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
+	}
+	TEST_END("buddy: over-order preserves free count");
+	return;
+fail:
+	TEST_FAIL("buddy: over-order preserves free count", "see above");
+}
+
+void test_buddy_multi_order_preserves_free_count(void)
+{
+	TEST_BEGIN("buddy: multi-order preserves free count");
+	{
+		void *ptrs[5];
+		size_t free_before = buddy_free_pages();
+
+		for (uint32_t order = 0; order <= 4; order++) {
+			ptrs[order] = get_free_page(order);
+			TEST_ASSERT_NOT_NULL(ptrs[order]);
+		}
+
+		TEST_ASSERT_EQ(buddy_free_pages(),
+			       free_before - ((1UL << 5) - 1));
+
+		for (uint32_t order = 0; order <= 4; order++)
+			free_page(ptrs[order], order);
+
+		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
+	}
+	TEST_END("buddy: multi-order preserves free count");
+	return;
+fail:
+	TEST_FAIL("buddy: multi-order preserves free count", "see above");
+}

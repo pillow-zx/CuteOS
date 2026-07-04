@@ -43,16 +43,14 @@ int __must_check path_lookupat_path(const struct path *base, const char *path,
 				    uint32_t flags, struct path *res);
 int __must_check path_parent_lookupat_path(const struct path *base,
 					   const char *path, char *name,
-					   size_t *namelen,
-					   struct path *res);
+					   size_t *namelen, struct path *res);
 int __must_check vfs_init_inode_owner(struct inode *inode);
 int __must_check vfs_inode_permission(struct inode *inode, uint32_t mask);
 int __must_check vfs_readlink(struct dentry *dentry, char *buf, size_t size);
 int __must_check vfs_create_at_path(const struct path *base, const char *path,
 				    uint32_t mode, struct path *res);
 int __must_check vfs_symlink_at_path(const struct path *base,
-				     const char *target,
-				     const char *linkpath);
+				     const char *target, const char *linkpath);
 int __must_check vfs_link_at_path(struct dentry *old_dentry,
 				  const struct path *new_base,
 				  const char *new_path);
@@ -62,8 +60,7 @@ int vfs_unlink_at_path(const struct path *base, const char *path, int flags);
 int __must_check vfs_rename_at_path(const struct path *old_base,
 				    const char *old_path,
 				    const struct path *new_base,
-				    const char *new_path,
-				    unsigned int flags);
+				    const char *new_path, unsigned int flags);
 int __must_check vfs_mknod_at_path(const struct path *base, const char *path,
 				   uint32_t mode, dev_t dev);
 int __must_check vfs_stat_dentry(struct dentry *dentry, struct stat *st);

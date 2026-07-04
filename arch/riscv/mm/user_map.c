@@ -18,9 +18,12 @@
 
 static int riscv_user_mmio_map(pte_t *root)
 {
-	arch_map_page(root, UART_BASE, UART_BASE, PTE_KERN_RW);
-	arch_map_page(root, VIRTIO_MMIO_BASE, VIRTIO_MMIO_BASE, PTE_KERN_RW);
-	return 0;
+	int ret;
+
+	ret = map_page(root, UART_BASE, UART_BASE, PTE_KERN_RW);
+	if (ret < 0)
+		return ret;
+	return map_page(root, VIRTIO_MMIO_BASE, VIRTIO_MMIO_BASE, PTE_KERN_RW);
 }
 
 void arch_user_map_init(void)

@@ -1,4 +1,5 @@
 #include <kernel/errno.h>
+#include <kernel/buddy.h>
 #include <kernel/fdtable.h>
 #include <kernel/fs.h>
 #include <kernel/mm.h>
@@ -27,11 +28,78 @@ static struct mm_struct *mm_test_alloc(void)
 	return mm_create_user();
 }
 
+void test_map_page_first_table_oom_rolls_back(void)
+{
+	TEST_BEGIN("map_page: first table OOM rolls back");
+	{
+		pte_t *root = get_free_page(0);
+		void *page = get_free_page(0);
+		size_t free_before;
+		int ret;
+
+		TEST_ASSERT_NOT_NULL(root);
+		TEST_ASSERT_NOT_NULL(page);
+		memset(root, 0, PAGE_SIZE);
+
+		free_before = buddy_free_pages();
+		arch_pt_test_fail_alloc_after(0);
+		ret = map_page(root, MM_TEST_BASE, __pa((uintptr_t)page),
+			       PTE_USER_RW);
+		arch_pt_test_clear_alloc_failure();
+
+		TEST_ASSERT_EQ(ret, -ENOMEM);
+		TEST_ASSERT_NULL(arch_pt_walk(root, MM_TEST_BASE, false));
+		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
+
+		free_page(page, 0);
+		free_page(root, 0);
+	}
+	TEST_END("map_page: first table OOM rolls back");
+	return;
+fail:
+	arch_pt_test_clear_alloc_failure();
+	TEST_FAIL("map_page: first table OOM rolls back", "see above");
+}
+
+void test_map_page_second_table_oom_rolls_back(void)
+{
+	TEST_BEGIN("map_page: second table OOM rolls back");
+	{
+		pte_t *root = get_free_page(0);
+		void *page = get_free_page(0);
+		size_t free_before;
+		int ret;
+
+		TEST_ASSERT_NOT_NULL(root);
+		TEST_ASSERT_NOT_NULL(page);
+		memset(root, 0, PAGE_SIZE);
+
+		free_before = buddy_free_pages();
+		arch_pt_test_fail_alloc_after(1);
+		ret = map_page(root, MM_TEST_BASE, __pa((uintptr_t)page),
+			       PTE_USER_RW);
+		arch_pt_test_clear_alloc_failure();
+
+		TEST_ASSERT_EQ(ret, -ENOMEM);
+		TEST_ASSERT_NULL(arch_pt_walk(root, MM_TEST_BASE, false));
+		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
+
+		free_page(page, 0);
+		free_page(root, 0);
+	}
+	TEST_END("map_page: second table OOM rolls back");
+	return;
+fail:
+	arch_pt_test_clear_alloc_failure();
+	TEST_FAIL("map_page: second table OOM rolls back", "see above");
+}
+
 static int mm_test_count_vmas(struct mm_struct *mm)
 {
 	int count = 0;
 
-	with_guard(mm_guard, mm) {
+	with_guard(mm_guard, mm)
+	{
 		for (int i = 0; i < vma_capacity(); i++) {
 			if (mm->vma[i].used)
 				count++;
@@ -45,7 +113,8 @@ static int mm_test_count_type(struct mm_struct *mm, uint32_t type)
 {
 	int count = 0;
 
-	with_guard(mm_guard, mm) {
+	with_guard(mm_guard, mm)
+	{
 		for (int i = 0; i < vma_capacity(); i++) {
 			if (mm->vma[i].used && mm->vma[i].vm_type == type)
 				count++;
@@ -61,7 +130,8 @@ static struct vma_snapshot mm_test_snapshot(struct mm_struct *mm,
 	struct vma_snapshot snapshot = {0};
 	struct vm_area_struct *vma;
 
-	with_guard(mm_guard, mm) {
+	with_guard(mm_guard, mm)
+	{
 		vma = find_vma(mm, addr);
 		if (!vma)
 			break;
@@ -510,9 +580,8 @@ void test_mm_move_user_pages_preserves_resident_page(void)
 		data[PAGE_SIZE - 1] = 0xa5;
 
 		mm_lock(mm);
-		TEST_ASSERT_EQ(mm_move_user_pages_locked(mm, src, dst,
-							 PAGE_SIZE),
-			       0);
+		TEST_ASSERT_EQ(
+			mm_move_user_pages_locked(mm, src, dst, PAGE_SIZE), 0);
 		mm_unlock(mm);
 
 		src_pte = arch_pt_walk(mm->pgd, src, false);
@@ -559,17 +628,15 @@ void test_mm_exec_file_segment_faults_lazily(void)
 
 		mm = mm_test_alloc();
 		TEST_ASSERT_NOT_NULL(mm);
-		TEST_ASSERT_EQ(mm_exec_map_file_segment(mm, file, base,
-							base + PAGE_SIZE,
-							PROT_READ | PROT_EXEC,
-							0),
+		TEST_ASSERT_EQ(mm_exec_map_file_segment(
+				       mm, file, base, base + PAGE_SIZE,
+				       PROT_READ | PROT_EXEC, 0),
 			       0);
 		TEST_ASSERT_EQ(mm_user_page_resident(mm, base, &resident), 0);
 		TEST_ASSERT(!resident);
 
-		TEST_ASSERT_EQ(fault_in_user_range(mm, base, 1,
-						   USER_FAULT_EXEC),
-			       0);
+		TEST_ASSERT_EQ(
+			fault_in_user_range(mm, base, 1, USER_FAULT_EXEC), 0);
 		TEST_ASSERT_EQ(mm_user_page_resident(mm, base, &resident), 0);
 		TEST_ASSERT(resident);
 	}
@@ -671,14 +738,13 @@ void test_mm_exec_file_segment_split_keeps_offset(void)
 
 		mm = mm_test_alloc();
 		TEST_ASSERT_NOT_NULL(mm);
-		TEST_ASSERT_EQ(mm_exec_map_file_segment(mm, file, start,
-							start + 2 * PAGE_SIZE,
-							PROT_READ | PROT_EXEC,
-							128),
+		TEST_ASSERT_EQ(mm_exec_map_file_segment(
+				       mm, file, start, start + 2 * PAGE_SIZE,
+				       PROT_READ | PROT_EXEC, 128),
 			       0);
-		TEST_ASSERT_EQ(mm_mprotect(mm, base + PAGE_SIZE, PAGE_SIZE,
-					   PROT_READ),
-			       0);
+		TEST_ASSERT_EQ(
+			mm_mprotect(mm, base + PAGE_SIZE, PAGE_SIZE, PROT_READ),
+			0);
 		TEST_ASSERT_EQ(fault_in_user_range(mm, base + PAGE_SIZE, 1,
 						   USER_FAULT_READ),
 			       0);
@@ -687,7 +753,8 @@ void test_mm_exec_file_segment_split_keeps_offset(void)
 		TEST_ASSERT(pte && pte_user_page(*pte));
 		mapped = (uint8_t *)__va(pte_to_pa(*pte));
 		TEST_ASSERT_EQ(mapped[0], (uint8_t)file_data[PAGE_SIZE]);
-		TEST_ASSERT_EQ(mapped[127], (uint8_t)file_data[PAGE_SIZE + 127]);
+		TEST_ASSERT_EQ(mapped[127],
+			       (uint8_t)file_data[PAGE_SIZE + 127]);
 	}
 	TEST_END("mm: exec file segment split keeps offset");
 	goto cleanup;
@@ -731,10 +798,9 @@ void test_mm_exec_file_segment_trim_keeps_offset(void)
 
 		mm = mm_test_alloc();
 		TEST_ASSERT_NOT_NULL(mm);
-		TEST_ASSERT_EQ(mm_exec_map_file_segment(mm, file, start,
-							start + 2 * PAGE_SIZE,
-							PROT_READ | PROT_EXEC,
-							128),
+		TEST_ASSERT_EQ(mm_exec_map_file_segment(
+				       mm, file, start, start + 2 * PAGE_SIZE,
+				       PROT_READ | PROT_EXEC, 128),
 			       0);
 		TEST_ASSERT_EQ(mm_munmap(mm, base, PAGE_SIZE), 0);
 		TEST_ASSERT_EQ(fault_in_user_range(mm, base + PAGE_SIZE, 1,
@@ -783,25 +849,23 @@ void test_mm_exec_file_segment_merge_requires_contiguous_offset(void)
 
 		mm = mm_test_alloc();
 		TEST_ASSERT_NOT_NULL(mm);
-		TEST_ASSERT_EQ(mm_exec_map_file_segment(mm, file, base + 128,
-							base + PAGE_SIZE,
-							PROT_READ | PROT_EXEC,
-							128),
+		TEST_ASSERT_EQ(mm_exec_map_file_segment(
+				       mm, file, base + 128, base + PAGE_SIZE,
+				       PROT_READ | PROT_EXEC, 128),
 			       0);
-		TEST_ASSERT_EQ(mm_exec_map_file_segment(mm, file, base + PAGE_SIZE,
-							base + PAGE_SIZE + 128,
-							PROT_READ | PROT_EXEC,
-							PAGE_SIZE),
+		TEST_ASSERT_EQ(mm_exec_map_file_segment(
+				       mm, file, base + PAGE_SIZE,
+				       base + PAGE_SIZE + 128,
+				       PROT_READ | PROT_EXEC, PAGE_SIZE),
 			       0);
 		vma_merge_all(mm);
 		TEST_ASSERT_EQ(mm_test_count_type(mm, VMA_CODE), 1);
 
-		TEST_ASSERT_EQ(mm_exec_map_file_segment(mm, file,
-							base + 2 * PAGE_SIZE,
-							base + 3 * PAGE_SIZE,
-							PROT_READ | PROT_EXEC,
-							0),
-			       0);
+		TEST_ASSERT_EQ(
+			mm_exec_map_file_segment(mm, file, base + 2 * PAGE_SIZE,
+						 base + 3 * PAGE_SIZE,
+						 PROT_READ | PROT_EXEC, 0),
+			0);
 		vma_merge_all(mm);
 		TEST_ASSERT_EQ(mm_test_count_type(mm, VMA_CODE), 2);
 	}

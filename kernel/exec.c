@@ -179,7 +179,7 @@ static int setup_user_stack(struct mm_struct *mm,
 	memcpy(frame + sizeof(uintptr_t) + argv_bytes, user_envp, envp_bytes);
 
 	*sp_out = sp;
-	ret = mm_exec_add_stack(mm, stack_page);
+	ret = mm_add_stack(mm, stack_page);
 	if (ret < 0) {
 		free_page(stack_page, 0);
 		return ret;
@@ -346,7 +346,7 @@ static int map_segment_page(struct exec_image *image, struct mm_struct *mm,
 		return ret;
 	}
 
-	ret = mm_exec_map_page(mm, va, page, elf_flags_to_prot(ph->p_flags));
+	ret = mm_map_page(mm, va, page, elf_flags_to_prot(ph->p_flags));
 	if (ret < 0) {
 		free_page(page, 0);
 		return ret;
@@ -407,7 +407,7 @@ static int load_elf_segment(struct exec_image *image, struct mm_struct *mm,
 		return ret;
 
 	if (can_map_file_backed_text(ph)) {
-		ret = mm_exec_map_file_segment(mm, image->file, seg_start,
+		ret = mm_map_file_segment(mm, image->file, seg_start,
 					       seg_end,
 					       elf_flags_to_prot(ph->p_flags),
 					       ph->p_offset);
@@ -417,7 +417,7 @@ static int load_elf_segment(struct exec_image *image, struct mm_struct *mm,
 		ret = map_load_segment(image, mm, ph, seg_start, seg_end);
 		if (ret < 0)
 			return ret;
-		ret = mm_exec_map_segment(mm, seg_start, seg_end,
+		ret = mm_map_segment(mm, seg_start, seg_end,
 					  elf_flags_to_prot(ph->p_flags));
 		if (ret < 0)
 			return ret;
@@ -451,7 +451,7 @@ static int finish_exec_mm(struct mm_struct *mm,
 
 	arch_icache_flush();
 
-	ret = mm_exec_finalize(mm, layout->first_vaddr, layout->last_end);
+	ret = mm_finalize(mm, layout->first_vaddr, layout->last_end);
 	if (ret < 0)
 		return ret;
 	ret = setup_user_stack(mm, args, sp_out);

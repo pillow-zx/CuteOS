@@ -10,10 +10,7 @@
 
 #include <kernel/compiler.h>
 #include <kernel/types.h>
-
-struct mm_struct;
-struct file;
-struct trap_frame;
+#include <kernel/fs.h>
 
 /* ---- 函数声明 ---- */
 
@@ -51,17 +48,16 @@ uintptr_t __must_check mm_user_satp(const struct mm_struct *mm);
 int __must_check mm_user_page_resident(struct mm_struct *mm, uintptr_t addr,
 				       bool *resident);
 
-int __must_check mm_exec_map_page(struct mm_struct *mm, uintptr_t va,
-				  void *page, int prot);
-int __must_check mm_exec_map_segment(struct mm_struct *mm, uintptr_t start,
-				     uintptr_t end, int prot);
-int __must_check mm_exec_map_file_segment(struct mm_struct *mm,
-					  struct file *file, uintptr_t start,
-					  uintptr_t end, int prot,
-					  uint64_t file_offset);
-int __must_check mm_exec_add_stack(struct mm_struct *mm, void *stack_page);
-int __must_check mm_exec_finalize(struct mm_struct *mm, uintptr_t first_vaddr,
-				  uintptr_t last_end);
+int __must_check mm_map_page(struct mm_struct *mm, uintptr_t va, void *page,
+			     int prot);
+int __must_check mm_map_segment(struct mm_struct *mm, uintptr_t start,
+				uintptr_t end, int prot);
+int __must_check mm_map_file_segment(struct mm_struct *mm, struct file *file,
+				     uintptr_t start, uintptr_t end, int prot,
+				     uint64_t file_offset);
+int __must_check mm_add_stack(struct mm_struct *mm, void *stack_page);
+int __must_check mm_finalize(struct mm_struct *mm, uintptr_t first_vaddr,
+			     uintptr_t last_end);
 
 /*
  * mm_brk - brk 内部实现
@@ -166,8 +162,8 @@ size_t __must_check copy_from_user(void *to, const void *from, size_t n)
  * 成功时返回不含 NUL 的字符串长度；失败返回负 errno。
  */
 ssize_t __must_check strncpy_from_user(char *dst, const char *src,
-				      size_t maxlen)
-	__access(write_only, 1, 3) __access(read_only, 2, 3);
+				       size_t maxlen)
+__access(write_only, 1, 3) __access(read_only, 2, 3);
 
 /*
  * do_page_fault - 缺页异常处理总入口

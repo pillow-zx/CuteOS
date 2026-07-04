@@ -133,7 +133,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		return -EFAULT;
 
 	page_addr = fault_addr & PAGE_MASK;
-	existing = arch_pt_walk(mm->pgd, page_addr, false);
+	existing = arch_pt_lookup(mm->pgd, page_addr);
 
 	if (existing && pte_present(*existing)) {
 		if (pte_allows_fault(access, *existing)) {
@@ -159,10 +159,14 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 
 		pte_flags = vma_flags_to_pte(vma->vm_flags);
 		if (vma->vm_shared) {
-			arch_map_page(
+			int ret = map_page(
 				mm->pgd, page_addr,
 				__pa((uintptr_t)page_cache_data(file_page)),
 				pte_flags);
+			if (ret < 0) {
+				page_cache_put_page(file_page);
+				return ret;
+			}
 			arch_tlb_flush_page(page_addr);
 			return 0;
 		}
@@ -182,8 +186,12 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 			memset((uint8_t *)page + keep, 0, PAGE_SIZE - keep);
 		}
 		page_cache_put_page(file_page);
-		arch_map_page(mm->pgd, page_addr, __pa((uintptr_t)page),
-			      pte_flags);
+		int ret = map_page(mm->pgd, page_addr, __pa((uintptr_t)page),
+				   pte_flags);
+		if (ret < 0) {
+			free_page(page, 0);
+			return ret;
+		}
 		arch_tlb_flush_page(page_addr);
 		return 0;
 	}
@@ -193,8 +201,12 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		return -ENOMEM;
 
 	memset(page, 0, PAGE_SIZE);
-	arch_map_page(mm->pgd, page_addr, __pa((uintptr_t)page),
-		      vma_flags_to_pte(vma->vm_flags));
+	int ret = map_page(mm->pgd, page_addr, __pa((uintptr_t)page),
+			   vma_flags_to_pte(vma->vm_flags));
+	if (ret < 0) {
+		free_page(page, 0);
+		return ret;
+	}
 	arch_tlb_flush_page(page_addr);
 	return 0;
 }

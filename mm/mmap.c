@@ -126,7 +126,7 @@ void mm_unmap_user_pages_locked(struct mm_struct *mm,
 				uintptr_t start, uintptr_t end)
 {
 	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-		pte_t *pte = arch_pt_walk(mm->pgd, va, false);
+		pte_t *pte = arch_pt_lookup(mm->pgd, va);
 
 		if (!pte || !pte_user_page(*pte))
 			continue;
@@ -171,22 +171,46 @@ int mm_move_user_pages_locked(struct mm_struct *mm, uintptr_t old_start,
 		return -EINVAL;
 
 	for (uintptr_t va = new_start; va < new_end; va += PAGE_SIZE) {
-		pte_t *pte = arch_pt_walk(mm->pgd, va, false);
+		pte_t *pte = arch_pt_lookup(mm->pgd, va);
 
 		if (pte && pte_user_page(*pte))
 			return -EEXIST;
 	}
 
+	uintptr_t mapped_end = new_start;
+
 	for (uintptr_t old_va = old_start, new_va = new_start; old_va < old_end;
 	     old_va += PAGE_SIZE, new_va += PAGE_SIZE) {
-		pte_t *old_pte = arch_pt_walk(mm->pgd, old_va, false);
-		pte_t *new_pte;
+		pte_t *old_pte = arch_pt_lookup(mm->pgd, old_va);
+		pte_t old_entry;
+		pte_t perm;
+		int ret;
 
 		if (!old_pte || !pte_user_page(*old_pte))
 			continue;
 
-		new_pte = arch_pt_walk(mm->pgd, new_va, true);
-		*new_pte = *old_pte;
+		old_entry = *old_pte;
+		perm = old_entry & ((1UL << PTE_PPN_SHIFT) - 1);
+		ret = map_page(mm->pgd, new_va, pte_to_pa(old_entry), perm);
+		if (ret < 0) {
+			for (uintptr_t va = new_start; va < mapped_end;
+			     va += PAGE_SIZE) {
+				pte_t *pte = arch_pt_lookup(mm->pgd, va);
+
+				if (pte)
+					*pte = 0;
+			}
+			return ret;
+		}
+		mapped_end = new_va + PAGE_SIZE;
+	}
+
+	for (uintptr_t old_va = old_start; old_va < old_end;
+	     old_va += PAGE_SIZE) {
+		pte_t *old_pte = arch_pt_lookup(mm->pgd, old_va);
+
+		if (!old_pte || !pte_user_page(*old_pte))
+			continue;
 		*old_pte = 0;
 	}
 
@@ -324,7 +348,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 		uintptr_t end = oldmm->vma[i].vm_end;
 
 		for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-			pte_t *pte = arch_pt_walk(oldmm->pgd, va, false);
+			pte_t *pte = arch_pt_lookup(oldmm->pgd, va);
 			if (!pte || !pte_user_page(*pte))
 				continue;
 
@@ -340,8 +364,14 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 
 			pte_t perm = *pte & (PTE_V | PTE_R | PTE_W | PTE_X |
 					     PTE_U | PTE_A | PTE_D | PTE_G);
-			arch_map_page(newmm->pgd, va, __pa((uintptr_t)new_page),
-				      perm);
+			int ret = map_page(newmm->pgd, va,
+					   __pa((uintptr_t)new_page), perm);
+			if (ret < 0) {
+				free_page(new_page, 0);
+				mm_unlock(oldmm);
+				mm_destroy(newmm);
+				return NULL;
+			}
 		}
 	}
 	mm_unlock(oldmm);
@@ -415,7 +445,7 @@ int mm_user_page_resident(struct mm_struct *mm, uintptr_t addr, bool *resident)
 		return -ENOMEM;
 	}
 
-	pte = arch_pt_walk(mm->pgd, addr, false);
+	pte = arch_pt_lookup(mm->pgd, addr);
 	*resident = pte && pte_user_page(*pte);
 	mm_unlock(mm);
 	return 0;
@@ -661,7 +691,7 @@ static void madvise_dontneed_range(struct mm_struct *mm, uintptr_t start,
 				   uintptr_t end)
 {
 	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-		pte_t *pte = arch_pt_walk(mm->pgd, va, false);
+		pte_t *pte = arch_pt_lookup(mm->pgd, va);
 
 		if (!pte || !pte_user_page(*pte))
 			continue;
@@ -903,7 +933,7 @@ int mm_msync(struct mm_struct *mm, uintptr_t addr, size_t len, int flags)
 		if (!vma->vm_file || !vma->vm_shared)
 			continue;
 
-		pte = arch_pt_walk(mm->pgd, va, false);
+		pte = arch_pt_lookup(mm->pgd, va);
 		if (pte && pte_user_page(*pte))
 			vma_mark_shared_page_dirty(vma, va);
 
@@ -934,7 +964,7 @@ out:
 	return ret;
 }
 
-int mm_exec_map_page(struct mm_struct *mm, uintptr_t va, void *page, int prot)
+int mm_map_page(struct mm_struct *mm, uintptr_t va, void *page, int prot)
 {
 	pte_t *pte;
 
@@ -946,18 +976,18 @@ int mm_exec_map_page(struct mm_struct *mm, uintptr_t va, void *page, int prot)
 		return -EINVAL;
 
 	mm_lock(mm);
-	pte = arch_pt_walk(mm->pgd, va, false);
+	pte = arch_pt_lookup(mm->pgd, va);
 	if (pte && pte_user_page(*pte)) {
 		mm_unlock(mm);
 		return -EEXIST;
 	}
-	arch_map_page(mm->pgd, va, __pa((uintptr_t)page),
-		      mm_prot_to_pte_flags(prot));
+	int ret = map_page(mm->pgd, va, __pa((uintptr_t)page),
+			   mm_prot_to_pte_flags(prot));
 	mm_unlock(mm);
-	return 0;
+	return ret;
 }
 
-int mm_exec_map_segment(struct mm_struct *mm, uintptr_t start, uintptr_t end,
+int mm_map_segment(struct mm_struct *mm, uintptr_t start, uintptr_t end,
 			int prot)
 {
 	int ret = 0;
@@ -984,7 +1014,7 @@ out:
 	return ret;
 }
 
-int mm_exec_map_file_segment(struct mm_struct *mm, struct file *file,
+int mm_map_file_segment(struct mm_struct *mm, struct file *file,
 			     uintptr_t start, uintptr_t end, int prot,
 			     uint64_t file_offset)
 {
@@ -1024,7 +1054,7 @@ out:
 	return ret;
 }
 
-int mm_exec_add_stack(struct mm_struct *mm, void *stack_page)
+int mm_add_stack(struct mm_struct *mm, void *stack_page)
 {
 	struct vm_area_struct *vma;
 	int ret = 0;
@@ -1049,14 +1079,16 @@ int mm_exec_add_stack(struct mm_struct *mm, void *stack_page)
 	vma->vm_flags = VM_READ | VM_WRITE;
 	vma->vm_type = VMA_STACK;
 	vma->used = true;
-	arch_map_page(mm->pgd, USER_STACK_BASE, __pa((uintptr_t)stack_page),
-		      PTE_USER_RW);
+	ret = map_page(mm->pgd, USER_STACK_BASE, __pa((uintptr_t)stack_page),
+		       PTE_USER_RW);
+	if (ret < 0)
+		vma->used = false;
 out:
 	mm_unlock(mm);
 	return ret;
 }
 
-int mm_exec_finalize(struct mm_struct *mm, uintptr_t first_vaddr,
+int mm_finalize(struct mm_struct *mm, uintptr_t first_vaddr,
 		     uintptr_t last_end)
 {
 	if (!mm || first_vaddr >= last_end || last_end > USER_STACK_BASE)
@@ -1131,7 +1163,7 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 
 	/* Update PTE permissions for already-mapped pages. */
 	for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {
-		pte_t *pte = arch_pt_walk(mm->pgd, va, false);
+		pte_t *pte = arch_pt_lookup(mm->pgd, va);
 
 		if (!pte || *pte == 0)
 			continue;

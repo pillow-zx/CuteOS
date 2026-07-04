@@ -8,7 +8,8 @@
  *   16 / 32 / 64 / 128 / 256 / 512 / 1024 / 2048 字节
  *
  * 每个 cache 维护一个 free_list。free_list 为空时向 buddy 请求一个
- * 物理页，按对象大小切割后挂入 free_list。不回收物理页回 buddy。
+ * 物理页，按对象大小切割后挂入 free_list。整页空闲时归还 buddy。
+ * 大于 2048 字节的 kmalloc 请求直接使用 buddy 页块。
  *
  * Functions:
  *   slab_init()      - 初始化 8 个 kmem_cache 并执行自测

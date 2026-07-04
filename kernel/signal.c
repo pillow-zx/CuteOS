@@ -505,9 +505,8 @@ static int signal_map_trampoline(pte_t *pgd)
 		arch_icache_flush();
 	}
 
-	arch_map_page(pgd, SIGNAL_TRAMPOLINE_ADDR,
-		      __pa((uintptr_t)trampoline_page), PTE_USER_RX);
-	return 0;
+	return map_page(pgd, SIGNAL_TRAMPOLINE_ADDR,
+			__pa((uintptr_t)trampoline_page), PTE_USER_RX);
 }
 
 void signal_user_map_init(void)

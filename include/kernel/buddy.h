@@ -56,15 +56,17 @@ void buddy_init(void);
  *
  * 返回首页的内核虚拟地址，分配失败（OOM）返回 NULL。
  */
-void *__must_check get_free_page(uint32_t order);
+void *__must_check __malloc get_free_page(uint32_t order);
 
 /**
  * free_page - 释放页块并尝试伙伴合并
  * @addr:  get_free_page 返回的内核虚拟地址
  * @order: 释放的阶数，须与分配时一致
  */
-void free_page(void *addr, uint32_t order);
+void __nonnull(1) free_page(void *addr, uint32_t order);
 
-size_t buddy_free_pages(void);
+size_t __must_check __pure buddy_free_pages(void);
+struct page *__must_check __pure virt_to_page(const void *addr);
+void *__must_check __pure __nonnull(1) page_to_virt(const struct page *page);
 
 #endif

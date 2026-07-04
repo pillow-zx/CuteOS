@@ -42,6 +42,7 @@ struct vm_area_struct *vma_alloc_slot(struct mm_struct *mm)
 
 void vma_free_slot(struct vm_area_struct *vma)
 {
+	BUG_ON(!vma);
 	file_put(vma->vm_file);
 	memset(vma, 0, sizeof(*vma));
 }

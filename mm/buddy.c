@@ -42,7 +42,7 @@ static size_t nr_free_pages;
 /**
  * page_to_pfn - 由 mem_map 下标得到页帧号（即下标本身）
  */
-static inline size_t page_to_pfn(struct page *page)
+static inline size_t page_to_pfn(const struct page *page)
 {
 	return (size_t)(page - mem_map);
 }
@@ -69,6 +69,43 @@ static inline void *pfn_to_virt(size_t pfn)
 static inline size_t virt_to_pfn(void *addr)
 {
 	return (__pa((uintptr_t)addr) - DRAM_BASE) / PAGE_SIZE;
+}
+
+static bool virt_to_pfn_checked(const void *addr, size_t *pfn)
+{
+	uintptr_t va = (uintptr_t)addr;
+	uintptr_t direct_start = (uintptr_t)__va(DRAM_BASE);
+	uintptr_t direct_end = direct_start + DRAM_SIZE;
+
+	if (!addr || !IS_ALIGNED(va, PAGE_SIZE))
+		return false;
+	if (va < direct_start || va >= direct_end)
+		return false;
+
+	*pfn = (va - direct_start) / PAGE_SIZE;
+	return *pfn < total_pages;
+}
+
+static void buddy_add_free_block(size_t pfn, uint32_t order, bool tail)
+{
+	struct page *page = pfn_to_page(pfn);
+
+	page->flags = BIT(PG_BUDDY);
+	page->order = order;
+	page->refcount = 0;
+	if (tail)
+		list_add_tail(&page->lru, &free_area[order].free_list);
+	else
+		list_add(&page->lru, &free_area[order].free_list);
+	free_area[order].nr_free++;
+}
+
+static void buddy_remove_free_block(struct page *page)
+{
+	BUG_ON(!page_test_flag(page, PG_BUDDY));
+	list_del(&page->lru);
+	page_clear_flag(page, PG_BUDDY);
+	free_area[page->order].nr_free--;
 }
 
 /* ---- 公共接口 ---- */
@@ -130,11 +167,7 @@ void buddy_init(void)
 				     remaining < (1UL << order)))
 			order--;
 
-		struct page *page = pfn_to_page(idx);
-		page->flags = 0; /* 清除 PG_RESERVED*/
-		page->order = order;
-		list_add_tail(&page->lru, &free_area[order].free_list);
-		free_area[order].nr_free++;
+		buddy_add_free_block(idx, order, true);
 
 		nr_free_pages += (1UL << order);
 		idx += (1UL << order);
@@ -168,23 +201,19 @@ void *get_free_page(uint32_t order)
 	/* 从链表取出一个块 */
 	struct page *page =
 		list_entry(free_area[cur].free_list.next, struct page, lru);
-	list_del(&page->lru);
-	free_area[cur].nr_free--;
+	buddy_remove_free_block(page);
 
 	/* 向下拆分直到目标阶数 */
 	while (cur > order) {
 		cur--;
 		/* 后半块作为新的空闲块加入 free_area[cur] */
 		size_t buddy_pfn = page_to_pfn(page) + (1UL << cur);
-		struct page *buddy = pfn_to_page(buddy_pfn);
-		buddy->order = cur;
-		buddy->flags = 0;
-		list_add(&buddy->lru, &free_area[cur].free_list);
-		free_area[cur].nr_free++;
+
+		buddy_add_free_block(buddy_pfn, cur, false);
 	}
 
 	/* 标记为已分配 */
-	page->flags = BIT(PG_RESERVED);
+	page->flags = 0;
 	page->order = order;
 	page->refcount = 1;
 
@@ -203,21 +232,37 @@ void *get_free_page(uint32_t order)
 void free_page(void *addr, uint32_t order)
 {
 	size_t freed_pages;
+	size_t pfn;
+	struct page *page;
 
 	if (order > MAX_ORDER)
 		panic("free_page: order %d > MAX_ORDER", order);
 
 	freed_pages = 1UL << order;
 
-	size_t pfn = virt_to_pfn(addr);
+	if (!virt_to_pfn_checked(addr, &pfn))
+		panic("free_page: invalid page address %p", addr);
+	if (pfn + freed_pages > total_pages)
+		panic("free_page: pfn %zu order %u out of range", pfn, order);
+	if (pfn & (freed_pages - 1))
+		panic("free_page: pfn %zu is not order %u aligned", pfn, order);
 
-	if (pfn >= total_pages)
-		panic("free_page: pfn %zu out of range (total %zu)", pfn,
-		      total_pages);
+	page = pfn_to_page(pfn);
+	if (page_test_flag(page, PG_BUDDY))
+		panic("free_page: double free pfn %zu", pfn);
+	if (page_test_flag(page, PG_RESERVED))
+		panic("free_page: reserved pfn %zu", pfn);
+	if (page_test_flag(page, PG_SLAB))
+		panic("free_page: slab pfn %zu", pfn);
+	if (page->refcount == 0)
+		panic("free_page: unallocated pfn %zu", pfn);
+	if (page->order != order)
+		panic("free_page: pfn %zu order %u != %u", pfn, page->order,
+		      order);
 
 	/* 标记为空闲 */
-	mem_map[pfn].flags = 0;
-	mem_map[pfn].refcount = 0;
+	page->flags = 0;
+	page->refcount = 0;
 
 	/* 尝试向上合并 */
 	while (order < MAX_ORDER) {
@@ -230,14 +275,13 @@ void free_page(void *addr, uint32_t order)
 		struct page *buddy = pfn_to_page(buddy_pfn);
 
 		/* buddy 必须空闲且同阶才能合并 */
-		if (buddy->flags & BIT(PG_RESERVED))
+		if (!page_test_flag(buddy, PG_BUDDY))
 			break;
 		if (buddy->order != order)
 			break;
 
 		/* 合并：从空闲链表中摘除 buddy */
-		list_del(&buddy->lru);
-		free_area[order].nr_free--;
+		buddy_remove_free_block(buddy);
 
 		/* 取较低 pfn 作为合并后的块首 */
 		pfn = pfn < buddy_pfn ? pfn : buddy_pfn;
@@ -245,10 +289,7 @@ void free_page(void *addr, uint32_t order)
 	}
 
 	/* 将合并后的块加入对应阶的空闲链表 */
-	struct page *page = pfn_to_page(pfn);
-	page->order = order;
-	list_add(&page->lru, &free_area[order].free_list);
-	free_area[order].nr_free++;
+	buddy_add_free_block(pfn, order, false);
 
 	nr_free_pages += freed_pages;
 }
@@ -256,4 +297,19 @@ void free_page(void *addr, uint32_t order)
 size_t buddy_free_pages(void)
 {
 	return nr_free_pages;
+}
+
+struct page *virt_to_page(const void *addr)
+{
+	size_t pfn;
+
+	if (!virt_to_pfn_checked(addr, &pfn))
+		return NULL;
+	return pfn_to_page(pfn);
+}
+
+void *page_to_virt(const struct page *page)
+{
+	BUG_ON(page < mem_map || page >= mem_map + total_pages);
+	return pfn_to_virt(page_to_pfn(page));
 }

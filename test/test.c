@@ -75,6 +75,8 @@ void kernel_test(void)
 	test_buddy_multi_order();
 	test_buddy_merge();
 	test_buddy_split();
+	test_buddy_over_order_preserves_free_count();
+	test_buddy_multi_order_preserves_free_count();
 	test_buddy_stress();
 
 	/* ---- SLAB ---- */
@@ -83,6 +85,9 @@ void kernel_test(void)
 	test_slab_cross_cache();
 	test_slab_stress();
 	test_slab_returns_empty_page_to_buddy();
+	test_kmalloc_large_alloc_free();
+	test_kzalloc_large_zeroes_requested_size();
+	test_kmalloc_oversize_preserves_free_count();
 
 	/* ---- Trap ---- */
 	TEST_SECTION("Trap");
@@ -144,6 +149,8 @@ void kernel_test(void)
 	test_mm_exec_file_segment_split_keeps_offset();
 	test_mm_exec_file_segment_trim_keeps_offset();
 	test_mm_exec_file_segment_merge_requires_contiguous_offset();
+	test_map_page_first_table_oom_rolls_back();
+	test_map_page_second_table_oom_rolls_back();
 
 	/* ---- Task ---- */
 	TEST_SECTION("Task");

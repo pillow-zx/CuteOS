@@ -1,6 +1,7 @@
 #include <kernel/slab.h>
 #include <kernel/buddy.h>
 #include <kernel/test.h>
+#include <asm/page.h>
 
 #include "ktest.h"
 
@@ -137,4 +138,60 @@ void test_slab_returns_empty_page_to_buddy(void)
 	return;
 fail:
 	TEST_FAIL("slab: returns empty page to buddy", "see above");
+}
+
+void test_kmalloc_large_alloc_free(void)
+{
+	TEST_BEGIN("kmalloc: large alloc/free");
+	{
+		size_t free_before = buddy_free_pages();
+		void *ptr = kmalloc(3000);
+
+		TEST_ASSERT_NOT_NULL(ptr);
+		memset(ptr, 0x6b, 3000);
+		TEST_ASSERT(((uint8_t *)ptr)[0] == 0x6b);
+		TEST_ASSERT(((uint8_t *)ptr)[2999] == 0x6b);
+		TEST_ASSERT(buddy_free_pages() < free_before);
+
+		kfree(ptr);
+		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
+	}
+	TEST_END("kmalloc: large alloc/free");
+	return;
+fail:
+	TEST_FAIL("kmalloc: large alloc/free", "see above");
+}
+
+void test_kzalloc_large_zeroes_requested_size(void)
+{
+	TEST_BEGIN("kzalloc: large zeroes requested size");
+	{
+		uint8_t *ptr = kzalloc(3000);
+
+		TEST_ASSERT_NOT_NULL(ptr);
+		for (size_t i = 0; i < 3000; i++)
+			TEST_ASSERT(ptr[i] == 0);
+
+		kfree(ptr);
+	}
+	TEST_END("kzalloc: large zeroes requested size");
+	return;
+fail:
+	TEST_FAIL("kzalloc: large zeroes requested size", "see above");
+}
+
+void test_kmalloc_oversize_preserves_free_count(void)
+{
+	TEST_BEGIN("kmalloc: oversize preserves free count");
+	{
+		size_t free_before = buddy_free_pages();
+		void *ptr = kmalloc((size_t)PAGE_SIZE << MAX_ORDER);
+
+		TEST_ASSERT_NULL(ptr);
+		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
+	}
+	TEST_END("kmalloc: oversize preserves free count");
+	return;
+fail:
+	TEST_FAIL("kmalloc: oversize preserves free count", "see above");
 }
