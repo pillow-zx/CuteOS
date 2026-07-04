@@ -13,6 +13,7 @@
 #include <kernel/fs.h>
 #include <kernel/mm.h>
 #include <kernel/printk.h>
+#include <kernel/signal.h>
 #include <kernel/slab.h>
 #include <kernel/task.h>
 #include <kernel/vfs.h>
@@ -580,6 +581,12 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 	 * the returned 0 into the new frame's a0 before trap return.
 	 */
 	install_exec_mm(mm, tf, entry, sp);
+
+	/* POSIX timers are not preserved across a successful execve(). */
+	struct signal_struct *signal = task_signal_state(current);
+
+	if (signal)
+		posix_timer_table_clear(&signal->posix_timers);
 
 	/* 关闭所有设置了 FD_CLOEXEC 的文件描述符。 */
 	files_close_on_exec(task_files_safe(current));

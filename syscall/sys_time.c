@@ -265,37 +265,121 @@ ssize_t sys_setitimer(struct trap_frame *tf)
 
 ssize_t sys_timer_create(struct trap_frame *tf)
 {
-	(void)tf;
-	/* TODO(time): 需要 POSIX timer 对象、ID 分配和到期投递机制。 */
-	return -ENOSYS;
+	clockid_t clock_id = (clockid_t)tf->a0;
+	const sigevent_t *usevp = (const sigevent_t *)tf->a1;
+	timer_t *utimerid = (timer_t *)tf->a2;
+	sigevent_t event;
+	const sigevent_t *eventp = NULL;
+	struct signal_struct *signal;
+	struct task_struct *target;
+	timer_t timerid;
+	int ret;
+
+	if (!utimerid)
+		return -EFAULT;
+	if (usevp) {
+		if (copy_from_user(&event, usevp, sizeof(event)) != 0)
+			return -EFAULT;
+		eventp = &event;
+	}
+
+	signal = task_signal_state(current);
+	if (!signal)
+		return -EINVAL;
+
+	target = task_group_leader_safe(current);
+	if (!target)
+		target = current;
+
+	ret = posix_timer_create(signal, clock_id, &timerid, eventp, target);
+	if (ret < 0)
+		return ret;
+
+	if (copy_to_user(utimerid, &timerid, sizeof(timerid)) != 0) {
+		int delete_ret = posix_timer_delete(signal, timerid);
+
+		(void)delete_ret;
+		return -EFAULT;
+	}
+	return 0;
 }
 
 ssize_t sys_timer_gettime(struct trap_frame *tf)
 {
-	(void)tf;
-	/* TODO(time): 需要 POSIX timer 对象状态。 */
-	return -ENOSYS;
+	timer_t timerid = (timer_t)tf->a0;
+	struct itimerspec *uvalue = (struct itimerspec *)tf->a1;
+	struct signal_struct *signal;
+	struct itimerspec value;
+	int ret;
+
+	if (!uvalue)
+		return -EFAULT;
+
+	signal = task_signal_state(current);
+	if (!signal)
+		return -EINVAL;
+
+	ret = posix_timer_gettime(signal, timerid, &value);
+	if (ret < 0)
+		return ret;
+
+	if (copy_to_user(uvalue, &value, sizeof(value)) != 0)
+		return -EFAULT;
+	return 0;
 }
 
 ssize_t sys_timer_getoverrun(struct trap_frame *tf)
 {
-	(void)tf;
-	/* TODO(time): 需要 POSIX timer overrun 计数。 */
-	return -ENOSYS;
+	timer_t timerid = (timer_t)tf->a0;
+	struct signal_struct *signal;
+
+	signal = task_signal_state(current);
+	if (!signal)
+		return -EINVAL;
+	return posix_timer_getoverrun(signal, timerid);
 }
 
 ssize_t sys_timer_settime(struct trap_frame *tf)
 {
-	(void)tf;
-	/* TODO(time): 需要 POSIX timer 对象和基于 timer 的到期唤醒。 */
-	return -ENOSYS;
+	timer_t timerid = (timer_t)tf->a0;
+	int flags = (int)tf->a1;
+	const struct itimerspec *unew_value =
+		(const struct itimerspec *)tf->a2;
+	struct itimerspec *uold_value = (struct itimerspec *)tf->a3;
+	struct itimerspec new_value;
+	struct itimerspec old_value;
+	struct signal_struct *signal;
+	int ret;
+
+	if (!unew_value)
+		return -EFAULT;
+	if (copy_from_user(&new_value, unew_value, sizeof(new_value)) != 0)
+		return -EFAULT;
+
+	signal = task_signal_state(current);
+	if (!signal)
+		return -EINVAL;
+
+	ret = posix_timer_settime(signal, timerid, flags, &new_value,
+				  uold_value ? &old_value : NULL);
+	if (ret < 0)
+		return ret;
+
+	if (uold_value &&
+	    copy_to_user(uold_value, &old_value, sizeof(old_value)) != 0)
+		return -EFAULT;
+	return 0;
 }
 
 ssize_t sys_timer_delete(struct trap_frame *tf)
 {
-	(void)tf;
-	/* TODO(time): 需要 POSIX timer 对象生命周期管理。 */
-	return -ENOSYS;
+	timer_t timerid = (timer_t)tf->a0;
+	struct signal_struct *signal;
+
+	signal = task_signal_state(current);
+	if (!signal)
+		return -EINVAL;
+	return posix_timer_delete(signal, timerid);
 }
 
 ssize_t sys_clock_settime(struct trap_frame *tf)

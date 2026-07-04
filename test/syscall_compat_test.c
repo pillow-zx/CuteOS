@@ -41,6 +41,16 @@ static_assert(offsetof(sigevent_t, sigev_notify_thread_id) == 16,
 	      "sigevent thread id ABI offset mismatch");
 static_assert(SYS_getitimer == 102, "getitimer syscall number mismatch");
 static_assert(SYS_setitimer == 103, "setitimer syscall number mismatch");
+static_assert(SYS_timer_create == 107,
+	      "timer_create syscall number mismatch");
+static_assert(SYS_timer_gettime == 108,
+	      "timer_gettime syscall number mismatch");
+static_assert(SYS_timer_getoverrun == 109,
+	      "timer_getoverrun syscall number mismatch");
+static_assert(SYS_timer_settime == 110,
+	      "timer_settime syscall number mismatch");
+static_assert(SYS_timer_delete == 111,
+	      "timer_delete syscall number mismatch");
 
 ssize_t console_tty_read_stream_for_test(const struct termios *termios,
 					 const char *input, size_t input_len,
@@ -87,6 +97,11 @@ void test_uapi_shared_layouts(void)
 		TEST_ASSERT_EQ(ITIMER_PROF, 2);
 		TEST_ASSERT_EQ(SYS_getitimer, 102);
 		TEST_ASSERT_EQ(SYS_setitimer, 103);
+		TEST_ASSERT_EQ(SYS_timer_create, 107);
+		TEST_ASSERT_EQ(SYS_timer_gettime, 108);
+		TEST_ASSERT_EQ(SYS_timer_getoverrun, 109);
+		TEST_ASSERT_EQ(SYS_timer_settime, 110);
+		TEST_ASSERT_EQ(SYS_timer_delete, 111);
 		TEST_ASSERT_EQ(CLOCK_PROCESS_CPUTIME_ID, 2);
 		TEST_ASSERT_EQ(CLOCK_THREAD_CPUTIME_ID, 3);
 		TEST_ASSERT_EQ(CLOCK_TAI, 11);

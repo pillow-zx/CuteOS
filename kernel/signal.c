@@ -151,6 +151,7 @@ static struct signal_struct *signal_state_alloc(void)
 	mutex_init(&signal->lock);
 	for (size_t i = 0; i < ITIMER_COUNT; i++)
 		itimer_state_init(&signal->itimers[i]);
+	posix_timer_table_init(&signal->posix_timers);
 	rlimits_init(signal->rlimits);
 	return signal;
 }
@@ -169,6 +170,7 @@ static void signal_state_put(struct signal_struct *signal)
 	if (refcount_dec_and_test(&signal->refcount)) {
 		for (size_t i = 0; i < ITIMER_COUNT; i++)
 			itimer_state_destroy(&signal->itimers[i]);
+		posix_timer_table_destroy(&signal->posix_timers);
 		kfree(signal);
 	}
 }

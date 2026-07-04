@@ -48,6 +48,7 @@ struct signal_struct {
 	mutex_t lock;
 	uint64_t shared_pending;
 	struct itimer_state itimers[ITIMER_COUNT];
+	struct posix_timer_table posix_timers;
 	struct rlimit64 rlimits[RLIM_NLIMITS];
 };
 

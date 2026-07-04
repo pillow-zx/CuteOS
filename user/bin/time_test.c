@@ -39,6 +39,20 @@ static long time_timeval_usec(const struct timeval *value)
 	return value->tv_sec * 1000000L + value->tv_usec;
 }
 
+static long time_timespec_nsec(const struct timespec *value)
+{
+	return value->tv_sec * 1000000000L + value->tv_nsec;
+}
+
+static void time_timespec_add_nsec(struct timespec *value, long nsec)
+{
+	value->tv_nsec += nsec;
+	while (value->tv_nsec >= 1000000000L) {
+		value->tv_sec++;
+		value->tv_nsec -= 1000000000L;
+	}
+}
+
 static int time_check_getitimer_zero(int which, const char *name)
 {
 	struct itimerval value = {
@@ -325,6 +339,413 @@ static int test_setitimer_real_oneshot_signal(void)
 	return failed;
 }
 
+static int test_timer_create_sigev_none(void)
+{
+	struct sigevent sev = {
+		.sigev_notify = SIGEV_NONE,
+	};
+	struct itimerspec current = {
+		.it_interval = {
+			.tv_sec = -1,
+			.tv_nsec = -1,
+		},
+		.it_value = {
+			.tv_sec = -1,
+			.tv_nsec = -1,
+		},
+	};
+	timer_t timerid = -1;
+	int failed = 0;
+	long ret;
+
+	ret = syscall(SYS_timer_create, CLOCK_MONOTONIC, (long)&sev,
+		      (long)&timerid);
+	failed += time_expect_ret("timer_create sigev none", ret, 0);
+	if (ret == 0 && timerid < 0) {
+		printf("FAIL: timer_create returned invalid timer id %d\n",
+		       timerid);
+		failed++;
+	}
+	if (ret == 0) {
+		failed += time_expect_ret("timer_gettime inactive",
+					  syscall(SYS_timer_gettime, timerid,
+						  (long)&current),
+					  0);
+		if (current.it_interval.tv_sec != 0 ||
+		    current.it_interval.tv_nsec != 0 ||
+		    current.it_value.tv_sec != 0 ||
+		    current.it_value.tv_nsec != 0) {
+			printf("FAIL: inactive timer expected zero itimerspec\n");
+			failed++;
+		}
+	}
+	if (timerid >= 0)
+		failed += time_expect_ret("timer_delete inactive",
+					  syscall(SYS_timer_delete, timerid),
+					  0);
+
+	return failed;
+}
+
+static int test_timer_settime_relative_gettime(void)
+{
+	struct sigevent sev = {
+		.sigev_notify = SIGEV_NONE,
+	};
+	struct itimerspec armed = {
+		.it_interval = {
+			.tv_sec = 0,
+			.tv_nsec = 0,
+		},
+		.it_value = {
+			.tv_sec = 0,
+			.tv_nsec = 300000000,
+		},
+	};
+	struct itimerspec old = {
+		.it_interval = {
+			.tv_sec = -1,
+			.tv_nsec = -1,
+		},
+		.it_value = {
+			.tv_sec = -1,
+			.tv_nsec = -1,
+		},
+	};
+	struct itimerspec current;
+	timer_t timerid = -1;
+	long remaining;
+	int failed = 0;
+
+	failed += time_expect_ret("timer_create for settime",
+				  syscall(SYS_timer_create, CLOCK_MONOTONIC,
+					  (long)&sev, (long)&timerid),
+				  0);
+	if (failed)
+		goto out;
+
+	failed += time_expect_ret("timer_settime relative",
+				  syscall(SYS_timer_settime, timerid, 0,
+					  (long)&armed, (long)&old),
+				  0);
+	failed += time_expect_ret("timer_gettime armed",
+				  syscall(SYS_timer_gettime, timerid,
+					  (long)&current),
+				  0);
+	if (failed)
+		goto out;
+
+	if (old.it_interval.tv_sec != 0 || old.it_interval.tv_nsec != 0 ||
+	    old.it_value.tv_sec != 0 || old.it_value.tv_nsec != 0) {
+		printf("FAIL: timer_settime old value expected inactive zero\n");
+		failed++;
+	}
+
+	remaining = time_timespec_nsec(&current.it_value);
+	if (remaining <= 0 || remaining > 300000000L) {
+		printf("FAIL: timer_gettime remaining out of range: %ld\n",
+		       remaining);
+		failed++;
+	}
+	if (current.it_interval.tv_sec != 0 ||
+	    current.it_interval.tv_nsec != 0) {
+		printf("FAIL: one-shot timer interval expected zero\n");
+		failed++;
+	}
+
+out:
+	if (timerid >= 0)
+		failed += time_expect_ret("timer_delete relative",
+					  syscall(SYS_timer_delete, timerid),
+					  0);
+	return failed;
+}
+
+static int test_timer_settime_absolute_gettime(void)
+{
+	struct sigevent sev = {
+		.sigev_notify = SIGEV_NONE,
+	};
+	struct itimerspec armed = {
+		.it_interval = {
+			.tv_sec = 0,
+			.tv_nsec = 0,
+		},
+	};
+	struct itimerspec current;
+	timer_t timerid = -1;
+	long remaining;
+	int failed = 0;
+
+	failed += time_expect_ret("clock_gettime monotonic for abstime",
+				  clock_gettime(CLOCK_MONOTONIC,
+						&armed.it_value),
+				  0);
+	time_timespec_add_nsec(&armed.it_value, 300000000L);
+	failed += time_expect_ret("timer_create absolute",
+				  syscall(SYS_timer_create, CLOCK_MONOTONIC,
+					  (long)&sev, (long)&timerid),
+				  0);
+	if (failed)
+		goto out;
+
+	failed += time_expect_ret("timer_settime absolute",
+				  syscall(SYS_timer_settime, timerid,
+					  TIMER_ABSTIME, (long)&armed,
+					  (long)NULL),
+				  0);
+	failed += time_expect_ret("timer_gettime absolute",
+				  syscall(SYS_timer_gettime, timerid,
+					  (long)&current),
+				  0);
+	if (failed)
+		goto out;
+
+	remaining = time_timespec_nsec(&current.it_value);
+	if (remaining <= 0 || remaining > 300000000L) {
+		printf("FAIL: absolute timer remaining out of range: %ld\n",
+		       remaining);
+		failed++;
+	}
+
+out:
+	if (timerid >= 0)
+		failed += time_expect_ret("timer_delete absolute",
+					  syscall(SYS_timer_delete, timerid),
+					  0);
+	return failed;
+}
+
+static int test_timer_default_sigev_signal(void)
+{
+	struct sigaction sa = {
+		.sa_handler = time_sigalrm_handler,
+		.sa_flags = 0,
+		.sa_restorer = NULL,
+		.sa_mask = 0,
+	};
+	struct itimerspec armed = {
+		.it_interval = {
+			.tv_sec = 0,
+			.tv_nsec = 0,
+		},
+		.it_value = {
+			.tv_sec = 0,
+			.tv_nsec = 20000000,
+		},
+	};
+	struct timespec wait = {
+		.tv_sec = 0,
+		.tv_nsec = 200000000,
+	};
+	timer_t timerid = -1;
+	int failed = 0;
+
+	time_sigalrm_count = 0;
+	failed += time_expect_ret("timer sigaction sigalrm",
+				  sigaction(SIGALRM, &sa, NULL), 0);
+	failed += time_expect_ret("timer_create default sigev",
+				  syscall(SYS_timer_create, CLOCK_MONOTONIC,
+					  (long)NULL, (long)&timerid),
+				  0);
+	if (failed)
+		goto out;
+
+	failed += time_expect_ret("timer_settime signal",
+				  syscall(SYS_timer_settime, timerid, 0,
+					  (long)&armed, (long)NULL),
+				  0);
+	if (failed)
+		goto out;
+
+	failed += time_expect_ret("timer signal interrupts nanosleep",
+				  nanosleep(&wait, NULL), -EINTR);
+	if (time_sigalrm_count != 1) {
+		printf("FAIL: POSIX timer SIGALRM count expected 1 got %d\n",
+		       time_sigalrm_count);
+		failed++;
+	}
+
+out:
+	if (timerid >= 0)
+		failed += time_expect_ret("timer_delete signal",
+					  syscall(SYS_timer_delete, timerid),
+					  0);
+	return failed;
+}
+
+static int test_timer_delete_and_getoverrun(void)
+{
+	struct sigevent sev = {
+		.sigev_notify = SIGEV_NONE,
+	};
+	struct itimerspec current;
+	timer_t timerid = -1;
+	int failed = 0;
+
+	failed += time_expect_ret("timer_create for delete",
+				  syscall(SYS_timer_create, CLOCK_MONOTONIC,
+					  (long)&sev, (long)&timerid),
+				  0);
+	if (failed)
+		return failed;
+
+	failed += time_expect_ret("timer_getoverrun initial",
+				  syscall(SYS_timer_getoverrun, timerid), 0);
+	failed += time_expect_ret("timer_delete",
+				  syscall(SYS_timer_delete, timerid), 0);
+	failed += time_expect_ret("timer_gettime after delete",
+				  syscall(SYS_timer_gettime, timerid,
+					  (long)&current),
+				  -EINVAL);
+	failed += time_expect_ret("timer_getoverrun after delete",
+				  syscall(SYS_timer_getoverrun, timerid),
+				  -EINVAL);
+	failed += time_expect_ret("timer_delete after delete",
+				  syscall(SYS_timer_delete, timerid), -EINVAL);
+
+	return failed;
+}
+
+static int test_timer_interval_overrun(void)
+{
+	struct itimerspec armed = {
+		.it_interval = {
+			.tv_sec = 0,
+			.tv_nsec = 20000000,
+		},
+		.it_value = {
+			.tv_sec = 0,
+			.tv_nsec = 20000000,
+		},
+	};
+	struct timespec wait = {
+		.tv_sec = 0,
+		.tv_nsec = 160000000,
+	};
+	unsigned long block = 1UL << (SIGALRM - 1);
+	unsigned long old_mask = 0;
+	timer_t timerid = -1;
+	long overrun;
+	int failed = 0;
+	int blocked = 0;
+
+	failed += time_expect_ret("block SIGALRM for overrun",
+				  sigprocmask(SIG_BLOCK, &block, &old_mask),
+				  0);
+	blocked = failed == 0;
+	failed += time_expect_ret("timer_create overrun",
+				  syscall(SYS_timer_create, CLOCK_MONOTONIC,
+					  (long)NULL, (long)&timerid),
+				  0);
+	if (failed)
+		goto out;
+
+	failed += time_expect_ret("timer_settime interval",
+				  syscall(SYS_timer_settime, timerid, 0,
+					  (long)&armed, (long)NULL),
+				  0);
+	failed += time_expect_ret("blocked timer wait",
+				  nanosleep(&wait, NULL), -ETIMEDOUT);
+	overrun = syscall(SYS_timer_getoverrun, timerid);
+
+	if (!failed && overrun <= 0) {
+		printf("FAIL: timer_getoverrun expected >0 got %ld\n",
+		       overrun);
+		failed++;
+	}
+
+out:
+	if (timerid >= 0)
+		failed += time_expect_ret("timer_delete overrun",
+					  syscall(SYS_timer_delete, timerid),
+					  0);
+	if (blocked)
+		failed += time_expect_ret("restore SIGALRM after overrun",
+					  sigprocmask(SIG_SETMASK, &old_mask,
+						      NULL),
+					  0);
+	return failed;
+}
+
+static int check_exec_timer_gone(int argc, char **argv)
+{
+	struct itimerspec current;
+	timer_t timerid;
+	long ret;
+
+	if (argc != 3) {
+		printf("time_test: expected timer id argument\n");
+		return 2;
+	}
+
+	timerid = (timer_t)atoi(argv[2]);
+	ret = syscall(SYS_timer_gettime, timerid, (long)&current);
+	if (ret != -EINVAL) {
+		printf("time_test: exec timer id %d expected -EINVAL got %ld\n",
+		       timerid, ret);
+		return 1;
+	}
+
+	return 0;
+}
+
+static int test_timer_exec_deletes_timer(void)
+{
+	struct sigevent sev = {
+		.sigev_notify = SIGEV_NONE,
+	};
+	struct itimerspec armed = {
+		.it_interval = {
+			.tv_sec = 0,
+			.tv_nsec = 0,
+		},
+		.it_value = {
+			.tv_sec = 1,
+			.tv_nsec = 0,
+		},
+	};
+	char timer_buf[16];
+	char *argv[] = {"time_test", "--check-exec-timer", timer_buf, 0};
+	char *envp[] = {"PATH=/bin", 0};
+	timer_t timerid = -1;
+	int status = 0;
+	long waited;
+	long pid;
+
+	pid = fork();
+	if (pid < 0) {
+		printf("FAIL: timer exec fork: %ld\n", pid);
+		return 1;
+	}
+	if (pid == 0) {
+		if (syscall(SYS_timer_create, CLOCK_MONOTONIC, (long)&sev,
+			    (long)&timerid) != 0)
+			exit(4);
+		if (syscall(SYS_timer_settime, timerid, 0, (long)&armed,
+			    (long)NULL) != 0)
+			exit(5);
+
+		snprintf(timer_buf, sizeof(timer_buf), "%d", timerid);
+		execve("/bin/time_test", argv, envp);
+		exit(6);
+	}
+
+	waited = wait4(pid, &status, 0, NULL);
+	if (waited != pid) {
+		printf("FAIL: wait timer exec expected %ld got %ld\n", pid,
+		       waited);
+		return 1;
+	}
+	if (status != 0) {
+		printf("FAIL: timer exec checker status expected 0 got %d\n",
+		       status);
+		return 1;
+	}
+
+	return 0;
+}
+
 static int test_clock_settime_errors(void)
 {
 	struct timespec valid = {
@@ -366,9 +787,12 @@ static void report_group(const char *name, int ret, int *failed)
 		printf("PASS\n");
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
 	int failed = 0;
+
+	if (argc > 1 && streq(argv[1], "--check-exec-timer"))
+		return check_exec_timer_gone(argc, argv);
 
 	report_group("getitimer zero state", test_getitimer_zero_state(),
 		     &failed);
@@ -382,6 +806,20 @@ int main(void)
 		     test_setitimer_real_repeating_signal(), &failed);
 	report_group("setitimer error paths", test_setitimer_errors(),
 		     &failed);
+	report_group("timer_create sigev none",
+		     test_timer_create_sigev_none(), &failed);
+	report_group("timer_settime relative gettime",
+		     test_timer_settime_relative_gettime(), &failed);
+	report_group("timer_settime absolute gettime",
+		     test_timer_settime_absolute_gettime(), &failed);
+	report_group("timer default sigev signal",
+		     test_timer_default_sigev_signal(), &failed);
+	report_group("timer delete and getoverrun",
+		     test_timer_delete_and_getoverrun(), &failed);
+	report_group("timer interval overrun",
+		     test_timer_interval_overrun(), &failed);
+	report_group("timer exec deletes timer",
+		     test_timer_exec_deletes_timer(), &failed);
 	report_group("clock_settime error paths", test_clock_settime_errors(),
 		     &failed);
 

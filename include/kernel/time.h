@@ -5,9 +5,11 @@
 #include <kernel/list.h>
 #include <kernel/spinlock.h>
 #include <kernel/types.h>
+#include <uapi/signal.h>
 #include <uapi/time.h>
 
 struct ktimer;
+struct signal_struct;
 struct task_struct;
 
 typedef void (*ktimer_fn_t)(struct ktimer *timer, void *arg);
@@ -30,6 +32,28 @@ struct itimer_state {
 	struct task_struct *target;
 };
 
+#define POSIX_TIMER_COUNT 32
+
+struct posix_timer {
+	struct ktimer timer;
+	struct signal_struct *signal;
+	struct task_struct *target;
+	struct itimerspec value;
+	sigval_t sigev_value;
+	clockid_t clock_id;
+	timer_t id;
+	int signo;
+	int notify;
+	int overrun;
+	bool allocated;
+};
+
+struct posix_timer_table {
+	spinlock_t lock;
+	unsigned long allocated;
+	struct posix_timer *timers[POSIX_TIMER_COUNT];
+};
+
 static __always_inline __must_check __pure bool clock_id_supported(int clock_id)
 {
 	return clock_id == CLOCK_REALTIME || clock_id == CLOCK_MONOTONIC ||
@@ -45,6 +69,11 @@ static __always_inline __must_check __pure bool itimer_which_valid(int which)
 static __always_inline __must_check __pure size_t itimer_which_index(int which)
 {
 	return (size_t)which;
+}
+
+static __always_inline __must_check __pure bool posix_timer_id_valid(timer_t id)
+{
+	return id >= 0 && id < POSIX_TIMER_COUNT;
 }
 
 static __always_inline __nonnull(1, 2) __access_no_size(read_only, 1)
@@ -114,5 +143,30 @@ int __must_check __nonnull(1, 2, 3) __access_no_size(read_write, 1)
 	itimer_set_real(struct itimer_state *state, struct task_struct *target,
 			const struct itimerval *new_value,
 			struct itimerval *old_value);
+
+void __nonnull(1) __access_no_size(write_only, 1)
+	posix_timer_table_init(struct posix_timer_table *table);
+void __nonnull(1) __access_no_size(read_write, 1)
+	posix_timer_table_clear(struct posix_timer_table *table);
+void __nonnull(1) __access_no_size(read_write, 1)
+	posix_timer_table_destroy(struct posix_timer_table *table);
+int __must_check __nonnull(1, 3) __access_no_size(read_write, 1)
+	__access_no_size(write_only, 3)
+	posix_timer_create(struct signal_struct *signal, clockid_t clock_id,
+			   timer_t *timerid, const sigevent_t *event,
+			   struct task_struct *target);
+int __must_check __nonnull(1, 3) __access_no_size(read_write, 1)
+	__access_no_size(write_only, 3)
+	posix_timer_gettime(struct signal_struct *signal, timer_t id,
+			    struct itimerspec *value);
+int __must_check __nonnull(1, 4) __access_no_size(read_write, 1)
+	__access_no_size(read_only, 4)
+	posix_timer_settime(struct signal_struct *signal, timer_t id, int flags,
+			    const struct itimerspec *new_value,
+			    struct itimerspec *old_value);
+int __must_check __nonnull(1) __access_no_size(read_write, 1)
+	posix_timer_getoverrun(struct signal_struct *signal, timer_t id);
+int __must_check __nonnull(1) __access_no_size(read_write, 1)
+	posix_timer_delete(struct signal_struct *signal, timer_t id);
 
 #endif
