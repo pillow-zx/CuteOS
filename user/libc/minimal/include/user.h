@@ -459,6 +459,16 @@ static inline long gettid(void)
 	return syscall0(SYS_gettid);
 }
 
+static inline long getpgid(long pid)
+{
+	return syscall(SYS_getpgid, pid);
+}
+
+static inline long setpgid(long pid, long pgid)
+{
+	return syscall(SYS_setpgid, pid, pgid);
+}
+
 static inline long set_tid_addr(int *tidptr)
 {
 	return syscall(SYS_set_tid_addr, (long)tidptr);

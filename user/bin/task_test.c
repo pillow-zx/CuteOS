@@ -66,6 +66,167 @@ static int test_pid_error_paths(void)
 	return failed;
 }
 
+static int test_getpgid_self(void)
+{
+	long pid = getpid();
+	long pgid = getpgid(0);
+	long missing = getpgid(9999);
+	int failed = 0;
+
+	if (pid < 0)
+		return task_pid_expect_ret("getpid", pid, 0);
+
+	if (pgid <= 0) {
+		printf("FAIL: getpgid self expected positive got %ld\n", pgid);
+		failed++;
+	}
+	failed += task_pid_expect_ret("getpgid by pid", getpgid(pid), pgid);
+	failed += task_pid_expect_ret("getpgid missing", missing, -ESRCH);
+
+	return failed;
+}
+
+static int test_getpgid_fork_inherits(void)
+{
+	long parent_pgid = getpgid(0);
+	int status = 0;
+	long pid;
+	long waited;
+	int failed = 0;
+
+	if (parent_pgid < 0)
+		return task_pid_expect_ret("parent getpgid", parent_pgid, 0);
+
+	pid = fork();
+	if (pid < 0)
+		return task_pid_expect_ret("fork pgid inherit", pid, 0);
+	if (pid == 0)
+		exit(getpgid(0) == parent_pgid ? 0 : 5);
+
+	failed += task_pid_expect_ret("child getpgid",
+				      getpgid(pid), parent_pgid);
+	waited = wait4(pid, &status, 0, NULL);
+	if (waited != pid) {
+		printf("FAIL: wait4 pgid inherit expected %ld got %ld\n", pid,
+		       waited);
+		return 1;
+	}
+	if (status != 0) {
+		printf("FAIL: child pgid inherit status got %d\n", status);
+		failed++;
+	}
+
+	return failed;
+}
+
+static int test_setpgid_child_leader(void)
+{
+	int status = 0;
+	long pid;
+	long waited;
+	int failed = 0;
+
+	pid = fork();
+	if (pid < 0)
+		return task_pid_expect_ret("fork setpgid child", pid, 0);
+	if (pid == 0) {
+		for (int i = 0; i < 16; i++)
+			yield();
+		exit(0);
+	}
+
+	failed += task_pid_expect_ret("setpgid child", setpgid(pid, pid), 0);
+	failed += task_pid_expect_ret("child pgid after setpgid",
+				      getpgid(pid), pid);
+
+	waited = wait4(pid, &status, 0, NULL);
+	if (waited != pid) {
+		printf("FAIL: wait4 setpgid child expected %ld got %ld\n", pid,
+		       waited);
+		return 1;
+	}
+	if (status != 0) {
+		printf("FAIL: setpgid child status got %d\n", status);
+		failed++;
+	}
+
+	return failed;
+}
+
+static int test_setpgid_edges(void)
+{
+	int status = 0;
+	long self = getpid();
+	long child1;
+	long child2;
+	long waited;
+	int failed = 0;
+
+	failed += task_pid_expect_ret("setpgid self zero",
+				      setpgid(0, 0), 0);
+	failed += task_pid_expect_ret("self pgid after setpgid",
+				      getpgid(0), self);
+	failed += task_pid_expect_ret("setpgid negative pid",
+				      setpgid(-1, 0), -EINVAL);
+	failed += task_pid_expect_ret("setpgid negative pgid",
+				      setpgid(0, -1), -EINVAL);
+	failed += task_pid_expect_ret("setpgid missing target",
+				      setpgid(9999, 9999), -ESRCH);
+	failed += task_pid_expect_ret("setpgid missing group",
+				      setpgid(0, 9999), -EPERM);
+
+	child1 = fork();
+	if (child1 < 0)
+		return task_pid_expect_ret("fork setpgid group leader",
+					   child1, 0);
+	if (child1 == 0) {
+		for (int i = 0; i < 16; i++)
+			yield();
+		exit(0);
+	}
+
+	failed += task_pid_expect_ret("setpgid group leader",
+				      setpgid(child1, child1), 0);
+
+	child2 = fork();
+	if (child2 < 0)
+		return task_pid_expect_ret("fork setpgid join group", child2,
+					   0);
+	if (child2 == 0)
+		exit(setpgid(getppid(), getppid()) == -EPERM ? 0 : 6);
+
+	failed += task_pid_expect_ret("setpgid join existing",
+				      setpgid(child2, child1), 0);
+	failed += task_pid_expect_ret("child1 pgid", getpgid(child1),
+				      child1);
+	failed += task_pid_expect_ret("child2 pgid", getpgid(child2),
+				      child1);
+
+	waited = wait4(child1, &status, 0, NULL);
+	if (waited != child1) {
+		printf("FAIL: wait4 child1 expected %ld got %ld\n", child1,
+		       waited);
+		return 1;
+	}
+	if (status != 0) {
+		printf("FAIL: child1 status got %d\n", status);
+		failed++;
+	}
+
+	waited = wait4(child2, &status, 0, NULL);
+	if (waited != child2) {
+		printf("FAIL: wait4 child2 expected %ld got %ld\n", child2,
+		       waited);
+		return 1;
+	}
+	if (status != 0) {
+		printf("FAIL: child2 status got %d\n", status);
+		failed++;
+	}
+
+	return failed;
+}
+
 static int rusage_unsupported_zero(const struct rusage *usage)
 {
 	return usage->ru_maxrss == 0 && usage->ru_ixrss == 0 &&
@@ -641,6 +802,12 @@ int main(void)
 
 	report_group("wait any child", test_wait_any_child(), &failed);
 	report_group("pid error paths", test_pid_error_paths(), &failed);
+	report_group("getpgid self", test_getpgid_self(), &failed);
+	report_group("getpgid fork inherits", test_getpgid_fork_inherits(),
+		     &failed);
+	report_group("setpgid child leader", test_setpgid_child_leader(),
+		     &failed);
+	report_group("setpgid edges", test_setpgid_edges(), &failed);
 	report_group("getrusage self", test_getrusage_self(), &failed);
 	report_group("getrusage children", test_getrusage_children(), &failed);
 	report_group("wait4 bad rusage preserves child",

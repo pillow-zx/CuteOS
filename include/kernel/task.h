@@ -58,6 +58,7 @@ struct task_arch_state {
 struct task_identity {
 	pid_t pid;
 	pid_t tgid;
+	pid_t pgid;
 	struct task_struct *group_leader;
 };
 
@@ -274,6 +275,18 @@ static __always_inline __must_check __pure __nonnull(1) pid_t
 	task_tgid(const struct task_struct *task)
 {
 	return task->ids.tgid;
+}
+
+static __always_inline __must_check __pure __nonnull(1) pid_t
+	task_pgid(const struct task_struct *task)
+{
+	return task->ids.pgid;
+}
+
+static __always_inline __nonnull(1) void task_set_pgid(struct task_struct *task,
+						       pid_t pgid)
+{
+	task->ids.pgid = pgid;
 }
 
 static __always_inline void task_set_uid(struct task_struct *task, uid_t uid)
@@ -713,5 +726,7 @@ struct task_struct *__must_check __pure task_find_group_leader(pid_t tgid);
 struct task_struct *__must_check __pure task_find_thread(pid_t tid);
 bool __must_check __pure task_in_thread_group(const struct task_struct *task,
 					      pid_t tgid);
+bool __must_check __pure task_pgid_exists(pid_t pgid);
+void __nonnull(1) task_set_pgid_all(struct task_struct *leader, pid_t pgid);
 
 #endif

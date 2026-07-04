@@ -103,6 +103,7 @@ struct task_struct *task_alloc(void)
 	task->arch.tf = NULL;
 	task->resources.mm = NULL;
 	task->ids.tgid = task->ids.pid;
+	task->ids.pgid = task->ids.pid;
 	task->ids.group_leader = task;
 	task->lifecycle.exit_signal = SIGCHLD;
 	task->resources.uid = 0;
@@ -196,6 +197,7 @@ void task_init(void)
 	idle_task.arch.kstack = NULL; /* idle 使用 boot_stack，无独立内核栈 */
 	idle_task.resources.mm = NULL;
 	idle_task.ids.tgid = idle_task.ids.pid;
+	idle_task.ids.pgid = idle_task.ids.pid;
 	idle_task.ids.group_leader = &idle_task;
 	idle_task.lifecycle.exit_signal = SIGCHLD;
 	idle_task.resources.uid = 0;
@@ -312,4 +314,27 @@ struct task_struct *task_find_group_leader(pid_t tgid)
 bool task_in_thread_group(const struct task_struct *task, pid_t tgid)
 {
 	return task && task->ids.tgid == tgid;
+}
+
+bool task_pgid_exists(pid_t pgid)
+{
+	for (pid_t pid = 1; pid <= PID_MAX; pid++) {
+		struct task_struct *task = pid_task(pid);
+
+		if (task && task_pgid(task) == pgid)
+			return true;
+	}
+
+	return false;
+}
+
+void __nonnull(1) task_set_pgid_all(struct task_struct *leader, pid_t pgid)
+{
+	struct task_struct *thread;
+
+	leader = task_group_leader(leader);
+	task_set_pgid(leader, pgid);
+	list_for_each_entry (thread, task_thread_group(leader),
+			     links.thread_node)
+		task_set_pgid(thread, pgid);
 }

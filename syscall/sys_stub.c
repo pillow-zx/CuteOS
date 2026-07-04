@@ -78,20 +78,6 @@ ssize_t sys_sched_getaffinity(struct trap_frame *tf)
 	return (ssize_t)sizeof(mask);
 }
 
-ssize_t sys_setpgid(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(proc): 需要进程组/session/job-control 模型。 */
-	return -ENOSYS;
-}
-
-ssize_t sys_getpgid(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(proc): 需要进程组/session/job-control 模型。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_mlock(struct trap_frame *tf)
 {
 	(void)tf;
