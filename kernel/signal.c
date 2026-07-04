@@ -149,6 +149,8 @@ static struct signal_struct *signal_state_alloc(void)
 	memset(signal, 0, sizeof(*signal));
 	refcount_set(&signal->refcount, 1);
 	mutex_init(&signal->lock);
+	for (size_t i = 0; i < ITIMER_COUNT; i++)
+		itimer_state_init(&signal->itimers[i]);
 	rlimits_init(signal->rlimits);
 	return signal;
 }
@@ -164,8 +166,11 @@ static void signal_state_put(struct signal_struct *signal)
 	if (!signal)
 		return;
 
-	if (refcount_dec_and_test(&signal->refcount))
+	if (refcount_dec_and_test(&signal->refcount)) {
+		for (size_t i = 0; i < ITIMER_COUNT; i++)
+			itimer_state_destroy(&signal->itimers[i]);
 		kfree(signal);
+	}
 }
 
 static bool task_signal_target_dead(struct task_struct *task)

@@ -39,6 +39,8 @@ static_assert(offsetof(sigevent_t, sigev_notify) == 12,
 	      "sigevent notify ABI offset mismatch");
 static_assert(offsetof(sigevent_t, sigev_notify_thread_id) == 16,
 	      "sigevent thread id ABI offset mismatch");
+static_assert(SYS_getitimer == 102, "getitimer syscall number mismatch");
+static_assert(SYS_setitimer == 103, "setitimer syscall number mismatch");
 
 ssize_t console_tty_read_stream_for_test(const struct termios *termios,
 					 const char *input, size_t input_len,
@@ -77,22 +79,23 @@ void test_uapi_shared_layouts(void)
 		TEST_ASSERT_EQ(POLLWRNORM, 0x100);
 		TEST_ASSERT_EQ(EPOLLRDNORM, 0x40U);
 		TEST_ASSERT_EQ(EPOLLWRNORM, 0x100U);
-			TEST_ASSERT_EQ(sizeof(struct robust_list_head), (size_t)24);
-			TEST_ASSERT_EQ(offsetof(struct robust_list_head,
-						list_op_pending),
-				       (size_t)16);
-			TEST_ASSERT_EQ(ITIMER_REAL, 0);
-			TEST_ASSERT_EQ(ITIMER_VIRTUAL, 1);
-			TEST_ASSERT_EQ(ITIMER_PROF, 2);
-			TEST_ASSERT_EQ(CLOCK_PROCESS_CPUTIME_ID, 2);
-			TEST_ASSERT_EQ(CLOCK_THREAD_CPUTIME_ID, 3);
-			TEST_ASSERT_EQ(CLOCK_TAI, 11);
-			TEST_ASSERT_EQ(MAX_CLOCKS, 16);
-			TEST_ASSERT_EQ(SIGEV_SIGNAL, 0);
-			TEST_ASSERT_EQ(SIGEV_NONE, 1);
-			TEST_ASSERT_EQ(SIGEV_THREAD, 2);
-			TEST_ASSERT_EQ(SIGEV_THREAD_ID, 4);
-		}
+		TEST_ASSERT_EQ(sizeof(struct robust_list_head), (size_t)24);
+		TEST_ASSERT_EQ(offsetof(struct robust_list_head, list_op_pending),
+			       (size_t)16);
+		TEST_ASSERT_EQ(ITIMER_REAL, 0);
+		TEST_ASSERT_EQ(ITIMER_VIRTUAL, 1);
+		TEST_ASSERT_EQ(ITIMER_PROF, 2);
+		TEST_ASSERT_EQ(SYS_getitimer, 102);
+		TEST_ASSERT_EQ(SYS_setitimer, 103);
+		TEST_ASSERT_EQ(CLOCK_PROCESS_CPUTIME_ID, 2);
+		TEST_ASSERT_EQ(CLOCK_THREAD_CPUTIME_ID, 3);
+		TEST_ASSERT_EQ(CLOCK_TAI, 11);
+		TEST_ASSERT_EQ(MAX_CLOCKS, 16);
+		TEST_ASSERT_EQ(SIGEV_SIGNAL, 0);
+		TEST_ASSERT_EQ(SIGEV_NONE, 1);
+		TEST_ASSERT_EQ(SIGEV_THREAD, 2);
+		TEST_ASSERT_EQ(SIGEV_THREAD_ID, 4);
+	}
 	TEST_END("syscall compat: shared uapi layouts");
 	return;
 fail:

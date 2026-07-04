@@ -15,10 +15,14 @@
 
 #include <kernel/errno.h>
 #include <kernel/list.h>
+#include <kernel/signal.h>
 #include <kernel/spinlock.h>
+#include <kernel/task.h>
 #include <kernel/time.h>
 #include <kernel/timer.h>
 #include <kernel/types.h>
+
+#define USEC_PER_SEC 1000000UL
 
 static struct {
 	spinlock_t lock;
@@ -31,6 +35,59 @@ static struct {
 static uint64_t nsec_from_mtime_remainder(uint64_t ticks)
 {
 	return ticks * 1000000000UL / MTIME_FREQ;
+}
+
+static bool timeval_is_zero(const struct timeval *tv)
+{
+	return tv->tv_sec == 0 && tv->tv_usec == 0;
+}
+
+static bool itimerval_value_is_zero(const struct itimerval *value)
+{
+	return timeval_is_zero(&value->it_value);
+}
+
+static int timeval_to_mtime_delta(const struct timeval *tv, uint64_t *delta)
+{
+	uint64_t sec_ticks;
+	uint64_t usec_ticks;
+
+	if (!tv || !delta)
+		return -EINVAL;
+	if (tv->tv_sec < 0 || tv->tv_usec < 0 ||
+	    tv->tv_usec >= (long)USEC_PER_SEC)
+		return -EINVAL;
+
+	if ((uint64_t)tv->tv_sec > UINT64_MAX / MTIME_FREQ)
+		sec_ticks = UINT64_MAX;
+	else
+		sec_ticks = (uint64_t)tv->tv_sec * MTIME_FREQ;
+
+	usec_ticks = ((uint64_t)tv->tv_usec * MTIME_FREQ +
+		      USEC_PER_SEC - 1) /
+		     USEC_PER_SEC;
+	if (usec_ticks > UINT64_MAX - sec_ticks)
+		*delta = UINT64_MAX;
+	else
+		*delta = sec_ticks + usec_ticks;
+
+	return 0;
+}
+
+static void mtime_to_timeval(uint64_t ticks, struct timeval *tv)
+{
+	uint64_t sec = ticks / MTIME_FREQ;
+	uint64_t rem = ticks % MTIME_FREQ;
+	uint64_t usec;
+
+	usec = (rem * USEC_PER_SEC + MTIME_FREQ - 1) / MTIME_FREQ;
+	if (usec >= USEC_PER_SEC) {
+		sec++;
+		usec -= USEC_PER_SEC;
+	}
+
+	tv->tv_sec = (long)sec;
+	tv->tv_usec = (long)usec;
 }
 
 static void ktimer_insert_locked(struct ktimer *timer)
@@ -73,6 +130,40 @@ static struct ktimer *ktimer_detach_first_expired_locked(uint64_t now)
 	list_del_init(&timer->node);
 	timer->active = false;
 	return timer;
+}
+
+static void itimer_real_fire(struct ktimer *timer, void *arg)
+{
+	struct itimer_state *state =
+		container_of(timer, struct itimer_state, timer);
+	struct task_struct *target;
+	irq_flags_t flags;
+	bool active;
+
+	(void)arg;
+
+	spin_lock_irqsave(&state->lock, &flags);
+	target = state->target;
+	active = ktimer_active(timer);
+	if (!active) {
+		state->value = (struct itimerval){0};
+		state->target = NULL;
+	}
+	spin_unlock_irqrestore(&state->lock, flags);
+
+	if (target)
+		(void)send_signal(SIGALRM, target);
+}
+
+static void itimer_snapshot_locked(struct itimer_state *state,
+				   struct itimerval *value, uint64_t now)
+{
+	itimer_state_value(state, value);
+	if (ktimer_active(&state->timer))
+		mtime_to_timeval(ktimer_remaining(&state->timer, now),
+				 &value->it_value);
+	else
+		value->it_value = (struct timeval){0};
 }
 
 void mtime_to_timespec(uint64_t ticks, struct timespec *ts)
@@ -233,4 +324,71 @@ void ktimer_run_expired(uint64_t now)
 		if (function)
 			function(timer, arg);
 	}
+}
+
+void itimer_state_init(struct itimer_state *state)
+{
+	state->lock.locked = 0;
+	state->value = (struct itimerval){0};
+	ktimer_init(&state->timer, itimer_real_fire, NULL);
+	state->target = NULL;
+}
+
+void itimer_state_destroy(struct itimer_state *state)
+{
+	bool cancelled = ktimer_cancel(&state->timer);
+
+	(void)cancelled;
+	state->value = (struct itimerval){0};
+	state->target = NULL;
+}
+
+int itimer_get_value(struct itimer_state *state, struct itimerval *value)
+{
+	irq_flags_t flags;
+
+	spin_lock_irqsave(&state->lock, &flags);
+	itimer_snapshot_locked(state, value, arch_timer_now());
+	spin_unlock_irqrestore(&state->lock, flags);
+	return 0;
+}
+
+int itimer_set_real(struct itimer_state *state, struct task_struct *target,
+		    const struct itimerval *new_value,
+		    struct itimerval *old_value)
+{
+	uint64_t value_delta;
+	uint64_t interval_delta;
+	irq_flags_t flags;
+	uint64_t now;
+	bool cancelled;
+	int ret;
+
+	ret = timeval_to_mtime_delta(&new_value->it_value, &value_delta);
+	if (ret < 0)
+		return ret;
+	ret = timeval_to_mtime_delta(&new_value->it_interval, &interval_delta);
+	if (ret < 0)
+		return ret;
+
+	spin_lock_irqsave(&state->lock, &flags);
+	now = arch_timer_now();
+	if (old_value)
+		itimer_snapshot_locked(state, old_value, now);
+	cancelled = ktimer_cancel(&state->timer);
+
+	(void)cancelled;
+	if (itimerval_value_is_zero(new_value)) {
+		state->value = (struct itimerval){0};
+		state->target = NULL;
+		spin_unlock_irqrestore(&state->lock, flags);
+		return 0;
+	}
+
+	state->value = *new_value;
+	state->target = target;
+	ret = ktimer_arm(&state->timer, mtime_deadline_after(now, value_delta),
+			 interval_delta);
+	spin_unlock_irqrestore(&state->lock, flags);
+	return ret;
 }

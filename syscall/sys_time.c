@@ -14,12 +14,14 @@
  *   sys_clock_getres(tf)       - 获取指定时钟的分辨率
  *   sys_nanosleep(tf)          - 高精度休眠
  *   sys_clock_nanosleep(tf)    - 基于指定时钟的休眠
- *   sys_getitimer/setitimer/sys_timer_* - 均返回 -ENOSYS
+ *   sys_getitimer/setitimer    - 进程 interval timer ABI
+ *   sys_timer_*                - 均返回 -ENOSYS
  *   sys_clock_settime(tf)      - 返回 Linux 兼容的显式不支持错误
  */
 
 #include <kernel/errno.h>
 #include <kernel/mm.h>
+#include <kernel/signal.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <kernel/time.h>
@@ -196,16 +198,69 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 
 ssize_t sys_getitimer(struct trap_frame *tf)
 {
-	(void)tf;
-	/* TODO(time): 需要进程级 interval timer 状态。 */
-	return -ENOSYS;
+	int which = (int)tf->a0;
+	struct itimerval *uvalue = (struct itimerval *)tf->a1;
+	struct signal_struct *signal;
+	struct itimerval value;
+	int ret;
+
+	if (!itimer_which_valid(which))
+		return -EINVAL;
+	if (!uvalue)
+		return -EFAULT;
+
+	signal = task_signal_state(current);
+	if (!signal)
+		return -EINVAL;
+
+	ret = itimer_get_value(&signal->itimers[itimer_which_index(which)],
+			       &value);
+	if (ret < 0)
+		return ret;
+
+	if (copy_to_user(uvalue, &value, sizeof(value)) != 0)
+		return -EFAULT;
+
+	return 0;
 }
 
 ssize_t sys_setitimer(struct trap_frame *tf)
 {
-	(void)tf;
-	/* TODO(time): 需要进程级 interval timer 状态和 SIGALRM 投递。 */
-	return -ENOSYS;
+	int which = (int)tf->a0;
+	const struct itimerval *unew_value = (const struct itimerval *)tf->a1;
+	struct itimerval *uold_value = (struct itimerval *)tf->a2;
+	struct itimerval new_value = {0};
+	struct itimerval old_value;
+	struct signal_struct *signal;
+	struct task_struct *target;
+	int ret;
+
+	if (!itimer_which_valid(which))
+		return -EINVAL;
+	if (which != ITIMER_REAL)
+		return -EINVAL;
+
+	if (unew_value && copy_from_user(&new_value, unew_value,
+					 sizeof(new_value)) != 0)
+		return -EFAULT;
+
+	signal = task_signal_state(current);
+	if (!signal)
+		return -EINVAL;
+
+	target = task_group_leader_safe(current);
+	if (!target)
+		target = current;
+	ret = itimer_set_real(&signal->itimers[ITIMER_REAL], target,
+			      &new_value, uold_value ? &old_value : NULL);
+	if (ret < 0)
+		return ret;
+
+	if (uold_value &&
+	    copy_to_user(uold_value, &old_value, sizeof(old_value)) != 0)
+		return -EFAULT;
+
+	return 0;
 }
 
 ssize_t sys_timer_create(struct trap_frame *tf)

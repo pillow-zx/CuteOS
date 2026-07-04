@@ -31,6 +31,7 @@
 #include <kernel/refcount.h>
 #include <kernel/sync.h>
 #include <kernel/resource.h>
+#include <kernel/time.h>
 #include <asm/page.h>
 #include <asm/pte.h>
 #include <asm/trap.h>
@@ -46,6 +47,7 @@ struct signal_struct {
 	refcount_t refcount;
 	mutex_t lock;
 	uint64_t shared_pending;
+	struct itimer_state itimers[ITIMER_COUNT];
 	struct rlimit64 rlimits[RLIM_NLIMITS];
 };
 
