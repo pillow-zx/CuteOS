@@ -100,6 +100,9 @@ void kernel_test(void)
 	test_timer_constants();
 	test_waitqueue_timeout_expiry_wakes_task();
 	test_waitqueue_timeout_cancel_prevents_wake();
+	test_ktimer_arm_cancel_remaining();
+	test_ktimer_timer_run_expired_callback();
+	test_ktimer_interval_rearms_after_expiry();
 
 	/* ---- Sync ---- */
 	TEST_SECTION("Sync");

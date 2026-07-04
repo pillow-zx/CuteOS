@@ -19,6 +19,27 @@
 #include <uapi/time.h>
 #include <uapi/tty.h>
 
+static_assert(sizeof(clockid_t) == 4, "clockid_t ABI size mismatch");
+static_assert(sizeof(timer_t) == 4, "timer_t ABI size mismatch");
+static_assert(sizeof(struct timespec) == 16, "timespec ABI size mismatch");
+static_assert(sizeof(struct timeval) == 16, "timeval ABI size mismatch");
+static_assert(sizeof(struct itimerspec) == 32,
+	      "itimerspec ABI size mismatch");
+static_assert(offsetof(struct itimerspec, it_value) == 16,
+	      "itimerspec it_value ABI offset mismatch");
+static_assert(sizeof(struct itimerval) == 32,
+	      "itimerval ABI size mismatch");
+static_assert(offsetof(struct itimerval, it_value) == 16,
+	      "itimerval it_value ABI offset mismatch");
+static_assert(sizeof(sigval_t) == 8, "sigval_t ABI size mismatch");
+static_assert(sizeof(sigevent_t) == 64, "sigevent_t ABI size mismatch");
+static_assert(offsetof(sigevent_t, sigev_signo) == 8,
+	      "sigevent signo ABI offset mismatch");
+static_assert(offsetof(sigevent_t, sigev_notify) == 12,
+	      "sigevent notify ABI offset mismatch");
+static_assert(offsetof(sigevent_t, sigev_notify_thread_id) == 16,
+	      "sigevent thread id ABI offset mismatch");
+
 ssize_t console_tty_read_stream_for_test(const struct termios *termios,
 					 const char *input, size_t input_len,
 					 char *out, size_t out_size, char *echo,
@@ -56,11 +77,22 @@ void test_uapi_shared_layouts(void)
 		TEST_ASSERT_EQ(POLLWRNORM, 0x100);
 		TEST_ASSERT_EQ(EPOLLRDNORM, 0x40U);
 		TEST_ASSERT_EQ(EPOLLWRNORM, 0x100U);
-		TEST_ASSERT_EQ(sizeof(struct robust_list_head), (size_t)24);
-		TEST_ASSERT_EQ(offsetof(struct robust_list_head,
-					list_op_pending),
-			       (size_t)16);
-	}
+			TEST_ASSERT_EQ(sizeof(struct robust_list_head), (size_t)24);
+			TEST_ASSERT_EQ(offsetof(struct robust_list_head,
+						list_op_pending),
+				       (size_t)16);
+			TEST_ASSERT_EQ(ITIMER_REAL, 0);
+			TEST_ASSERT_EQ(ITIMER_VIRTUAL, 1);
+			TEST_ASSERT_EQ(ITIMER_PROF, 2);
+			TEST_ASSERT_EQ(CLOCK_PROCESS_CPUTIME_ID, 2);
+			TEST_ASSERT_EQ(CLOCK_THREAD_CPUTIME_ID, 3);
+			TEST_ASSERT_EQ(CLOCK_TAI, 11);
+			TEST_ASSERT_EQ(MAX_CLOCKS, 16);
+			TEST_ASSERT_EQ(SIGEV_SIGNAL, 0);
+			TEST_ASSERT_EQ(SIGEV_NONE, 1);
+			TEST_ASSERT_EQ(SIGEV_THREAD, 2);
+			TEST_ASSERT_EQ(SIGEV_THREAD_ID, 4);
+		}
 	TEST_END("syscall compat: shared uapi layouts");
 	return;
 fail:

@@ -19,6 +19,7 @@
 #include <kernel/errno.h>
 #include <kernel/signal.h>
 #include <kernel/task.h>
+#include <kernel/time.h>
 #include <kernel/wait.h>
 
 volatile uint64_t jiffies = 0;
@@ -42,6 +43,7 @@ void arch_timer_set(uint64_t value)
 void timer_run_expired(uint64_t now)
 {
 	wait_timer_run_expired(now);
+	ktimer_run_expired(now);
 }
 
 int timer_sleep_until(uint64_t expires, bool interruptible)

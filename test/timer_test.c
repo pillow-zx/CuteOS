@@ -2,8 +2,17 @@
 #include <kernel/sched.h>
 #include <kernel/task.h>
 #include <kernel/test_wait.h>
+#include <kernel/time.h>
 #include <kernel/timer.h>
 #include <kernel/wait.h>
+
+static void ktimer_test_callback(struct ktimer *timer, void *arg)
+{
+	int *count = arg;
+
+	(void)timer;
+	(*count)++;
+}
 
 void test_timer_mtime(void)
 {
@@ -145,4 +154,103 @@ cleanup:
 			sched_dequeue(task);
 		task_free(task);
 	}
+}
+
+void test_ktimer_arm_cancel_remaining(void)
+{
+	struct ktimer timer;
+	int fired = 0;
+
+	TEST_BEGIN("ktimer: arm cancel remaining");
+	{
+		ktimer_init(&timer, ktimer_test_callback, &fired);
+		TEST_ASSERT(!ktimer_active(&timer));
+		TEST_ASSERT_EQ(ktimer_remaining(&timer, 10), (uint64_t)0);
+
+		TEST_ASSERT_EQ(ktimer_arm(&timer, 100, 0), 0);
+		TEST_ASSERT(ktimer_active(&timer));
+		TEST_ASSERT_EQ(ktimer_remaining(&timer, 40), (uint64_t)60);
+
+		TEST_ASSERT(ktimer_cancel(&timer));
+		TEST_ASSERT(!ktimer_active(&timer));
+		TEST_ASSERT_EQ(ktimer_remaining(&timer, 40), (uint64_t)0);
+
+		ktimer_run_expired(100);
+		TEST_ASSERT_EQ(fired, 0);
+	}
+	TEST_END("ktimer: arm cancel remaining");
+	return;
+fail:
+	if (ktimer_active(&timer)) {
+		bool cancelled = ktimer_cancel(&timer);
+
+		(void)cancelled;
+	}
+	TEST_FAIL("ktimer: arm cancel remaining", "see above");
+}
+
+void test_ktimer_timer_run_expired_callback(void)
+{
+	struct ktimer timer;
+	int fired = 0;
+
+	TEST_BEGIN("ktimer: timer_run_expired callback");
+	{
+		ktimer_init(&timer, ktimer_test_callback, &fired);
+		TEST_ASSERT_EQ(ktimer_arm(&timer, 100, 0), 0);
+
+		timer_run_expired(99);
+		TEST_ASSERT_EQ(fired, 0);
+		TEST_ASSERT(ktimer_active(&timer));
+
+		timer_run_expired(100);
+		TEST_ASSERT_EQ(fired, 1);
+		TEST_ASSERT(!ktimer_active(&timer));
+	}
+	TEST_END("ktimer: timer_run_expired callback");
+	return;
+fail:
+	if (ktimer_active(&timer)) {
+		bool cancelled = ktimer_cancel(&timer);
+
+		(void)cancelled;
+	}
+	TEST_FAIL("ktimer: timer_run_expired callback", "see above");
+}
+
+void test_ktimer_interval_rearms_after_expiry(void)
+{
+	struct ktimer timer;
+	int fired = 0;
+
+	TEST_BEGIN("ktimer: interval rearms after expiry");
+	{
+		ktimer_init(&timer, ktimer_test_callback, &fired);
+		TEST_ASSERT_EQ(ktimer_arm(&timer, 100, 25), 0);
+
+		timer_run_expired(100);
+		TEST_ASSERT_EQ(fired, 1);
+		TEST_ASSERT(ktimer_active(&timer));
+		TEST_ASSERT_EQ(ktimer_remaining(&timer, 100), (uint64_t)25);
+
+		timer_run_expired(124);
+		TEST_ASSERT_EQ(fired, 1);
+		TEST_ASSERT(ktimer_active(&timer));
+
+		timer_run_expired(125);
+		TEST_ASSERT_EQ(fired, 2);
+		TEST_ASSERT(ktimer_active(&timer));
+		TEST_ASSERT_EQ(ktimer_remaining(&timer, 125), (uint64_t)25);
+
+		TEST_ASSERT(ktimer_cancel(&timer));
+	}
+	TEST_END("ktimer: interval rearms after expiry");
+	return;
+fail:
+	if (ktimer_active(&timer)) {
+		bool cancelled = ktimer_cancel(&timer);
+
+		(void)cancelled;
+	}
+	TEST_FAIL("ktimer: interval rearms after expiry", "see above");
 }

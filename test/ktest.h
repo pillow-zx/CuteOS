@@ -69,6 +69,9 @@ void test_timer_jiffies(void);
 void test_timer_constants(void);
 void test_waitqueue_timeout_expiry_wakes_task(void);
 void test_waitqueue_timeout_cancel_prevents_wake(void);
+void test_ktimer_arm_cancel_remaining(void);
+void test_ktimer_timer_run_expired_callback(void);
+void test_ktimer_interval_rearms_after_expiry(void);
 
 /* ================================================================
  *  Sync 原语测试

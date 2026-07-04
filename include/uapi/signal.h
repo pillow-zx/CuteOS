@@ -30,6 +30,11 @@
 typedef void (*__sighandler_t)(int);
 typedef void (*__sigrestorer_t)(void);
 
+typedef union sigval {
+	int sival_int;
+	void *sival_ptr;
+} sigval_t;
+
 #define SIG_DFL		((__sighandler_t)0)
 #define SIG_IGN		((__sighandler_t)1)
 #define SIG_ERR		((__sighandler_t)-1)
@@ -51,6 +56,34 @@ struct sigaction {
 #define SA_NODEFER	0x40000000
 #define SA_SIGINFO	0x00000004
 
+#define SIGEV_SIGNAL	0
+#define SIGEV_NONE	1
+#define SIGEV_THREAD	2
+#define SIGEV_THREAD_ID 4
+
+#define SIGEV_MAX_SIZE 64
+#define SIGEV_PREAMBLE_SIZE (sizeof(int) * 2 + sizeof(sigval_t))
+#define SIGEV_PAD_SIZE                                                        \
+	((SIGEV_MAX_SIZE - SIGEV_PREAMBLE_SIZE) / sizeof(int))
+
+typedef struct sigevent {
+	sigval_t sigev_value;
+	int sigev_signo;
+	int sigev_notify;
+	union {
+		int _pad[SIGEV_PAD_SIZE];
+		int _tid;
+		struct {
+			void (*_function)(sigval_t);
+			void *_attribute;
+		} _sigev_thread;
+	} _sigev_un;
+} sigevent_t;
+
+#define sigev_notify_function	 _sigev_un._sigev_thread._function
+#define sigev_notify_attributes _sigev_un._sigev_thread._attribute
+#define sigev_notify_thread_id	 _sigev_un._tid
+
 /* alternate signal stack */
 struct stack_t {
 	void          *ss_sp;
@@ -65,5 +98,17 @@ struct stack_t {
 #define SIGSTKSZ	8192
 
 #define SIGNAL_EXIT_CODE(sig) (128 + (sig))
+
+#undef offsetof
+#define offsetof(t, d) __builtin_offsetof(t, d)
+
+_Static_assert(sizeof(sigval_t) == 8, "sigval_t ABI size mismatch");
+_Static_assert(sizeof(sigevent_t) == 64, "sigevent_t ABI size mismatch");
+_Static_assert(offsetof(sigevent_t, sigev_signo) == 8,
+	       "sigevent signo ABI offset mismatch");
+_Static_assert(offsetof(sigevent_t, sigev_notify) == 12,
+	       "sigevent notify ABI offset mismatch");
+_Static_assert(offsetof(sigevent_t, sigev_notify_thread_id) == 16,
+	       "sigevent thread id ABI offset mismatch");
 
 #endif
