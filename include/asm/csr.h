@@ -49,16 +49,20 @@
 #define csr_read(csr)                                                          \
 	({                                                                     \
 		size_t __v;                                                    \
-		asm volatile("csrr %0, " #csr : "=r"(__v));                    \
+		asm volatile("csrr %0, " #csr : "=r"(__v) : : "memory");       \
 		__v;                                                           \
 	})
 
-#define csr_write(csr, val) ({ asm volatile("csrw " #csr ", %0" ::"rK"(val)); })
+#define csr_write(csr, val)                                                    \
+	({ asm volatile("csrw " #csr ", %0" ::"rK"(val) : "memory"); })
 
-#define csr_set(csr, bits) ({ asm volatile("csrs " #csr ", %0" ::"rK"(bits)); })
+#define csr_set(csr, bits)                                                     \
+	({ asm volatile("csrs " #csr ", %0" ::"rK"(bits) : "memory"); })
 
 #define csr_clear(csr, bits)                                                   \
-	({ asm volatile("csrc " #csr ", %0" ::"rK"(bits)); })
+	({ asm volatile("csrc " #csr ", %0" ::"rK"(bits) : "memory"); })
+
+#define barrier() ({ asm volatile("" ::: "memory"); })
 
 #define wfi() ({ asm volatile("wfi"); })
 

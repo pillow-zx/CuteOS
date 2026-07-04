@@ -6,6 +6,6 @@
 
 void vmalloc_init(void);
 void *__must_check __malloc __alloc_size(1) vmalloc(size_t size);
-void vfree(void *ptr);
+void __nonnull(1) vfree(void *ptr);
 
 #endif

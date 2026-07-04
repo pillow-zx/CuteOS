@@ -224,9 +224,6 @@ void vfree(void *ptr)
 	struct vmalloc_area *area;
 	uintptr_t start;
 
-	if (!ptr)
-		return;
-
 	start = (uintptr_t)ptr;
 	area = vmalloc_find_area(start);
 	if (!area)

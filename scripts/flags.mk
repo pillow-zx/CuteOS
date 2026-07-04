@@ -42,6 +42,8 @@ ifeq ($(CONFIG_CC_OPTIMIZE_O0),y)
 CFLAGS += -O0
 else ifeq ($(CONFIG_CC_OPTIMIZE_O1),y)
 CFLAGS += -O1
+else ifeq ($(CONFIG_CC_OPTIMIZE_OG),y)
+CFLAGS += -Og
 else ifeq ($(CONFIG_CC_OPTIMIZE_O2),y)
 CFLAGS += -O2
 else ifeq ($(CONFIG_CC_OPTIMIZE_O3),y)
@@ -52,7 +54,7 @@ else ifeq ($(CONFIG_CC_OPTIMIZE_OS),y)
 CFLAGS += -Os
 endif
 
-ifneq ($(CONFIG_CC_OPTIMIZE_O0),y)
+ifeq ($(CONFIG_GC_SECTIONS),y)
 CFLAGS  += $(COMMON_SECTION_CFLAGS)
 LDFLAGS += --gc-sections
 KERNEL_GC_SECTIONS = 1

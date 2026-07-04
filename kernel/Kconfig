@@ -10,6 +10,9 @@ config CC_OPTIMIZE_O0
 config CC_OPTIMIZE_O1
 	bool "-O1"
 
+config CC_OPTIMIZE_OG
+	bool "-Og"
+
 config CC_OPTIMIZE_O2
 	bool "-O2"
 
@@ -23,6 +26,14 @@ config CC_OPTIMIZE_OS
 	bool "-Os"
 
 endchoice
+
+config GC_SECTIONS
+	bool "Garbage collect unused sections"
+	default y if !CC_OPTIMIZE_O0
+	default n if CC_OPTIMIZE_O0
+	help
+	  Place functions and data into separate sections and ask the linker to
+	  drop unreferenced sections from the final kernel image.
 
 config LTO
 	bool "Link-time optimization"
