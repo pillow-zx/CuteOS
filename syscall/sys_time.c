@@ -118,9 +118,8 @@ ssize_t sys_nanosleep(struct trap_frame *tf)
 	const struct timespec *ureq = (const struct timespec *)tf->a0;
 	struct timespec *urem = (struct timespec *)tf->a1;
 	struct timespec req;
-	uint64_t now;
 	uint64_t deadline;
-	uint64_t delta;
+	bool has_timeout;
 	int ret;
 
 	if (!ureq)
@@ -128,12 +127,9 @@ ssize_t sys_nanosleep(struct trap_frame *tf)
 	if (copy_from_user(&req, ureq, sizeof(req)) != 0)
 		return -EFAULT;
 
-	ret = timespec_to_mtime_delta(&req, &delta);
+	ret = mtime_deadline_from_timespec(&req, &has_timeout, &deadline);
 	if (ret < 0)
 		return ret;
-
-	now = arch_timer_now();
-	deadline = mtime_deadline_after(now, delta);
 
 	ret = timer_sleep_until(deadline, true);
 	if (ret == -EINTR && urem) {
@@ -156,9 +152,9 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 	const struct timespec *ureq = (const struct timespec *)tf->a2;
 	struct timespec *urem = (struct timespec *)tf->a3;
 	struct timespec req;
-	uint64_t now;
 	uint64_t deadline;
 	uint64_t delta;
+	bool has_timeout;
 	int ret;
 
 	if (!clock_id_supported(clock_id))
@@ -175,8 +171,10 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 	if (flags == TIMER_ABSTIME)
 		deadline = delta;
 	else if (flags == 0) {
-		now = arch_timer_now();
-		deadline = mtime_deadline_after(now, delta);
+		ret = mtime_deadline_from_timespec(&req, &has_timeout,
+						   &deadline);
+		if (ret < 0)
+			return ret;
 	} else
 		return -EINVAL;
 

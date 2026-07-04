@@ -3,24 +3,14 @@
 
 #ifdef CONFIG_KERNEL_TEST
 
-#include <kernel/list.h>
 #include <kernel/types.h>
 
 struct task_struct;
 
-struct wait_timer_test_handle {
-	struct list_head node;
-	struct task_struct *task;
-	uint64_t expires;
-	bool active;
-	bool fired;
-};
-
-void wait_timer_test_init(struct wait_timer_test_handle *timer,
-			  struct task_struct *task, uint64_t expires);
-void wait_timer_test_start(struct wait_timer_test_handle *timer);
-bool wait_timer_test_cancel(struct wait_timer_test_handle *timer);
-bool wait_timer_test_fired(const struct wait_timer_test_handle *timer);
+void wait_timeout_test_start(struct task_struct *task, uint64_t expires);
+bool wait_timeout_test_cancel(void);
+bool wait_timeout_test_fired(void);
+bool wait_timeout_test_active(void);
 
 #endif
 

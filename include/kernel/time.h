@@ -25,10 +25,17 @@ static __always_inline __must_check __pure bool clock_id_supported(int clock_id)
 	       clock_id == CLOCK_BOOTTIME;
 }
 
-static __always_inline __must_check __pure
+static __always_inline __must_check __pure __nonnull(1)
 __access_no_size(read_only, 1) bool ktimer_active(const struct ktimer *timer)
 {
 	return timer->active;
+}
+
+static __always_inline __must_check __pure __nonnull(1)
+__access_no_size(read_only, 1) bool ktimer_expired(const struct ktimer *timer,
+						   uint64_t now)
+{
+	return timer->active && timer->expires <= now;
 }
 
 static __always_inline __must_check __pure __nonnull(1)
@@ -40,9 +47,21 @@ static __always_inline __must_check __pure __nonnull(1)
 	return timer->expires - now;
 }
 
-void mtime_to_timespec(uint64_t ticks, struct timespec *ts);
-int timespec_to_mtime_delta(const struct timespec *ts, uint64_t *delta);
-uint64_t mtime_deadline_after(uint64_t now, uint64_t delta);
+void __nonnull(2) __access_no_size(write_only, 2)
+	mtime_to_timespec(uint64_t ticks, struct timespec *ts);
+int __must_check __access_no_size(read_only, 1)
+	__access_no_size(write_only, 2)
+	timespec_to_mtime_delta(const struct timespec *ts, uint64_t *delta);
+uint64_t __must_check __const mtime_deadline_after(uint64_t now,
+						  uint64_t delta);
+int __must_check __nonnull(2, 3) __access_no_size(write_only, 2)
+	__access_no_size(write_only, 3)
+	mtime_deadline_from_timespec(const struct timespec *ts,
+				     bool *has_timeout, uint64_t *deadline);
+int __must_check __nonnull(2, 3) __access_no_size(write_only, 2)
+	__access_no_size(write_only, 3)
+	mtime_deadline_from_ms(long timeout_ms, bool *has_timeout,
+			       uint64_t *deadline);
 
 void __nonnull(1) __access_no_size(write_only, 1)
 	ktimer_init(struct ktimer *timer, ktimer_fn_t function, void *arg);

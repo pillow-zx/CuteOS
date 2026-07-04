@@ -1,4 +1,5 @@
 #include <kernel/test.h>
+#include <kernel/errno.h>
 #include <kernel/sched.h>
 #include <kernel/task.h>
 #include <kernel/test_wait.h>
@@ -90,10 +91,98 @@ fail:
 	TEST_FAIL("timer: constants", "see above");
 }
 
+void test_mtime_deadline_helpers(void)
+{
+	bool has_timeout = true;
+	uint64_t deadline = 1;
+
+	TEST_BEGIN("timer: mtime deadline helpers");
+	{
+		struct timespec one_sec = {
+			.tv_sec = 1,
+			.tv_nsec = 0,
+		};
+		struct timespec invalid_nsec = {
+			.tv_sec = 0,
+			.tv_nsec = 1000000000LL,
+		};
+		struct timespec invalid_sec = {
+			.tv_sec = -1,
+			.tv_nsec = 0,
+		};
+		struct timespec huge = {
+			.tv_sec = (int64_t)(UINT64_MAX / MTIME_FREQ) + 1,
+			.tv_nsec = 0,
+		};
+		uint64_t before;
+		uint64_t after;
+
+		TEST_ASSERT_EQ(mtime_deadline_from_timespec(NULL,
+							    &has_timeout,
+							    &deadline),
+			       0);
+		TEST_ASSERT(!has_timeout);
+		TEST_ASSERT_EQ(deadline, (uint64_t)0);
+
+		before = arch_timer_now();
+		TEST_ASSERT_EQ(mtime_deadline_from_timespec(&one_sec,
+							    &has_timeout,
+							    &deadline),
+			       0);
+		after = arch_timer_now();
+		TEST_ASSERT(has_timeout);
+		TEST_ASSERT(deadline >= before + MTIME_FREQ);
+		TEST_ASSERT(deadline <= after + MTIME_FREQ);
+
+		TEST_ASSERT_EQ(mtime_deadline_from_timespec(&invalid_nsec,
+							    &has_timeout,
+							    &deadline),
+			       -EINVAL);
+		TEST_ASSERT_EQ(mtime_deadline_from_timespec(&invalid_sec,
+							    &has_timeout,
+							    &deadline),
+			       -EINVAL);
+
+		TEST_ASSERT_EQ(mtime_deadline_from_timespec(&huge,
+							    &has_timeout,
+							    &deadline),
+			       0);
+		TEST_ASSERT(has_timeout);
+		TEST_ASSERT_EQ(deadline, UINT64_MAX);
+
+		TEST_ASSERT_EQ(mtime_deadline_from_ms(-1, &has_timeout,
+						      &deadline),
+			       0);
+		TEST_ASSERT(!has_timeout);
+		TEST_ASSERT_EQ(deadline, (uint64_t)0);
+
+		before = arch_timer_now();
+		TEST_ASSERT_EQ(mtime_deadline_from_ms(0, &has_timeout,
+						      &deadline),
+			       0);
+		after = arch_timer_now();
+		TEST_ASSERT(has_timeout);
+		TEST_ASSERT(deadline >= before);
+		TEST_ASSERT(deadline <= after);
+
+		before = arch_timer_now();
+		TEST_ASSERT_EQ(mtime_deadline_from_ms(25, &has_timeout,
+						      &deadline),
+			       0);
+		after = arch_timer_now();
+		TEST_ASSERT(has_timeout);
+		TEST_ASSERT(deadline >= before + 250000UL);
+		TEST_ASSERT(deadline <= after + 250000UL);
+	}
+	TEST_END("timer: mtime deadline helpers");
+	return;
+fail:
+	TEST_FAIL("timer: mtime deadline helpers", "see above");
+}
+
 void test_waitqueue_timeout_expiry_wakes_task(void)
 {
 	struct task_struct *task = NULL;
-	struct wait_timer_test_handle wait;
 
 	TEST_BEGIN("waitqueue: timeout expiry wakes task");
 	{
@@ -101,16 +190,17 @@ void test_waitqueue_timeout_expiry_wakes_task(void)
 		TEST_ASSERT_NOT_NULL(task);
 		task->lifecycle.state = TASK_UNINTERRUPTIBLE;
 
-		wait_timer_test_init(&wait, task, 100);
-		wait_timer_test_start(&wait);
+		wait_timeout_test_start(task, 100);
 		timer_run_expired(99);
 		TEST_ASSERT_EQ(task->lifecycle.state, (uint32_t)TASK_UNINTERRUPTIBLE);
-		TEST_ASSERT(!wait_timer_test_fired(&wait));
+		TEST_ASSERT(!wait_timeout_test_fired());
+		TEST_ASSERT(wait_timeout_test_active());
 
 		timer_run_expired(100);
 		TEST_ASSERT_EQ(task->lifecycle.state, (uint32_t)TASK_RUNNING);
-		TEST_ASSERT(wait_timer_test_fired(&wait));
-		TEST_ASSERT(!wait_timer_test_cancel(&wait));
+		TEST_ASSERT(wait_timeout_test_fired());
+		TEST_ASSERT(!wait_timeout_test_active());
+		TEST_ASSERT(!wait_timeout_test_cancel());
 		TEST_ASSERT(!list_empty(&task->sched.run_list));
 	}
 	TEST_END("waitqueue: timeout expiry wakes task");
@@ -128,7 +218,6 @@ cleanup:
 void test_waitqueue_timeout_cancel_prevents_wake(void)
 {
 	struct task_struct *task = NULL;
-	struct wait_timer_test_handle wait;
 
 	TEST_BEGIN("waitqueue: timeout cancel prevents wake");
 	{
@@ -136,12 +225,13 @@ void test_waitqueue_timeout_cancel_prevents_wake(void)
 		TEST_ASSERT_NOT_NULL(task);
 		task->lifecycle.state = TASK_UNINTERRUPTIBLE;
 
-		wait_timer_test_init(&wait, task, 200);
-		wait_timer_test_start(&wait);
-		TEST_ASSERT(wait_timer_test_cancel(&wait));
+		wait_timeout_test_start(task, 200);
+		TEST_ASSERT(wait_timeout_test_active());
+		TEST_ASSERT(wait_timeout_test_cancel());
+		TEST_ASSERT(!wait_timeout_test_active());
 		timer_run_expired(200);
 		TEST_ASSERT_EQ(task->lifecycle.state, (uint32_t)TASK_UNINTERRUPTIBLE);
-		TEST_ASSERT(!wait_timer_test_fired(&wait));
+		TEST_ASSERT(!wait_timeout_test_fired());
 		TEST_ASSERT(list_empty(&task->sched.run_list));
 	}
 	TEST_END("waitqueue: timeout cancel prevents wake");

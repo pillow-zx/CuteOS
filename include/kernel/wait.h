@@ -35,7 +35,6 @@ void finish_wait_entry(struct wait_queue_entry *entry);
 void prepare_to_wait_uninterruptible(struct wait_queue_head *wq);
 void prepare_to_wait_interruptible(struct wait_queue_head *wq);
 void finish_wait(struct wait_queue_head *wq);
-void wait_timer_run_expired(uint64_t now);
 int wait_schedule(uint32_t state);
 int wait_schedule_until(uint32_t state, uint64_t deadline);
 int wait_event(struct wait_queue_head *wq, wait_condition_t condition,

@@ -116,6 +116,53 @@ uint64_t mtime_deadline_after(uint64_t now, uint64_t delta)
 	return now + delta;
 }
 
+int mtime_deadline_from_timespec(const struct timespec *ts, bool *has_timeout,
+				 uint64_t *deadline)
+{
+	uint64_t delta;
+	int ret;
+
+	*has_timeout = false;
+	*deadline = 0;
+	if (!ts)
+		return 0;
+
+	ret = timespec_to_mtime_delta(ts, &delta);
+	if (ret < 0)
+		return ret;
+
+	*has_timeout = true;
+	*deadline = mtime_deadline_after(arch_timer_now(), delta);
+	return 0;
+}
+
+int mtime_deadline_from_ms(long timeout_ms, bool *has_timeout,
+			   uint64_t *deadline)
+{
+	uint64_t delta;
+	uint64_t ms;
+
+	*has_timeout = false;
+	*deadline = 0;
+	if (timeout_ms < 0)
+		return 0;
+
+	*has_timeout = true;
+	if (timeout_ms == 0) {
+		*deadline = arch_timer_now();
+		return 0;
+	}
+
+	ms = (uint64_t)timeout_ms;
+	if (ms > (UINT64_MAX - 999ULL) / MTIME_FREQ)
+		delta = UINT64_MAX;
+	else
+		delta = (ms * MTIME_FREQ + 999ULL) / 1000ULL;
+
+	*deadline = mtime_deadline_after(arch_timer_now(), delta);
+	return 0;
+}
+
 void ktimer_init(struct ktimer *timer, ktimer_fn_t function, void *arg)
 {
 	INIT_LIST_HEAD(&timer->node);

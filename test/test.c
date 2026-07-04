@@ -98,6 +98,7 @@ void kernel_test(void)
 	test_timer_mtimecmp();
 	test_timer_jiffies();
 	test_timer_constants();
+	test_mtime_deadline_helpers();
 	test_waitqueue_timeout_expiry_wakes_task();
 	test_waitqueue_timeout_cancel_prevents_wake();
 	test_ktimer_arm_cancel_remaining();

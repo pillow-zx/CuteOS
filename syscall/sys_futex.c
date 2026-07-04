@@ -8,14 +8,12 @@
 #include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <kernel/time.h>
-#include <kernel/timer.h>
 #include <asm/trap.h>
 
 static int futex_copy_timeout(const struct timespec *utimeout,
 			      struct futex_deadline *deadline)
 {
 	struct timespec timeout;
-	uint64_t delta;
 	int ret;
 
 	if (!deadline)
@@ -29,13 +27,9 @@ static int futex_copy_timeout(const struct timespec *utimeout,
 	if (copy_from_user(&timeout, utimeout, sizeof(timeout)) != 0)
 		return -EFAULT;
 
-	ret = timespec_to_mtime_delta(&timeout, &delta);
-	if (ret < 0)
-		return ret;
-
-	deadline->active = true;
-	deadline->expires = mtime_deadline_after(arch_timer_now(), delta);
-	return 0;
+	ret = mtime_deadline_from_timespec(&timeout, &deadline->active,
+					   &deadline->expires);
+	return ret;
 }
 
 ssize_t sys_futex(struct trap_frame *tf)

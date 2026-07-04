@@ -67,6 +67,7 @@ void test_timer_mtime(void);
 void test_timer_mtimecmp(void);
 void test_timer_jiffies(void);
 void test_timer_constants(void);
+void test_mtime_deadline_helpers(void);
 void test_waitqueue_timeout_expiry_wakes_task(void);
 void test_waitqueue_timeout_cancel_prevents_wake(void);
 void test_ktimer_arm_cancel_remaining(void);

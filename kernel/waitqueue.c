@@ -6,27 +6,19 @@
 #include <kernel/sched.h>
 #include <kernel/signal.h>
 #include <kernel/task.h>
+#include <kernel/time.h>
 #include <kernel/timer.h>
+#include <kernel/tools.h>
 #include <kernel/wait.h>
 #ifdef CONFIG_KERNEL_TEST
 #include <kernel/test_wait.h>
 #endif
 #include <asm/csr.h>
 
-struct wait_timer {
-	struct list_head node;
+struct wait_timeout {
+	struct ktimer timer;
 	struct task_struct *task;
-	uint64_t expires;
-	bool active;
 	bool fired;
-};
-
-static struct {
-	spinlock_t lock;
-	struct list_head entries;
-} wait_timer_queue = {
-	.lock = SPINLOCK_INIT,
-	.entries = LIST_HEAD_INIT(wait_timer_queue.entries),
 };
 
 static void wait_finish_current_state(void)
@@ -43,97 +35,80 @@ static bool wait_task_is_sleeping(struct task_struct *task)
 	return (task_state(task) & TASK_ANY_SLEEP) != 0;
 }
 
-static void wait_timer_init(struct wait_timer *timer, uint64_t expires)
+static void wait_timeout_fire(struct ktimer *timer, void *arg)
 {
-	BUG_ON(!timer);
+	struct wait_timeout *timeout =
+		container_of(timer, struct wait_timeout, timer);
 
-	INIT_LIST_HEAD(&timer->node);
-	timer->task = current;
-	timer->expires = expires;
-	timer->active = false;
-	timer->fired = false;
+	(void)arg;
+	timeout->fired = true;
+	if (wait_task_is_sleeping(timeout->task))
+		sched_wake_task(timeout->task);
 }
 
-static void wait_timer_start(struct wait_timer *timer)
+static void wait_timeout_init(struct wait_timeout *timeout,
+			      struct task_struct *task)
 {
-	irq_flags_t flags;
+	BUG_ON(!timeout);
 
-	BUG_ON(!timer);
-	BUG_ON(!timer->task);
-
-	spin_lock_irqsave(&wait_timer_queue.lock, &flags);
-	BUG_ON(timer->active);
-	timer->active = true;
-	timer->fired = false;
-	list_add_tail(&timer->node, &wait_timer_queue.entries);
-	spin_unlock_irqrestore(&wait_timer_queue.lock, flags);
+	ktimer_init(&timeout->timer, wait_timeout_fire, NULL);
+	timeout->task = task;
+	timeout->fired = false;
 }
 
-static bool wait_timer_cancel(struct wait_timer *timer)
+static int wait_timeout_start(struct wait_timeout *timeout, uint64_t expires)
 {
-	irq_flags_t flags;
-	bool fired;
+	BUG_ON(!timeout);
+	BUG_ON(!timeout->task);
 
-	if (!timer)
+	timeout->fired = false;
+	return ktimer_arm(&timeout->timer, expires, 0);
+}
+
+static bool wait_timeout_cancel(struct wait_timeout *timeout)
+{
+	bool cancelled;
+	bool not_fired;
+
+	if (!timeout)
 		return false;
 
-	spin_lock_irqsave(&wait_timer_queue.lock, &flags);
-	fired = timer->fired;
-	if (timer->active) {
-		list_del_init(&timer->node);
-		timer->active = false;
-	}
-	spin_unlock_irqrestore(&wait_timer_queue.lock, flags);
-
-	return !fired;
+	not_fired = !timeout->fired;
+	cancelled = ktimer_cancel(&timeout->timer);
+	(void)cancelled;
+	return not_fired;
 }
 
-static bool wait_timer_fired(const struct wait_timer *timer)
+static bool wait_timeout_fired(const struct wait_timeout *timeout)
 {
-	return timer && timer->fired;
+	return timeout && timeout->fired;
 }
 
 #ifdef CONFIG_KERNEL_TEST
-static struct wait_timer *
-wait_timer_from_test(struct wait_timer_test_handle *handle)
+static struct wait_timeout wait_timeout_test;
+
+void wait_timeout_test_start(struct task_struct *task, uint64_t expires)
 {
-	return (struct wait_timer *)handle;
+	if (ktimer_active(&wait_timeout_test.timer))
+		(void)wait_timeout_cancel(&wait_timeout_test);
+
+	wait_timeout_init(&wait_timeout_test, task);
+	BUG_ON(wait_timeout_start(&wait_timeout_test, expires) != 0);
 }
 
-void wait_timer_test_init(struct wait_timer_test_handle *handle,
-			  struct task_struct *task, uint64_t expires)
+bool wait_timeout_test_cancel(void)
 {
-	struct wait_timer *timer = wait_timer_from_test(handle);
-
-	BUG_ON(sizeof(*handle) != sizeof(*timer));
-	BUG_ON(offsetof(struct wait_timer_test_handle, node) !=
-	       offsetof(struct wait_timer, node));
-	BUG_ON(offsetof(struct wait_timer_test_handle, task) !=
-	       offsetof(struct wait_timer, task));
-	BUG_ON(offsetof(struct wait_timer_test_handle, expires) !=
-	       offsetof(struct wait_timer, expires));
-	BUG_ON(offsetof(struct wait_timer_test_handle, active) !=
-	       offsetof(struct wait_timer, active));
-	BUG_ON(offsetof(struct wait_timer_test_handle, fired) !=
-	       offsetof(struct wait_timer, fired));
-
-	wait_timer_init(timer, expires);
-	timer->task = task;
+	return wait_timeout_cancel(&wait_timeout_test);
 }
 
-void wait_timer_test_start(struct wait_timer_test_handle *handle)
+bool wait_timeout_test_fired(void)
 {
-	wait_timer_start(wait_timer_from_test(handle));
+	return wait_timeout_fired(&wait_timeout_test);
 }
 
-bool wait_timer_test_cancel(struct wait_timer_test_handle *handle)
+bool wait_timeout_test_active(void)
 {
-	return wait_timer_cancel(wait_timer_from_test(handle));
-}
-
-bool wait_timer_test_fired(const struct wait_timer_test_handle *handle)
-{
-	return wait_timer_fired((const struct wait_timer *)handle);
+	return ktimer_active(&wait_timeout_test.timer);
 }
 #endif
 
@@ -153,30 +128,6 @@ void init_waitqueue_entry(struct wait_queue_entry *entry,
 	INIT_LIST_HEAD(&entry->node);
 	entry->task = task;
 	entry->wq = NULL;
-}
-
-void wait_timer_run_expired(uint64_t now)
-{
-	struct list_head *pos;
-	struct list_head *next;
-	irq_flags_t flags;
-
-	spin_lock_irqsave(&wait_timer_queue.lock, &flags);
-	list_for_each_safe (pos, next, &wait_timer_queue.entries) {
-		struct wait_timer *timer =
-			list_entry(pos, struct wait_timer, node);
-
-		if (timer->expires > now)
-			continue;
-
-		list_del_init(&timer->node);
-		timer->active = false;
-		timer->fired = true;
-
-			if (wait_task_is_sleeping(timer->task))
-				sched_wake_task(timer->task);
-	}
-	spin_unlock_irqrestore(&wait_timer_queue.lock, flags);
 }
 
 void prepare_wait_entry(struct wait_queue_head *wq,
@@ -261,7 +212,7 @@ int wait_schedule(uint32_t state)
 
 int wait_schedule_until(uint32_t state, uint64_t deadline)
 {
-	struct wait_timer timer;
+	struct wait_timeout timeout;
 	bool enabled_irq_for_sleep = false;
 
 	if (!current)
@@ -271,17 +222,17 @@ int wait_schedule_until(uint32_t state, uint64_t deadline)
 		return -ETIMEDOUT;
 	}
 
-	wait_timer_init(&timer, deadline);
-	wait_timer_start(&timer);
+	wait_timeout_init(&timeout, current);
+	BUG_ON(wait_timeout_start(&timeout, deadline) != 0);
 	if (task_state(current) != state) {
-		wait_timer_cancel(&timer);
+		wait_timeout_cancel(&timeout);
 		wait_finish_current_state();
 		return 0;
 	}
 	if (!wait_task_is_sleeping(current))
 		task_set_state(current, state);
 
-	while (!wait_timer_fired(&timer)) {
+	while (!wait_timeout_fired(&timeout)) {
 		if (task_state(current) != state)
 			break;
 		if ((state == TASK_INTERRUPTIBLE) && signal_pending(current))
@@ -304,12 +255,12 @@ int wait_schedule_until(uint32_t state, uint64_t deadline)
 	if (enabled_irq_for_sleep)
 		csr_clear(sstatus, SSTATUS_SIE);
 
-	wait_timer_cancel(&timer);
+	wait_timeout_cancel(&timeout);
 	wait_finish_current_state();
 
 	if (state == TASK_INTERRUPTIBLE && signal_pending(current))
 		return -EINTR;
-	if (wait_timer_fired(&timer) || deadline <= arch_timer_now())
+	if (wait_timeout_fired(&timeout) || deadline <= arch_timer_now())
 		return -ETIMEDOUT;
 	return 0;
 }

@@ -211,71 +211,6 @@ epoll_res(uint32_t events, uint32_t requested)
 	return res;
 }
 
-static int sys_timespec_to_deadline(const struct timespec *ts,
-				    bool *has_timeout, uint64_t *deadline)
-{
-	uint64_t now;
-	uint64_t delta;
-	uint64_t nsec_delta;
-
-	*has_timeout = false;
-	*deadline = 0;
-	if (!ts)
-		return 0;
-	if (ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= 1000000000LL)
-		return -EINVAL;
-
-	now = arch_timer_now();
-	if ((uint64_t)ts->tv_sec > (UINT64_MAX - now) / MTIME_FREQ) {
-		*deadline = UINT64_MAX;
-		*has_timeout = true;
-		return 0;
-	}
-
-	delta = (uint64_t)ts->tv_sec * MTIME_FREQ;
-	nsec_delta = ((uint64_t)ts->tv_nsec * MTIME_FREQ + 999999999ULL) /
-		     1000000000ULL;
-	if (nsec_delta > UINT64_MAX - now - delta)
-		*deadline = UINT64_MAX;
-	else
-		*deadline = now + delta + nsec_delta;
-	*has_timeout = true;
-	return 0;
-}
-
-static int sys_timeout_ms_to_deadline(long timeout_ms, bool *has_timeout,
-				      uint64_t *deadline)
-{
-	uint64_t now;
-	uint64_t delta;
-	uint64_t ms;
-
-	*has_timeout = false;
-	*deadline = 0;
-	if (timeout_ms < 0)
-		return 0;
-
-	now = arch_timer_now();
-	*has_timeout = true;
-	if (timeout_ms == 0) {
-		*deadline = now;
-		return 0;
-	}
-
-	ms = (uint64_t)timeout_ms;
-	if (ms > (UINT64_MAX - 999ULL) / MTIME_FREQ) {
-		*deadline = UINT64_MAX;
-		return 0;
-	}
-
-	delta = (ms * MTIME_FREQ + 999ULL) / 1000ULL;
-	if (delta > UINT64_MAX - now)
-		*deadline = UINT64_MAX;
-	else
-		*deadline = now + delta;
-	return 0;
-}
-
 static int poll_apply_sigmask(const unsigned long *usigmask, size_t sigsetsize,
 			      struct poll_sigmask_guard *guard)
 {
@@ -726,7 +661,7 @@ ssize_t sys_epoll_pwait(struct trap_frame *tf)
 	if (!eventpoll_file(epfile))
 		return -EINVAL;
 
-	ret = sys_timeout_ms_to_deadline(timeout, &has_timeout, &deadline);
+	ret = mtime_deadline_from_ms(timeout, &has_timeout, &deadline);
 	if (ret < 0)
 		return ret;
 
@@ -789,12 +724,13 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 	if (utimeout) {
 		if (copy_from_user(&timeout, utimeout, sizeof(timeout)) != 0)
 			return -EFAULT;
-		ret = sys_timespec_to_deadline(&timeout, &has_timeout,
-					       &deadline);
+		ret = mtime_deadline_from_timespec(&timeout, &has_timeout,
+						   &deadline);
 		if (ret < 0)
 			return ret;
 	} else {
-		ret = sys_timespec_to_deadline(NULL, &has_timeout, &deadline);
+		ret = mtime_deadline_from_timespec(NULL, &has_timeout,
+						   &deadline);
 		if (ret < 0)
 			return ret;
 	}
@@ -854,12 +790,13 @@ ssize_t sys_pselect6(struct trap_frame *tf)
 	if (utimeout) {
 		if (copy_from_user(&timeout, utimeout, sizeof(timeout)) != 0)
 			return -EFAULT;
-		ret = sys_timespec_to_deadline(&timeout, &has_timeout,
-					       &deadline);
+		ret = mtime_deadline_from_timespec(&timeout, &has_timeout,
+						   &deadline);
 		if (ret < 0)
 			return ret;
 	} else {
-		ret = sys_timespec_to_deadline(NULL, &has_timeout, &deadline);
+		ret = mtime_deadline_from_timespec(NULL, &has_timeout,
+						   &deadline);
 		if (ret < 0)
 			return ret;
 	}
