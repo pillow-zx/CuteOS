@@ -6,6 +6,7 @@
 #include <kernel/exit.h>
 #include <kernel/fork.h>
 #include <kernel/mm.h>
+#include <kernel/resource.h>
 #include <kernel/signal.h>
 #include <kernel/syscall.h>
 #include <uapi/sched.h>
@@ -58,12 +59,15 @@ ssize_t sys_wait4(struct trap_frame *tf)
 	long pid = (long)tf->a0;
 	int *wstatus = (int *)tf->a1;
 	int options = (int)tf->a2;
+	struct rusage *urusage = (struct rusage *)tf->a3;
 	struct wait4_result result = {0};
 	int ret;
 
 	if (pid != -1 && pid <= 0)
 		return -EINVAL;
 	if (wstatus && !access_ok(wstatus, sizeof(*wstatus)))
+		return -EFAULT;
+	if (urusage && !access_ok(urusage, sizeof(*urusage)))
 		return -EFAULT;
 
 	ret = kernel_wait4(pid, options, &result);
@@ -73,6 +77,14 @@ ssize_t sys_wait4(struct trap_frame *tf)
 	if (wstatus &&
 	    copy_to_user(wstatus, &result.status, sizeof(result.status)) != 0)
 		return -EFAULT;
+
+	if (urusage) {
+		struct rusage rusage;
+
+		cputime_rusage(&result.cputime, &rusage);
+		if (copy_to_user(urusage, &rusage, sizeof(rusage)) != 0)
+			return -EFAULT;
+	}
 
 	kernel_wait4_finish(&result);
 	return result.pid;

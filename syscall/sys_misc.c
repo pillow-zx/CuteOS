@@ -217,12 +217,15 @@ ssize_t sys_getrusage(struct trap_frame *tf)
 	struct rusage *uusage = (struct rusage *)tf->a1;
 	struct rusage usage;
 
-	if (who != RUSAGE_SELF)
+	if (who != RUSAGE_SELF && who != RUSAGE_CHILDREN)
 		return -EINVAL;
 	if (!uusage)
 		return -EFAULT;
 
-	task_rusage_self(current, &usage);
+	if (who == RUSAGE_SELF)
+		task_rusage_self(current, &usage);
+	else
+		task_rusage_children(current, &usage);
 	if (copy_to_user(uusage, &usage, sizeof(usage)) != 0)
 		return -EFAULT;
 

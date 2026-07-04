@@ -122,6 +122,7 @@ struct task_struct {
 	struct task_signal_context sigctx;
 	struct task_sched_entity sched;
 	struct task_cputime cputime;
+	struct task_cputime child_cputime;
 };
 
 static_assert(offsetof(struct task_struct, arch.kstack) == TASK_KSTACK,

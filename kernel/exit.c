@@ -39,6 +39,7 @@
 #include <kernel/list.h>
 #include <kernel/mm.h>
 #include <kernel/printk.h>
+#include <kernel/resource.h>
 #include <kernel/sched.h>
 #include <kernel/signal.h>
 #include <kernel/task.h>
@@ -362,6 +363,7 @@ int kernel_wait4(pid_t pid, int options, struct wait4_result *result)
 		int status = WEXITCODE(task_exit_code(child));
 
 		result->task = child;
+		task_cputime_total(child, &result->cputime);
 		result->pid = child_pid;
 		result->status = status;
 		return 0;
@@ -373,6 +375,7 @@ void kernel_wait4_finish(struct wait4_result *result)
 	if (!result || !result->task)
 		return;
 
+	task_add_child_time(current, &result->cputime);
 	release_task(result->task);
 	result->task = NULL;
 }

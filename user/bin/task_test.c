@@ -77,6 +77,42 @@ static int rusage_unsupported_zero(const struct rusage *usage)
 	       usage->ru_nvcsw == 0 && usage->ru_nivcsw == 0;
 }
 
+static long rusage_cpu_usec(const struct rusage *usage)
+{
+	return usage->ru_utime.tv_sec * 1000000L + usage->ru_utime.tv_usec +
+	       usage->ru_stime.tv_sec * 1000000L + usage->ru_stime.tv_usec;
+}
+
+static long tms_cpu_ticks(const struct tms *tm)
+{
+	return tm->tms_utime + tm->tms_stime;
+}
+
+static void child_burn_cpu(void)
+{
+	struct tms start;
+	struct tms now;
+	volatile long sink = 0;
+	long base;
+
+	if (times(&start) < 0)
+		exit(2);
+	base = tms_cpu_ticks(&start);
+
+	for (long i = 0; i < 20000000L; i++) {
+		sink += i;
+		if ((i & 0xffffL) != 0)
+			continue;
+		if (times(&now) < 0)
+			exit(2);
+		if (tms_cpu_ticks(&now) > base)
+			exit(0);
+	}
+
+	(void)sink;
+	exit(3);
+}
+
 static int test_getrusage_self(void)
 {
 	struct rusage usage;
@@ -105,9 +141,6 @@ static int test_getrusage_self(void)
 
 	failed += task_pid_expect_ret("getrusage null",
 				      getrusage(RUSAGE_SELF, NULL), -EFAULT);
-	failed += task_pid_expect_ret("getrusage children",
-				      getrusage(RUSAGE_CHILDREN, &usage),
-				      -EINVAL);
 	failed += task_pid_expect_ret("getrusage thread",
 				      getrusage(RUSAGE_THREAD, &usage),
 				      -EINVAL);
@@ -116,6 +149,107 @@ static int test_getrusage_self(void)
 				      -EINVAL);
 
 	return failed;
+}
+
+static int test_getrusage_children(void)
+{
+	struct rusage before;
+	struct rusage child;
+	struct rusage after;
+	long before_cpu;
+	long child_cpu;
+	long after_cpu;
+	long waited;
+	long pid;
+	int status = 0;
+	int failed = 0;
+
+	memset(&before, 0xff, sizeof(before));
+	failed += task_pid_expect_ret("getrusage children before",
+				      getrusage(RUSAGE_CHILDREN, &before), 0);
+	if (failed)
+		return failed;
+	before_cpu = rusage_cpu_usec(&before);
+
+	pid = fork();
+	if (pid < 0)
+		return task_pid_expect_ret("fork child usage", pid, 0);
+	if (pid == 0)
+		child_burn_cpu();
+
+	memset(&child, 0xff, sizeof(child));
+	waited = wait4(pid, &status, 0, &child);
+	if (waited != pid) {
+		printf("FAIL: wait4 rusage expected child %ld got %ld\n", pid,
+		       waited);
+		return 1;
+	}
+	if (status != 0) {
+		printf("FAIL: child usage status expected 0 got %d\n", status);
+		return 1;
+	}
+
+	child_cpu = rusage_cpu_usec(&child);
+	if (child_cpu <= 0) {
+		printf("FAIL: child cpu usage expected >0 got %ld\n",
+		       child_cpu);
+		failed++;
+	}
+	if (!rusage_unsupported_zero(&child)) {
+		printf("FAIL: child rusage unsupported fields not zero\n");
+		failed++;
+	}
+
+	memset(&after, 0xff, sizeof(after));
+	failed += task_pid_expect_ret("getrusage children after",
+				      getrusage(RUSAGE_CHILDREN, &after), 0);
+	if (failed)
+		return failed;
+
+	after_cpu = rusage_cpu_usec(&after);
+	if (after_cpu - before_cpu < child_cpu) {
+		printf("FAIL: children usage delta %ld smaller than child %ld\n",
+		       after_cpu - before_cpu, child_cpu);
+		failed++;
+	}
+	if (!rusage_unsupported_zero(&after)) {
+		printf("FAIL: children rusage unsupported fields not zero\n");
+		failed++;
+	}
+
+	return failed;
+}
+
+static int test_wait4_bad_rusage_preserves_child(void)
+{
+	int status = 0;
+	long waited;
+	long pid = fork();
+
+	if (pid < 0)
+		return task_pid_expect_ret("fork bad wait4 rusage", pid, 0);
+	if (pid == 0)
+		exit(9);
+
+	waited = wait4(pid, NULL, 0, (void *)~0UL);
+	if (waited != -EFAULT) {
+		printf("FAIL: wait4 bad rusage expected -EFAULT got %ld\n",
+		       waited);
+		return 1;
+	}
+
+	waited = wait4(pid, &status, 0, NULL);
+	if (waited != pid) {
+		printf("FAIL: wait4 after bad rusage expected %ld got %ld\n",
+		       pid, waited);
+		return 1;
+	}
+	if (status != (9 << 8)) {
+		printf("FAIL: wait4 after bad rusage status got %d\n", status);
+		return 1;
+	}
+
+	return 0;
 }
 
 /* Shared state between parent and child thread. */
@@ -508,6 +642,9 @@ int main(void)
 	report_group("wait any child", test_wait_any_child(), &failed);
 	report_group("pid error paths", test_pid_error_paths(), &failed);
 	report_group("getrusage self", test_getrusage_self(), &failed);
+	report_group("getrusage children", test_getrusage_children(), &failed);
+	report_group("wait4 bad rusage preserves child",
+		     test_wait4_bad_rusage_preserves_child(), &failed);
 	report_group("clone thread basic wake", test_basic_thread_wake(),
 		     &failed);
 	report_group("clone thread shared counter", test_shared_counter(),

@@ -25,6 +25,7 @@ void reap_exited_threads(void);
 
 struct wait4_result {
 	struct task_struct *task;
+	struct task_cputime cputime;
 	pid_t pid;
 	int status;
 };
