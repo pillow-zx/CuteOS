@@ -15,6 +15,7 @@
 
 static char mmap_file_data[PAGE_SIZE];
 static char mmap_file_readback[PAGE_SIZE];
+static char mmap_file_big_data[3 * PAGE_SIZE];
 
 static int write_full(int fd, const char *buf, size_t len)
 {
@@ -836,6 +837,140 @@ static int test_mremap_maymove_preserves_data(void)
 	return 0;
 }
 
+static int test_mremap_fixed_move_replaces_target(void)
+{
+	char *m;
+	char *target;
+	char *remapped;
+	unsigned char vec[2] = {0};
+	const size_t len = 2 * PAGE_SIZE;
+	void *base = (void *)0x42000000UL;
+	void *target_base = (void *)0x43000000UL;
+	long ret;
+
+	m = mmap(base, len, PROT_READ | PROT_WRITE,
+		 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+	if ((long)m < 0) {
+		printf("FAIL: fixed source mmap: %ld\n", (long)m);
+		return 1;
+	}
+
+	target = mmap(target_base, len, PROT_READ | PROT_WRITE,
+		      MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+	if ((long)target < 0) {
+		printf("FAIL: fixed target mmap: %ld\n", (long)target);
+		munmap(m, len);
+		return 1;
+	}
+
+	m[0] = 0x61;
+	m[PAGE_SIZE] = 0x72;
+	target[0] = 0x33;
+
+	remapped = mremap(m, len, len, MREMAP_MAYMOVE | MREMAP_FIXED,
+			  target_base);
+	if ((long)remapped < 0) {
+		printf("FAIL: mremap fixed move: %ld\n", (long)remapped);
+		munmap(target, len);
+		munmap(m, len);
+		return 1;
+	}
+	if (remapped != target || target[0] != 0x61 ||
+	    target[PAGE_SIZE] != 0x72) {
+		printf("FAIL: mremap fixed move data/target mismatch\n");
+		munmap(target, len);
+		return 1;
+	}
+
+	ret = mincore(m, len, vec);
+	if (ret != -12) {
+		printf("FAIL: mremap fixed old range mincore=%ld\n", ret);
+		munmap(target, len);
+		return 1;
+	}
+
+	munmap(target, len);
+	return 0;
+}
+
+static int test_mremap_file_subrange_keeps_offset(void)
+{
+	char *m;
+	char *blocker;
+	char *remapped;
+	const size_t map_len = 2 * PAGE_SIZE;
+	const size_t old_len = PAGE_SIZE;
+	const size_t new_len = 2 * PAGE_SIZE;
+	void *base = (void *)0x44000000UL;
+	int fd;
+
+	for (size_t i = 0; i < PAGE_SIZE; i++) {
+		mmap_file_big_data[i] = (char)0x11;
+		mmap_file_big_data[PAGE_SIZE + i] = (char)0x22;
+		mmap_file_big_data[2 * PAGE_SIZE + i] = (char)0x33;
+	}
+	if (create_mmap_test_file(mmap_file_big_data,
+				  sizeof(mmap_file_big_data)) < 0)
+		return 1;
+
+	fd = openat(AT_FDCWD, MMAP_TEST_FILE, O_RDONLY, 0);
+	if (fd < 0) {
+		printf("FAIL: open file subrange mremap file: %d\n", fd);
+		return 1;
+	}
+
+	m = mmap(base, map_len, PROT_READ, MAP_PRIVATE | MAP_FIXED, fd, 0);
+	close(fd);
+	if ((long)m < 0) {
+		printf("FAIL: file subrange mmap: %ld\n", (long)m);
+		return 1;
+	}
+
+	blocker = mmap(m + map_len, PAGE_SIZE, PROT_READ | PROT_WRITE,
+		       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+	if ((long)blocker < 0) {
+		printf("FAIL: file subrange blocker mmap: %ld\n",
+		       (long)blocker);
+		munmap(m, map_len);
+		return 1;
+	}
+
+	remapped = mremap(m + PAGE_SIZE, old_len, new_len, MREMAP_MAYMOVE,
+			  NULL);
+	if ((long)remapped < 0) {
+		printf("FAIL: file subrange mremap: %ld\n", (long)remapped);
+		munmap(blocker, PAGE_SIZE);
+		munmap(m, map_len);
+		return 1;
+	}
+	if (remapped == m + PAGE_SIZE) {
+		printf("FAIL: file subrange mremap did not move\n");
+		munmap(remapped, new_len);
+		munmap(blocker, PAGE_SIZE);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+	if (remapped[0] != 0x22 || remapped[PAGE_SIZE] != 0x33) {
+		printf("FAIL: file subrange mremap offset mismatch\n");
+		munmap(remapped, new_len);
+		munmap(blocker, PAGE_SIZE);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+	if (m[0] != 0x11) {
+		printf("FAIL: file subrange mremap damaged prefix\n");
+		munmap(remapped, new_len);
+		munmap(blocker, PAGE_SIZE);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	munmap(remapped, new_len);
+	munmap(blocker, PAGE_SIZE);
+	munmap(m, PAGE_SIZE);
+	return 0;
+}
+
 static int test_msync_anon(void)
 {
 	char *m;
@@ -1168,6 +1303,10 @@ int main(void)
 		     test_mremap_grow_anon_fixed(), &failed);
 	report_group("mremap maymove preserves data",
 		     test_mremap_maymove_preserves_data(), &failed);
+	report_group("mremap fixed move replaces target",
+		     test_mremap_fixed_move_replaces_target(), &failed);
+	report_group("mremap file subrange keeps offset",
+		     test_mremap_file_subrange_keeps_offset(), &failed);
 	report_group("msync anonymous", test_msync_anon(), &failed);
 	report_group("mmap shared file read", test_mmap_shared_file_read(),
 		     &failed);

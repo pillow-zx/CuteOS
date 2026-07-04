@@ -162,7 +162,7 @@ static void release_task_mm(struct task_struct *task)
 	task_set_satp(task, 0);
 
 	if (task == current) {
-		csr_write(satp, arch_kernel_satp());
+		csr_write(satp, kernel_satp());
 		arch_tlb_flush_all();
 	}
 

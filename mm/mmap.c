@@ -364,13 +364,22 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 
 			pte_t perm = *pte & (PTE_V | PTE_R | PTE_W | PTE_X |
 					     PTE_U | PTE_A | PTE_D | PTE_G);
+			pte_t install_perm = perm | PTE_V;
 			int ret = map_page(newmm->pgd, va,
-					   __pa((uintptr_t)new_page), perm);
+					   __pa((uintptr_t)new_page),
+					   install_perm);
 			if (ret < 0) {
 				free_page(new_page, 0);
 				mm_unlock(oldmm);
 				mm_destroy(newmm);
 				return NULL;
+			}
+			if (install_perm != perm) {
+				pte_t *new_pte = arch_pt_lookup(newmm->pgd, va);
+
+				BUG_ON(!new_pte);
+				*new_pte = PA_TO_PTE(__pa((uintptr_t)new_page)) |
+					   perm;
 			}
 		}
 	}
@@ -408,7 +417,7 @@ pte_t *mm_create_user_pgd(void)
 
 	/* 2. 复制内核高地址映射（PGD[256-511]）
 	 *    确保 trap 进内核后内核代码/数据仍可访问 */
-	kern_root = arch_current_pt();
+	kern_root = current_pt();
 	for (int i = 256; i < 512; i++)
 		user_pgd[i] = kern_root[i];
 
@@ -758,39 +767,60 @@ out:
 	return ret;
 }
 
-static ssize_t mremap_move_locked(struct mm_struct *mm,
-				  const struct vm_area_struct *old_vma,
-				  uintptr_t old_addr, uintptr_t old_end,
-				  size_t old_len, size_t new_len)
+static ssize_t __must_check __nonnull(1, 2)
+mremap_move_locked(struct mm_struct *mm, const struct vm_area_struct *old_vma,
+		   uintptr_t old_addr, uintptr_t old_end, size_t old_len,
+		   size_t new_len, uintptr_t fixed_addr, bool fixed)
 {
+	struct vm_area_struct new_template;
 	struct vm_area_struct *new_vma;
 	uintptr_t new_start;
 	uintptr_t new_end;
+	size_t move_len = MIN(old_len, new_len);
 	int ret;
+
+	if (fixed) {
+		new_start = fixed_addr;
+	} else {
+		new_start = find_unmapped_area(mm, new_len);
+		if (!new_start)
+			return -ENOMEM;
+	}
+
+	ret = mm_range_end_page_aligned(new_start, new_len, &new_end);
+	if (ret < 0)
+		return ret;
+	if (new_end > USER_STACK_BASE ||
+	    user_map_reserved_overlaps(new_start, new_end))
+		return -EINVAL;
+	if (old_addr < new_end && new_start < old_end)
+		return -EINVAL;
+
+	new_template = *old_vma;
+	new_template.vm_start = new_start;
+	new_template.vm_end = new_end;
+	if (new_template.vm_file)
+		new_template.vm_offset = vma_offset_at(old_vma, old_addr);
+
+	if (fixed) {
+		ret = mm_unmap_range_locked(mm, new_start, new_end);
+		if (ret < 0)
+			return ret;
+	}
 
 	if (vma_munmap_slots_needed(mm, old_addr, old_end) + 1 >
 	    vma_free_slot_count(mm))
 		return -ENOMEM;
 
-	new_start = find_unmapped_area(mm, new_len);
-	if (!new_start)
-		return -ENOMEM;
-
-	ret = mm_range_end_page_aligned(new_start, new_len, &new_end);
-	if (ret < 0)
-		return ret;
-
 	new_vma = vma_alloc_slot(mm);
 	if (!new_vma)
 		return -ENOMEM;
 
-	*new_vma = *old_vma;
+	*new_vma = new_template;
 	if (new_vma->vm_file)
 		file_get(new_vma->vm_file);
-	new_vma->vm_start = new_start;
-	new_vma->vm_end = new_end;
 
-	ret = mm_move_user_pages_locked(mm, old_addr, new_start, old_len);
+	ret = mm_move_user_pages_locked(mm, old_addr, new_start, move_len);
 	if (ret < 0) {
 		vma_free_slot(new_vma);
 		return ret;
@@ -819,8 +849,6 @@ ssize_t mm_mremap(struct mm_struct *mm, uintptr_t old_addr, size_t old_size,
 	struct vm_area_struct *vma;
 	int ret;
 
-	(void)new_addr;
-
 	if (!mm)
 		return -EINVAL;
 	if (old_addr & (PAGE_SIZE - 1))
@@ -829,7 +857,12 @@ ssize_t mm_mremap(struct mm_struct *mm, uintptr_t old_addr, size_t old_size,
 		return -EINVAL;
 	if (flags & ~(MREMAP_MAYMOVE | MREMAP_FIXED | MREMAP_DONTUNMAP))
 		return -EINVAL;
-	if (flags & (MREMAP_FIXED | MREMAP_DONTUNMAP))
+	if (flags & MREMAP_DONTUNMAP)
+		return -EINVAL;
+	if ((flags & MREMAP_FIXED) && !(flags & MREMAP_MAYMOVE))
+		return -EINVAL;
+	if ((flags & MREMAP_FIXED) &&
+	    (new_addr == 0 || (new_addr & (PAGE_SIZE - 1))))
 		return -EINVAL;
 
 	ret = mm_range_end_page_aligned(old_addr, old_size, &old_end);
@@ -852,6 +885,12 @@ ssize_t mm_mremap(struct mm_struct *mm, uintptr_t old_addr, size_t old_size,
 		goto out;
 	}
 
+	if (flags & MREMAP_FIXED) {
+		ret = mremap_move_locked(mm, vma, old_addr, old_end, old_len,
+					 new_len, new_addr, true);
+		goto out;
+	}
+
 	if (new_len == old_len) {
 		ret = (ssize_t)old_addr;
 		goto out;
@@ -870,7 +909,7 @@ ssize_t mm_mremap(struct mm_struct *mm, uintptr_t old_addr, size_t old_size,
 			goto out;
 		}
 		ret = mremap_move_locked(mm, vma, old_addr, old_end, old_len,
-					 new_len);
+					 new_len, 0, false);
 		goto out;
 	}
 	if (new_end > USER_STACK_BASE ||
@@ -881,7 +920,7 @@ ssize_t mm_mremap(struct mm_struct *mm, uintptr_t old_addr, size_t old_size,
 			goto out;
 		}
 		ret = mremap_move_locked(mm, vma, old_addr, old_end, old_len,
-					 new_len);
+					 new_len, 0, false);
 		goto out;
 	}
 

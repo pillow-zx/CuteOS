@@ -1,19 +1,25 @@
 #include <kernel/errno.h>
 #include <kernel/buddy.h>
+#include <kernel/blkdev.h>
 #include <kernel/fdtable.h>
 #include <kernel/fs.h>
 #include <kernel/mm.h>
 #include <kernel/syscall.h>
 #include <kernel/test.h>
+#include <kernel/vmalloc.h>
 #include <kernel/vfs.h>
 #include <asm/page.h>
 #include <asm/pte.h>
 
+#include "../fs/ext2/ext2.h"
 #include "../mm/internal.h"
 
 #define MM_TEST_BASE 0x00400000UL
 #define MM_TEST_GAP  0x00100000UL
 #define MM_TEST_FILE "/mm_exec_text_test"
+#define MM_MSYNC_TEST_FILE "/mm_msync_shared_test"
+#define MM_TEST_VMALLOC_SIZE (128UL << 20)
+#define MM_TEST_VMALLOC_L0_SIZE (512UL * PAGE_SIZE)
 
 struct vma_snapshot {
 	bool found;
@@ -26,6 +32,243 @@ struct vma_snapshot {
 static struct mm_struct *mm_test_alloc(void)
 {
 	return mm_create_user();
+}
+
+static int mm_test_read_raw_file_page(struct file *file, uint32_t index,
+				      uint8_t *buf)
+{
+	struct block_device *bdev;
+	uint32_t pblock;
+
+	if (!file || !file->f_inode || !buf)
+		return -EINVAL;
+
+	pblock = ext2_bmap(file->f_inode, index, false);
+	if (!pblock)
+		return -ENOENT;
+
+	bdev = lookup_block_device(file->f_inode->i_sb->s_dev);
+	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->read_sectors)
+		return -ENXIO;
+
+	return bdev->bd_ops->read_sectors(bdev, buf, pblock * BLOCK_SECTORS,
+					  BLOCK_SECTORS);
+}
+
+void test_vmalloc_alloc_writable_pages(void)
+{
+	void *ptr = NULL;
+	uintptr_t va;
+	uintptr_t vmalloc_start;
+	uintptr_t vmalloc_end;
+	pte_t *pte0;
+	pte_t *pte1;
+
+	TEST_BEGIN("vmalloc: alloc writable pages");
+	{
+		vmalloc_start = ALIGN_UP(KERNEL_VBASE + DRAM_BASE + DRAM_SIZE,
+					 PAGE_SIZE);
+		vmalloc_end = vmalloc_start + MM_TEST_VMALLOC_SIZE;
+
+		ptr = vmalloc(PAGE_SIZE + 1);
+		TEST_ASSERT_NOT_NULL(ptr);
+		TEST_ASSERT_ALIGNED(ptr, PAGE_SIZE);
+
+		va = (uintptr_t)ptr;
+		TEST_ASSERT(va >= vmalloc_start);
+		TEST_ASSERT(va + 2 * PAGE_SIZE <= vmalloc_end);
+
+		((uint8_t *)ptr)[0] = 0x5a;
+		((uint8_t *)ptr)[PAGE_SIZE] = 0xa5;
+		TEST_ASSERT(((uint8_t *)ptr)[0] == 0x5a);
+		TEST_ASSERT(((uint8_t *)ptr)[PAGE_SIZE] == 0xa5);
+
+		pte0 = arch_pt_lookup_current(va);
+		pte1 = arch_pt_lookup_current(va + PAGE_SIZE);
+		TEST_ASSERT_NOT_NULL(pte0);
+		TEST_ASSERT_NOT_NULL(pte1);
+		TEST_ASSERT((*pte0 & PTE_V) != 0);
+		TEST_ASSERT((*pte1 & PTE_V) != 0);
+		TEST_ASSERT((*pte0 & PTE_U) == 0);
+		TEST_ASSERT((*pte1 & PTE_U) == 0);
+		TEST_ASSERT((*pte0 & PTE_X) == 0);
+		TEST_ASSERT((*pte1 & PTE_X) == 0);
+
+		vfree(ptr);
+		ptr = NULL;
+	}
+	TEST_END("vmalloc: alloc writable pages");
+	return;
+fail:
+	if (ptr)
+		vfree(ptr);
+	TEST_FAIL("vmalloc: alloc writable pages", "see above");
+}
+
+void test_vmalloc_vfree_reuses_range(void)
+{
+	void *warm = NULL;
+	void *first = NULL;
+	void *second = NULL;
+	uintptr_t first_addr = 0;
+	size_t free_before;
+
+	TEST_BEGIN("vmalloc: vfree reuses range");
+	{
+		warm = vmalloc(PAGE_SIZE);
+		TEST_ASSERT_NOT_NULL(warm);
+		vfree(warm);
+		warm = NULL;
+
+		free_before = buddy_free_pages();
+		first = vmalloc(2 * PAGE_SIZE);
+		TEST_ASSERT_NOT_NULL(first);
+		TEST_ASSERT_EQ(buddy_free_pages(), free_before - 2);
+		first_addr = (uintptr_t)first;
+
+		vfree(first);
+		first = NULL;
+		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
+
+		second = vmalloc(2 * PAGE_SIZE);
+		TEST_ASSERT_NOT_NULL(second);
+		TEST_ASSERT_EQ((uintptr_t)second, first_addr);
+
+		vfree(second);
+		second = NULL;
+		first = NULL;
+	}
+	TEST_END("vmalloc: vfree reuses range");
+	return;
+fail:
+	if (warm)
+		vfree(warm);
+	if (first && first != second)
+		vfree(first);
+	if (second)
+		vfree(second);
+	TEST_FAIL("vmalloc: vfree reuses range", "see above");
+}
+
+void test_vmalloc_free_merges_adjacent_ranges(void)
+{
+	void *a = NULL;
+	void *b = NULL;
+	void *c = NULL;
+	void *merged = NULL;
+	uintptr_t a_addr;
+
+	TEST_BEGIN("vmalloc: free merges adjacent ranges");
+	{
+		a = vmalloc(PAGE_SIZE);
+		b = vmalloc(PAGE_SIZE);
+		c = vmalloc(PAGE_SIZE);
+		TEST_ASSERT_NOT_NULL(a);
+		TEST_ASSERT_NOT_NULL(b);
+		TEST_ASSERT_NOT_NULL(c);
+		a_addr = (uintptr_t)a;
+
+		vfree(a);
+		a = NULL;
+		vfree(b);
+		b = NULL;
+
+		merged = vmalloc(2 * PAGE_SIZE);
+		TEST_ASSERT_NOT_NULL(merged);
+		TEST_ASSERT_EQ((uintptr_t)merged, a_addr);
+
+		vfree(merged);
+		merged = NULL;
+		vfree(c);
+		c = NULL;
+	}
+	TEST_END("vmalloc: free merges adjacent ranges");
+	return;
+fail:
+	if (a)
+		vfree(a);
+	if (b)
+		vfree(b);
+	if (c)
+		vfree(c);
+	if (merged)
+		vfree(merged);
+	TEST_FAIL("vmalloc: free merges adjacent ranges", "see above");
+}
+
+void test_vmalloc_mapping_failure_rolls_back(void)
+{
+	void *marker = NULL;
+	void *padding = NULL;
+	void *prefix = NULL;
+	void *probe = NULL;
+	size_t prefix_size = MM_TEST_VMALLOC_L0_SIZE - PAGE_SIZE;
+	size_t padding_size;
+	uintptr_t cursor;
+	size_t free_before;
+	uintptr_t failed_start;
+	pte_t *pte;
+
+	TEST_BEGIN("vmalloc: mapping failure rolls back");
+	{
+		marker = vmalloc(PAGE_SIZE);
+		TEST_ASSERT_NOT_NULL(marker);
+		cursor = (uintptr_t)marker;
+		vfree(marker);
+		marker = NULL;
+
+		padding_size =
+			ALIGN_UP(cursor, MM_TEST_VMALLOC_L0_SIZE) - cursor;
+		if (padding_size) {
+			padding = vmalloc(padding_size);
+			TEST_ASSERT_NOT_NULL(padding);
+			TEST_ASSERT_EQ((uintptr_t)padding, cursor);
+		}
+
+		prefix = vmalloc(prefix_size);
+		TEST_ASSERT_NOT_NULL(prefix);
+		TEST_ASSERT_ALIGNED(prefix, MM_TEST_VMALLOC_L0_SIZE);
+
+		failed_start = (uintptr_t)prefix + prefix_size;
+		free_before = buddy_free_pages();
+
+		arch_pt_test_fail_alloc_after(0);
+		TEST_ASSERT_NULL(vmalloc(2 * PAGE_SIZE));
+		arch_pt_test_clear_alloc_failure();
+
+		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
+		pte = arch_pt_lookup_current(failed_start);
+		TEST_ASSERT_NOT_NULL(pte);
+		TEST_ASSERT((*pte & PTE_V) == 0);
+		TEST_ASSERT_NULL(
+			arch_pt_lookup_current(failed_start + PAGE_SIZE));
+
+		probe = vmalloc(3 * PAGE_SIZE);
+		TEST_ASSERT_NOT_NULL(probe);
+		TEST_ASSERT_EQ((uintptr_t)probe, failed_start);
+
+		vfree(probe);
+		probe = NULL;
+		vfree(prefix);
+		prefix = NULL;
+		if (padding) {
+			vfree(padding);
+			padding = NULL;
+		}
+	}
+	TEST_END("vmalloc: mapping failure rolls back");
+	return;
+fail:
+	arch_pt_test_clear_alloc_failure();
+	if (probe)
+		vfree(probe);
+	if (prefix)
+		vfree(prefix);
+	if (padding)
+		vfree(padding);
+	if (marker)
+		vfree(marker);
+	TEST_FAIL("vmalloc: mapping failure rolls back", "see above");
 }
 
 void test_map_page_first_table_oom_rolls_back(void)
@@ -603,6 +846,81 @@ cleanup:
 		mm_destroy(mm);
 }
 
+void test_mm_msync_shared_mapping_writes_back(void)
+{
+	static uint8_t initial[PAGE_SIZE];
+	static uint8_t raw[PAGE_SIZE];
+	struct mm_struct *mm = NULL;
+	struct file *file = NULL;
+	uintptr_t base = MM_TEST_BASE + 11 * MM_TEST_GAP;
+	int fd = -1;
+
+	(void)vfs_unlink_at_path(NULL, MM_MSYNC_TEST_FILE, 0);
+
+	TEST_BEGIN("mm: msync shared mapping writes back");
+	{
+		pte_t *pte;
+		uint8_t *mapped;
+
+		for (size_t i = 0; i < sizeof(initial); i++)
+			initial[i] = (uint8_t)(0x31 + (i & 0x1f));
+
+		fd = vfs_open(MM_MSYNC_TEST_FILE,
+			      O_RDWR | O_CREAT | O_TRUNC, 0644);
+		TEST_ASSERT(fd >= 0);
+		file = fd_get(fd);
+		TEST_ASSERT_NOT_NULL(file);
+		TEST_ASSERT_EQ(vfs_write(file, (const char *)initial,
+					 sizeof(initial)),
+			       (ssize_t)sizeof(initial));
+		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
+
+		memset(raw, 0, sizeof(raw));
+		TEST_ASSERT_EQ(mm_test_read_raw_file_page(file, 0, raw), 0);
+		TEST_ASSERT_EQ(memcmp(raw, initial, sizeof(raw)), 0);
+
+		mm = mm_test_alloc();
+		TEST_ASSERT_NOT_NULL(mm);
+		TEST_ASSERT_EQ(mm_mmap_file(mm, base, PAGE_SIZE,
+					    PROT_READ | PROT_WRITE,
+					    MAP_SHARED | MAP_FIXED, fd, 0),
+			       (ssize_t)base);
+		TEST_ASSERT_EQ(fault_in_user_range(mm, base, PAGE_SIZE,
+						   USER_FAULT_WRITE),
+			       0);
+
+		pte = arch_pt_walk(mm->pgd, base, false);
+		TEST_ASSERT(pte && pte_user_page(*pte));
+		mapped = (uint8_t *)__va(pte_to_pa(*pte));
+		mapped[17] = 0x6a;
+		mapped[PAGE_SIZE - 19] = 0x7b;
+
+		memset(raw, 0, sizeof(raw));
+		TEST_ASSERT_EQ(mm_test_read_raw_file_page(file, 0, raw), 0);
+		TEST_ASSERT_NE(raw[17], 0x6a);
+		TEST_ASSERT_NE(raw[PAGE_SIZE - 19], 0x7b);
+
+		TEST_ASSERT_EQ(mm_msync(mm, base, PAGE_SIZE, MS_SYNC), 0);
+
+		memset(raw, 0, sizeof(raw));
+		TEST_ASSERT_EQ(mm_test_read_raw_file_page(file, 0, raw), 0);
+		TEST_ASSERT_EQ(raw[17], 0x6a);
+		TEST_ASSERT_EQ(raw[PAGE_SIZE - 19], 0x7b);
+	}
+	TEST_END("mm: msync shared mapping writes back");
+	goto cleanup;
+fail:
+	TEST_FAIL("mm: msync shared mapping writes back", "see above");
+cleanup:
+	if (mm)
+		mm_destroy(mm);
+	if (file)
+		file_put(file);
+	if (fd >= 0)
+		fd_close(fd);
+	(void)vfs_unlink_at_path(NULL, MM_MSYNC_TEST_FILE, 0);
+}
+
 void test_mm_exec_file_segment_faults_lazily(void)
 {
 	static char page_data[PAGE_SIZE];
@@ -628,7 +946,7 @@ void test_mm_exec_file_segment_faults_lazily(void)
 
 		mm = mm_test_alloc();
 		TEST_ASSERT_NOT_NULL(mm);
-		TEST_ASSERT_EQ(mm_exec_map_file_segment(
+		TEST_ASSERT_EQ(mm_map_file_segment(
 				       mm, file, base, base + PAGE_SIZE,
 				       PROT_READ | PROT_EXEC, 0),
 			       0);
@@ -681,7 +999,7 @@ void test_mm_exec_file_segment_zero_fills_tail(void)
 
 		mm = mm_test_alloc();
 		TEST_ASSERT_NOT_NULL(mm);
-		TEST_ASSERT_EQ(mm_exec_map_file_segment(mm, file, base, end,
+		TEST_ASSERT_EQ(mm_map_file_segment(mm, file, base, end,
 							PROT_READ | PROT_EXEC,
 							0),
 			       0);
@@ -738,7 +1056,7 @@ void test_mm_exec_file_segment_split_keeps_offset(void)
 
 		mm = mm_test_alloc();
 		TEST_ASSERT_NOT_NULL(mm);
-		TEST_ASSERT_EQ(mm_exec_map_file_segment(
+		TEST_ASSERT_EQ(mm_map_file_segment(
 				       mm, file, start, start + 2 * PAGE_SIZE,
 				       PROT_READ | PROT_EXEC, 128),
 			       0);
@@ -798,7 +1116,7 @@ void test_mm_exec_file_segment_trim_keeps_offset(void)
 
 		mm = mm_test_alloc();
 		TEST_ASSERT_NOT_NULL(mm);
-		TEST_ASSERT_EQ(mm_exec_map_file_segment(
+		TEST_ASSERT_EQ(mm_map_file_segment(
 				       mm, file, start, start + 2 * PAGE_SIZE,
 				       PROT_READ | PROT_EXEC, 128),
 			       0);
@@ -849,11 +1167,11 @@ void test_mm_exec_file_segment_merge_requires_contiguous_offset(void)
 
 		mm = mm_test_alloc();
 		TEST_ASSERT_NOT_NULL(mm);
-		TEST_ASSERT_EQ(mm_exec_map_file_segment(
+		TEST_ASSERT_EQ(mm_map_file_segment(
 				       mm, file, base + 128, base + PAGE_SIZE,
 				       PROT_READ | PROT_EXEC, 128),
 			       0);
-		TEST_ASSERT_EQ(mm_exec_map_file_segment(
+		TEST_ASSERT_EQ(mm_map_file_segment(
 				       mm, file, base + PAGE_SIZE,
 				       base + PAGE_SIZE + 128,
 				       PROT_READ | PROT_EXEC, PAGE_SIZE),
@@ -862,7 +1180,7 @@ void test_mm_exec_file_segment_merge_requires_contiguous_offset(void)
 		TEST_ASSERT_EQ(mm_test_count_type(mm, VMA_CODE), 1);
 
 		TEST_ASSERT_EQ(
-			mm_exec_map_file_segment(mm, file, base + 2 * PAGE_SIZE,
+			mm_map_file_segment(mm, file, base + 2 * PAGE_SIZE,
 						 base + 3 * PAGE_SIZE,
 						 PROT_READ | PROT_EXEC, 0),
 			0);

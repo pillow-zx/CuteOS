@@ -101,7 +101,8 @@ int __must_check __nonnull(1) map_page(pte_t *root, uintptr_t va,
  */
 void arch_pt_use_buddy(void);
 
-pte_t *__must_check arch_current_pt(void);
+pte_t *__must_check current_pt(void);
+pte_t *__must_check kernel_pt(void);
 
 /*
  * arch_kernel_satp - 返回全局内核页表的 satp 值
@@ -109,7 +110,7 @@ pte_t *__must_check arch_current_pt(void);
  * 退出当前用户进程并销毁其 mm 之前，必须切回此页表，避免释放当前
  * satp 正在引用的用户 root page table 后继续执行。
  */
-uintptr_t __must_check arch_kernel_satp(void);
+uintptr_t __must_check kernel_satp(void);
 
 /*
  * arch_pt_lookup - 遍历 Sv39 三级页表，返回叶子 PTE 指针

@@ -6,6 +6,7 @@
 #include <kernel/printk.h>
 #include <kernel/slab.h>
 #include <kernel/statfs.h>
+#include <kernel/vmalloc.h>
 #include <kernel/vfs.h>
 
 #define EXT2_ROOT_DEV MKDEV(8, 0)
@@ -45,7 +46,7 @@ static void ext2_free_sbi(struct ext2_sb_info *sbi)
 	if (!sbi)
 		return;
 
-	kfree(sbi->s_group_desc);
+	vfree(sbi->s_group_desc);
 	kfree(sbi);
 }
 
@@ -104,10 +105,7 @@ static int ext2_read_bgdt(struct super_block *sb)
 	uint32_t first_block = EXT2_BGDT_BLOCK(sbi->s_first_data_block);
 	uint8_t *dst;
 
-	if (bytes > 2048)
-		return -ENOMEM;
-
-	sbi->s_group_desc = kmalloc(bytes);
+	sbi->s_group_desc = vmalloc(bytes);
 	if (!sbi->s_group_desc)
 		return -ENOMEM;
 
@@ -120,7 +118,7 @@ static int ext2_read_bgdt(struct super_block *sb)
 		uint32_t copy = bytes - block * BLOCK_SIZE;
 
 		if (!page) {
-			kfree(sbi->s_group_desc);
+			vfree(sbi->s_group_desc);
 			sbi->s_group_desc = NULL;
 			return -EIO;
 		}

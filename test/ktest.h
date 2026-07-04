@@ -122,6 +122,7 @@ void test_mm_vma_mprotect_split_merge(void);
 void test_mm_vma_mprotect_enospc_preserves_layout(void);
 void test_mm_madvise_supported_hints_are_noop(void);
 void test_mm_move_user_pages_preserves_resident_page(void);
+void test_mm_msync_shared_mapping_writes_back(void);
 void test_mm_exec_file_segment_faults_lazily(void);
 void test_mm_exec_file_segment_zero_fills_tail(void);
 void test_mm_exec_file_segment_split_keeps_offset(void);
@@ -129,6 +130,10 @@ void test_mm_exec_file_segment_trim_keeps_offset(void);
 void test_mm_exec_file_segment_merge_requires_contiguous_offset(void);
 void test_map_page_first_table_oom_rolls_back(void);
 void test_map_page_second_table_oom_rolls_back(void);
+void test_vmalloc_alloc_writable_pages(void);
+void test_vmalloc_vfree_reuses_range(void);
+void test_vmalloc_free_merges_adjacent_ranges(void);
+void test_vmalloc_mapping_failure_rolls_back(void);
 
 /* ================================================================
  *  Task 管理测试
@@ -233,5 +238,6 @@ void test_fs_at_lookup_nofollow_on_dir(void);
 void test_fs_at_non_directory_parent_error(void);
 void test_fs_at_openat_regular_file(void);
 void test_fs_mount_ext2_on_directory(void);
+void test_ext2_bgdt_uses_vmalloc_for_large_tables(void);
 
 #endif

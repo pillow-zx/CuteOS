@@ -509,7 +509,7 @@ static void flush_old_exec(struct mm_struct *oldmm)
 	if (!oldmm)
 		return;
 
-	csr_write(satp, arch_kernel_satp());
+	csr_write(satp, kernel_satp());
 	arch_tlb_flush_all();
 	mm_put(oldmm);
 }

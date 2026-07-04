@@ -144,6 +144,7 @@ void kernel_test(void)
 	test_mm_vma_mprotect_enospc_preserves_layout();
 	test_mm_madvise_supported_hints_are_noop();
 	test_mm_move_user_pages_preserves_resident_page();
+	test_mm_msync_shared_mapping_writes_back();
 	test_mm_exec_file_segment_faults_lazily();
 	test_mm_exec_file_segment_zero_fills_tail();
 	test_mm_exec_file_segment_split_keeps_offset();
@@ -151,6 +152,10 @@ void kernel_test(void)
 	test_mm_exec_file_segment_merge_requires_contiguous_offset();
 	test_map_page_first_table_oom_rolls_back();
 	test_map_page_second_table_oom_rolls_back();
+	test_vmalloc_alloc_writable_pages();
+	test_vmalloc_vfree_reuses_range();
+	test_vmalloc_free_merges_adjacent_ranges();
+	test_vmalloc_mapping_failure_rolls_back();
 
 	/* ---- Task ---- */
 	TEST_SECTION("Task");
@@ -194,6 +199,7 @@ void kernel_test(void)
 	test_fs_at_non_directory_parent_error();
 	test_fs_at_openat_regular_file();
 	test_fs_mount_ext2_on_directory();
+	test_ext2_bgdt_uses_vmalloc_for_large_tables();
 
 	/* ---- Sched ---- */
 	TEST_SECTION("Sched");

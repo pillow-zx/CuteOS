@@ -18,7 +18,7 @@
  */
 typedef void *(*page_alloc_fn)(void);
 static page_alloc_fn pt_alloc;
-static uintptr_t kernel_satp_val;
+static uintptr_t ksatp_val;
 
 #ifdef CONFIG_KERNEL_TEST
 static int32_t pt_alloc_fail_after = -1;
@@ -215,7 +215,12 @@ int map_page(pte_t *root, vaddr_t va, paddr_t pa, uint64_t perm)
 	return 0;
 }
 
-pte_t *arch_current_pt(void)
+uintptr_t kernel_satp(void)
+{
+	return ksatp_val;
+}
+
+pte_t *current_pt(void)
 {
 	uintptr_t satp_val = csr_read(satp);
 	uintptr_t root_pa = (satp_val & SATP_PPN_MASK) << PAGE_SHIFT;
@@ -223,14 +228,17 @@ pte_t *arch_current_pt(void)
 	return (pte_t *)__va(root_pa);
 }
 
-uintptr_t arch_kernel_satp(void)
+pte_t *kernel_pt(void)
 {
-	return kernel_satp_val;
+	uintptr_t satp_val = kernel_satp();
+	uintptr_t root_pa = (satp_val & SATP_PPN_MASK) << PAGE_SHIFT;
+
+	return (pte_t *)__va(root_pa);
 }
 
 pte_t *arch_pt_lookup_current(uintptr_t va)
 {
-	return arch_pt_lookup(arch_current_pt(), va);
+	return arch_pt_lookup(current_pt(), va);
 }
 
 void arch_pt_write_current(uintptr_t va, uintptr_t pa, pte_t perm)
@@ -298,7 +306,7 @@ void arch_pt_init(void)
 	/* 5. 切换到新页表 */
 	paddr_t root_pa = __pa((uintptr_t)root);
 	uintptr_t satp_val = SATP_MODE_SV39 | (root_pa >> PAGE_SHIFT);
-	kernel_satp_val = satp_val;
+	ksatp_val = satp_val;
 
 	csr_write(satp, satp_val);
 	arch_tlb_flush_all();

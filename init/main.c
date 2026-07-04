@@ -41,6 +41,7 @@
 #include <kernel/syscall.h>
 #include <kernel/signal.h>
 #include <kernel/user_map.h>
+#include <kernel/vmalloc.h>
 #include <kernel/vfs.h>
 #include <drivers/console.h>
 #include <drivers/virtio_blk.h>
@@ -79,6 +80,7 @@ void kernel_main(void)
 	buddy_init();
 	arch_pt_use_buddy();
 	slab_init();
+	vmalloc_init();
 	arch_user_map_init();
 	BUG_ON(user_map_reserve("stack_guard", USER_STACK_GUARD_BASE,
 				USER_STACK_BASE) < 0);

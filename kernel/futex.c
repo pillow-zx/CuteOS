@@ -244,12 +244,12 @@ void futex_exit_robust_list(struct task_struct *task)
 	entry = head.list.next;
 	for (int i = 0;
 	     entry && entry != &head_ptr->list && i < ROBUST_LIST_LIMIT; i++) {
-		struct robust_list current;
+		struct robust_list current_rb;
 
 		robust_wake_owner(task, entry, head.futex_offset);
-		if (copy_from_user(&current, entry, sizeof(current)) != 0)
+		if (copy_from_user(&current_rb, entry, sizeof(current_rb)) != 0)
 			break;
-		entry = current.next;
+		entry = current_rb.next;
 	}
 
 	pending = head.list_op_pending;

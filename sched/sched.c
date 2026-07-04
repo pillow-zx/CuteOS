@@ -15,7 +15,7 @@ volatile int preempt_count;
 
 static __always_inline uintptr_t task_satp(const struct task_struct *task)
 {
-	return task && task->arch.satp ? task->arch.satp : arch_kernel_satp();
+	return task && task->arch.satp ? task->arch.satp : kernel_satp();
 }
 
 static __always_inline void switch_address_space(const struct task_struct *prev,

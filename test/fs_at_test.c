@@ -19,14 +19,115 @@
 #include <kernel/test.h>
 #include <kernel/vfs.h>
 
+#include "../fs/ext2/ext2.h"
 #include "ktest.h"
 
 #define FAT_DIR	 "/fat_testdir"
 #define FAT_FILE "/fat_testfile"
 #define FAT_MOUNT_DIR "/fat_mount"
 #define FAT_MOUNT_DEV "/fat_mount_dev"
+#define FAT_LARGE_BGDT_DIR "/fat_large_bgdt_mount"
+#define FAT_LARGE_BGDT_DEV "/fat_large_bgdt_dev"
 
-#define EXT2_SUPER_MAGIC 0xef53
+#define FAT_LARGE_BGDT_GROUPS 65U
+#define FAT_LARGE_BGDT_MAJOR  31U
+
+static uint8_t fat_large_bgdt_blocks[3][BLOCK_SIZE];
+static struct block_device fat_large_bgdt_bdev;
+
+static int fat_large_bgdt_read_sectors(struct block_device *bdev, void *buf,
+				       uint64_t sector, uint32_t nsec)
+{
+	uint32_t block = (uint32_t)(sector / BLOCK_SECTORS);
+	uint32_t offset = (uint32_t)(sector % BLOCK_SECTORS) * SECTOR_SIZE;
+	uint32_t bytes = nsec * SECTOR_SIZE;
+
+	(void)bdev;
+
+	if (!buf || sector % BLOCK_SECTORS || nsec != BLOCK_SECTORS)
+		return -EINVAL;
+	if (block >= ARRLEN(fat_large_bgdt_blocks))
+		return -EIO;
+	if (offset + bytes > BLOCK_SIZE)
+		return -EIO;
+
+	memcpy(buf, fat_large_bgdt_blocks[block] + offset, bytes);
+	return 0;
+}
+
+static int fat_large_bgdt_write_sectors(struct block_device *bdev,
+					const void *buf, uint64_t sector,
+					uint32_t nsec)
+{
+	uint32_t block = (uint32_t)(sector / BLOCK_SECTORS);
+	uint32_t offset = (uint32_t)(sector % BLOCK_SECTORS) * SECTOR_SIZE;
+	uint32_t bytes = nsec * SECTOR_SIZE;
+
+	(void)bdev;
+
+	if (!buf || sector % BLOCK_SECTORS || nsec != BLOCK_SECTORS)
+		return -EINVAL;
+	if (block >= ARRLEN(fat_large_bgdt_blocks))
+		return -EIO;
+	if (offset + bytes > BLOCK_SIZE)
+		return -EIO;
+
+	memcpy(fat_large_bgdt_blocks[block] + offset, buf, bytes);
+	return 0;
+}
+
+static const struct block_device_operations fat_large_bgdt_ops = {
+	.read_sectors = fat_large_bgdt_read_sectors,
+	.write_sectors = fat_large_bgdt_write_sectors,
+};
+
+static void fat_large_bgdt_init_image(void)
+{
+	struct ext2_super_block *es;
+	struct ext2_group_desc *gd;
+	struct ext2_inode *root;
+
+	memset(fat_large_bgdt_blocks, 0, sizeof(fat_large_bgdt_blocks));
+
+	es = (struct ext2_super_block *)(uintptr_t)
+		(fat_large_bgdt_blocks[0] + EXT2_SUPER_OFFSET);
+	es->s_inodes_count = FAT_LARGE_BGDT_GROUPS;
+	es->s_blocks_count = FAT_LARGE_BGDT_GROUPS;
+	es->s_free_blocks_count = FAT_LARGE_BGDT_GROUPS * 3U;
+	es->s_free_inodes_count = FAT_LARGE_BGDT_GROUPS * 5U;
+	es->s_first_data_block = 0;
+	es->s_log_block_size = 2;
+	es->s_log_frag_size = 2;
+	es->s_blocks_per_group = 1;
+	es->s_frags_per_group = 1;
+	es->s_inodes_per_group = 8;
+	es->s_magic = EXT2_SUPER_MAGIC;
+	es->s_rev_level = EXT2_GOOD_OLD_REV;
+
+	gd = (struct ext2_group_desc *)(uintptr_t)fat_large_bgdt_blocks[1];
+	for (uint32_t i = 0; i < FAT_LARGE_BGDT_GROUPS; i++) {
+		gd[i].bg_inode_table = 2;
+		gd[i].bg_free_blocks_count = 3;
+		gd[i].bg_free_inodes_count = 5;
+	}
+
+	root = (struct ext2_inode *)(uintptr_t)
+		(fat_large_bgdt_blocks[2] + EXT2_GOOD_OLD_INODE_SIZE);
+	root->i_mode = EXT2_S_IFDIR | 0755;
+	root->i_links_count = 2;
+	root->i_size = 0;
+}
+
+static int fat_large_bgdt_register_device(void)
+{
+	fat_large_bgdt_init_image();
+	memset(&fat_large_bgdt_bdev, 0, sizeof(fat_large_bgdt_bdev));
+	fat_large_bgdt_bdev.bd_dev = MKDEV(FAT_LARGE_BGDT_MAJOR, 0);
+	fat_large_bgdt_bdev.bd_sectors =
+		ARRLEN(fat_large_bgdt_blocks) * BLOCK_SECTORS;
+	fat_large_bgdt_bdev.bd_ops = &fat_large_bgdt_ops;
+	return register_block_device(&fat_large_bgdt_bdev);
+}
 
 void test_fs_at_path_lookup_basics(void)
 {
@@ -287,4 +388,61 @@ fail:
 	(void)vfs_unlink_at_path(NULL, FAT_MOUNT_DEV, 0);
 	TEST_FAIL("fs-mount: mount ext2 block device on directory",
 		  "see above");
+}
+
+void test_ext2_bgdt_uses_vmalloc_for_large_tables(void)
+{
+	struct path path = {0};
+	struct statfs64 st;
+	int ret;
+	int ignored;
+
+	ignored = vfs_umount(FAT_LARGE_BGDT_DIR, 0);
+	(void)ignored;
+	(void)vfs_unlink_at_path(NULL, FAT_LARGE_BGDT_DIR, AT_REMOVEDIR);
+	(void)vfs_unlink_at_path(NULL, FAT_LARGE_BGDT_DEV, 0);
+
+	TEST_BEGIN("ext2: large BGDT uses vmalloc");
+	{
+		ret = fat_large_bgdt_register_device();
+		TEST_ASSERT_EQ(ret, 0);
+		ret = vfs_mknod_at_path(NULL, FAT_LARGE_BGDT_DEV,
+					S_IFBLK | 0600,
+					MKDEV(FAT_LARGE_BGDT_MAJOR, 0));
+		TEST_ASSERT_EQ(ret, 0);
+		ret = vfs_mkdir_at_path(NULL, FAT_LARGE_BGDT_DIR, 0755);
+		TEST_ASSERT_EQ(ret, 0);
+
+		ret = vfs_mount(FAT_LARGE_BGDT_DEV, FAT_LARGE_BGDT_DIR,
+				"ext2", 0, NULL);
+		TEST_ASSERT_EQ(ret, 0);
+
+		ret = path_lookupat_path(NULL, FAT_LARGE_BGDT_DIR, 0, &path);
+		TEST_ASSERT_EQ(ret, 0);
+		TEST_ASSERT_NOT_NULL(path.mnt);
+		TEST_ASSERT_NOT_NULL(path.dentry);
+		TEST_ASSERT_EQ(vfs_statfs(path.mnt->mnt_sb, &st), 0);
+		TEST_ASSERT_EQ(st.f_type, EXT2_SUPER_MAGIC);
+		TEST_ASSERT_EQ(st.f_blocks, FAT_LARGE_BGDT_GROUPS);
+		TEST_ASSERT_EQ(st.f_bfree, FAT_LARGE_BGDT_GROUPS * 3U);
+		TEST_ASSERT_EQ(st.f_ffree, FAT_LARGE_BGDT_GROUPS * 5U);
+		path_put(&path);
+
+		TEST_ASSERT_EQ(vfs_umount(FAT_LARGE_BGDT_DIR, 0), 0);
+		TEST_ASSERT_EQ(vfs_unlink_at_path(NULL, FAT_LARGE_BGDT_DIR,
+						  AT_REMOVEDIR),
+			       0);
+		TEST_ASSERT_EQ(vfs_unlink_at_path(NULL, FAT_LARGE_BGDT_DEV,
+						  0),
+			       0);
+	}
+	TEST_END("ext2: large BGDT uses vmalloc");
+	return;
+fail:
+	path_put(&path);
+	ignored = vfs_umount(FAT_LARGE_BGDT_DIR, 0);
+	(void)ignored;
+	(void)vfs_unlink_at_path(NULL, FAT_LARGE_BGDT_DIR, AT_REMOVEDIR);
+	(void)vfs_unlink_at_path(NULL, FAT_LARGE_BGDT_DEV, 0);
+	TEST_FAIL("ext2: large BGDT uses vmalloc", "see above");
 }
