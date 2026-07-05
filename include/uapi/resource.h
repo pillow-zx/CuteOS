@@ -52,4 +52,14 @@ struct rusage {
 	long ru_nivcsw;
 };
 
+#undef offsetof
+#define offsetof(t, d) __builtin_offsetof(t, d)
+
+_Static_assert(sizeof(struct rlimit64) == 16, "rlimit64 ABI size mismatch");
+_Static_assert(sizeof(struct rusage) == 144, "rusage ABI size mismatch");
+_Static_assert(offsetof(struct rusage, ru_stime) == 16,
+	       "rusage ru_stime ABI offset mismatch");
+_Static_assert(offsetof(struct rusage, ru_nivcsw) == 136,
+	       "rusage ru_nivcsw ABI offset mismatch");
+
 #endif

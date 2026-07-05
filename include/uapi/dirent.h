@@ -18,4 +18,10 @@ struct linux_dirent64 {
 	char d_name[];
 };
 
+#undef offsetof
+#define offsetof(t, d) __builtin_offsetof(t, d)
+
+_Static_assert(offsetof(struct linux_dirent64, d_name) == 19,
+	       "linux_dirent64 d_name ABI offset mismatch");
+
 #endif

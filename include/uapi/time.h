@@ -4,28 +4,28 @@
 typedef int clockid_t;
 typedef int timer_t;
 
-#define CLOCK_REALTIME		  0
-#define CLOCK_MONOTONIC	  1
+#define CLOCK_REALTIME		 0
+#define CLOCK_MONOTONIC		 1
 #define CLOCK_PROCESS_CPUTIME_ID 2
-#define CLOCK_THREAD_CPUTIME_ID  3
-#define CLOCK_MONOTONIC_RAW	  4
-#define CLOCK_REALTIME_COARSE	  5
-#define CLOCK_MONOTONIC_COARSE	  6
-#define CLOCK_BOOTTIME		  7
-#define CLOCK_REALTIME_ALARM	  8
-#define CLOCK_BOOTTIME_ALARM	  9
-#define CLOCK_SGI_CYCLE	  10
-#define CLOCK_TAI		  11
-#define MAX_CLOCKS		  16
+#define CLOCK_THREAD_CPUTIME_ID	 3
+#define CLOCK_MONOTONIC_RAW	 4
+#define CLOCK_REALTIME_COARSE	 5
+#define CLOCK_MONOTONIC_COARSE	 6
+#define CLOCK_BOOTTIME		 7
+#define CLOCK_REALTIME_ALARM	 8
+#define CLOCK_BOOTTIME_ALARM	 9
+#define CLOCK_SGI_CYCLE		 10
+#define CLOCK_TAI		 11
+#define MAX_CLOCKS		 16
 
 #define TIMER_ABSTIME 0x01
 
 #define UTIME_NOW  0x3fffffff
 #define UTIME_OMIT 0x3ffffffe
 
-#define ITIMER_REAL	0
-#define ITIMER_VIRTUAL	1
-#define ITIMER_PROF	2
+#define ITIMER_REAL    0
+#define ITIMER_VIRTUAL 1
+#define ITIMER_PROF    2
 
 struct tms {
 	long tms_utime;
@@ -70,13 +70,20 @@ _Static_assert(offsetof(struct timespec, tv_nsec) == 8,
 _Static_assert(sizeof(struct timeval) == 16, "timeval ABI size mismatch");
 _Static_assert(offsetof(struct timeval, tv_usec) == 8,
 	       "timeval tv_usec ABI offset mismatch");
-_Static_assert(sizeof(struct itimerspec) == 32,
-	       "itimerspec ABI size mismatch");
+_Static_assert(sizeof(struct itimerspec) == 32, "itimerspec ABI size mismatch");
 _Static_assert(offsetof(struct itimerspec, it_value) == 16,
 	       "itimerspec it_value ABI offset mismatch");
-_Static_assert(sizeof(struct itimerval) == 32,
-	       "itimerval ABI size mismatch");
+_Static_assert(sizeof(struct itimerval) == 32, "itimerval ABI size mismatch");
 _Static_assert(offsetof(struct itimerval, it_value) == 16,
 	       "itimerval it_value ABI offset mismatch");
+_Static_assert(ITIMER_REAL == 0, "ITIMER_REAL ABI value mismatch");
+_Static_assert(ITIMER_VIRTUAL == 1, "ITIMER_VIRTUAL ABI value mismatch");
+_Static_assert(ITIMER_PROF == 2, "ITIMER_PROF ABI value mismatch");
+_Static_assert(CLOCK_PROCESS_CPUTIME_ID == 2,
+	       "CLOCK_PROCESS_CPUTIME_ID ABI value mismatch");
+_Static_assert(CLOCK_THREAD_CPUTIME_ID == 3,
+	       "CLOCK_THREAD_CPUTIME_ID ABI value mismatch");
+_Static_assert(CLOCK_TAI == 11, "CLOCK_TAI ABI value mismatch");
+_Static_assert(MAX_CLOCKS == 16, "MAX_CLOCKS ABI value mismatch");
 
 #endif

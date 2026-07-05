@@ -4,12 +4,11 @@
  * 提供一套轻量级测试宏，用于在内核初始化完成后验证各子系统行为。
  * 每项测试独立运行，失败时打印 FAIL 信息但不中止内核运行。
  *
- * 调试宏：
+ * 测试宏：
  *   TEST_BEGIN(name)        - 开始一项测试，打印测试名
  *   TEST_END(name)          - 结束一项测试，打印通过信息
- *   TEST_PASS(name)         - 打印某测试通过
  *   TEST_FAIL(name, msg)    - 打印某测试失败信息
- *   TEST_ASSERT(cond)       - 断言，失败则 goto 标签并打印失败信息
+ *   TEST_ASSERT(cond)       - 断言，失败则 goto fail
  *   TEST_ASSERT_EQ(a, b)    - 断言 a == b
  *   TEST_ASSERT_NE(a, b)    - 断言 a != b
  *   TEST_ASSERT_NULL(p)     - 断言指针为 NULL
@@ -18,8 +17,9 @@
  *   TEST_SECTION(name)      - 打印子系统测试分节标题
  *
  * 添加新测试：
- *   1. 在 init/test.c 中编写 test_xxx() 函数
- *   2. 在 kernel_test() 中调用
+ *   1. 在 test/ 下编写 test_xxx(void)
+ *   2. 在 test/ktest.h 中声明
+ *   3. 在 kernel_test() 中调用
  */
 
 #ifndef _CUTEOS_KERNEL_TEST_H
@@ -67,12 +67,6 @@ extern uint32_t __test_failed;
 	} while (0)
 
 /**
- * TEST_PASS - 快速打印通过信息
- * @name: 测试名称
- */
-#define TEST_PASS(name) pr_info("  [PASS] %s\n", name)
-
-/**
  * TEST_FAIL - 快速打印失败信息
  * @name: 测试名称
  * @msg:  失败原因
@@ -90,7 +84,7 @@ extern uint32_t __test_failed;
  * 这些宏使用 goto 跳转到测试函数末尾的 fail 标签。
  * 使用前需在函数内定义 `fail:` 标签：
  *
- *   static void test_xxx(void) {
+ *   void test_xxx(void) {
  *       ...
  *       TEST_ASSERT(cond);
  *       ...
@@ -113,11 +107,8 @@ extern uint32_t __test_failed;
 #define TEST_ASSERT(cond)                                                      \
 	do {                                                                   \
 		if (unlikely(!(cond))) {                                       \
-			pr_err("FAIL\n");                                      \
 			pr_err("    assert %s failed at %s:%d\n", #cond,       \
 			       __FILE__, __LINE__);                            \
-			__test_failed++;                                       \
-			__test_total++;                                        \
 			goto fail;                                             \
 		}                                                              \
 	} while (0)
@@ -130,13 +121,10 @@ extern uint32_t __test_failed;
 #define TEST_ASSERT_EQ(a, b)                                                   \
 	do {                                                                   \
 		if (unlikely((a) != (b))) {                                    \
-			pr_err("FAIL\n");                                      \
 			pr_err("    assert %s == %s failed"                    \
 			       " (0x%lx != 0x%lx) at %s:%d\n",                 \
 			       #a, #b, (uintptr_t)(a), (uintptr_t)(b),         \
 			       __FILE__, __LINE__);                            \
-			__test_failed++;                                       \
-			__test_total++;                                        \
 			goto fail;                                             \
 		}                                                              \
 	} while (0)
@@ -149,12 +137,9 @@ extern uint32_t __test_failed;
 #define TEST_ASSERT_NE(a, b)                                                   \
 	do {                                                                   \
 		if (unlikely((a) == (b))) {                                    \
-			pr_err("FAIL\n");                                      \
 			pr_err("    assert %s != %s failed"                    \
 			       " at %s:%d\n",                                  \
 			       #a, #b, __FILE__, __LINE__);                    \
-			__test_failed++;                                       \
-			__test_total++;                                        \
 			goto fail;                                             \
 		}                                                              \
 	} while (0)
@@ -166,12 +151,9 @@ extern uint32_t __test_failed;
 #define TEST_ASSERT_NULL(p)                                                    \
 	do {                                                                   \
 		if (unlikely((p) != NULL)) {                                   \
-			pr_err("FAIL\n");                                      \
 			pr_err("    assert %s == NULL failed"                  \
 			       " (got %p) at %s:%d\n",                         \
 			       #p, (void *)(p), __FILE__, __LINE__);           \
-			__test_failed++;                                       \
-			__test_total++;                                        \
 			goto fail;                                             \
 		}                                                              \
 	} while (0)
@@ -183,12 +165,9 @@ extern uint32_t __test_failed;
 #define TEST_ASSERT_NOT_NULL(p)                                                \
 	do {                                                                   \
 		if (unlikely((p) == NULL)) {                                   \
-			pr_err("FAIL\n");                                      \
 			pr_err("    assert %s != NULL failed"                  \
 			       " at %s:%d\n",                                  \
 			       #p, __FILE__, __LINE__);                        \
-			__test_failed++;                                       \
-			__test_total++;                                        \
 			goto fail;                                             \
 		}                                                              \
 	} while (0)
@@ -201,13 +180,10 @@ extern uint32_t __test_failed;
 #define TEST_ASSERT_ALIGNED(p, align)                                          \
 	do {                                                                   \
 		if (unlikely((uintptr_t)(p) & ((align) - 1))) {                \
-			pr_err("FAIL\n");                                      \
 			pr_err("    assert %s aligned to %d failed"            \
 			       " (addr=%p) at %s:%d\n",                        \
 			       #p, (int)(align), (void *)(p), __FILE__,        \
 			       __LINE__);                                      \
-			__test_failed++;                                       \
-			__test_total++;                                        \
 			goto fail;                                             \
 		}                                                              \
 	} while (0)

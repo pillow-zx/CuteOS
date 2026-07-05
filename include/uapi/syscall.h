@@ -118,4 +118,17 @@
 
 #define NR_SYSCALL (SYS_faccessat2 + 1)
 
+#ifndef __ASSEMBLER__
+_Static_assert(SYS_getitimer == 102, "getitimer syscall number mismatch");
+_Static_assert(SYS_setitimer == 103, "setitimer syscall number mismatch");
+_Static_assert(SYS_timer_create == 107, "timer_create syscall number mismatch");
+_Static_assert(SYS_timer_gettime == 108,
+	       "timer_gettime syscall number mismatch");
+_Static_assert(SYS_timer_getoverrun == 109,
+	       "timer_getoverrun syscall number mismatch");
+_Static_assert(SYS_timer_settime == 110,
+	       "timer_settime syscall number mismatch");
+_Static_assert(SYS_timer_delete == 111, "timer_delete syscall number mismatch");
+#endif
+
 #endif

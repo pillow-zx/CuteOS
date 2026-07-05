@@ -19,4 +19,12 @@ struct robust_list_head {
 	struct robust_list *list_op_pending;
 };
 
+#undef offsetof
+#define offsetof(t, d) __builtin_offsetof(t, d)
+
+_Static_assert(sizeof(struct robust_list_head) == 24,
+	       "robust_list_head ABI size mismatch");
+_Static_assert(offsetof(struct robust_list_head, list_op_pending) == 16,
+	       "robust_list_head list_op_pending ABI offset mismatch");
+
 #endif

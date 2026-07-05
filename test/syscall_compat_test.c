@@ -9,44 +9,11 @@
 #include <kernel/test.h>
 #include <kernel/tty.h>
 #include <kernel/vfs.h>
-#include <uapi/dirent.h>
-#include <uapi/eventpoll.h>
 #include <uapi/futex.h>
 #include <uapi/poll.h>
 #include <uapi/resource.h>
-#include <uapi/select.h>
-#include <uapi/stat.h>
 #include <uapi/time.h>
 #include <uapi/tty.h>
-
-static_assert(sizeof(clockid_t) == 4, "clockid_t ABI size mismatch");
-static_assert(sizeof(timer_t) == 4, "timer_t ABI size mismatch");
-static_assert(sizeof(struct timespec) == 16, "timespec ABI size mismatch");
-static_assert(sizeof(struct timeval) == 16, "timeval ABI size mismatch");
-static_assert(sizeof(struct itimerspec) == 32, "itimerspec ABI size mismatch");
-static_assert(offsetof(struct itimerspec, it_value) == 16,
-	      "itimerspec it_value ABI offset mismatch");
-static_assert(sizeof(struct itimerval) == 32, "itimerval ABI size mismatch");
-static_assert(offsetof(struct itimerval, it_value) == 16,
-	      "itimerval it_value ABI offset mismatch");
-static_assert(sizeof(sigval_t) == 8, "sigval_t ABI size mismatch");
-static_assert(sizeof(sigevent_t) == 64, "sigevent_t ABI size mismatch");
-static_assert(offsetof(sigevent_t, sigev_signo) == 8,
-	      "sigevent signo ABI offset mismatch");
-static_assert(offsetof(sigevent_t, sigev_notify) == 12,
-	      "sigevent notify ABI offset mismatch");
-static_assert(offsetof(sigevent_t, sigev_notify_thread_id) == 16,
-	      "sigevent thread id ABI offset mismatch");
-static_assert(SYS_getitimer == 102, "getitimer syscall number mismatch");
-static_assert(SYS_setitimer == 103, "setitimer syscall number mismatch");
-static_assert(SYS_timer_create == 107, "timer_create syscall number mismatch");
-static_assert(SYS_timer_gettime == 108,
-	      "timer_gettime syscall number mismatch");
-static_assert(SYS_timer_getoverrun == 109,
-	      "timer_getoverrun syscall number mismatch");
-static_assert(SYS_timer_settime == 110,
-	      "timer_settime syscall number mismatch");
-static_assert(SYS_timer_delete == 111, "timer_delete syscall number mismatch");
 
 ssize_t console_tty_read_stream_for_test(const struct termios *termios,
 					 const char *input, size_t input_len,
@@ -55,64 +22,6 @@ ssize_t console_tty_read_stream_for_test(const struct termios *termios,
 ssize_t console_tty_write_for_test(const struct termios *termios,
 				   const char *input, size_t input_len,
 				   char *out, size_t out_size);
-
-void test_uapi_shared_layouts(void)
-{
-	TEST_BEGIN("syscall compat: shared uapi layouts");
-	{
-		TEST_ASSERT_EQ(sizeof(struct stat), (size_t)128);
-		TEST_ASSERT_EQ(offsetof(struct stat, st_mode), (size_t)16);
-		TEST_ASSERT_EQ(offsetof(struct stat, st_size), (size_t)48);
-		TEST_ASSERT_EQ(offsetof(struct stat, st_blocks), (size_t)64);
-
-		TEST_ASSERT_EQ(sizeof(struct statx), (size_t)256);
-		TEST_ASSERT_EQ(offsetof(struct statx, stx_atime), (size_t)0x40);
-		TEST_ASSERT_EQ(offsetof(struct statx, stx_rdev_major),
-			       (size_t)0x80);
-
-		TEST_ASSERT_EQ(offsetof(struct linux_dirent64, d_name),
-			       (size_t)19);
-		TEST_ASSERT_EQ(sizeof(struct timespec), (size_t)16);
-		TEST_ASSERT_EQ(sizeof(struct rlimit64), (size_t)16);
-		TEST_ASSERT_EQ(sizeof(struct pollfd), (size_t)8);
-		TEST_ASSERT_EQ(offsetof(struct pollfd, events), (size_t)4);
-		TEST_ASSERT_EQ(offsetof(struct pollfd, revents), (size_t)6);
-		TEST_ASSERT_EQ(sizeof(fd_set), (size_t)128);
-		TEST_ASSERT_EQ(sizeof(struct pselect6_sigmask), (size_t)16);
-		TEST_ASSERT_EQ(sizeof(struct epoll_event), (size_t)16);
-		TEST_ASSERT_EQ(offsetof(struct epoll_event, data), (size_t)8);
-		TEST_ASSERT_EQ(POLLRDNORM, 0x40);
-		TEST_ASSERT_EQ(POLLWRNORM, 0x100);
-		TEST_ASSERT_EQ(EPOLLRDNORM, 0x40U);
-		TEST_ASSERT_EQ(EPOLLWRNORM, 0x100U);
-		TEST_ASSERT_EQ(sizeof(struct robust_list_head), (size_t)24);
-		TEST_ASSERT_EQ(
-			offsetof(struct robust_list_head, list_op_pending),
-			(size_t)16);
-		TEST_ASSERT_EQ(ITIMER_REAL, 0);
-		TEST_ASSERT_EQ(ITIMER_VIRTUAL, 1);
-		TEST_ASSERT_EQ(ITIMER_PROF, 2);
-		TEST_ASSERT_EQ(SYS_getitimer, 102);
-		TEST_ASSERT_EQ(SYS_setitimer, 103);
-		TEST_ASSERT_EQ(SYS_timer_create, 107);
-		TEST_ASSERT_EQ(SYS_timer_gettime, 108);
-		TEST_ASSERT_EQ(SYS_timer_getoverrun, 109);
-		TEST_ASSERT_EQ(SYS_timer_settime, 110);
-		TEST_ASSERT_EQ(SYS_timer_delete, 111);
-		TEST_ASSERT_EQ(CLOCK_PROCESS_CPUTIME_ID, 2);
-		TEST_ASSERT_EQ(CLOCK_THREAD_CPUTIME_ID, 3);
-		TEST_ASSERT_EQ(CLOCK_TAI, 11);
-		TEST_ASSERT_EQ(MAX_CLOCKS, 16);
-		TEST_ASSERT_EQ(SIGEV_SIGNAL, 0);
-		TEST_ASSERT_EQ(SIGEV_NONE, 1);
-		TEST_ASSERT_EQ(SIGEV_THREAD, 2);
-		TEST_ASSERT_EQ(SIGEV_THREAD_ID, 4);
-	}
-	TEST_END("syscall compat: shared uapi layouts");
-	return;
-fail:
-	TEST_FAIL("syscall compat: shared uapi layouts", "see above");
-}
 
 void test_rlimit_defaults(void)
 {
