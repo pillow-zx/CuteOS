@@ -99,6 +99,10 @@ int __must_check mm_munmap(struct mm_struct *mm, uintptr_t addr, size_t length);
 
 int __must_check mm_madvise(struct mm_struct *mm, uintptr_t addr, size_t len,
 			    int advice);
+int __must_check __nonnull(1) mm_mlock(struct mm_struct *mm, uintptr_t addr,
+				       size_t len);
+int __must_check __nonnull(1) mm_munlock(struct mm_struct *mm, uintptr_t addr,
+					 size_t len);
 
 /*
  * mm_mprotect - 修改地址范围内 VMA 权限并更新 PTE

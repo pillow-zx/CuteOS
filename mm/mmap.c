@@ -152,6 +152,25 @@ void mm_unmap_user_pages_locked(struct mm_struct *mm,
 	}
 }
 
+static int __must_check __nonnull(1)
+mm_map_user_pte_like(pte_t *root, uintptr_t va, paddr_t pa, pte_t old_entry)
+{
+	pgprot_t perm = pte_leaf_prot(old_entry);
+	int ret;
+	pte_t *pte;
+
+	ret = map_page(root, va, pa, pte_is_present(old_entry) ? perm :
+						    pgprot_user(true, false,
+								 false));
+	if (ret < 0)
+		return ret;
+
+	pte = pagetable_lookup(root, va);
+	BUG_ON(!pte);
+	*pte = pte_make(pa, perm);
+	return 0;
+}
+
 int mm_move_user_pages_locked(struct mm_struct *mm, uintptr_t old_start,
 			      uintptr_t new_start, size_t len)
 {
@@ -183,15 +202,15 @@ int mm_move_user_pages_locked(struct mm_struct *mm, uintptr_t old_start,
 	     old_va += PAGE_SIZE, new_va += PAGE_SIZE) {
 		pte_t *old_pte = pagetable_lookup(mm->pgd, old_va);
 		pte_t old_entry;
-		pgprot_t perm;
 		int ret;
 
 		if (!old_pte || !pte_is_user_page(*old_pte))
 			continue;
 
 		old_entry = *old_pte;
-		perm = pte_leaf_prot(old_entry);
-		ret = map_page(mm->pgd, new_va, pte_phys_addr(old_entry), perm);
+		ret = mm_map_user_pte_like(mm->pgd, new_va,
+					   pte_phys_addr(old_entry),
+					   old_entry);
 		if (ret < 0) {
 			for (uintptr_t va = new_start; va < mapped_end;
 			     va += PAGE_SIZE) {
@@ -362,9 +381,9 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 
 			memcpy(new_page, __va(old_pa), PAGE_SIZE);
 
-			pgprot_t perm = pte_leaf_prot(*pte);
-			int ret = map_page(newmm->pgd, va,
-					   __pa((uintptr_t)new_page), perm);
+			int ret = mm_map_user_pte_like(
+				newmm->pgd, va, __pa((uintptr_t)new_page),
+				*pte);
 			if (ret < 0) {
 				free_page(new_page, 0);
 				mm_unlock(oldmm);
@@ -755,6 +774,111 @@ int mm_madvise(struct mm_struct *mm, uintptr_t addr, size_t len, int advice)
 out:
 	mm_unlock(mm);
 	return ret;
+}
+
+static int __must_check __nonnull(3, 4)
+mm_mlock_range(uintptr_t addr, size_t len, uintptr_t *start, uintptr_t *end)
+{
+	uintptr_t raw_end;
+	uintptr_t aligned_end;
+
+	if (len == 0) {
+		*start = addr;
+		*end = addr;
+		return 0;
+	}
+
+	raw_end = addr + len;
+	if (raw_end < addr)
+		return -EINVAL;
+
+	aligned_end = ALIGN_UP(raw_end, PAGE_SIZE);
+	if (aligned_end < raw_end)
+		return -EINVAL;
+	if (aligned_end > TASK_SIZE)
+		return -ENOMEM;
+
+	*start = ALIGN_DOWN(addr, PAGE_SIZE);
+	*end = aligned_end;
+	return 0;
+}
+
+static int __must_check __nonnull(1)
+mm_mlock_validate_range(struct mm_struct *mm, uintptr_t start, uintptr_t end)
+{
+	int ret = 0;
+
+	mm_lock(mm);
+	if (!vma_range_is_mapped(mm, start, end))
+		ret = -ENOMEM;
+	mm_unlock(mm);
+	return ret;
+}
+
+int mm_mlock(struct mm_struct *mm, uintptr_t addr, size_t len)
+{
+	uintptr_t start;
+	uintptr_t end;
+	uintptr_t cursor;
+	int ret;
+
+	if (len == 0)
+		return 0;
+
+	ret = mm_mlock_range(addr, len, &start, &end);
+	if (ret < 0)
+		return ret;
+
+	ret = mm_mlock_validate_range(mm, start, end);
+	if (ret < 0)
+		return ret;
+
+	cursor = start;
+	while (cursor < end) {
+		struct vm_area_struct *vma;
+		uintptr_t segment_end;
+		bool readable;
+
+		mm_lock(mm);
+		vma = find_vma(mm, cursor);
+		if (!vma) {
+			mm_unlock(mm);
+			return -ENOMEM;
+		}
+
+		segment_end = MIN(vma->vm_end, end);
+		readable = (vma->vm_flags & VM_READ) != 0;
+		mm_unlock(mm);
+
+		if (segment_end <= cursor)
+			return -ENOMEM;
+		if (readable) {
+			ret = fault_in_user_range(mm, cursor,
+						  segment_end - cursor,
+						  USER_FAULT_READ);
+			if (ret < 0)
+				return ret;
+		}
+		cursor = segment_end;
+	}
+
+	return 0;
+}
+
+int mm_munlock(struct mm_struct *mm, uintptr_t addr, size_t len)
+{
+	uintptr_t start;
+	uintptr_t end;
+	int ret;
+
+	if (len == 0)
+		return 0;
+
+	ret = mm_mlock_range(addr, len, &start, &end);
+	if (ret < 0)
+		return ret;
+
+	return mm_mlock_validate_range(mm, start, end);
 }
 
 static ssize_t __must_check __nonnull(1, 2)
@@ -1194,7 +1318,7 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 	for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {
 		pte_t *pte = pagetable_lookup(mm->pgd, va);
 
-		if (!pte || !pte_is_present(*pte))
+		if (!pte || !pte_is_user_page(*pte))
 			continue;
 		if (prot == PROT_NONE) {
 			pte_clear_present(pte);

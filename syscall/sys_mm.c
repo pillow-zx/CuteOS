@@ -83,6 +83,30 @@ ssize_t sys_msync(struct trap_frame *tf)
 	return mm_msync(task_mm(current_task()), addr, length, flags);
 }
 
+ssize_t sys_mlock(struct trap_frame *tf)
+{
+	uintptr_t addr = (uintptr_t)syscall_arg(tf, 0);
+	size_t len = (size_t)syscall_arg(tf, 1);
+	struct mm_struct *mm = task_mm(current_task());
+
+	if (!mm)
+		return -EINVAL;
+
+	return mm_mlock(mm, addr, len);
+}
+
+ssize_t sys_munlock(struct trap_frame *tf)
+{
+	uintptr_t addr = (uintptr_t)syscall_arg(tf, 0);
+	size_t len = (size_t)syscall_arg(tf, 1);
+	struct mm_struct *mm = task_mm(current_task());
+
+	if (!mm)
+		return -EINVAL;
+
+	return mm_munlock(mm, addr, len);
+}
+
 /*
  * sys_madvise - madvise 系统调用
  *

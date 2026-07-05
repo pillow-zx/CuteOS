@@ -79,20 +79,6 @@ ssize_t sys_sched_getaffinity(struct trap_frame *tf)
 	return (ssize_t)sizeof(mask);
 }
 
-ssize_t sys_mlock(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(mm): 需要 page pin/unevictable 语义；当前也没有换页。 */
-	return -ENOSYS;
-}
-
-ssize_t sys_munlock(struct trap_frame *tf)
-{
-	(void)tf;
-	/* TODO(mm): 需要 page pin/unevictable 语义；当前也没有换页。 */
-	return -ENOSYS;
-}
-
 ssize_t sys_rseq(struct trap_frame *tf)
 {
 	(void)tf;

@@ -734,6 +734,16 @@ static inline long munmap(void *addr, size_t length)
 	return syscall(SYS_munmap, (long)addr, (long)length);
 }
 
+static inline long mlock(const void *addr, size_t length)
+{
+	return syscall(SYS_mlock, (long)addr, (long)length);
+}
+
+static inline long munlock(const void *addr, size_t length)
+{
+	return syscall(SYS_munlock, (long)addr, (long)length);
+}
+
 static inline void *mremap(void *old_addr, size_t old_size, size_t new_size,
 			   int flags, void *new_addr)
 {

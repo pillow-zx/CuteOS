@@ -22,23 +22,11 @@
 
 #define KERNEL_VBASE 0xFFFFFFC000000000
 
-static __always_inline __must_check __const paddr_t arch_pa(uintptr_t x)
-{
-	return (vaddr_t)x - KERNEL_VBASE;
-}
+#define __pa(x) ((vaddr_t)(uintptr_t)(x) - KERNEL_VBASE)
+#define __va(x) ((void *)((paddr_t)(x) + KERNEL_VBASE))
 
-static __always_inline __must_check __const void *__va_const(paddr_t x)
-{
-	return (void *)(x + KERNEL_VBASE);
-}
-
-static __always_inline __must_check __const void *__va(paddr_t x)
-{
-	return (void *)__va_const(x);
-}
-
-#define __pa(x) arch_pa((uintptr_t)(x))
-#define __va(x) ((void *)__va_const((paddr_t)(x)))
+// #define __pa(x) arch_pa((uintptr_t)(x))
+// #define __va(x) ((void *)__va_const((paddr_t)(x)))
 
 void pagetable_init(void);
 void *__must_check arch_bootmem_end(void);

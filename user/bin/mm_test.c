@@ -1239,6 +1239,72 @@ static int test_mmap_rejects_stack_guard(void)
 	return 0;
 }
 
+static int test_mlock_munlock_compat(void)
+{
+	char *m;
+	unsigned char vec[1] = {0};
+	long ret;
+	int failed = 0;
+
+	m = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
+		 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)m < 0) {
+		printf("FAIL: mmap for mlock: %ld\n", (long)m);
+		return 1;
+	}
+
+	ret = mlock(m + 1, 1);
+	if (ret != 0) {
+		printf("FAIL: mlock unaligned mapped expected 0 got %ld\n",
+		       ret);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	ret = mincore(m, PAGE_SIZE, vec);
+	if (ret != 0 || vec[0] != 1) {
+		printf("FAIL: mlock did not make page resident ret=%ld vec=%u\n",
+		       ret, vec[0]);
+		failed++;
+	}
+
+	ret = munlock(m + 1, 1);
+	if (ret != 0) {
+		printf("FAIL: munlock unaligned mapped expected 0 got %ld\n",
+		       ret);
+		failed++;
+	}
+
+	ret = mlock(NULL, 0);
+	if (ret != 0) {
+		printf("FAIL: mlock zero length expected 0 got %ld\n", ret);
+		failed++;
+	}
+
+	ret = munlock(NULL, 0);
+	if (ret != 0) {
+		printf("FAIL: munlock zero length expected 0 got %ld\n", ret);
+		failed++;
+	}
+
+	ret = mlock((void *)0x100000, PAGE_SIZE);
+	if (ret != -ENOMEM) {
+		printf("FAIL: mlock unmapped expected %d got %ld\n", -ENOMEM,
+		       ret);
+		failed++;
+	}
+
+	ret = munlock((void *)0x100000, PAGE_SIZE);
+	if (ret != -ENOMEM) {
+		printf("FAIL: munlock unmapped expected %d got %ld\n", -ENOMEM,
+		       ret);
+		failed++;
+	}
+
+	munmap(m, PAGE_SIZE);
+	return failed;
+}
+
 static int test_stack_underflow_sigsegv(void)
 {
 	volatile char *underflow = (volatile char *)(USER_STACK_BASE - 1);
@@ -1318,6 +1384,8 @@ int main(void)
 		     test_mmap_fixed_replaces_mapping(), &failed);
 	report_group("mmap rejects stack guard",
 		     test_mmap_rejects_stack_guard(), &failed);
+	report_group("mlock munlock compatibility",
+		     test_mlock_munlock_compat(), &failed);
 	report_group("stack underflow SIGSEGV",
 		     test_stack_underflow_sigsegv(), &failed);
 
