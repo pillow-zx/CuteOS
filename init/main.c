@@ -15,7 +15,7 @@
  *   6. buddy_init()             — 物理页分配器（从 _end 到 DRAM 结束）
  *   7. slab_init()              — kmalloc 可用（8 组 size class）
  *   8. arch_trap_init()              — stvec, sscratch, SIE.STIE
- *   9. task_init()              — 创建 idle (PID 0, BSS 静态), 设置 current
+ *   9. task_init()              — 创建 idle (PID 0, BSS 静态), 设置当前任务
  *  10. arch_timer_init()             — Sstc stimecmp 设置首次时钟中断
  *  11. sched_init()             — 初始化全局就绪队列
  *  12. kernel_test()            — DEBUG 构建运行内核自测

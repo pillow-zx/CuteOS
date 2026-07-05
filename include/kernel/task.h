@@ -13,6 +13,7 @@
 #include <kernel/list.h>
 #include <kernel/wait.h>
 #include <kernel/compiler.h>
+#include <kernel/cpu.h>
 #include <asm/page.h>
 #include <asm/trap.h>
 #include <uapi/futex.h>
@@ -141,9 +142,6 @@ static_assert((KSTACK_SIZE - sizeof(struct trap_frame)) %
 
 /* idle 进程，PID 0，BSS 段静态分配 */
 extern struct task_struct idle_task;
-
-/* 当前正在运行的进程 */
-extern struct task_struct *current;
 
 /* PID 1 init 进程。创建后保持有效，用于孤儿进程过继。 */
 extern struct task_struct *init_task;
@@ -672,7 +670,7 @@ static __always_inline void task_set_need_resched(struct task_struct *task,
 /**
  * task_init - 初始化进程管理子系统
  *
- * 创建 idle 进程（PID 0，BSS 静态分配），设置 current 指针，
+ * 创建 idle 进程（PID 0，BSS 静态分配），设置 get_current_task() 指针，
  * 初始化 PID 分配器。
  */
 void task_init(void);

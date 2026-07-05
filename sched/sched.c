@@ -62,7 +62,7 @@ void sched_wake_task(struct task_struct *task)
 		return;
 
 	task_set_state(task, TASK_RUNNING);
-	if (task != current)
+	if (task != current_task())
 		sched_wakeup(task);
 }
 
@@ -73,13 +73,15 @@ bool sched_has_runnable(void)
 
 static void sched_account_tick(void)
 {
-	if (!current || current == &idle_task)
+	struct task_struct *task = current_task();
+
+	if (!task || task == &idle_task)
 		return;
 
-	if (current->arch.tf && arch_from_user(current->arch.tf))
-		current->cputime.utime_ticks++;
+	if (task->arch.tf && arch_from_user(task->arch.tf))
+		task->cputime.utime_ticks++;
 	else
-		current->cputime.stime_ticks++;
+		task->cputime.stime_ticks++;
 }
 
 void sched_tick(void)
@@ -90,10 +92,12 @@ void sched_tick(void)
 
 void sched_yield(void)
 {
-	if (!current || current == &idle_task)
+	struct task_struct *task = current_task();
+
+	if (!task || task == &idle_task)
 		return;
 
-	current->sched.need_resched = 0;
+	task->sched.need_resched = 0;
 	schedule();
 }
 
@@ -108,21 +112,20 @@ void schedule(void)
 	if (exited_threads_pending())
 		reap_exited_threads();
 
+	prev = current_task();
+
 	if (mlfq_empty()) {
-		if (current == &idle_task ||
-		    current->lifecycle.state == TASK_RUNNING)
+		if (prev == &idle_task || prev->lifecycle.state == TASK_RUNNING)
 			return;
 
-		prev = current;
 		check_canary(prev);
 		switch_address_space(prev, &idle_task);
-		current = &idle_task;
+		set_current_task(&idle_task);
 		switch_to(&prev->arch.ctx, &idle_task.arch.ctx);
 		return;
 	}
 
 	next = mlfq_pick_next();
-	prev = current;
 
 	if (next == prev)
 		return;
@@ -132,7 +135,7 @@ void schedule(void)
 		mlfq_enqueue(prev);
 
 	check_canary(prev);
-	current = next;
+	set_current_task(next);
 	switch_address_space(prev, next);
 	switch_to(&prev->arch.ctx, &next->arch.ctx);
 }

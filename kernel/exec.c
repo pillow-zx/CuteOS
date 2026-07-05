@@ -407,10 +407,9 @@ static int load_elf_segment(struct exec_image *image, struct mm_struct *mm,
 		return ret;
 
 	if (can_map_file_backed_text(ph)) {
-		ret = mm_map_file_segment(mm, image->file, seg_start,
-					       seg_end,
-					       elf_flags_to_prot(ph->p_flags),
-					       ph->p_offset);
+		ret = mm_map_file_segment(mm, image->file, seg_start, seg_end,
+					  elf_flags_to_prot(ph->p_flags),
+					  ph->p_offset);
 		if (ret < 0)
 			return ret;
 	} else {
@@ -418,7 +417,7 @@ static int load_elf_segment(struct exec_image *image, struct mm_struct *mm,
 		if (ret < 0)
 			return ret;
 		ret = mm_map_segment(mm, seg_start, seg_end,
-					  elf_flags_to_prot(ph->p_flags));
+				     elf_flags_to_prot(ph->p_flags));
 		if (ret < 0)
 			return ret;
 	}
@@ -517,12 +516,12 @@ static void flush_old_exec(struct mm_struct *oldmm)
 static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
 			    vaddr_t entry, vaddr_t sp)
 {
-	struct mm_struct *oldmm = task_mm(current);
+	struct mm_struct *oldmm = task_mm(current_task());
 	uintptr_t satp_val = mm_user_satp(mm);
 
-	task_set_mm(current, mm);
-	task_set_satp(current, satp_val);
-	task_set_trap_frame(current, tf);
+	task_set_mm(current_task(), mm);
+	task_set_satp(current_task(), satp_val);
+	task_set_trap_frame(current_task(), tf);
 
 	flush_old_exec(oldmm);
 
@@ -560,7 +559,7 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 
 	if (!path || !args || !tf)
 		return -EINVAL;
-	if (task_group_has_other_threads(current))
+	if (task_group_has_other_threads(current_task()))
 		return -EINVAL;
 
 	struct exec_image image;
@@ -577,19 +576,19 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 		return ret;
 
 	/*
-	 * Success replaces the current trap frame. do_syscall() will only write
-	 * the returned 0 into the new frame's a0 before trap return.
+	 * Success replaces the get_current_task() trap frame. do_syscall() will
+	 * only write the returned 0 into the new frame's a0 before trap return.
 	 */
 	install_exec_mm(mm, tf, entry, sp);
 
 	/* POSIX timers are not preserved across a successful execve(). */
-	struct signal_struct *signal = task_signal_state(current);
+	struct signal_struct *signal = task_signal_state(current_task());
 
 	if (signal)
 		posix_timer_table_clear(&signal->posix_timers);
 
 	/* 关闭所有设置了 FD_CLOEXEC 的文件描述符。 */
-	files_close_on_exec(task_files_safe(current));
+	files_close_on_exec(task_files_safe(current_task()));
 
 	return 0;
 }

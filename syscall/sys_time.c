@@ -33,8 +33,8 @@ ssize_t sys_times(struct trap_frame *tf)
 {
 	struct tms *utms = (struct tms *)tf->a0;
 	struct tms ktms = {
-		.tms_utime = (int64_t)task_user_ticks(current),
-		.tms_stime = (int64_t)task_system_ticks(current),
+		.tms_utime = (int64_t)task_user_ticks(current_task()),
+		.tms_stime = (int64_t)task_system_ticks(current_task()),
 		.tms_cutime = 0,
 		.tms_cstime = 0,
 	};
@@ -209,7 +209,7 @@ ssize_t sys_getitimer(struct trap_frame *tf)
 	if (!uvalue)
 		return -EFAULT;
 
-	signal = task_signal_state(current);
+	signal = task_signal_state(current_task());
 	if (!signal)
 		return -EINVAL;
 
@@ -240,19 +240,19 @@ ssize_t sys_setitimer(struct trap_frame *tf)
 	if (which != ITIMER_REAL)
 		return -EINVAL;
 
-	if (unew_value && copy_from_user(&new_value, unew_value,
-					 sizeof(new_value)) != 0)
+	if (unew_value &&
+	    copy_from_user(&new_value, unew_value, sizeof(new_value)) != 0)
 		return -EFAULT;
 
-	signal = task_signal_state(current);
+	signal = task_signal_state(current_task());
 	if (!signal)
 		return -EINVAL;
 
-	target = task_group_leader_safe(current);
+	target = task_group_leader_safe(current_task());
 	if (!target)
-		target = current;
-	ret = itimer_set_real(&signal->itimers[ITIMER_REAL], target,
-			      &new_value, uold_value ? &old_value : NULL);
+		target = current_task();
+	ret = itimer_set_real(&signal->itimers[ITIMER_REAL], target, &new_value,
+			      uold_value ? &old_value : NULL);
 	if (ret < 0)
 		return ret;
 
@@ -283,13 +283,13 @@ ssize_t sys_timer_create(struct trap_frame *tf)
 		eventp = &event;
 	}
 
-	signal = task_signal_state(current);
+	signal = task_signal_state(current_task());
 	if (!signal)
 		return -EINVAL;
 
-	target = task_group_leader_safe(current);
+	target = task_group_leader_safe(current_task());
 	if (!target)
-		target = current;
+		target = current_task();
 
 	ret = posix_timer_create(signal, clock_id, &timerid, eventp, target);
 	if (ret < 0)
@@ -315,7 +315,7 @@ ssize_t sys_timer_gettime(struct trap_frame *tf)
 	if (!uvalue)
 		return -EFAULT;
 
-	signal = task_signal_state(current);
+	signal = task_signal_state(current_task());
 	if (!signal)
 		return -EINVAL;
 
@@ -333,7 +333,7 @@ ssize_t sys_timer_getoverrun(struct trap_frame *tf)
 	timer_t timerid = (timer_t)tf->a0;
 	struct signal_struct *signal;
 
-	signal = task_signal_state(current);
+	signal = task_signal_state(current_task());
 	if (!signal)
 		return -EINVAL;
 	return posix_timer_getoverrun(signal, timerid);
@@ -343,8 +343,7 @@ ssize_t sys_timer_settime(struct trap_frame *tf)
 {
 	timer_t timerid = (timer_t)tf->a0;
 	int flags = (int)tf->a1;
-	const struct itimerspec *unew_value =
-		(const struct itimerspec *)tf->a2;
+	const struct itimerspec *unew_value = (const struct itimerspec *)tf->a2;
 	struct itimerspec *uold_value = (struct itimerspec *)tf->a3;
 	struct itimerspec new_value;
 	struct itimerspec old_value;
@@ -356,7 +355,7 @@ ssize_t sys_timer_settime(struct trap_frame *tf)
 	if (copy_from_user(&new_value, unew_value, sizeof(new_value)) != 0)
 		return -EFAULT;
 
-	signal = task_signal_state(current);
+	signal = task_signal_state(current_task());
 	if (!signal)
 		return -EINVAL;
 
@@ -376,7 +375,7 @@ ssize_t sys_timer_delete(struct trap_frame *tf)
 	timer_t timerid = (timer_t)tf->a0;
 	struct signal_struct *signal;
 
-	signal = task_signal_state(current);
+	signal = task_signal_state(current_task());
 	if (!signal)
 		return -EINVAL;
 	return posix_timer_delete(signal, timerid);

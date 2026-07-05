@@ -56,7 +56,7 @@ static struct task_struct *find_child(pid_t pid)
 {
 	struct task_struct *child;
 
-	task_for_each_child(child, current) {
+	task_for_each_child (child, current_task()) {
 		if (!task_is_group_leader(child))
 			continue;
 		if (task_pid(child) == pid)
@@ -70,7 +70,7 @@ static struct task_struct *find_any_zombie_child(void)
 {
 	struct task_struct *child;
 
-	task_for_each_child(child, current) {
+	task_for_each_child (child, current_task()) {
 		if (!task_is_group_leader(child))
 			continue;
 		if (task_state(child) == TASK_ZOMBIE)
@@ -97,7 +97,7 @@ static bool has_wait_target(pid_t pid)
 	struct task_struct *child;
 
 	if (pid == (pid_t)-1) {
-		task_for_each_child(child, current) {
+		task_for_each_child (child, current_task()) {
 			if (task_is_group_leader(child))
 				return true;
 		}
@@ -125,7 +125,8 @@ static void reparent_children(struct task_struct *dead)
 
 		list_del_init(&child->links.sibling);
 		child->links.parent = init_task ? init_task : &idle_task;
-		list_add_tail(&child->links.sibling, &child->links.parent->links.children);
+		list_add_tail(&child->links.sibling,
+			      &child->links.parent->links.children);
 
 		if (child->lifecycle.state == TASK_ZOMBIE)
 			wake_up(&child->links.parent->links.wait_child_queue);
@@ -161,7 +162,7 @@ static void release_task_mm(struct task_struct *task)
 	task_set_mm(task, NULL);
 	task_set_satp(task, 0);
 
-	if (task == current) {
+	if (task == current_task()) {
 		csr_write(satp, kernel_satp());
 		arch_tlb_flush_all();
 	}
@@ -171,7 +172,7 @@ static void release_task_mm(struct task_struct *task)
 
 static void detach_task_queues(struct task_struct *task)
 {
-	if (!task || task == current)
+	if (!task || task == current_task())
 		return;
 
 	if (!list_empty(&task->sched.run_list))
@@ -180,11 +181,10 @@ static void detach_task_queues(struct task_struct *task)
 		list_del_init(&task->sched.wait_entry.node);
 }
 
-static void __nonnull(1) finish_task_exit(struct task_struct *task, int code,
-					  bool notify_parent)
+static void __nonnull(1)
+	finish_task_exit(struct task_struct *task, int code, bool notify_parent)
 {
-	if (task_state(task) == TASK_ZOMBIE ||
-	    task_state(task) == TASK_DEAD)
+	if (task_state(task) == TASK_ZOMBIE || task_state(task) == TASK_DEAD)
 		return;
 
 	detach_task_queues(task);
@@ -203,12 +203,13 @@ static void __nonnull(1) finish_task_exit(struct task_struct *task, int code,
 		list_del_init(&task->links.thread_node);
 
 	task_set_state(task, TASK_ZOMBIE);
-	if (!task_is_group_leader(task) && task == current) {
+	if (!task_is_group_leader(task) && task == current_task()) {
 		list_add_tail(&task->links.thread_node, &exited_threads);
 		exited_threads_reap_pending = true;
 	}
 
-	if (notify_parent && task->links.parent && task->lifecycle.exit_signal > 0) {
+	if (notify_parent && task->links.parent &&
+	    task->lifecycle.exit_signal > 0) {
 		send_signal(task->lifecycle.exit_signal, task->links.parent);
 		wake_up(&task->links.parent->links.wait_child_queue);
 	}
@@ -231,7 +232,7 @@ void reap_exited_threads(void)
 		struct task_struct *thread =
 			list_entry(pos, struct task_struct, links.thread_node);
 
-		if (thread == current)
+		if (thread == current_task())
 			continue;
 
 		release_task(thread);
@@ -250,7 +251,7 @@ static void reap_other_threads(struct task_struct *leader, int code)
 		struct task_struct *thread =
 			list_entry(pos, struct task_struct, links.thread_node);
 
-		if (thread == current)
+		if (thread == current_task())
 			continue;
 
 		finish_task_exit(thread, code, false);
@@ -264,7 +265,7 @@ static void reap_other_threads(struct task_struct *leader, int code)
  */
 void __noreturn do_exit(int code)
 {
-	struct task_struct *task = current;
+	struct task_struct *task = current_task();
 
 	BUG_ON(!task);
 	if (!task_is_group_leader(task)) {
@@ -275,9 +276,9 @@ void __noreturn do_exit(int code)
 	}
 
 	/*
-	 * From here until schedule() switches away, current is a zombie with
-	 * no mm and satp == 0. Do not add code here that dereferences a user
-	 * address space.
+	 * From here until schedule() switches away, get_current_task() is a
+	 * zombie with no mm and satp == 0. Do not add code here that
+	 * dereferences a user address space.
 	 *
 	 * 运行中的进程不在 runqueue 中（schedule 在取队首时已 dequeue），
 	 * 无需再次 sched_dequeue。schedule() 也不会把 ZOMBIE 进程重新入队。
@@ -291,7 +292,7 @@ void __noreturn do_exit(int code)
 
 void __noreturn do_exit_group(int code)
 {
-	struct task_struct *task = current;
+	struct task_struct *task = current_task();
 	struct task_struct *leader;
 
 	BUG_ON(!task);
@@ -318,11 +319,12 @@ void release_task(struct task_struct *task)
 	if (!task)
 		return;
 
-	BUG_ON(task == current);
+	BUG_ON(task == current_task());
 	BUG_ON(task == &idle_task);
 	BUG_ON(task_state(task) != TASK_ZOMBIE);
 	BUG_ON(!list_empty(&task->links.children));
-	BUG_ON(task_is_group_leader(task) && !list_empty(&task->links.thread_group));
+	BUG_ON(task_is_group_leader(task) &&
+	       !list_empty(&task->links.thread_group));
 
 	if (!list_empty(&task->links.sibling))
 		list_del_init(&task->links.sibling);
@@ -352,8 +354,9 @@ int kernel_wait4(pid_t pid, int options, struct wait4_result *result)
 
 		struct task_struct *child = find_waitable_child(pid);
 		if (!child) {
-			int ret = wait_event(task_wait_child_queue(current),
-					     wait4_ready, &pid);
+			int ret = wait_event(
+				task_wait_child_queue(current_task()),
+				wait4_ready, &pid);
 			if (ret < 0)
 				return ret;
 			continue;
@@ -375,7 +378,7 @@ void kernel_wait4_finish(struct wait4_result *result)
 	if (!result || !result->task)
 		return;
 
-	task_add_child_time(current, &result->cputime);
+	task_add_child_time(current_task(), &result->cputime);
 	release_task(result->task);
 	result->task = NULL;
 }

@@ -90,7 +90,7 @@ static int futex_wait(int *uaddr, int expected,
 	bool has_timeout;
 	uint64_t expires;
 
-	ret = futex_make_key(task_mm(current), uaddr, &key);
+	ret = futex_make_key(task_mm(current_task()), uaddr, &key);
 	if (ret < 0)
 		return ret;
 	if (user_range_probe(uaddr, sizeof(*uaddr), false) < 0)
@@ -135,7 +135,7 @@ static int futex_wait(int *uaddr, int expected,
 
 	if (waiter.woken)
 		return 0;
-	if (ret == -EINTR || task_signal_pending(current))
+	if (ret == -EINTR || task_signal_pending(current_task()))
 		return -EINTR;
 	if (ret == -ETIMEDOUT)
 		return -ETIMEDOUT;
@@ -185,7 +185,7 @@ static int futex_wake(int *uaddr, int nr)
 	struct futex_key key;
 	int ret;
 
-	ret = futex_make_key(task_mm(current), uaddr, &key);
+	ret = futex_make_key(task_mm(current_task()), uaddr, &key);
 	if (ret < 0)
 		return ret;
 	if (!access_ok(uaddr, sizeof(*uaddr)))

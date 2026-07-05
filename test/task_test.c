@@ -1,5 +1,6 @@
 #include <kernel/test.h>
 #include <kernel/task.h>
+#include <kernel/cpu.h>
 #include <kernel/pid.h>
 #include <asm/asm_offsets.h>
 
@@ -11,11 +12,59 @@ void test_task_layout_contract(void)
 			       offsetof(struct task_struct, arch.kstack));
 		TEST_ASSERT_EQ((size_t)TASK_SATP,
 			       offsetof(struct task_struct, arch.satp));
+		TEST_ASSERT_EQ((size_t)CPU_CURRENT_TASK,
+			       offsetof(struct cpu, current_task));
+		TEST_ASSERT_EQ((size_t)CPU_PREEMPT_COUNT,
+			       offsetof(struct cpu, preempt_count));
 	}
 	TEST_END("task: layout contract");
 	return;
 fail:
 	TEST_FAIL("task: layout contract", "see above");
+}
+
+void test_cpu_boot_topology(void)
+{
+	TEST_BEGIN("cpu: boot topology");
+	{
+		TEST_ASSERT_EQ((uint32_t)NR_CPUS, (uint32_t)CONFIG_QEMU_CPUS);
+		TEST_ASSERT_EQ(nr_cpu_ids, (uint32_t)1);
+		TEST_ASSERT_EQ(current_cpu(), cpu_by_id(0));
+		TEST_ASSERT(cpu_is_online(0));
+
+		for (uint32_t id = 1; id < NR_CPUS; id++)
+			TEST_ASSERT(!cpu_is_online(id));
+	}
+	TEST_END("cpu: boot topology");
+	return;
+fail:
+	TEST_FAIL("cpu: boot topology", "see above");
+}
+
+void test_cpu_current_task_accessors(void)
+{
+	struct task_struct *saved = current_task();
+	struct task_struct *task = NULL;
+
+	TEST_BEGIN("cpu: active task accessors");
+	{
+		TEST_ASSERT_EQ(cpu_current_task(current_cpu()), saved);
+
+		task = task_alloc();
+		TEST_ASSERT_NOT_NULL(task);
+
+		set_current_task(task);
+		TEST_ASSERT_EQ(current_task(), task);
+		TEST_ASSERT_EQ(cpu_current_task(current_cpu()), task);
+	}
+	TEST_END("cpu: active task accessors");
+	goto cleanup;
+fail:
+	TEST_FAIL("cpu: active task accessors", "see above");
+cleanup:
+	set_current_task(saved);
+	if (task)
+		task_free(task);
 }
 
 void test_task_alloc_free(void)
@@ -135,7 +184,7 @@ void test_task_process_tree(void)
 
 		int child_count = 0;
 		struct task_struct *pos;
-		task_for_each_child(pos, parent)
+		task_for_each_child (pos, parent)
 			child_count++;
 		TEST_ASSERT_EQ(child_count, 2);
 
@@ -156,10 +205,10 @@ void test_task_idle(void)
 {
 	TEST_BEGIN("task: idle task init");
 	{
-		TEST_ASSERT_NOT_NULL(current);
-		TEST_ASSERT_EQ(task_pid(current), (pid_t)0);
+		TEST_ASSERT_NOT_NULL(current_task());
+		TEST_ASSERT_EQ(task_pid(current_task()), (pid_t)0);
 		TEST_ASSERT_EQ(task_pid(&idle_task), (pid_t)0);
-		TEST_ASSERT_EQ(current, &idle_task);
+		TEST_ASSERT_EQ(current_task(), &idle_task);
 		TEST_ASSERT_EQ(task_state(&idle_task), (uint32_t)TASK_RUNNING);
 	}
 	TEST_END("task: idle task init");

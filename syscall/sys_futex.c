@@ -37,8 +37,7 @@ ssize_t sys_futex(struct trap_frame *tf)
 	int *uaddr = (int *)tf->a0;
 	int op = (int)tf->a1;
 	int val = (int)tf->a2;
-	const struct timespec *timeout =
-		(const struct timespec *)tf->a3;
+	const struct timespec *timeout = (const struct timespec *)tf->a3;
 	struct futex_deadline deadline;
 	int ret;
 
@@ -58,7 +57,7 @@ ssize_t sys_set_robust_list(struct trap_frame *tf)
 	struct robust_list_head *head = (struct robust_list_head *)tf->a0;
 	size_t len = (size_t)tf->a1;
 
-	return futex_set_robust_list(current, head, len);
+	return futex_set_robust_list(current_task(), head, len);
 }
 
 ssize_t sys_get_robust_list(struct trap_frame *tf)
@@ -76,7 +75,7 @@ ssize_t sys_get_robust_list(struct trap_frame *tf)
 	if (pid < 0)
 		return -EINVAL;
 
-	task = pid == 0 ? current : task_find_thread((pid_t)pid);
+	task = pid == 0 ? current_task() : task_find_thread((pid_t)pid);
 	if (!task)
 		return -ESRCH;
 

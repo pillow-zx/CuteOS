@@ -122,8 +122,8 @@ static int follow_dotdot(struct path *path)
 	if (ret < 0)
 		return ret;
 
-	parent_dentry = path->dentry->d_parent ? path->dentry->d_parent :
-						 path->dentry;
+	parent_dentry =
+		path->dentry->d_parent ? path->dentry->d_parent : path->dentry;
 	if (!parent_dentry)
 		return -ENOENT;
 	if (parent_dentry == path->dentry)
@@ -155,14 +155,14 @@ static int lookup_start_path(const struct path *base, const char *path,
 	res->mnt = NULL;
 	res->dentry = NULL;
 	if (*path == '/')
-		return fs_get_root_path(task_fs(current), res);
+		return fs_get_root_path(task_fs(current_task()), res);
 	if (base) {
 		*res = *base;
 		path_get(res);
 		return 0;
 	}
 
-	return fs_get_cwd_path(task_fs(current), res);
+	return fs_get_cwd_path(task_fs(current_task()), res);
 }
 
 struct dentry *vfs_lookup_one(struct dentry *parent, const char *name,
@@ -297,7 +297,7 @@ static int follow_symlink(const struct path *dir, struct path *link,
 	target[len] = '\0';
 
 	if (target[0] == '/')
-		ret = fs_get_root_path(task_fs(current), &base);
+		ret = fs_get_root_path(task_fs(current_task()), &base);
 	else {
 		base = *dir;
 		path_get(&base);
@@ -402,8 +402,8 @@ static int walk_path(struct path *base, const char *path, uint32_t flags,
 	return 0;
 }
 
-int path_lookupat_path(const struct path *base, const char *path, uint32_t flags,
-		       struct path *res)
+int path_lookupat_path(const struct path *base, const char *path,
+		       uint32_t flags, struct path *res)
 {
 	struct namei_context ctx = {0};
 	struct path start;
@@ -568,7 +568,7 @@ int vfs_chdir_path(const struct path *path)
 	if (!S_ISDIR(vfs_inode_mode(inode)))
 		return -ENOTDIR;
 
-	return fs_set_cwd_path(task_fs(current), path);
+	return fs_set_cwd_path(task_fs(current_task()), path);
 }
 
 void vfs_set_root_dentry(struct dentry *dentry)
@@ -585,6 +585,6 @@ void vfs_set_root_dentry(struct dentry *dentry)
 		root_dentry->d_sb = root_dentry->d_inode->i_sb;
 	dget(root_dentry);
 
-	if (current)
-		fs_set_root_if_empty(task_fs(current), root_dentry);
+	if (current_task())
+		fs_set_root_if_empty(task_fs(current_task()), root_dentry);
 }

@@ -58,7 +58,7 @@ int user_range_probe(const void *addr, size_t size, bool write)
 		return 0;
 	if (!access_ok(addr, size))
 		return -EFAULT;
-	mm = task_mm(current);
+	mm = task_mm(current_task());
 	if (!mm)
 		return -EFAULT;
 
@@ -110,10 +110,11 @@ ssize_t strncpy_from_user(char *dst, const char *src, size_t maxlen)
 
 		if (!access_ok((const void *)addr, 1))
 			return -EFAULT;
-		mm = task_mm(current);
+		mm = task_mm(current_task());
 		if (!mm)
 			return -EFAULT;
-		with_guard(mm_guard, mm) {
+		with_guard(mm_guard, mm)
+		{
 			vma = find_vma(mm, addr);
 			if (!vma || !(vma->vm_flags & VM_READ))
 				return -EFAULT;

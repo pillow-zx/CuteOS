@@ -23,11 +23,11 @@ struct wait_timeout {
 
 static void wait_finish_current_state(void)
 {
-	if (!current)
+	if (!current_task())
 		return;
 
-	if (task_state(current) & TASK_ANY_SLEEP)
-		task_mark_running(current);
+	if (task_state(current_task()) & TASK_ANY_SLEEP)
+		task_mark_running(current_task());
 }
 
 static bool wait_task_is_sleeping(struct task_struct *task)
@@ -168,11 +168,11 @@ void finish_wait_entry(struct wait_queue_entry *entry)
 
 static void prepare_to_wait(struct wait_queue_head *wq, uint32_t state)
 {
-	if (!wq || !current)
+	if (!wq || !current_task())
 		return;
 
-	prepare_wait_entry(wq, task_wait_entry(current));
-	task_set_state(current, state);
+	prepare_wait_entry(wq, task_wait_entry(current_task()));
+	task_set_state(current_task(), state);
 }
 
 void prepare_to_wait_uninterruptible(struct wait_queue_head *wq)
@@ -189,22 +189,22 @@ void finish_wait(struct wait_queue_head *wq)
 {
 	(void)wq;
 
-	if (!current)
+	if (!current_task())
 		return;
 
-	finish_wait_entry(task_wait_entry(current));
+	finish_wait_entry(task_wait_entry(current_task()));
 	wait_finish_current_state();
 }
 
 int wait_schedule(uint32_t state)
 {
-	if (!current)
+	if (!current_task())
 		return -EINVAL;
 
-	if (task_state(current) != state)
+	if (task_state(current_task()) != state)
 		return 0;
-	if (!wait_task_is_sleeping(current))
-		task_set_state(current, state);
+	if (!wait_task_is_sleeping(current_task()))
+		task_set_state(current_task(), state);
 	schedule();
 	wait_finish_current_state();
 	return 0;
@@ -215,27 +215,28 @@ int wait_schedule_until(uint32_t state, uint64_t deadline)
 	struct wait_timeout timeout;
 	bool enabled_irq_for_sleep = false;
 
-	if (!current)
+	if (!current_task())
 		return -EINVAL;
 	if (deadline <= arch_timer_now()) {
 		wait_finish_current_state();
 		return -ETIMEDOUT;
 	}
 
-	wait_timeout_init(&timeout, current);
+	wait_timeout_init(&timeout, current_task());
 	BUG_ON(wait_timeout_start(&timeout, deadline) != 0);
-	if (task_state(current) != state) {
+	if (task_state(current_task()) != state) {
 		wait_timeout_cancel(&timeout);
 		wait_finish_current_state();
 		return 0;
 	}
-	if (!wait_task_is_sleeping(current))
-		task_set_state(current, state);
+	if (!wait_task_is_sleeping(current_task()))
+		task_set_state(current_task(), state);
 
 	while (!wait_timeout_fired(&timeout)) {
-		if (task_state(current) != state)
+		if (task_state(current_task()) != state)
 			break;
-		if ((state == TASK_INTERRUPTIBLE) && signal_pending(current))
+		if ((state == TASK_INTERRUPTIBLE) &&
+		    signal_pending(current_task()))
 			break;
 		if (deadline <= arch_timer_now())
 			break;
@@ -258,7 +259,7 @@ int wait_schedule_until(uint32_t state, uint64_t deadline)
 	wait_timeout_cancel(&timeout);
 	wait_finish_current_state();
 
-	if (state == TASK_INTERRUPTIBLE && signal_pending(current))
+	if (state == TASK_INTERRUPTIBLE && signal_pending(current_task()))
 		return -EINTR;
 	if (wait_timeout_fired(&timeout) || deadline <= arch_timer_now())
 		return -ETIMEDOUT;
@@ -268,7 +269,7 @@ int wait_schedule_until(uint32_t state, uint64_t deadline)
 int wait_event(struct wait_queue_head *wq, wait_condition_t condition,
 	       void *arg)
 {
-	if (!wq || !condition || !current)
+	if (!wq || !condition || !current_task())
 		return -EINVAL;
 
 	while (!condition(arg)) {
@@ -287,7 +288,7 @@ int wait_event(struct wait_queue_head *wq, wait_condition_t condition,
 int wait_event_interruptible(struct wait_queue_head *wq,
 			     wait_condition_t condition, void *arg)
 {
-	if (!wq || !condition || !current)
+	if (!wq || !condition || !current_task())
 		return -EINVAL;
 
 	while (!condition(arg)) {
@@ -296,7 +297,7 @@ int wait_event_interruptible(struct wait_queue_head *wq,
 			finish_wait(wq);
 			break;
 		}
-		if (signal_pending(current)) {
+		if (signal_pending(current_task())) {
 			finish_wait(wq);
 			return -EINTR;
 		}

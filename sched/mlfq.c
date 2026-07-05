@@ -131,45 +131,47 @@ void mlfq_boost(void)
 {
 	struct list_head *pos;
 	struct list_head *next;
+	struct task_struct *task;
 
 	for (uint8_t level = 0; level < SCHED_MLFQ_LEVELS; level++) {
 		list_for_each_safe (pos, next, &queues[level]) {
-			struct task_struct *task =
-				list_entry(pos, struct task_struct,
-					   sched.run_list);
+			task = list_entry(pos, struct task_struct,
+					  sched.run_list);
 
 			if (level != 0) {
 				list_del_init(&task->sched.run_list);
 				refresh_empty_mark(level);
 				boost_task(task);
-				list_add_tail(&task->sched.run_list, &queues[0]);
+				list_add_tail(&task->sched.run_list,
+					      &queues[0]);
 				mark_nonempty(0);
-			} else {
+			} else
 				boost_task(task);
-			}
 
 			task->sched.enqueue_jiffies = jiffies;
 		}
 	}
 
-	if (current && current != &idle_task &&
-	    current->lifecycle.state == TASK_RUNNING)
-		boost_task(current);
+	task = current_task();
+	if (task && task != &idle_task && task->lifecycle.state == TASK_RUNNING)
+		boost_task(task);
 }
 
 void mlfq_tick(void)
 {
-	if (current && current != &idle_task &&
-	    current->lifecycle.state == TASK_RUNNING) {
-		if (current->sched.time_slice > 0)
-			current->sched.time_slice--;
-		current->sched.sched_ticks++;
+	struct task_struct *task = current_task();
 
-		if (current->sched.time_slice == 0) {
-			if (current->sched.sched_level + 1 < SCHED_MLFQ_LEVELS)
-				current->sched.sched_level++;
-			reset_budget(current);
-			current->sched.need_resched = 1;
+	if (task && task != &idle_task &&
+	    task->lifecycle.state == TASK_RUNNING) {
+		if (task->sched.time_slice > 0)
+			task->sched.time_slice--;
+		task->sched.sched_ticks++;
+
+		if (task->sched.time_slice == 0) {
+			if (task->sched.sched_level + 1 < SCHED_MLFQ_LEVELS)
+				task->sched.sched_level++;
+			reset_budget(task);
+			task->sched.need_resched = 1;
 		}
 	}
 

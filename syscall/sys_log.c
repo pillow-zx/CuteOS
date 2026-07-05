@@ -37,7 +37,8 @@ ssize_t sys_syslog(struct trap_frame *tf)
 
 	if (!syslog_action_valid(type))
 		return -EINVAL;
-	if (syslog_action_requires_root(type) && task_uid(current) != 0)
+	if (syslog_action_requires_root(type) &&
+	    task_uid(current_task()) != 0)
 		return -EPERM;
 
 	switch (type) {

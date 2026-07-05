@@ -19,7 +19,7 @@ static struct task_struct *resource_test_task(void)
 
 void test_files_struct_copy_and_share(void)
 {
-	struct task_struct *saved = current;
+	struct task_struct *saved = current_task();
 	struct task_struct *parent = NULL;
 	struct task_struct *child = NULL;
 	struct file *file;
@@ -31,18 +31,18 @@ void test_files_struct_copy_and_share(void)
 		TEST_ASSERT_NOT_NULL(parent);
 		TEST_ASSERT_NOT_NULL(child);
 
-		current = parent;
+		set_current_task(parent);
 		TEST_ASSERT_EQ(copy_files(child, false), 0);
 		TEST_ASSERT(parent->resources.files != child->resources.files);
 		TEST_ASSERT_EQ(fd_close(KERN_STDIN), 0);
 		TEST_ASSERT_NULL(fd_get(KERN_STDIN));
 
-		current = child;
+		set_current_task(child);
 		file = fd_get(KERN_STDIN);
 		TEST_ASSERT_NOT_NULL(file);
 		file_put(file);
 
-		current = saved;
+		set_current_task(saved);
 		task_free(child);
 		task_free(parent);
 		child = NULL;
@@ -53,12 +53,12 @@ void test_files_struct_copy_and_share(void)
 		TEST_ASSERT_NOT_NULL(parent);
 		TEST_ASSERT_NOT_NULL(child);
 
-		current = parent;
+		set_current_task(parent);
 		TEST_ASSERT_EQ(copy_files(child, true), 0);
 		TEST_ASSERT_EQ(parent->resources.files, child->resources.files);
 		TEST_ASSERT_EQ(fd_close(KERN_STDIN), 0);
 
-		current = child;
+		set_current_task(child);
 		TEST_ASSERT_NULL(fd_get(KERN_STDIN));
 	}
 	TEST_END("resources: files copy/share");
@@ -66,7 +66,7 @@ void test_files_struct_copy_and_share(void)
 fail:
 	TEST_FAIL("resources: files copy/share", "see above");
 cleanup:
-	current = saved;
+	set_current_task(saved);
 	if (child)
 		task_free(child);
 	if (parent)
@@ -75,7 +75,7 @@ cleanup:
 
 void test_files_struct_copy_preserves_cloexec(void)
 {
-	struct task_struct *saved = current;
+	struct task_struct *saved = current_task();
 	struct task_struct *parent = NULL;
 	struct task_struct *child = NULL;
 
@@ -86,15 +86,15 @@ void test_files_struct_copy_preserves_cloexec(void)
 		TEST_ASSERT_NOT_NULL(parent);
 		TEST_ASSERT_NOT_NULL(child);
 
-		current = parent;
+		set_current_task(parent);
 		TEST_ASSERT_EQ(fd_set_close_on_exec(KERN_STDIN, true), 0);
 		TEST_ASSERT_EQ(copy_files(child, false), 0);
 		TEST_ASSERT(parent->resources.files != child->resources.files);
 
-		current = child;
+		set_current_task(child);
 		TEST_ASSERT_EQ(fd_get_close_on_exec(KERN_STDIN), 1);
 
-		current = saved;
+		set_current_task(saved);
 		task_free(child);
 		task_free(parent);
 		child = NULL;
@@ -105,12 +105,12 @@ void test_files_struct_copy_preserves_cloexec(void)
 		TEST_ASSERT_NOT_NULL(parent);
 		TEST_ASSERT_NOT_NULL(child);
 
-		current = parent;
+		set_current_task(parent);
 		TEST_ASSERT_EQ(fd_set_close_on_exec(KERN_STDIN, true), 0);
 		TEST_ASSERT_EQ(copy_files(child, true), 0);
 		TEST_ASSERT_EQ(parent->resources.files, child->resources.files);
 
-		current = child;
+		set_current_task(child);
 		TEST_ASSERT_EQ(fd_get_close_on_exec(KERN_STDIN), 1);
 	}
 	TEST_END("resources: files copy preserves cloexec");
@@ -118,7 +118,7 @@ void test_files_struct_copy_preserves_cloexec(void)
 fail:
 	TEST_FAIL("resources: files copy preserves cloexec", "see above");
 cleanup:
-	current = saved;
+	set_current_task(saved);
 	if (child)
 		task_free(child);
 	if (parent)
@@ -127,7 +127,7 @@ cleanup:
 
 void test_fs_struct_copy_and_share(void)
 {
-	struct task_struct *saved = current;
+	struct task_struct *saved = current_task();
 	struct task_struct *parent = NULL;
 	struct task_struct *child = NULL;
 
@@ -138,14 +138,15 @@ void test_fs_struct_copy_and_share(void)
 		TEST_ASSERT_NOT_NULL(parent);
 		TEST_ASSERT_NOT_NULL(child);
 
-		current = parent;
+		set_current_task(parent);
 		TEST_ASSERT_EQ(fs_set_umask(parent->resources.fs, 0077), 0022);
 		TEST_ASSERT_EQ(copy_fs(child, false), 0);
 		TEST_ASSERT(parent->resources.fs != child->resources.fs);
 		TEST_ASSERT_EQ(fs_set_umask(parent->resources.fs, 0002), 0077);
-		TEST_ASSERT_EQ(fs_get_umask(child->resources.fs), (uint32_t)0077);
+		TEST_ASSERT_EQ(fs_get_umask(child->resources.fs),
+			       (uint32_t)0077);
 
-		current = saved;
+		set_current_task(saved);
 		task_free(child);
 		task_free(parent);
 		child = NULL;
@@ -156,18 +157,19 @@ void test_fs_struct_copy_and_share(void)
 		TEST_ASSERT_NOT_NULL(parent);
 		TEST_ASSERT_NOT_NULL(child);
 
-		current = parent;
+		set_current_task(parent);
 		TEST_ASSERT_EQ(copy_fs(child, true), 0);
 		TEST_ASSERT_EQ(parent->resources.fs, child->resources.fs);
 		TEST_ASSERT_EQ(fs_set_umask(parent->resources.fs, 0007), 0022);
-		TEST_ASSERT_EQ(fs_get_umask(child->resources.fs), (uint32_t)0007);
+		TEST_ASSERT_EQ(fs_get_umask(child->resources.fs),
+			       (uint32_t)0007);
 	}
 	TEST_END("resources: fs copy/share");
 	goto cleanup;
 fail:
 	TEST_FAIL("resources: fs copy/share", "see above");
 cleanup:
-	current = saved;
+	set_current_task(saved);
 	if (child)
 		task_free(child);
 	if (parent)
@@ -176,7 +178,7 @@ cleanup:
 
 void test_sighand_struct_copy_and_share(void)
 {
-	struct task_struct *saved = current;
+	struct task_struct *saved = current_task();
 	struct task_struct *parent = NULL;
 	struct task_struct *child = NULL;
 	__sighandler_t handler = (__sighandler_t)(uintptr_t)0x12340000UL;
@@ -188,23 +190,27 @@ void test_sighand_struct_copy_and_share(void)
 		TEST_ASSERT_NOT_NULL(parent);
 		TEST_ASSERT_NOT_NULL(child);
 
-		current = parent;
+		set_current_task(parent);
 		parent->sigctx.blocked = signal_mask(SIGUSR2);
 		TEST_ASSERT_EQ(signals_clone(child, false, false, false), 0);
-		TEST_ASSERT(parent->resources.sighand != child->resources.sighand);
-		TEST_ASSERT(parent->resources.signal != child->resources.signal);
+		TEST_ASSERT(parent->resources.sighand !=
+			    child->resources.sighand);
+		TEST_ASSERT(parent->resources.signal !=
+			    child->resources.signal);
 		TEST_ASSERT_EQ(child->sigctx.blocked, signal_mask(SIGUSR2));
 
 		mutex_lock(&parent->resources.sighand->lock);
-		parent->resources.sighand->sigactions[SIGUSR1].sa_handler = handler;
+		parent->resources.sighand->sigactions[SIGUSR1].sa_handler =
+			handler;
 		mutex_unlock(&parent->resources.sighand->lock);
-		TEST_ASSERT_NE(child->resources.sighand->sigactions[SIGUSR1].sa_handler,
+		TEST_ASSERT_NE(child->resources.sighand->sigactions[SIGUSR1]
+				       .sa_handler,
 			       handler);
 
 		parent->sigctx.blocked = signal_mask(SIGTERM);
 		TEST_ASSERT_EQ(child->sigctx.blocked, signal_mask(SIGUSR2));
 
-		current = saved;
+		set_current_task(saved);
 		task_free(child);
 		task_free(parent);
 		child = NULL;
@@ -215,15 +221,19 @@ void test_sighand_struct_copy_and_share(void)
 		TEST_ASSERT_NOT_NULL(parent);
 		TEST_ASSERT_NOT_NULL(child);
 
-		current = parent;
+		set_current_task(parent);
 		TEST_ASSERT_EQ(signals_clone(child, true, true, false), 0);
-		TEST_ASSERT_EQ(parent->resources.sighand, child->resources.sighand);
-		TEST_ASSERT_EQ(parent->resources.signal, child->resources.signal);
+		TEST_ASSERT_EQ(parent->resources.sighand,
+			       child->resources.sighand);
+		TEST_ASSERT_EQ(parent->resources.signal,
+			       child->resources.signal);
 
 		mutex_lock(&parent->resources.sighand->lock);
-		parent->resources.sighand->sigactions[SIGUSR1].sa_handler = handler;
+		parent->resources.sighand->sigactions[SIGUSR1].sa_handler =
+			handler;
 		mutex_unlock(&parent->resources.sighand->lock);
-		TEST_ASSERT_EQ(child->resources.sighand->sigactions[SIGUSR1].sa_handler,
+		TEST_ASSERT_EQ(child->resources.sighand->sigactions[SIGUSR1]
+				       .sa_handler,
 			       handler);
 
 		parent->sigctx.blocked = signal_mask(SIGTERM);
@@ -234,7 +244,7 @@ void test_sighand_struct_copy_and_share(void)
 fail:
 	TEST_FAIL("resources: sighand copy/share", "see above");
 cleanup:
-	current = saved;
+	set_current_task(saved);
 	if (child)
 		task_free(child);
 	if (parent)
@@ -243,7 +253,7 @@ cleanup:
 
 void test_signal_struct_pending(void)
 {
-	struct task_struct *saved = current;
+	struct task_struct *saved = current_task();
 	struct task_struct *parent = NULL;
 	struct task_struct *child = NULL;
 
@@ -254,7 +264,7 @@ void test_signal_struct_pending(void)
 		TEST_ASSERT_NOT_NULL(parent);
 		TEST_ASSERT_NOT_NULL(child);
 
-		current = parent;
+		set_current_task(parent);
 		TEST_ASSERT_EQ(signals_clone(child, true, true, false), 0);
 		TEST_ASSERT_EQ(send_signal(SIGUSR1, child), 0);
 		TEST_ASSERT_EQ(child->sigctx.pending, signal_mask(SIGUSR1));
@@ -271,7 +281,7 @@ void test_signal_struct_pending(void)
 fail:
 	TEST_FAIL("resources: signal pending", "see above");
 cleanup:
-	current = saved;
+	set_current_task(saved);
 	if (child)
 		task_free(child);
 	if (parent)
@@ -280,7 +290,7 @@ cleanup:
 
 void test_signal_struct_rlimits_copy(void)
 {
-	struct task_struct *saved = current;
+	struct task_struct *saved = current_task();
 	struct task_struct *parent = NULL;
 	struct task_struct *child = NULL;
 
@@ -291,14 +301,17 @@ void test_signal_struct_rlimits_copy(void)
 		TEST_ASSERT_NOT_NULL(parent);
 		TEST_ASSERT_NOT_NULL(child);
 
-		current = parent;
+		set_current_task(parent);
 		parent->resources.signal->rlimits[RLIMIT_NOFILE].rlim_cur = 16;
 		parent->resources.signal->rlimits[RLIMIT_NOFILE].rlim_max = 16;
 		TEST_ASSERT_EQ(signals_clone(child, false, false, false), 0);
-		TEST_ASSERT(parent->resources.signal != child->resources.signal);
-		TEST_ASSERT_EQ(child->resources.signal->rlimits[RLIMIT_NOFILE].rlim_cur,
+		TEST_ASSERT(parent->resources.signal !=
+			    child->resources.signal);
+		TEST_ASSERT_EQ(child->resources.signal->rlimits[RLIMIT_NOFILE]
+				       .rlim_cur,
 			       (uint64_t)16);
-		TEST_ASSERT_EQ(child->resources.signal->rlimits[RLIMIT_NOFILE].rlim_max,
+		TEST_ASSERT_EQ(child->resources.signal->rlimits[RLIMIT_NOFILE]
+				       .rlim_max,
 			       (uint64_t)16);
 	}
 	TEST_END("resources: signal rlimits copy");
@@ -306,7 +319,7 @@ void test_signal_struct_rlimits_copy(void)
 fail:
 	TEST_FAIL("resources: signal rlimits copy", "see above");
 cleanup:
-	current = saved;
+	set_current_task(saved);
 	if (child)
 		task_free(child);
 	if (parent)

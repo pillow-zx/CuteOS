@@ -50,7 +50,8 @@ static int validate_clone_flags(unsigned long flags, uintptr_t child_stack)
 		return -EINVAL;
 	if ((flags & CLONE_THREAD) && !(flags & CLONE_SIGHAND))
 		return -EINVAL;
-	if (!clone_wants_thread(flags) && !task_is_group_leader(current))
+	if (!clone_wants_thread(flags) &&
+	    !task_is_group_leader(current_task()))
 		return -EINVAL;
 	if (!clone_wants_thread(flags) && (flags & thread_only_clone_flags))
 		return -EINVAL;
@@ -83,7 +84,7 @@ static void child_cleanup(struct task_struct *child)
 static int clone_setup_mm(struct task_struct *child, unsigned long flags)
 {
 	struct mm_struct *mm;
-	struct mm_struct *parent_mm = task_mm(current);
+	struct mm_struct *parent_mm = task_mm(current_task());
 
 	if (flags & CLONE_VM) {
 		task_set_mm(child, parent_mm);
@@ -130,8 +131,8 @@ static int clone_copy_resources(struct task_struct *child, unsigned long flags)
 	if (ret < 0)
 		return ret;
 
-	task_set_uid(child, task_uid(current));
-	task_set_gid(child, task_gid(current));
+	task_set_uid(child, task_uid(current_task()));
+	task_set_gid(child, task_gid(current_task()));
 	disable_altstack = (flags & CLONE_VM) && !(flags & CLONE_VFORK);
 	ret = signals_clone(child, (bool)(flags & CLONE_SIGHAND),
 			    clone_wants_thread(flags), disable_altstack);
@@ -145,11 +146,12 @@ static void clone_setup_task_links(struct task_struct *child,
 				   unsigned long flags)
 {
 	child->lifecycle.exit_signal = (int)(flags & CLONE_EXIT_SIGNAL_MASK);
-	task_set_pgid(child, task_pgid(current));
+	task_set_pgid(child, task_pgid(current_task()));
 	if (clone_wants_thread(flags)) {
-		struct task_struct *leader = task_group_leader(current);
+		struct task_struct *leader =
+			task_group_leader(current_task());
 
-		child->ids.tgid = task_tgid(current);
+		child->ids.tgid = task_tgid(current_task());
 		child->ids.group_leader = leader;
 		child->lifecycle.exit_signal = 0;
 		child->links.parent = leader;
@@ -158,16 +160,18 @@ static void clone_setup_task_links(struct task_struct *child,
 
 	child->ids.tgid = child->ids.pid;
 	child->ids.group_leader = child;
-	child->links.parent = current;
+	child->links.parent = current_task();
 }
 
 static void clone_link_task(struct task_struct *child, unsigned long flags)
 {
 	if (clone_wants_thread(flags))
 		list_add_tail(&child->links.thread_node,
-			      &task_group_leader(current)->links.thread_group);
+			      &task_group_leader(current_task())
+				       ->links.thread_group);
 	else
-		list_add(&child->links.sibling, task_children(current));
+		list_add(&child->links.sibling,
+			 task_children(current_task()));
 }
 
 int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,

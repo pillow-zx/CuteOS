@@ -219,9 +219,9 @@ __trapret:
 	 * 的 frame base 漂移。不要从当前 trap_frame 的地址推导栈顶：
 	 * exec_user_path() 首次进入用户态时使用的是普通内核栈局部 frame。
 	 */
-	la      t0, current
-	ld      t0, 0(t0)               /* t0 = current (task_struct *) */
-	ld      t0, TASK_KSTACK(t0)     /* t0 = current->kstack */
+	la      t0, cpu_table
+	ld      t0, CPU_CURRENT_TASK(t0) /* t0 = active task_struct * */
+	ld      t0, TASK_KSTACK(t0)     /* t0 = task->kstack */
 	addi    t0, t0, 2047
 	addi    t0, t0, 2047
 	addi    t0, t0, 2047
@@ -230,9 +230,9 @@ __trapret:
 	csrw    sscratch, t0
 
 	/* 切换到当前进程的用户页表 */
-	la      t0, current
-	ld      t0, 0(t0)               /* t0 = current (task_struct *) */
-	ld      t0, TASK_SATP(t0)       /* t0 = current->satp */
+	la      t0, cpu_table
+	ld      t0, CPU_CURRENT_TASK(t0) /* t0 = active task_struct * */
+	ld      t0, TASK_SATP(t0)       /* t0 = task->satp */
 	beqz    t0, .Lret_user_noswitch
 	csrw    satp, t0
 	sfence.vma zero, zero

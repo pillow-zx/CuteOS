@@ -58,7 +58,7 @@ fail:
 void test_sched_need_resched(void)
 {
 	struct task_struct *t = NULL;
-	struct task_struct *saved_current = current;
+	struct task_struct *saved_current = current_task();
 	uint64_t saved_jiffies = jiffies;
 
 	TEST_BEGIN("sched: tick demotes and requests resched");
@@ -71,7 +71,7 @@ void test_sched_need_resched(void)
 		TEST_ASSERT_EQ(sched_test_time_slice(t),
 			       sched_test_level_slice(0));
 
-		current = t;
+		set_current_task(t);
 		jiffies = 1;
 		sched_tick();
 
@@ -85,10 +85,35 @@ void test_sched_need_resched(void)
 fail:
 	TEST_FAIL("sched: tick demotes and requests resched", "see above");
 cleanup:
-	current = saved_current;
+	set_current_task(saved_current);
 	jiffies = saved_jiffies;
 	if (t)
 		task_free(t);
+}
+
+void test_sched_preempt_count_is_cpu_local(void)
+{
+	int saved = cpu_preempt_count(current_cpu());
+
+	TEST_BEGIN("sched: preempt count is CPU-local");
+	{
+		cpu_set_preempt_count(current_cpu(), 0);
+		TEST_ASSERT(preemptible());
+
+		preempt_disable();
+		TEST_ASSERT_EQ(cpu_preempt_count(current_cpu()), 1);
+		TEST_ASSERT(!preemptible());
+
+		preempt_enable();
+		TEST_ASSERT_EQ(cpu_preempt_count(current_cpu()), 0);
+		TEST_ASSERT(preemptible());
+	}
+	TEST_END("sched: preempt count is CPU-local");
+	goto cleanup;
+fail:
+	TEST_FAIL("sched: preempt count is CPU-local", "see above");
+cleanup:
+	cpu_set_preempt_count(current_cpu(), saved);
 }
 
 void test_sched_wakeup_refresh(void)
@@ -126,7 +151,7 @@ void test_sched_boost(void)
 	struct task_struct *t1 = NULL;
 	struct task_struct *t2 = NULL;
 	struct task_struct *t3 = NULL;
-	struct task_struct *saved_current = current;
+	struct task_struct *saved_current = current_task();
 
 	TEST_BEGIN("sched: periodic boost");
 	{
@@ -145,7 +170,7 @@ void test_sched_boost(void)
 		sched_enqueue(t2);
 		sched_test_set_level(t3, 3);
 		sched_test_set_budget(t3, 0, 0);
-		current = t3;
+		set_current_task(t3);
 
 		sched_test_force_boost();
 
@@ -165,7 +190,7 @@ void test_sched_boost(void)
 fail:
 	TEST_FAIL("sched: periodic boost", "see above");
 cleanup:
-	current = saved_current;
+	set_current_task(saved_current);
 	if (t1) {
 		sched_dequeue(t1);
 		task_free(t1);

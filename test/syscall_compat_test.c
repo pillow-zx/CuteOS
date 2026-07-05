@@ -23,12 +23,10 @@ static_assert(sizeof(clockid_t) == 4, "clockid_t ABI size mismatch");
 static_assert(sizeof(timer_t) == 4, "timer_t ABI size mismatch");
 static_assert(sizeof(struct timespec) == 16, "timespec ABI size mismatch");
 static_assert(sizeof(struct timeval) == 16, "timeval ABI size mismatch");
-static_assert(sizeof(struct itimerspec) == 32,
-	      "itimerspec ABI size mismatch");
+static_assert(sizeof(struct itimerspec) == 32, "itimerspec ABI size mismatch");
 static_assert(offsetof(struct itimerspec, it_value) == 16,
 	      "itimerspec it_value ABI offset mismatch");
-static_assert(sizeof(struct itimerval) == 32,
-	      "itimerval ABI size mismatch");
+static_assert(sizeof(struct itimerval) == 32, "itimerval ABI size mismatch");
 static_assert(offsetof(struct itimerval, it_value) == 16,
 	      "itimerval it_value ABI offset mismatch");
 static_assert(sizeof(sigval_t) == 8, "sigval_t ABI size mismatch");
@@ -41,16 +39,14 @@ static_assert(offsetof(sigevent_t, sigev_notify_thread_id) == 16,
 	      "sigevent thread id ABI offset mismatch");
 static_assert(SYS_getitimer == 102, "getitimer syscall number mismatch");
 static_assert(SYS_setitimer == 103, "setitimer syscall number mismatch");
-static_assert(SYS_timer_create == 107,
-	      "timer_create syscall number mismatch");
+static_assert(SYS_timer_create == 107, "timer_create syscall number mismatch");
 static_assert(SYS_timer_gettime == 108,
 	      "timer_gettime syscall number mismatch");
 static_assert(SYS_timer_getoverrun == 109,
 	      "timer_getoverrun syscall number mismatch");
 static_assert(SYS_timer_settime == 110,
 	      "timer_settime syscall number mismatch");
-static_assert(SYS_timer_delete == 111,
-	      "timer_delete syscall number mismatch");
+static_assert(SYS_timer_delete == 111, "timer_delete syscall number mismatch");
 
 ssize_t console_tty_read_stream_for_test(const struct termios *termios,
 					 const char *input, size_t input_len,
@@ -90,8 +86,9 @@ void test_uapi_shared_layouts(void)
 		TEST_ASSERT_EQ(EPOLLRDNORM, 0x40U);
 		TEST_ASSERT_EQ(EPOLLWRNORM, 0x100U);
 		TEST_ASSERT_EQ(sizeof(struct robust_list_head), (size_t)24);
-		TEST_ASSERT_EQ(offsetof(struct robust_list_head, list_op_pending),
-			       (size_t)16);
+		TEST_ASSERT_EQ(
+			offsetof(struct robust_list_head, list_op_pending),
+			(size_t)16);
 		TEST_ASSERT_EQ(ITIMER_REAL, 0);
 		TEST_ASSERT_EQ(ITIMER_VIRTUAL, 1);
 		TEST_ASSERT_EQ(ITIMER_PROF, 2);
@@ -178,8 +175,8 @@ void test_vfs_poll_table_registers_multiple_queues(void)
 		TEST_ASSERT_EQ(table.nr_entries, (size_t)2);
 		TEST_ASSERT(!list_empty(&readers.task_list));
 		TEST_ASSERT(!list_empty(&writers.task_list));
-		TEST_ASSERT_EQ(table.entries[0].wait.task, current);
-		TEST_ASSERT_EQ(table.entries[1].wait.task, current);
+		TEST_ASSERT_EQ(table.entries[0].wait.task, current_task());
+		TEST_ASSERT_EQ(table.entries[1].wait.task, current_task());
 
 		vfs_poll_table_cleanup(&table);
 		TEST_ASSERT_EQ(table.nr_entries, (size_t)0);
@@ -282,7 +279,7 @@ fail:
 
 void test_tty_signal_delivery_policy(void)
 {
-	struct task_struct *saved = current;
+	struct task_struct *saved = current_task();
 	struct task_struct *task = NULL;
 
 	TEST_BEGIN("syscall compat: tty signal delivery");
@@ -292,7 +289,7 @@ void test_tty_signal_delivery_policy(void)
 		task = task_alloc();
 		TEST_ASSERT_NOT_NULL(task);
 		TEST_ASSERT_EQ(task_init_resources(task), 0);
-		current = task;
+		set_current_task(task);
 
 		TEST_ASSERT_EQ(tty_deliver_signal(SIGINT), 0);
 		TEST_ASSERT_EQ(task->resources.signal->shared_pending,
@@ -304,7 +301,7 @@ void test_tty_signal_delivery_policy(void)
 fail:
 	TEST_FAIL("syscall compat: tty signal delivery", "see above");
 cleanup:
-	current = saved;
+	set_current_task(saved);
 	if (task)
 		task_free(task);
 }

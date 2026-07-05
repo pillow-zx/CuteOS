@@ -20,7 +20,7 @@ bool mutex_trylock(mutex_t *mutex)
 
 	spin_lock_irqsave(&mutex->lock, &flags);
 	if (!mutex->owner) {
-		mutex->owner = current;
+		mutex->owner = current_task();
 		locked = true;
 	}
 	spin_unlock_irqrestore(&mutex->lock, flags);
@@ -37,7 +37,7 @@ void mutex_lock(mutex_t *mutex)
 	while (true) {
 		spin_lock_irqsave(&mutex->lock, &flags);
 		if (!mutex->owner) {
-			mutex->owner = current;
+			mutex->owner = current_task();
 			spin_unlock_irqrestore(&mutex->lock, flags);
 			return;
 		}
@@ -60,7 +60,7 @@ void mutex_unlock(mutex_t *mutex)
 	BUG_ON(!mutex);
 
 	spin_lock_irqsave(&mutex->lock, &flags);
-	BUG_ON(mutex->owner != current);
+	BUG_ON(mutex->owner != current_task());
 
 	mutex->owner = NULL;
 	(void)wake_up_one(&mutex->wait);

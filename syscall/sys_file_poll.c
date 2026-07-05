@@ -66,12 +66,12 @@ struct eventpoll {
 };
 
 CLEANUP_DEFINE(poll_sigmask_restore, struct poll_sigmask_guard,
-	       if (_T.active)
-		       task_set_blocked_mask(_T.task, _T.old_blocked);)
-CLEANUP_DEFINE(epitem, struct epitem *, if (_T) {
-		       file_put(_T->file);
-		       kfree(_T);
-	       });
+	       if (_T.active) task_set_blocked_mask(_T.task, _T.old_blocked);)
+CLEANUP_DEFINE(
+	epitem, struct epitem *, if (_T) {
+		file_put(_T->file);
+		kfree(_T);
+	});
 CLEANUP_DEFINE(eventpoll, struct eventpoll *, if (_T) kfree(_T));
 CLEANUP_DEFINE(file, struct file *, if (_T) file_put(_T));
 
@@ -98,8 +98,7 @@ eventpoll_file(struct file *file)
 	return file && file->f_op == &eventpoll_fops;
 }
 
-static __always_inline __must_check __pure size_t
-sys_fdset_nwords(size_t nfds)
+static __always_inline __must_check __pure size_t sys_fdset_nwords(size_t nfds)
 {
 	if (nfds == 0)
 		return 0;
@@ -107,8 +106,7 @@ sys_fdset_nwords(size_t nfds)
 	return (nfds + __NFDBITS - 1) / __NFDBITS;
 }
 
-static __always_inline __must_check __pure size_t
-sys_fdset_nbytes(size_t nfds)
+static __always_inline __must_check __pure size_t sys_fdset_nbytes(size_t nfds)
 {
 	return sys_fdset_nwords(nfds) * sizeof(unsigned long);
 }
@@ -119,19 +117,19 @@ sys_epoll_create1_flags_ok(int flags)
 	return (flags & ~EPOLL_CLOEXEC) == 0;
 }
 
-static __always_inline __must_check __pure bool
-sys_epoll_op_valid(int op)
+static __always_inline __must_check __pure bool sys_epoll_op_valid(int op)
 {
-	return op == EPOLL_CTL_ADD || op == EPOLL_CTL_MOD || op == EPOLL_CTL_DEL;
+	return op == EPOLL_CTL_ADD || op == EPOLL_CTL_MOD ||
+	       op == EPOLL_CTL_DEL;
 }
 
 static __always_inline __must_check __pure bool
 sys_epoll_events_ok(uint32_t events)
 {
-	const uint32_t supported =
-		EPOLLIN | EPOLLOUT | EPOLLPRI | EPOLLERR | EPOLLHUP |
-		EPOLLRDNORM | EPOLLRDBAND | EPOLLWRNORM | EPOLLWRBAND |
-		EPOLLMSG | EPOLLRDHUP | EPOLLONESHOT | EPOLLET;
+	const uint32_t supported = EPOLLIN | EPOLLOUT | EPOLLPRI | EPOLLERR |
+				   EPOLLHUP | EPOLLRDNORM | EPOLLRDBAND |
+				   EPOLLWRNORM | EPOLLWRBAND | EPOLLMSG |
+				   EPOLLRDHUP | EPOLLONESHOT | EPOLLET;
 
 	return (events & ~supported) == 0;
 }
@@ -162,8 +160,7 @@ static __always_inline void sys_fdset_assign(fd_set *set, int fd, bool ready)
 		FD_CLR(fd, set);
 }
 
-static __always_inline __must_check __pure uint32_t
-poll_req(uint32_t events)
+static __always_inline __must_check __pure uint32_t poll_req(uint32_t events)
 {
 	uint32_t req = events;
 
@@ -177,8 +174,8 @@ poll_req(uint32_t events)
 	return req;
 }
 
-static __always_inline __must_check __pure uint32_t
-poll_res(uint32_t mask, uint32_t requested)
+static __always_inline __must_check __pure uint32_t poll_res(uint32_t mask,
+							     uint32_t requested)
 {
 	uint32_t res = mask;
 
@@ -219,7 +216,7 @@ static int poll_apply_sigmask(const unsigned long *usigmask, size_t sigsetsize,
 	if (!guard)
 		return -EINVAL;
 
-	guard->task = current;
+	guard->task = current_task();
 	guard->old_blocked = 0;
 	guard->active = false;
 
@@ -233,8 +230,8 @@ static int poll_apply_sigmask(const unsigned long *usigmask, size_t sigsetsize,
 	if (copy_from_user(&new_mask, usigmask, sizeof(new_mask)) != 0)
 		return -EFAULT;
 
-	guard->old_blocked = task_blocked_mask(current);
-	task_set_blocked_mask(current, new_mask);
+	guard->old_blocked = task_blocked_mask(current_task());
+	task_set_blocked_mask(current_task(), new_mask);
 	guard->active = true;
 	return 0;
 }
@@ -425,8 +422,8 @@ epoll_result_events(const struct epitem *item, uint32_t mask)
 
 	events = epoll_res(events, item->event.events);
 	wanted = item->event.events &
-		 (EPOLLIN | EPOLLOUT | EPOLLPRI | EPOLLRDNORM |
-		  EPOLLRDBAND | EPOLLWRNORM | EPOLLWRBAND);
+		 (EPOLLIN | EPOLLOUT | EPOLLPRI | EPOLLRDNORM | EPOLLRDBAND |
+		  EPOLLWRNORM | EPOLLWRBAND);
 	return events & (wanted | EPOLLERR | EPOLLHUP | EPOLLNVAL);
 }
 
@@ -635,12 +632,12 @@ ssize_t sys_epoll_pwait(struct trap_frame *tf)
 	size_t sigsetsize = (size_t)tf->a5;
 	struct epoll_event kevents[NR_OPEN];
 	struct file *epfile __cleanup_with(file) = NULL;
-	struct poll_sigmask_guard sigmask_guard
-		__cleanup_with(poll_sigmask_restore) = {
-			.task = current,
-			.old_blocked = 0,
-			.active = false,
-		};
+	struct poll_sigmask_guard sigmask_guard __cleanup_with(
+		poll_sigmask_restore) = {
+		.task = current_task(),
+		.old_blocked = 0,
+		.active = false,
+	};
 	struct epoll_scan_ctx scan_ctx;
 	struct eventpoll *ep;
 	bool has_timeout;
@@ -683,9 +680,8 @@ ssize_t sys_epoll_pwait(struct trap_frame *tf)
 	scan_ctx.nr_ready = 0;
 
 	ret = vfs_poll_wait_until(epoll_scan, &scan_ctx, has_timeout, deadline);
-	if (ret > 0 &&
-	    copy_to_user(uevents, kevents, (size_t)ret * sizeof(kevents[0])) !=
-		    0)
+	if (ret > 0 && copy_to_user(uevents, kevents,
+				    (size_t)ret * sizeof(kevents[0])) != 0)
 		return -EFAULT;
 
 	return ret;
@@ -695,19 +691,18 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 {
 	struct pollfd *ufds = (struct pollfd *)tf->a0;
 	size_t nfds = (size_t)tf->a1;
-	const struct timespec *utimeout =
-		(const struct timespec *)tf->a2;
+	const struct timespec *utimeout = (const struct timespec *)tf->a2;
 	const unsigned long *usigmask = (const unsigned long *)tf->a3;
 	size_t sigsetsize = (size_t)tf->a4;
 	struct pollfd fds[NR_OPEN];
 	struct timespec timeout;
 	struct ppoll_scan_ctx scan_ctx;
-	struct poll_sigmask_guard sigmask_guard
-		__cleanup_with(poll_sigmask_restore) = {
-			.task = current,
-			.old_blocked = 0,
-			.active = false,
-		};
+	struct poll_sigmask_guard sigmask_guard __cleanup_with(
+		poll_sigmask_restore) = {
+		.task = current_task(),
+		.old_blocked = 0,
+		.active = false,
+	};
 	bool has_timeout;
 	uint64_t deadline;
 	int ret;
@@ -771,12 +766,12 @@ ssize_t sys_pselect6(struct trap_frame *tf)
 	fd_set out_exceptfds;
 	struct timespec timeout;
 	struct pselect_scan_ctx scan_ctx;
-	struct poll_sigmask_guard sigmask_guard
-		__cleanup_with(poll_sigmask_restore) = {
-			.task = current,
-			.old_blocked = 0,
-			.active = false,
-		};
+	struct poll_sigmask_guard sigmask_guard __cleanup_with(
+		poll_sigmask_restore) = {
+		.task = current_task(),
+		.old_blocked = 0,
+		.active = false,
+	};
 	bool has_timeout;
 	uint64_t deadline;
 	size_t sigsetsize;
@@ -843,7 +838,7 @@ ssize_t sys_pselect6(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 	ret = pselect_copy_result_fdset(uexceptfds, &out_exceptfds,
-					 fdset_bytes);
+					fdset_bytes);
 	if (ret < 0)
 		return ret;
 

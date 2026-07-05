@@ -11,13 +11,13 @@ static struct task_struct *tty_signal_target(void)
 {
 	struct task_struct *leader;
 
-	if (!current)
+	if (!current_task())
 		return NULL;
 
-	leader = task_group_leader(current);
+	leader = task_group_leader(current_task());
 	if (leader)
 		return leader;
-	return current;
+	return current_task();
 }
 
 int tty_deliver_signal(int sig)

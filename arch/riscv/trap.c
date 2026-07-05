@@ -67,8 +67,8 @@ void trap_handler(struct trap_frame *tf)
 	uint64_t code = scause & ~SCAUSE_IRQ_FLAG;
 	bool user = arch_from_user(tf);
 
-	if (current)
-		task_set_trap_frame(current, tf);
+	if (current_task())
+		task_set_trap_frame(current_task(), tf);
 
 	/* TODO: 待引入 Kconfig 后，将此测试 hook 置于
 	 * CONFIG_TRAP_TEST_HOOK 编译期守卫之下，避免生产内核
@@ -81,8 +81,9 @@ void trap_handler(struct trap_frame *tf)
 		switch (code) {
 		case IRQ_S_TIMER:
 			handle_timer_irq();
-			if (user && current && task_need_resched(current)) {
-				task_set_need_resched(current, 0);
+			if (user && current_task() &&
+			    task_need_resched(current_task())) {
+				task_set_need_resched(current_task(), 0);
 				schedule();
 			}
 			if (user)

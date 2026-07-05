@@ -79,4 +79,8 @@
 
 #define TASK_KSTACK_SIZE 8192
 
+/* ---- struct cpu offsets ---- */
+#define CPU_CURRENT_TASK  24
+#define CPU_PREEMPT_COUNT 32
+
 #endif

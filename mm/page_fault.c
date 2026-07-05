@@ -112,7 +112,7 @@ static bool pte_allows_fault(int access, pte_t pte)
 static void signal_or_exit_segv(bool from_user_mode)
 {
 	if (from_user_mode) {
-		if (force_signal(SIGSEGV, current) < 0)
+		if (force_signal(SIGSEGV, current_task()) < 0)
 			do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 		return;
 	}
@@ -291,7 +291,7 @@ void do_page_fault(struct trap_frame *tf)
 	vaddr_t fault_addr = tf->stval;
 	uint64_t scause = tf->scause & ~SCAUSE_IRQ_FLAG;
 	bool from_user_mode = arch_from_user(tf);
-	struct mm_struct *mm = task_mm(current);
+	struct mm_struct *mm = task_mm(current_task());
 	int access = scause_to_access(scause);
 	pte_t fault_pte = 0;
 	int ret;
@@ -313,7 +313,7 @@ void do_page_fault(struct trap_frame *tf)
 
 	if (ret == -ENOMEM) {
 		pr_err("page fault: OOM at addr=%p pid=%d\n",
-		       (void *)fault_addr, task_pid(current));
+		       (void *)fault_addr, task_pid(current_task()));
 		do_exit(1);
 		unreachable();
 	}
@@ -328,7 +328,7 @@ void do_page_fault(struct trap_frame *tf)
 			"type=%s addr=%p sepc=%p origin=%s pid=%d\n",
 			fault_type_name(scause), (void *)fault_addr,
 			(void *)tf->sepc, from_user_mode ? "user" : "kernel",
-			task_pid(current));
+			task_pid(current_task()));
 		signal_or_exit_segv(from_user_mode);
 		return;
 	}
@@ -343,7 +343,7 @@ void do_page_fault(struct trap_frame *tf)
 			"origin=%s pid=%d\n",
 			fault_type_name(scause), (void *)fault_addr, vm_flags,
 			(void *)tf->sepc, from_user_mode ? "user" : "kernel",
-			task_pid(current));
+			task_pid(current_task()));
 		signal_or_exit_segv(from_user_mode);
 		return;
 	}
@@ -353,6 +353,6 @@ void do_page_fault(struct trap_frame *tf)
 		"type=%s addr=%p pte=0x%lx sepc=%p origin=%s pid=%d\n",
 		fault_type_name(scause), (void *)fault_addr, (size_t)fault_pte,
 		(void *)tf->sepc, from_user_mode ? "user" : "kernel",
-		task_pid(current));
+		task_pid(current_task()));
 	signal_or_exit_segv(from_user_mode);
 }

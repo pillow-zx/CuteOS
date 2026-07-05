@@ -28,7 +28,7 @@ ssize_t sys_brk(struct trap_frame *tf)
 {
 	uintptr_t addr = (uintptr_t)tf->a0;
 
-	return (ssize_t)mm_brk(task_mm(current), addr);
+	return (ssize_t)mm_brk(task_mm(current_task()), addr);
 }
 
 ssize_t sys_mmap(struct trap_frame *tf)
@@ -40,8 +40,8 @@ ssize_t sys_mmap(struct trap_frame *tf)
 	int fd = (int)tf->a4;
 	uint64_t offset = (uint64_t)tf->a5;
 
-	return mm_mmap_file(task_mm(current), addr, length, prot, flags, fd,
-			    offset);
+	return mm_mmap_file(task_mm(current_task()), addr, length, prot,
+			    flags, fd, offset);
 }
 
 ssize_t sys_munmap(struct trap_frame *tf)
@@ -49,7 +49,7 @@ ssize_t sys_munmap(struct trap_frame *tf)
 	uintptr_t addr = (uintptr_t)tf->a0;
 	size_t length = (size_t)tf->a1;
 
-	return mm_munmap(task_mm(current), addr, length);
+	return mm_munmap(task_mm(current_task()), addr, length);
 }
 
 ssize_t sys_mprotect(struct trap_frame *tf)
@@ -58,7 +58,7 @@ ssize_t sys_mprotect(struct trap_frame *tf)
 	size_t length = (size_t)tf->a1;
 	int prot = (int)tf->a2;
 
-	return mm_mprotect(task_mm(current), addr, length, prot);
+	return mm_mprotect(task_mm(current_task()), addr, length, prot);
 }
 
 ssize_t sys_mremap(struct trap_frame *tf)
@@ -69,8 +69,8 @@ ssize_t sys_mremap(struct trap_frame *tf)
 	int flags = (int)tf->a3;
 	uintptr_t new_addr = (uintptr_t)tf->a4;
 
-	return mm_mremap(task_mm(current), old_addr, old_size, new_size, flags,
-			 new_addr);
+	return mm_mremap(task_mm(current_task()), old_addr, old_size,
+			 new_size, flags, new_addr);
 }
 
 ssize_t sys_msync(struct trap_frame *tf)
@@ -79,7 +79,7 @@ ssize_t sys_msync(struct trap_frame *tf)
 	size_t length = (size_t)tf->a1;
 	int flags = (int)tf->a2;
 
-	return mm_msync(task_mm(current), addr, length, flags);
+	return mm_msync(task_mm(current_task()), addr, length, flags);
 }
 
 /*
@@ -106,7 +106,7 @@ ssize_t sys_madvise(struct trap_frame *tf)
 		return -EINVAL;
 	}
 
-	return mm_madvise(task_mm(current), addr, len, advice);
+	return mm_madvise(task_mm(current_task()), addr, len, advice);
 }
 
 /*
@@ -147,7 +147,7 @@ ssize_t sys_mincore(struct trap_frame *tf)
 
 	npages = len / PAGE_SIZE;
 
-	mm = task_mm(current);
+	mm = task_mm(current_task());
 	if (!mm)
 		return -EINVAL;
 

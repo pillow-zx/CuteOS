@@ -68,18 +68,19 @@ ssize_t sys_uname(struct trap_frame *tf)
 
 ssize_t sys_set_tid_addr(struct trap_frame *tf)
 {
-	task_set_clear_child_tid(current, (int *)tf->a0);
-	return (ssize_t)task_pid(current);
+	task_set_clear_child_tid(current_task(), (int *)tf->a0);
+	return (ssize_t)task_pid(current_task());
 }
 
 ssize_t sys_setuid(struct trap_frame *tf)
 {
 	uint32_t uid = (uint32_t)tf->a0;
 
-	if (task_uid(current) != 0 && task_uid(current) != uid)
+	if (task_uid(current_task()) != 0 &&
+	    task_uid(current_task()) != uid)
 		return -EPERM;
 
-	task_set_uid(current, uid);
+	task_set_uid(current_task(), uid);
 	return 0;
 }
 
@@ -87,10 +88,11 @@ ssize_t sys_setgid(struct trap_frame *tf)
 {
 	uint32_t gid = (uint32_t)tf->a0;
 
-	if (task_gid(current) != 0 && task_gid(current) != gid)
+	if (task_gid(current_task()) != 0 &&
+	    task_gid(current_task()) != gid)
 		return -EPERM;
 
-	task_set_gid(current, gid);
+	task_set_gid(current_task(), gid);
 	return 0;
 }
 
@@ -136,7 +138,7 @@ ssize_t sys_umask(struct trap_frame *tf)
 {
 	uint32_t mask = (uint32_t)tf->a0 & 0777;
 
-	return fs_set_umask(task_fs(current), mask);
+	return fs_set_umask(task_fs(current_task()), mask);
 }
 
 ssize_t sys_sysinfo(struct trap_frame *tf)
@@ -175,12 +177,13 @@ ssize_t sys_prlimit64(struct trap_frame *tf)
 		return -ESRCH;
 
 	if (pid == 0) {
-		task = current;
+		task = current_task();
 	} else {
 		task = task_find_group_leader(pid);
 		if (!task)
 			return -ESRCH;
-		if (!current || task_tgid(task) != task_tgid(current))
+		if (!current_task() ||
+		    task_tgid(task) != task_tgid(current_task()))
 			return -EPERM;
 	}
 
@@ -223,9 +226,9 @@ ssize_t sys_getrusage(struct trap_frame *tf)
 		return -EFAULT;
 
 	if (who == RUSAGE_SELF)
-		task_rusage_self(current, &usage);
+		task_rusage_self(current_task(), &usage);
 	else
-		task_rusage_children(current, &usage);
+		task_rusage_children(current_task(), &usage);
 	if (copy_to_user(uusage, &usage, sizeof(usage)) != 0)
 		return -EFAULT;
 
@@ -239,7 +242,7 @@ static uint64_t random_next_u64(void)
 	uint64_t x = random_state;
 
 	if (x == 0)
-		x = arch_timer_now() ^ ((uintptr_t)current << 17) ^
+		x = arch_timer_now() ^ ((uintptr_t)current_task() << 17) ^
 		    0x9e3779b97f4a7c15ULL;
 
 	x ^= x << 13;

@@ -161,6 +161,8 @@ void kernel_test(void)
 	TEST_SECTION("Task");
 	test_task_idle();
 	test_task_layout_contract();
+	test_cpu_boot_topology();
+	test_cpu_current_task_accessors();
 	test_task_alloc_free();
 	test_task_canary();
 	test_task_multiple();
@@ -206,6 +208,7 @@ void kernel_test(void)
 	test_sched_init();
 	test_sched_enqueue_dequeue();
 	test_sched_need_resched();
+	test_sched_preempt_count_is_cpu_local();
 	test_sched_wakeup_refresh();
 	test_sched_boost();
 

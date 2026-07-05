@@ -84,7 +84,7 @@ static bool user_trap_test_hook(struct trap_frame *tf)
 		}                                                              \
 	} while (0)
 
-	if (current != user_trap_test_task)
+	if (current_task() != user_trap_test_task)
 		return false;
 
 	user_trap_test_trapped = true;
@@ -141,11 +141,11 @@ intercept:
 
 static void __noreturn user_trap_test_resume(void)
 {
-	struct task_struct *prev = current;
+	struct task_struct *prev = current_task();
 
 	user_trap_test_resumed = true;
 	prev->lifecycle.state = TASK_DEAD;
-	current = &idle_task;
+	set_current_task(&idle_task);
 	switch_to(&prev->arch.ctx, &idle_task.arch.ctx);
 	panic("user trap test resume returned unexpectedly");
 }
@@ -168,8 +168,8 @@ forge_user_return_task(size_t user_pc, size_t user_sp, size_t user_sstatus)
 		return NULL;
 
 	struct trap_frame *tf =
-		(struct trap_frame *)((uint8_t *)task->arch.kstack + KSTACK_SIZE -
-				      sizeof(struct trap_frame));
+		(struct trap_frame *)((uint8_t *)task->arch.kstack +
+				      KSTACK_SIZE - sizeof(struct trap_frame));
 
 	memset(tf, 0, sizeof(*tf));
 
@@ -275,7 +275,7 @@ void test_trap_user_return_task_setup(void)
 		arch_trap_set_hook(NULL);
 		hook_installed = false;
 
-		TEST_ASSERT_EQ((size_t)current, (size_t)&idle_task);
+		TEST_ASSERT_EQ((size_t)current_task(), (size_t)&idle_task);
 		TEST_ASSERT(user_trap_test_trapped == true);
 		TEST_ASSERT(user_trap_test_resumed == true);
 		TEST_ASSERT_NULL((void *)user_trap_test_fail_msg);

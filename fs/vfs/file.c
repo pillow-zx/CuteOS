@@ -151,7 +151,7 @@ void vfs_poll_wait(struct vfs_poll_table *table, struct wait_queue_head *wq)
 {
 	struct vfs_poll_entry *entry;
 
-	if (!table || !wq || !current)
+	if (!table || !wq || !current_task())
 		return;
 
 	for (size_t i = 0; i < table->nr_entries; i++) {
@@ -163,14 +163,14 @@ void vfs_poll_wait(struct vfs_poll_table *table, struct wait_queue_head *wq)
 
 	entry = &table->entries[table->nr_entries++];
 	entry->wq = wq;
-	init_waitqueue_entry(&entry->wait, current);
+	init_waitqueue_entry(&entry->wait, current_task());
 	prepare_wait_entry(wq, &entry->wait);
 }
 
 int vfs_poll_wait_until(vfs_poll_scan_t scan, void *arg, bool has_timeout,
 			uint64_t deadline)
 {
-	if (!scan || !current)
+	if (!scan || !current_task())
 		return -EINVAL;
 
 	while (true) {
@@ -188,22 +188,22 @@ int vfs_poll_wait_until(vfs_poll_scan_t scan, void *arg, bool has_timeout,
 			vfs_poll_table_cleanup(&table);
 			return 0;
 		}
-		if (signal_pending(current)) {
+		if (signal_pending(current_task())) {
 			vfs_poll_table_cleanup(&table);
 			return -EINTR;
 		}
 
-		task_mark_interruptible_sleep(current);
+		task_mark_interruptible_sleep(current_task());
 
 		ret = scan(NULL, arg);
-		if (ret != 0 || signal_pending(current) ||
+		if (ret != 0 || signal_pending(current_task()) ||
 		    (has_timeout && deadline <= arch_timer_now())) {
 			vfs_poll_table_cleanup(&table);
-			if (task_state(current) & TASK_ANY_SLEEP)
-				task_mark_running(current);
+			if (task_state(current_task()) & TASK_ANY_SLEEP)
+				task_mark_running(current_task());
 			if (ret != 0)
 				return ret;
-			if (signal_pending(current))
+			if (signal_pending(current_task()))
 				return -EINTR;
 			return 0;
 		}
@@ -215,10 +215,10 @@ int vfs_poll_wait_until(vfs_poll_scan_t scan, void *arg, bool has_timeout,
 			wait_ret = wait_schedule(TASK_INTERRUPTIBLE);
 
 		vfs_poll_table_cleanup(&table);
-		if (task_state(current) & TASK_ANY_SLEEP)
-			task_mark_running(current);
+		if (task_state(current_task()) & TASK_ANY_SLEEP)
+			task_mark_running(current_task());
 
-		if (wait_ret == -EINTR || signal_pending(current))
+		if (wait_ret == -EINTR || signal_pending(current_task()))
 			return -EINTR;
 		if (wait_ret == -ETIMEDOUT ||
 		    (has_timeout && deadline <= arch_timer_now()))

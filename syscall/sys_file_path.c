@@ -35,10 +35,10 @@ struct getdents_ctx {
 
 static uint32_t apply_umask(uint32_t mode)
 {
-	if (!current)
+	if (!current_task())
 		return mode;
 
-	return mode & ~fs_get_umask(task_fs(current));
+	return mode & ~fs_get_umask(task_fs(current_task()));
 }
 
 static uint8_t vfs_type_to_dirent(uint8_t type)
@@ -63,8 +63,8 @@ static uint8_t vfs_type_to_dirent(uint8_t type)
 	}
 }
 
-static int sys_faccessat_path(int dfd, const char *upath, int mode,
-			      int flags, uint32_t lookup_flags)
+static int sys_faccessat_path(int dfd, const char *upath, int mode, int flags,
+			      uint32_t lookup_flags)
 {
 	struct sys_at_lookup_result lookup __cleanup_with(sys_at_lookup) = {};
 	int ret;
@@ -228,7 +228,7 @@ ssize_t sys_getcwd(struct trap_frame *tf)
 	if (!path)
 		return -ENOMEM;
 
-	ret = fs_get_cwd_path(task_fs(current), &cwd);
+	ret = fs_get_cwd_path(task_fs(current_task()), &cwd);
 	if (ret < 0)
 		return ret;
 	ret = vfs_getcwd_path(&cwd, path, VFS_PATH_MAX);
@@ -367,8 +367,7 @@ ssize_t sys_symlinkat(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	ret = vfs_symlink_at_path(base.dentry ? &base : NULL, target,
-				  linkpath);
+	ret = vfs_symlink_at_path(base.dentry ? &base : NULL, target, linkpath);
 	return ret;
 }
 
@@ -392,10 +391,10 @@ ssize_t sys_linkat(struct trap_frame *tf)
 	ret = copy_user_path_at(olddfd, uoldpath, &oldpath, &old_base);
 	if (ret < 0)
 		return ret;
-	ret = path_lookupat_path(
-		old_base.dentry ? &old_base : NULL, oldpath,
-		(flags & AT_SYMLINK_FOLLOW) ? 0 : LOOKUP_NOFOLLOW,
-		&old_path_found);
+	ret = path_lookupat_path(old_base.dentry ? &old_base : NULL, oldpath,
+				 (flags & AT_SYMLINK_FOLLOW) ? 0
+							     : LOOKUP_NOFOLLOW,
+				 &old_path_found);
 	if (ret < 0)
 		return ret;
 
@@ -498,8 +497,7 @@ ssize_t sys_renameat2(struct trap_frame *tf)
 }
 
 static int sys_utimensat_read_times(const struct timespec *utimes,
-				    struct timespec ktimes[2],
-				    bool set_time[2])
+				    struct timespec ktimes[2], bool set_time[2])
 {
 	struct timespec now;
 

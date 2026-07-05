@@ -142,6 +142,8 @@ void test_vmalloc_mapping_failure_rolls_back(void);
 
 void test_task_alloc_free(void);
 void test_task_layout_contract(void);
+void test_cpu_boot_topology(void);
+void test_cpu_current_task_accessors(void);
 void test_task_canary(void);
 void test_task_multiple(void);
 void test_task_process_tree(void);
@@ -184,6 +186,7 @@ void test_uapi_shared_layouts(void);
 void test_sched_init(void);
 void test_sched_enqueue_dequeue(void);
 void test_sched_need_resched(void);
+void test_sched_preempt_count_is_cpu_local(void);
 void test_sched_wakeup_refresh(void);
 void test_sched_boost(void);
 

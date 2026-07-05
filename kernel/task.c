@@ -15,7 +15,7 @@
  * 主要函数：
  *   task_init()         - 初始化进程管理子系统：
  *                         创建 idle (PID 0, BSS 静态),
- *                         初始化 PID 分配器，设置 current 指针。
+ *                         初始化 PID 分配器，设置 get_current_task() 指针。
  *   task_alloc()        - 从 SLAB cache 分配一个新的 task_struct，
  *                         初始化各字段为默认值，分配 8KB 内核栈，
  *                         在栈底写入 CANARY_MAGIC。
@@ -25,6 +25,7 @@
  */
 
 #include <kernel/task.h>
+#include <kernel/cpu.h>
 #include <kernel/errno.h>
 #include <kernel/pid.h>
 #include <kernel/slab.h>
@@ -43,8 +44,9 @@
 /* idle 进程，BSS 段静态分配 */
 struct task_struct idle_task;
 
-/* 当前运行的进程 */
-struct task_struct *current;
+/* CPU-local state. Only hart 0 is online in this boot path. */
+struct cpu cpu_table[NR_CPUS];
+uint32_t nr_cpu_ids;
 
 /* PID 1 init 进程，供 exit/reparent 路径直接引用。 */
 struct task_struct *init_task;
@@ -63,6 +65,27 @@ static inline uint64_t *stack_canary_ptr(struct task_struct *task)
 }
 
 /* ---- 公共接口 ---- */
+
+void cpu_boot_init(struct task_struct *idle)
+{
+	BUG_ON(!idle);
+
+	for (uint32_t id = 0; id < NR_CPUS; id++) {
+		cpu_table[id].id = id;
+		cpu_table[id].hartid = id;
+		cpu_table[id].state = CPU_OFFLINE;
+		cpu_table[id].flags = 0;
+		cpu_table[id].idle_task = NULL;
+		cpu_table[id].current_task = NULL;
+		cpu_table[id].preempt_count = 0;
+	}
+
+	nr_cpu_ids = 1;
+	cpu_table[0].hartid = 0;
+	cpu_table[0].state = CPU_ONLINE;
+	cpu_table[0].idle_task = idle;
+	cpu_table[0].current_task = idle;
+}
 
 void check_canary(struct task_struct *task)
 {
@@ -215,8 +238,9 @@ void task_init(void)
 	BUG_ON(task_init_resources(&idle_task) < 0);
 	pid_attach_task(idle_task.ids.pid, &idle_task);
 
-	/* 3. 设置 current 指针 */
-	current = &idle_task;
+	/* 3. 初始化 boot CPU 并设置当前任务指针 */
+	cpu_boot_init(&idle_task);
+	set_current_task(&idle_task);
 
 	pr_info("task: idle (PID 0) created\n");
 }
@@ -238,7 +262,9 @@ extern void __trapret(void);
  */
 struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 {
+	struct task_struct *parent = current_task();
 	struct task_struct *task = task_alloc();
+
 	if (!task)
 		return NULL;
 	if (task_init_resources(task) < 0) {
@@ -263,8 +289,8 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 	task->arch.ctx.ra = (size_t)__trapret;
 	task->arch.ctx.sp = (size_t)tf;
 
-	task->links.parent = current;
-	list_add_tail(&task->links.sibling, &current->links.children);
+	task->links.parent = parent;
+	list_add_tail(&task->links.sibling, &parent->links.children);
 
 	sched_enqueue(task);
 

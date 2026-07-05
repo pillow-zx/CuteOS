@@ -96,8 +96,10 @@ void test_wait_event_interruptible_ready(void)
 		TEST_ASSERT_EQ(
 			wait_event_interruptible(&wq, wait_test_ready, &ready),
 			0);
-			TEST_ASSERT(list_empty(&current->sched.wait_entry.node));
-		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_RUNNING);
+		TEST_ASSERT(
+			list_empty(&current_task()->sched.wait_entry.node));
+		TEST_ASSERT_EQ(task_state(current_task()),
+			       (uint32_t)TASK_RUNNING);
 	}
 	TEST_END("sync: wait_event_interruptible ready");
 	return;
@@ -108,28 +110,30 @@ fail:
 void test_wait_event_interruptible_signal(void)
 {
 	struct wait_queue_head wq;
-	uint64_t saved_pending = current->sigctx.pending;
-	uint64_t saved_blocked = current->sigctx.blocked;
+	uint64_t saved_pending = current_task()->sigctx.pending;
+	uint64_t saved_blocked = current_task()->sigctx.blocked;
 	bool ready = false;
 
 	TEST_BEGIN("sync: wait_event_interruptible signal");
 	{
 		init_waitqueue_head(&wq);
-		current->sigctx.blocked &= ~signal_mask(SIGUSR1);
+		current_task()->sigctx.blocked &= ~signal_mask(SIGUSR1);
 		TEST_ASSERT_EQ(send_current_signal(SIGUSR1), 0);
 		TEST_ASSERT_EQ(
 			wait_event_interruptible(&wq, wait_test_ready, &ready),
 			-EINTR);
-			TEST_ASSERT(list_empty(&current->sched.wait_entry.node));
-		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_RUNNING);
+		TEST_ASSERT(
+			list_empty(&current_task()->sched.wait_entry.node));
+		TEST_ASSERT_EQ(task_state(current_task()),
+			       (uint32_t)TASK_RUNNING);
 	}
 	TEST_END("sync: wait_event_interruptible signal");
 	goto cleanup;
 fail:
 	TEST_FAIL("sync: wait_event_interruptible signal", "see above");
 cleanup:
-	current->sigctx.pending = saved_pending;
-	current->sigctx.blocked = saved_blocked;
+	current_task()->sigctx.pending = saved_pending;
+	current_task()->sigctx.blocked = saved_blocked;
 }
 
 void test_waitqueue_prepare_finish(void)
@@ -140,7 +144,7 @@ void test_waitqueue_prepare_finish(void)
 	TEST_BEGIN("sync: waitqueue prepare finish");
 	{
 		init_waitqueue_head(&wq);
-		init_waitqueue_entry(&entry, current);
+		init_waitqueue_entry(&entry, current_task());
 
 		prepare_wait_entry(&wq, &entry);
 		prepare_wait_entry(&wq, &entry);
@@ -258,12 +262,14 @@ void test_wait_schedule_until_timeout(void)
 {
 	TEST_BEGIN("sync: wait_schedule_until timeout");
 	{
-		task_mark_interruptible_sleep(current);
+		task_mark_interruptible_sleep(current_task());
 		TEST_ASSERT_EQ(wait_schedule_until(TASK_INTERRUPTIBLE,
 						   arch_timer_now()),
 			       -ETIMEDOUT);
-		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_RUNNING);
-		TEST_ASSERT(list_empty(&current->sched.wait_entry.node));
+		TEST_ASSERT_EQ(task_state(current_task()),
+			       (uint32_t)TASK_RUNNING);
+		TEST_ASSERT(
+			list_empty(&current_task()->sched.wait_entry.node));
 	}
 	TEST_END("sync: wait_schedule_until timeout");
 	return;
@@ -279,14 +285,18 @@ void test_wait_schedule_preserves_early_wakeup(void)
 	{
 		init_waitqueue_head(&wq);
 		prepare_to_wait_interruptible(&wq);
-		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_INTERRUPTIBLE);
-		TEST_ASSERT_EQ(wake_up_one(&wq), current);
-		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_RUNNING);
+		TEST_ASSERT_EQ(task_state(current_task()),
+			       (uint32_t)TASK_INTERRUPTIBLE);
+		TEST_ASSERT_EQ(wake_up_one(&wq), current_task());
+		TEST_ASSERT_EQ(task_state(current_task()),
+			       (uint32_t)TASK_RUNNING);
 
 		TEST_ASSERT_EQ(wait_schedule(TASK_INTERRUPTIBLE), 0);
-		TEST_ASSERT_EQ(task_state(current), (uint32_t)TASK_RUNNING);
+		TEST_ASSERT_EQ(task_state(current_task()),
+			       (uint32_t)TASK_RUNNING);
 		TEST_ASSERT(list_empty(&wq.task_list));
-		TEST_ASSERT(list_empty(&current->sched.wait_entry.node));
+		TEST_ASSERT(
+			list_empty(&current_task()->sched.wait_entry.node));
 	}
 	TEST_END("sync: wait_schedule preserves early wakeup");
 	return;
@@ -325,7 +335,8 @@ void test_mutex_blocking(void)
 
 		schedule();
 		TEST_ASSERT_EQ(mutex_test_stage, 1);
-		TEST_ASSERT_EQ(waiter->lifecycle.state, (uint32_t)TASK_UNINTERRUPTIBLE);
+		TEST_ASSERT_EQ(waiter->lifecycle.state,
+			       (uint32_t)TASK_UNINTERRUPTIBLE);
 
 		mutex_unlock(&mutex_test_lock);
 		schedule();

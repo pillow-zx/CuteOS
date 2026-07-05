@@ -11,7 +11,7 @@
 
 static struct files_struct *current_files(void)
 {
-	return task_files_safe(current);
+	return task_files_safe(current_task());
 }
 
 struct files_struct *files_alloc(void)
@@ -347,12 +347,12 @@ int copy_files(struct task_struct *child, bool share)
 		return -EINVAL;
 
 	if (share) {
-		files = task_files_safe(current);
+		files = task_files_safe(current_task());
 		if (!files)
 			return init_files(child);
 		files_get(files);
 	} else {
-		files = files_dup(task_files_safe(current));
+		files = files_dup(task_files_safe(current_task()));
 		if (!files)
 			return -ENOMEM;
 	}

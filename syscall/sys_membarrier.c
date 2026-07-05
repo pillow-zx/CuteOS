@@ -32,7 +32,7 @@ ssize_t sys_membarrier(struct trap_frame *tf)
 {
 	int cmd = (int)tf->a0;
 	unsigned int flags = (unsigned int)tf->a1;
-	struct mm_struct *mm = task_mm(current);
+	struct mm_struct *mm = task_mm(current_task());
 	uint32_t registrations;
 
 	switch (cmd) {

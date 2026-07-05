@@ -46,18 +46,18 @@ void timer_run_expired(uint64_t now)
 
 int timer_sleep_until(uint64_t expires, bool interruptible)
 {
-	if (!current)
+	if (!current_task())
 		return -EINVAL;
-	if (interruptible && signal_pending(current))
+	if (interruptible && signal_pending(current_task()))
 		return -EINTR;
 	if (expires <= arch_timer_now())
 		return 0;
 
 	if (interruptible) {
-		task_mark_interruptible_sleep(current);
+		task_mark_interruptible_sleep(current_task());
 		return wait_schedule_until(TASK_INTERRUPTIBLE, expires);
 	}
-	task_mark_uninterruptible_sleep(current);
+	task_mark_uninterruptible_sleep(current_task());
 	return wait_schedule_until(TASK_UNINTERRUPTIBLE, expires);
 }
 

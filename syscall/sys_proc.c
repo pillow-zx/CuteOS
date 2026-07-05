@@ -22,12 +22,12 @@
 ssize_t sys_getpid(struct trap_frame *tf)
 {
 	(void)tf;
-	return (ssize_t)task_tgid(current);
+	return (ssize_t)task_tgid(current_task());
 }
 
 ssize_t sys_getppid(struct trap_frame *tf)
 {
-	struct task_struct *parent = task_parent(current);
+	struct task_struct *parent = task_parent(current_task());
 
 	(void)tf;
 	if (!parent)
@@ -39,31 +39,31 @@ ssize_t sys_getppid(struct trap_frame *tf)
 ssize_t sys_getuid(struct trap_frame *tf)
 {
 	(void)tf;
-	return task_uid(current);
+	return task_uid(current_task());
 }
 
 ssize_t sys_geteuid(struct trap_frame *tf)
 {
 	(void)tf;
-	return task_uid(current);
+	return task_uid(current_task());
 }
 
 ssize_t sys_getgid(struct trap_frame *tf)
 {
 	(void)tf;
-	return task_gid(current);
+	return task_gid(current_task());
 }
 
 ssize_t sys_getegid(struct trap_frame *tf)
 {
 	(void)tf;
-	return task_gid(current);
+	return task_gid(current_task());
 }
 
 ssize_t sys_gettid(struct trap_frame *tf)
 {
 	(void)tf;
-	return (ssize_t)task_pid(current);
+	return (ssize_t)task_pid(current_task());
 }
 
 ssize_t sys_getpgid(struct trap_frame *tf)
@@ -75,7 +75,7 @@ ssize_t sys_getpgid(struct trap_frame *tf)
 		return -ESRCH;
 
 	if (pid == 0)
-		task = current;
+		task = current_task();
 	else
 		task = task_find_group_leader((pid_t)pid);
 	if (!task)
@@ -95,7 +95,7 @@ ssize_t sys_setpgid(struct trap_frame *tf)
 	if (pid < 0 || pgid < 0)
 		return -EINVAL;
 
-	self = task_group_leader(current);
+	self = task_group_leader(current_task());
 	if (pid == 0)
 		target = self;
 	else

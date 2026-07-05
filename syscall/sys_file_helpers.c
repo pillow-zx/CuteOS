@@ -122,7 +122,7 @@ int sys_empty_path_inode(int dfd, struct path *cwd, struct file **filep,
 	if (dfd == AT_FDCWD) {
 		if (!cwd)
 			return -EINVAL;
-		ret = fs_get_cwd_path(task_fs(current), cwd);
+		ret = fs_get_cwd_path(task_fs(current_task()), cwd);
 		if (ret < 0)
 			return ret;
 		if (!cwd->dentry)
@@ -192,8 +192,7 @@ int sys_at_lookup(struct sys_at_lookup_result *lookup, int dfd,
 	if (ret < 0)
 		return ret;
 
-	lookup->inode = lookup->found.dentry ?
-				lookup->found.dentry->d_inode :
-				NULL;
+	lookup->inode =
+		lookup->found.dentry ? lookup->found.dentry->d_inode : NULL;
 	return lookup->inode ? 0 : -ENOENT;
 }

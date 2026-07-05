@@ -16,7 +16,7 @@
 static struct task_struct *affinity_target_task(pid_t pid)
 {
 	if (pid == 0)
-		return current;
+		return current_task();
 
 	return task_find_thread(pid);
 }
@@ -40,8 +40,9 @@ ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 	task = affinity_target_task(pid);
 	if (!task)
 		return -ESRCH;
-	if (task != current && current && task_uid(current) != 0 &&
-	    task_uid(current) != task_uid(task))
+	if (task != current_task() && current_task() &&
+	    task_uid(current_task()) != 0 &&
+	    task_uid(current_task()) != task_uid(task))
 		return -EPERM;
 
 	copy_size = cpusetsize < sizeof(mask) ? cpusetsize : sizeof(mask);

@@ -100,23 +100,15 @@ void sched_dequeue(struct task_struct *task);
 
 /* ---- 抢占控制 ---- */
 
-/**
- * preempt_count - 抢占计数器
- *
- * 非 0 时禁止调度。中断处理中调用 schedule() 前应检查 preemptible()。
- * 每个 preempt_disable() 递增，preempt_enable() 递减。
- * 嵌套安全：可以多次 disable/enable 配对使用。
- */
-extern volatile int preempt_count;
+static __always_inline void preempt_disable(void)
+{
+	cpu_inc_preempt_count(current_cpu());
+}
 
-#define preempt_disable()                                                      \
-	do {                                                                   \
-		preempt_count++;                                               \
-	} while (0)
-#define preempt_enable()                                                       \
-	do {                                                                   \
-		preempt_count--;                                               \
-	} while (0)
+static __always_inline void preempt_enable(void)
+{
+	cpu_dec_preempt_count(current_cpu());
+}
 
 /**
  * preemptible - 检查当前是否允许调度
@@ -125,7 +117,7 @@ extern volatile int preempt_count;
  */
 static __always_inline bool preemptible(void)
 {
-	return preempt_count == 0;
+	return cpu_preempt_count(current_cpu()) == 0;
 }
 
 #ifdef CONFIG_KERNEL_TEST

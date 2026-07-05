@@ -30,7 +30,7 @@ static inline void local_sfence_vma(uintptr_t addr, uintptr_t asid)
 
 void arch_tlb_flush_all(void)
 {
-	// addr=0, asid=0 => flush all mappings for current hart
+	// addr=0, asid=0 => flush all mappings for get_current_task() hart
 	local_sfence_vma(0, 0);
 }
 
