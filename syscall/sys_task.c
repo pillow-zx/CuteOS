@@ -10,7 +10,7 @@
 #include <kernel/signal.h>
 #include <kernel/syscall.h>
 #include <uapi/sched.h>
-#include <asm/trap.h>
+#include <kernel/trap.h>
 
 static int sys_write_tid(int *uaddr, pid_t tid)
 {
@@ -23,11 +23,11 @@ static int sys_write_tid(int *uaddr, pid_t tid)
 
 ssize_t sys_clone(struct trap_frame *tf)
 {
-	unsigned long flags = (unsigned long)tf->a0;
-	uintptr_t child_stack = (uintptr_t)tf->a1;
-	int *parent_tid = (int *)tf->a2;
-	uintptr_t tls = (uintptr_t)tf->a3;
-	int *child_tid = (int *)tf->a4;
+	unsigned long flags = (unsigned long)syscall_arg(tf, 0);
+	uintptr_t child_stack = (uintptr_t)syscall_arg(tf, 1);
+	int *parent_tid = (int *)syscall_arg(tf, 2);
+	uintptr_t tls = (uintptr_t)syscall_arg(tf, 3);
+	int *child_tid = (int *)syscall_arg(tf, 4);
 	struct kernel_clone clone;
 	int ret;
 
@@ -56,10 +56,10 @@ abort:
 
 ssize_t sys_wait4(struct trap_frame *tf)
 {
-	long pid = (long)tf->a0;
-	int *wstatus = (int *)tf->a1;
-	int options = (int)tf->a2;
-	struct rusage *urusage = (struct rusage *)tf->a3;
+	long pid = (long)syscall_arg(tf, 0);
+	int *wstatus = (int *)syscall_arg(tf, 1);
+	int options = (int)syscall_arg(tf, 2);
+	struct rusage *urusage = (struct rusage *)syscall_arg(tf, 3);
 	struct wait4_result result = {0};
 	int ret;
 

@@ -8,7 +8,7 @@
 #include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <kernel/time.h>
-#include <asm/trap.h>
+#include <kernel/trap.h>
 
 static int futex_copy_timeout(const struct timespec *utimeout,
 			      struct futex_deadline *deadline)
@@ -34,10 +34,10 @@ static int futex_copy_timeout(const struct timespec *utimeout,
 
 ssize_t sys_futex(struct trap_frame *tf)
 {
-	int *uaddr = (int *)tf->a0;
-	int op = (int)tf->a1;
-	int val = (int)tf->a2;
-	const struct timespec *timeout = (const struct timespec *)tf->a3;
+	int *uaddr = (int *)syscall_arg(tf, 0);
+	int op = (int)syscall_arg(tf, 1);
+	int val = (int)syscall_arg(tf, 2);
+	const struct timespec *timeout = (const struct timespec *)syscall_arg(tf, 3);
 	struct futex_deadline deadline;
 	int ret;
 
@@ -54,17 +54,17 @@ ssize_t sys_futex(struct trap_frame *tf)
 
 ssize_t sys_set_robust_list(struct trap_frame *tf)
 {
-	struct robust_list_head *head = (struct robust_list_head *)tf->a0;
-	size_t len = (size_t)tf->a1;
+	struct robust_list_head *head = (struct robust_list_head *)syscall_arg(tf, 0);
+	size_t len = (size_t)syscall_arg(tf, 1);
 
 	return futex_set_robust_list(current_task(), head, len);
 }
 
 ssize_t sys_get_robust_list(struct trap_frame *tf)
 {
-	long pid = (long)tf->a0;
-	struct robust_list_head **uhead = (struct robust_list_head **)tf->a1;
-	size_t *ulen = (size_t *)tf->a2;
+	long pid = (long)syscall_arg(tf, 0);
+	struct robust_list_head **uhead = (struct robust_list_head **)syscall_arg(tf, 1);
+	size_t *ulen = (size_t *)syscall_arg(tf, 2);
 	struct task_struct *task;
 	struct robust_list_head *head;
 	size_t len;

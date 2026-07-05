@@ -3,7 +3,8 @@
 
 #include <kernel/types.h>
 #include <kernel/task.h>
-#include <asm/trap.h>
+
+struct trap_frame;
 
 struct kernel_clone {
 	struct task_struct *task;

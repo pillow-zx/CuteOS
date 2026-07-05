@@ -10,10 +10,11 @@
 #include <kernel/timer.h>
 #include <kernel/tools.h>
 #include <kernel/wait.h>
+#include <kernel/irq.h>
 #ifdef CONFIG_KERNEL_TEST
 #include <kernel/test_wait.h>
 #endif
-#include <asm/csr.h>
+#include <kernel/processor.h>
 
 struct wait_timeout {
 	struct ktimer timer;
@@ -247,14 +248,14 @@ int wait_schedule_until(uint32_t state, uint64_t deadline)
 		}
 
 		if (irqs_disabled()) {
-			csr_set(sstatus, SSTATUS_SIE);
+			local_irq_enable();
 			enabled_irq_for_sleep = true;
 		}
-		wfi();
+		wait_for_interrupt();
 	}
 
 	if (enabled_irq_for_sleep)
-		csr_clear(sstatus, SSTATUS_SIE);
+		local_irq_disable();
 
 	wait_timeout_cancel(&timeout);
 	wait_finish_current_state();

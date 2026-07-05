@@ -3,9 +3,9 @@
  *
  * 功能：
  *   管理系统调用分发表（syscall_table）。每个系统调用处理器接收完整的
- *   trap_frame 指针，直接从寄存器字段提取参数，无需占位符。
- *   从 tf->a7 读取系统调用号，调用 syscall_table[nr](tf)，
- *   返回值写入 tf->a0。未知的系统调用号返回 -ENOSYS。
+ *   trap_frame 指针，通过 syscall_arg() 提取参数，无需占位符。
+ *   从 syscall_nr(tf) 读取系统调用号，调用 syscall_table[nr](tf)，
+ *   返回值写入 syscall 返回寄存器。未知的系统调用号返回 -ENOSYS。
  *
  * 主要函数：
  *   do_syscall(tf)
@@ -20,7 +20,7 @@
 #include <kernel/printk.h>
 #include <kernel/syscall_table.h>
 #include <kernel/syscall_trace.h>
-#include <asm/trap.h>
+#include <kernel/trap.h>
 
 typedef ssize_t (*syscall_fn_t)(struct trap_frame *);
 
@@ -28,13 +28,16 @@ static syscall_fn_t syscall_table[NR_SYSCALL];
 
 void do_syscall(struct trap_frame *tf)
 {
-	size_t nr = tf->a7;
-	size_t args[6] = {tf->a0, tf->a1, tf->a2, tf->a3, tf->a4, tf->a5};
+	size_t nr = syscall_nr(tf);
+	size_t args[6] = {
+		syscall_arg(tf, 0), syscall_arg(tf, 1), syscall_arg(tf, 2),
+		syscall_arg(tf, 3), syscall_arg(tf, 4), syscall_arg(tf, 5),
+	};
 	ssize_t ret;
 
 	if (nr >= NR_SYSCALL || !syscall_table[nr]) {
 		ret = -ENOSYS;
-		tf->a0 = (uint64_t)ret;
+		syscall_set_return(tf, ret);
 		syscall_trace_log(nr, args, ret);
 		return;
 	}
@@ -45,7 +48,7 @@ void do_syscall(struct trap_frame *tf)
 	 * keep dispatcher post-processing limited to storing the return value.
 	 */
 	ret = syscall_table[nr](tf);
-	tf->a0 = (size_t)ret;
+	syscall_set_return(tf, ret);
 	syscall_trace_log(nr, args, ret);
 }
 

@@ -10,7 +10,7 @@
 
 #include <kernel/compiler.h>
 #include <kernel/types.h>
-#include <asm/pte.h>
+#include <kernel/pgtable.h>
 
 typedef int (*user_map_fn_t)(pte_t *pgd);
 

@@ -9,7 +9,7 @@
 #include <kernel/mm.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
-#include <asm/trap.h>
+#include <kernel/trap.h>
 
 #define SINGLE_CPU_AFFINITY_MASK 1UL
 
@@ -23,9 +23,9 @@ static struct task_struct *affinity_target_task(pid_t pid)
 
 ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 {
-	long pid = (long)tf->a0;
-	size_t cpusetsize = (size_t)tf->a1;
-	const unsigned long *umask = (const unsigned long *)tf->a2;
+	long pid = (long)syscall_arg(tf, 0);
+	size_t cpusetsize = (size_t)syscall_arg(tf, 1);
+	const unsigned long *umask = (const unsigned long *)syscall_arg(tf, 2);
 	unsigned long mask = 0;
 	size_t copy_size;
 	struct task_struct *task;
@@ -56,9 +56,9 @@ ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 
 ssize_t sys_sched_getaffinity(struct trap_frame *tf)
 {
-	long pid = (long)tf->a0;
-	size_t cpusetsize = (size_t)tf->a1;
-	unsigned long *umask = (unsigned long *)tf->a2;
+	long pid = (long)syscall_arg(tf, 0);
+	size_t cpusetsize = (size_t)syscall_arg(tf, 1);
+	unsigned long *umask = (unsigned long *)syscall_arg(tf, 2);
 	unsigned long mask = SINGLE_CPU_AFFINITY_MASK;
 	struct task_struct *task;
 

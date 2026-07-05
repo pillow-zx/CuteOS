@@ -5,6 +5,7 @@ ARCH_OBJS = \
 	arch/riscv/entry.o             \
 	arch/riscv/switch.o            \
 	arch/riscv/trap.o              \
+	arch/riscv/task.o              \
 	arch/riscv/trap_init.o         \
 	arch/riscv/timer.o             \
 	arch/riscv/plic.o              \

@@ -19,8 +19,8 @@
 #include <uapi/random.h>
 #include <uapi/sysinfo.h>
 #include <uapi/utsname.h>
-#include <asm/page.h>
-#include <asm/trap.h>
+#include <kernel/page.h>
+#include <kernel/trap.h>
 
 #define GRND_VALID_FLAGS (GRND_NONBLOCK | GRND_RANDOM | GRND_INSECURE)
 
@@ -46,7 +46,7 @@ static void uts_copy(char dst[UTS_FIELD_LEN], const char *src)
 
 ssize_t sys_uname(struct trap_frame *tf)
 {
-	struct utsname *u = (struct utsname *)tf->a0;
+	struct utsname *u = (struct utsname *)syscall_arg(tf, 0);
 	struct utsname k;
 
 	if (!u)
@@ -68,13 +68,13 @@ ssize_t sys_uname(struct trap_frame *tf)
 
 ssize_t sys_set_tid_addr(struct trap_frame *tf)
 {
-	task_set_clear_child_tid(current_task(), (int *)tf->a0);
+	task_set_clear_child_tid(current_task(), (int *)syscall_arg(tf, 0));
 	return (ssize_t)task_pid(current_task());
 }
 
 ssize_t sys_setuid(struct trap_frame *tf)
 {
-	uint32_t uid = (uint32_t)tf->a0;
+	uint32_t uid = (uint32_t)syscall_arg(tf, 0);
 
 	if (task_uid(current_task()) != 0 &&
 	    task_uid(current_task()) != uid)
@@ -86,7 +86,7 @@ ssize_t sys_setuid(struct trap_frame *tf)
 
 ssize_t sys_setgid(struct trap_frame *tf)
 {
-	uint32_t gid = (uint32_t)tf->a0;
+	uint32_t gid = (uint32_t)syscall_arg(tf, 0);
 
 	if (task_gid(current_task()) != 0 &&
 	    task_gid(current_task()) != gid)
@@ -98,8 +98,8 @@ ssize_t sys_setgid(struct trap_frame *tf)
 
 ssize_t sys_getgroups(struct trap_frame *tf)
 {
-	int size = (int)tf->a0;
-	uint32_t *groups = (uint32_t *)tf->a1;
+	int size = (int)syscall_arg(tf, 0);
+	uint32_t *groups = (uint32_t *)syscall_arg(tf, 1);
 	uint32_t group = 0; /* 当前固定一个补充组 (gid 0) */
 
 	if (size < 0)
@@ -118,8 +118,8 @@ ssize_t sys_getgroups(struct trap_frame *tf)
 
 ssize_t sys_setgroups(struct trap_frame *tf)
 {
-	int size = (int)tf->a0;
-	uint32_t *groups = (uint32_t *)tf->a1;
+	int size = (int)syscall_arg(tf, 0);
+	uint32_t *groups = (uint32_t *)syscall_arg(tf, 1);
 	uint32_t group;
 
 	if (size < 0)
@@ -136,14 +136,14 @@ ssize_t sys_setgroups(struct trap_frame *tf)
 
 ssize_t sys_umask(struct trap_frame *tf)
 {
-	uint32_t mask = (uint32_t)tf->a0 & 0777;
+	uint32_t mask = (uint32_t)syscall_arg(tf, 0) & 0777;
 
 	return fs_set_umask(task_fs(current_task()), mask);
 }
 
 ssize_t sys_sysinfo(struct trap_frame *tf)
 {
-	struct sysinfo *uinfo = (struct sysinfo *)tf->a0;
+	struct sysinfo *uinfo = (struct sysinfo *)syscall_arg(tf, 0);
 	struct sysinfo info;
 
 	if (!uinfo)
@@ -163,10 +163,10 @@ ssize_t sys_sysinfo(struct trap_frame *tf)
 
 ssize_t sys_prlimit64(struct trap_frame *tf)
 {
-	long pid = (long)tf->a0;
-	int resource = (int)tf->a1;
-	const struct rlimit64 *unew = (const struct rlimit64 *)tf->a2;
-	struct rlimit64 *uold = (struct rlimit64 *)tf->a3;
+	long pid = (long)syscall_arg(tf, 0);
+	int resource = (int)syscall_arg(tf, 1);
+	const struct rlimit64 *unew = (const struct rlimit64 *)syscall_arg(tf, 2);
+	struct rlimit64 *uold = (struct rlimit64 *)syscall_arg(tf, 3);
 	struct task_struct *task;
 	struct signal_struct *signal;
 	struct rlimit64 new_limit;
@@ -216,8 +216,8 @@ ssize_t sys_prlimit64(struct trap_frame *tf)
 
 ssize_t sys_getrusage(struct trap_frame *tf)
 {
-	int who = (int)tf->a0;
-	struct rusage *uusage = (struct rusage *)tf->a1;
+	int who = (int)syscall_arg(tf, 0);
+	struct rusage *uusage = (struct rusage *)syscall_arg(tf, 1);
 	struct rusage usage;
 
 	if (who != RUSAGE_SELF && who != RUSAGE_CHILDREN)
@@ -254,9 +254,9 @@ static uint64_t random_next_u64(void)
 
 ssize_t sys_getrandom(struct trap_frame *tf)
 {
-	uint8_t *ubuf = (uint8_t *)tf->a0;
-	size_t count = (size_t)tf->a1;
-	uint32_t flags = (uint32_t)tf->a2;
+	uint8_t *ubuf = (uint8_t *)syscall_arg(tf, 0);
+	size_t count = (size_t)syscall_arg(tf, 1);
+	uint32_t flags = (uint32_t)syscall_arg(tf, 2);
 	uint8_t chunk[64];
 	size_t done = 0;
 

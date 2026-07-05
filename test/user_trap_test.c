@@ -15,10 +15,10 @@
 #include <kernel/buddy.h>
 #include <kernel/task.h>
 #include <kernel/sched.h>
-#include <asm/page.h>
-#include <asm/pte.h>
-#include <asm/trap.h>
-#include <asm/csr.h>
+#include <kernel/page.h>
+#include <kernel/pgtable.h>
+#include <kernel/trap.h>
+#include <kernel/processor.h>
 
 #include "ktest.h"
 
@@ -89,51 +89,79 @@ static bool user_trap_test_hook(struct trap_frame *tf)
 
 	user_trap_test_trapped = true;
 
-	USER_TRAP_CHECK(arch_from_user(tf),
+	USER_TRAP_CHECK(trap_frame_from_user(tf),
 			"trap did not originate from user mode");
-	USER_TRAP_CHECK(tf->scause == EXC_ECALL_U,
+	USER_TRAP_CHECK(trap_frame_cause(tf) == EXC_ECALL_U,
 			"unexpected trap cause while running user test");
-	USER_TRAP_CHECK(tf->stval == 0, "ecall stval should be zero");
-	USER_TRAP_CHECK(tf->sepc == user_trap_test_ecall_va,
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_STVAL) == 0,
+			"ecall stval should be zero");
+	USER_TRAP_CHECK(trap_user_pc(tf) == user_trap_test_ecall_va,
 			"saved sepc does not point to user ecall");
-	USER_TRAP_CHECK(tf->sp == user_trap_test_user_sp,
+	USER_TRAP_CHECK(trap_user_sp(tf) == user_trap_test_user_sp,
 			"user sp was not restored correctly");
-	USER_TRAP_CHECK(tf->ra == UTEST_RA, "ra was not preserved");
-	USER_TRAP_CHECK(tf->t0 == UTEST_T0, "t0 was not preserved");
-	USER_TRAP_CHECK(tf->t1 == UTEST_T1, "t1 was not preserved");
-	USER_TRAP_CHECK(tf->t2 == UTEST_T2, "t2 was not preserved");
-	USER_TRAP_CHECK(tf->s0 == UTEST_S0, "s0 was not preserved");
-	USER_TRAP_CHECK(tf->s1 == UTEST_S1, "s1 was not preserved");
-	USER_TRAP_CHECK(tf->a0 == UTEST_A0, "a0 was not preserved");
-	USER_TRAP_CHECK(tf->a1 == UTEST_A1, "a1 was not preserved");
-	USER_TRAP_CHECK(tf->a2 == UTEST_A2, "a2 was not preserved");
-	USER_TRAP_CHECK(tf->a3 == UTEST_A3, "a3 was not preserved");
-	USER_TRAP_CHECK(tf->a4 == UTEST_A4, "a4 was not preserved");
-	USER_TRAP_CHECK(tf->a5 == UTEST_A5, "a5 was not preserved");
-	USER_TRAP_CHECK(tf->a6 == UTEST_A6, "a6 was not preserved");
-	USER_TRAP_CHECK(tf->a7 == UTEST_A7, "a7 was not preserved");
-	USER_TRAP_CHECK(tf->s2 == UTEST_S2, "s2 was not preserved");
-	USER_TRAP_CHECK(tf->s3 == UTEST_S3, "s3 was not preserved");
-	USER_TRAP_CHECK(tf->s4 == UTEST_S4, "s4 was not preserved");
-	USER_TRAP_CHECK(tf->s5 == UTEST_S5, "s5 was not preserved");
-	USER_TRAP_CHECK(tf->s6 == UTEST_S6, "s6 was not preserved");
-	USER_TRAP_CHECK(tf->s7 == UTEST_S7, "s7 was not preserved");
-	USER_TRAP_CHECK(tf->s8 == UTEST_S8, "s8 was not preserved");
-	USER_TRAP_CHECK(tf->s9 == UTEST_S9, "s9 was not preserved");
-	USER_TRAP_CHECK(tf->s10 == UTEST_S10, "s10 was not preserved");
-	USER_TRAP_CHECK(tf->s11 == UTEST_S11, "s11 was not preserved");
-	USER_TRAP_CHECK(tf->t3 == UTEST_T3, "t3 was not preserved");
-	USER_TRAP_CHECK(tf->t4 == UTEST_T4, "t4 was not preserved");
-	USER_TRAP_CHECK(tf->t5 == UTEST_T5, "t5 was not preserved");
-	USER_TRAP_CHECK(tf->t6 == UTEST_T6, "t6 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_RA) == UTEST_RA,
+			"ra was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_T0) == UTEST_T0,
+			"t0 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_T1) == UTEST_T1,
+			"t1 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_T2) == UTEST_T2,
+			"t2 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_S0) == UTEST_S0,
+			"s0 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_S1) == UTEST_S1,
+			"s1 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_A0) == UTEST_A0,
+			"a0 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_A1) == UTEST_A1,
+			"a1 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_A2) == UTEST_A2,
+			"a2 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_A3) == UTEST_A3,
+			"a3 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_A4) == UTEST_A4,
+			"a4 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_A5) == UTEST_A5,
+			"a5 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_A6) == UTEST_A6,
+			"a6 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_A7) == UTEST_A7,
+			"a7 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_S2) == UTEST_S2,
+			"s2 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_S3) == UTEST_S3,
+			"s3 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_S4) == UTEST_S4,
+			"s4 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_S5) == UTEST_S5,
+			"s5 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_S6) == UTEST_S6,
+			"s6 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_S7) == UTEST_S7,
+			"s7 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_S8) == UTEST_S8,
+			"s8 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_S9) == UTEST_S9,
+			"s9 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_S10) == UTEST_S10,
+			"s10 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_S11) == UTEST_S11,
+			"s11 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_T3) == UTEST_T3,
+			"t3 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_T4) == UTEST_T4,
+			"t4 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_T5) == UTEST_T5,
+			"t5 was not preserved");
+	USER_TRAP_CHECK(trap_test_reg(tf, ARCH_TRAP_REG_T6) == UTEST_T6,
+			"t6 was not preserved");
 
 intercept:
 	/*
 	 * 改写返回目标：不再回用户页，而是直接从 __trapret 的 S 分支
 	 * 回到一个内核 continuation，然后手动 switch 回 idle 上下文。
 	 */
-	tf->sepc = (size_t)user_trap_test_resume;
-	tf->sstatus |= SSTATUS_SPP | SSTATUS_SPIE;
+	trap_set_kernel_return(tf, (uintptr_t)user_trap_test_resume);
 	return true;
 
 #undef USER_TRAP_CHECK
@@ -146,7 +174,7 @@ static void __noreturn user_trap_test_resume(void)
 	user_trap_test_resumed = true;
 	prev->lifecycle.state = TASK_DEAD;
 	set_current_task(&idle_task);
-	switch_to(&prev->arch.ctx, &idle_task.arch.ctx);
+	arch_task_switch(prev, &idle_task);
 	panic("user trap test resume returned unexpectedly");
 }
 
@@ -167,19 +195,7 @@ forge_user_return_task(size_t user_pc, size_t user_sp, size_t user_sstatus)
 	if (!task)
 		return NULL;
 
-	struct trap_frame *tf =
-		(struct trap_frame *)((uint8_t *)task->arch.kstack +
-				      KSTACK_SIZE - sizeof(struct trap_frame));
-
-	memset(tf, 0, sizeof(*tf));
-
-	tf->sepc = user_pc;
-	tf->sp = user_sp;
-	tf->sstatus = user_sstatus;
-
-	task->arch.tf = tf;
-	task->arch.ctx.ra = (size_t)__trapret;
-	task->arch.ctx.sp = (size_t)tf;
+	arch_task_test_setup_user_return(task, user_pc, user_sp, user_sstatus);
 
 	return task;
 }
@@ -232,8 +248,10 @@ void test_trap_user_return_task_setup(void)
 		 * 复用现有 DRAM identity mapping：临时把测试页改成用户页。
 		 * 这样无需在 3.1 阶段就引入完整的用户页表分配逻辑。
 		 */
-		arch_pt_write_current(code_pa, code_pa, PTE_USER_RX);
-		arch_pt_write_current(stack_pa, stack_pa, PTE_USER_RW);
+		pagetable_write_current(code_pa, code_pa,
+					pgprot_user(true, false, true));
+		pagetable_write_current(stack_pa, stack_pa,
+					pgprot_user(true, true, false));
 
 		t = forge_user_return_task(user_pc, user_sp, 0);
 		TEST_ASSERT_NOT_NULL(t);
@@ -247,7 +265,7 @@ void test_trap_user_return_task_setup(void)
 			user_pc + (uintptr_t)(user_trap_test_ecall -
 					      user_trap_test_start);
 
-		arch_trap_set_hook(user_trap_test_hook);
+		trap_set_hook(user_trap_test_hook);
 		hook_installed = true;
 
 		/*
@@ -272,7 +290,7 @@ void test_trap_user_return_task_setup(void)
 		csr_write(sie, saved_sie);
 		timer_quiesced = false;
 
-		arch_trap_set_hook(NULL);
+		trap_set_hook(NULL);
 		hook_installed = false;
 
 		TEST_ASSERT_EQ((size_t)current_task(), (size_t)&idle_task);
@@ -288,7 +306,7 @@ fail:
 	TEST_FAIL("trap: runtime user entry and return", "see above");
 cleanup:
 	if (hook_installed)
-		arch_trap_set_hook(NULL);
+		trap_set_hook(NULL);
 	if (timer_quiesced) {
 		csr_write(sie, saved_sie);
 		timer_quiesced = false;
@@ -298,9 +316,11 @@ cleanup:
 	if (t)
 		task_free(t);
 	if (code_pa)
-		arch_pt_write_current(code_pa, code_pa, PTE_KERN_RWX);
+		pagetable_write_current(code_pa, code_pa,
+					pgprot_kernel(true, true, true));
 	if (stack_pa)
-		arch_pt_write_current(stack_pa, stack_pa, PTE_KERN_RWX);
+		pagetable_write_current(stack_pa, stack_pa,
+					pgprot_kernel(true, true, true));
 	if (code_page)
 		free_page(code_page, 0);
 	if (stack_page)

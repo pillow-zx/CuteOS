@@ -23,8 +23,8 @@
 #include <kernel/timer.h>
 #include <kernel/vfs.h>
 #include <uapi/uio.h>
-#include <asm/page.h>
-#include <asm/trap.h>
+#include <kernel/page.h>
+#include <kernel/trap.h>
 #include <kernel/time.h>
 
 #include "sys_file_internal.h"
@@ -246,9 +246,9 @@ static ssize_t rw_iovec(struct file *file, const struct iovec *uiov,
 
 ssize_t sys_write(struct trap_frame *tf)
 {
-	int fd = (int)tf->a0;
-	const char *buf = (const char *)tf->a1;
-	size_t len = tf->a2;
+	int fd = (int)syscall_arg(tf, 0);
+	const char *buf = (const char *)syscall_arg(tf, 1);
+	size_t len = syscall_arg(tf, 2);
 	struct file *file __cleanup_with(file) = fd_get_writable(fd);
 	ssize_t ret;
 
@@ -261,9 +261,9 @@ ssize_t sys_write(struct trap_frame *tf)
 
 ssize_t sys_read(struct trap_frame *tf)
 {
-	int fd = (int)tf->a0;
-	char *buf = (char *)tf->a1;
-	size_t len = tf->a2;
+	int fd = (int)syscall_arg(tf, 0);
+	char *buf = (char *)syscall_arg(tf, 1);
+	size_t len = syscall_arg(tf, 2);
 	struct file *file __cleanup_with(file) = fd_get_readable(fd);
 	ssize_t ret;
 
@@ -276,9 +276,9 @@ ssize_t sys_read(struct trap_frame *tf)
 
 ssize_t sys_readv(struct trap_frame *tf)
 {
-	int fd = (int)tf->a0;
-	const struct iovec *uiov = (const struct iovec *)tf->a1;
-	size_t iovcnt = tf->a2;
+	int fd = (int)syscall_arg(tf, 0);
+	const struct iovec *uiov = (const struct iovec *)syscall_arg(tf, 1);
+	size_t iovcnt = syscall_arg(tf, 2);
 	struct file *file __cleanup_with(file) = fd_get_readable(fd);
 	ssize_t ret;
 
@@ -293,9 +293,9 @@ ssize_t sys_readv(struct trap_frame *tf)
 
 ssize_t sys_writev(struct trap_frame *tf)
 {
-	int fd = (int)tf->a0;
-	const struct iovec *uiov = (const struct iovec *)tf->a1;
-	size_t iovcnt = tf->a2;
+	int fd = (int)syscall_arg(tf, 0);
+	const struct iovec *uiov = (const struct iovec *)syscall_arg(tf, 1);
+	size_t iovcnt = syscall_arg(tf, 2);
 	struct file *file __cleanup_with(file) = fd_get_writable(fd);
 	ssize_t ret;
 
@@ -310,10 +310,10 @@ ssize_t sys_writev(struct trap_frame *tf)
 
 ssize_t sys_pread64(struct trap_frame *tf)
 {
-	int fd = (int)tf->a0;
-	char *buf = (char *)tf->a1;
-	size_t len = tf->a2;
-	loff_t offset = (loff_t)tf->a3;
+	int fd = (int)syscall_arg(tf, 0);
+	char *buf = (char *)syscall_arg(tf, 1);
+	size_t len = syscall_arg(tf, 2);
+	loff_t offset = (loff_t)syscall_arg(tf, 3);
 	struct file *file __cleanup_with(file) = fd_get_readable(fd);
 	ssize_t ret;
 
@@ -328,10 +328,10 @@ ssize_t sys_pread64(struct trap_frame *tf)
 
 ssize_t sys_pwrite64(struct trap_frame *tf)
 {
-	int fd = (int)tf->a0;
-	const char *buf = (const char *)tf->a1;
-	size_t len = tf->a2;
-	loff_t offset = (loff_t)tf->a3;
+	int fd = (int)syscall_arg(tf, 0);
+	const char *buf = (const char *)syscall_arg(tf, 1);
+	size_t len = syscall_arg(tf, 2);
+	loff_t offset = (loff_t)syscall_arg(tf, 3);
 	struct file *file __cleanup_with(file) = fd_get_writable(fd);
 	ssize_t ret;
 
@@ -346,10 +346,10 @@ ssize_t sys_pwrite64(struct trap_frame *tf)
 
 ssize_t sys_sendfile(struct trap_frame *tf)
 {
-	int out_fd = (int)tf->a0;
-	int in_fd = (int)tf->a1;
-	loff_t *uoffset = (loff_t *)tf->a2;
-	size_t count = tf->a3;
+	int out_fd = (int)syscall_arg(tf, 0);
+	int in_fd = (int)syscall_arg(tf, 1);
+	loff_t *uoffset = (loff_t *)syscall_arg(tf, 2);
+	size_t count = syscall_arg(tf, 3);
 	struct file *out_file __cleanup_with(file) = fd_get_writable(out_fd);
 	struct file *in_file __cleanup_with(file) = fd_get_readable(in_fd);
 	loff_t offset;
@@ -383,12 +383,12 @@ ssize_t sys_sendfile(struct trap_frame *tf)
 
 ssize_t sys_splice(struct trap_frame *tf)
 {
-	int fd_in = (int)tf->a0;
-	loff_t *uoff_in = (loff_t *)tf->a1;
-	int fd_out = (int)tf->a2;
-	loff_t *uoff_out = (loff_t *)tf->a3;
-	size_t len = tf->a4;
-	unsigned int flags = (unsigned int)tf->a5;
+	int fd_in = (int)syscall_arg(tf, 0);
+	loff_t *uoff_in = (loff_t *)syscall_arg(tf, 1);
+	int fd_out = (int)syscall_arg(tf, 2);
+	loff_t *uoff_out = (loff_t *)syscall_arg(tf, 3);
+	size_t len = syscall_arg(tf, 4);
+	unsigned int flags = (unsigned int)syscall_arg(tf, 5);
 	struct file *in_file __cleanup_with(file) = fd_get_readable(fd_in);
 	struct file *out_file __cleanup_with(file) = fd_get_writable(fd_out);
 	bool in_pipe;
@@ -450,14 +450,14 @@ ssize_t sys_splice(struct trap_frame *tf)
 
 ssize_t sys_close(struct trap_frame *tf)
 {
-	return fd_close((int)tf->a0);
+	return fd_close((int)syscall_arg(tf, 0));
 }
 
 ssize_t sys_lseek(struct trap_frame *tf)
 {
-	struct file *file __cleanup_with(file) = fd_get((int)tf->a0);
-	loff_t offset = (loff_t)tf->a1;
-	int whence = (int)tf->a2;
+	struct file *file __cleanup_with(file) = fd_get((int)syscall_arg(tf, 0));
+	loff_t offset = (loff_t)syscall_arg(tf, 1);
+	int whence = (int)syscall_arg(tf, 2);
 	ssize_t ret;
 
 	if (!file)
@@ -469,9 +469,9 @@ ssize_t sys_lseek(struct trap_frame *tf)
 
 ssize_t sys_ioctl(struct trap_frame *tf)
 {
-	int fd = (int)tf->a0;
-	uint64_t cmd = tf->a1;
-	uint64_t arg = tf->a2;
+	int fd = (int)syscall_arg(tf, 0);
+	uint64_t cmd = syscall_arg(tf, 1);
+	uint64_t arg = syscall_arg(tf, 2);
 	struct file *file __cleanup_with(file) = fd_get(fd);
 	ssize_t ret;
 
@@ -484,9 +484,9 @@ ssize_t sys_ioctl(struct trap_frame *tf)
 
 ssize_t sys_fcntl(struct trap_frame *tf)
 {
-	int fd = (int)tf->a0;
-	int cmd = (int)tf->a1;
-	unsigned long arg = tf->a2;
+	int fd = (int)syscall_arg(tf, 0);
+	int cmd = (int)syscall_arg(tf, 1);
+	unsigned long arg = syscall_arg(tf, 2);
 	int ret;
 
 	switch (cmd) {
@@ -523,14 +523,14 @@ ssize_t sys_fcntl(struct trap_frame *tf)
 
 ssize_t sys_dup(struct trap_frame *tf)
 {
-	return fd_dup((int)tf->a0);
+	return fd_dup((int)syscall_arg(tf, 0));
 }
 
 ssize_t sys_dup3(struct trap_frame *tf)
 {
-	int oldfd = (int)tf->a0;
-	int newfd = (int)tf->a1;
-	int flags = (int)tf->a2;
+	int oldfd = (int)syscall_arg(tf, 0);
+	int newfd = (int)syscall_arg(tf, 1);
+	int flags = (int)syscall_arg(tf, 2);
 
 	if (flags & ~O_CLOEXEC)
 		return -EINVAL;
@@ -540,7 +540,7 @@ ssize_t sys_dup3(struct trap_frame *tf)
 
 ssize_t sys_fsync(struct trap_frame *tf)
 {
-	struct file *file __cleanup_with(file) = fd_get((int)tf->a0);
+	struct file *file __cleanup_with(file) = fd_get((int)syscall_arg(tf, 0));
 	ssize_t ret;
 
 	if (!file)
@@ -557,8 +557,8 @@ ssize_t sys_fdatasync(struct trap_frame *tf)
 
 ssize_t sys_ftruncate64(struct trap_frame *tf)
 {
-	struct file *file __cleanup_with(file) = fd_get((int)tf->a0);
-	int64_t length = (int64_t)tf->a1;
+	struct file *file __cleanup_with(file) = fd_get((int)syscall_arg(tf, 0));
+	int64_t length = (int64_t)syscall_arg(tf, 1);
 	ssize_t ret;
 
 	if (!file)
@@ -576,10 +576,10 @@ ssize_t sys_ftruncate64(struct trap_frame *tf)
 
 ssize_t sys_fallocate(struct trap_frame *tf)
 {
-	struct file *file __cleanup_with(file) = fd_get((int)tf->a0);
-	int mode = (int)tf->a1;
-	int64_t offset = (int64_t)tf->a2;
-	int64_t len = (int64_t)tf->a3;
+	struct file *file __cleanup_with(file) = fd_get((int)syscall_arg(tf, 0));
+	int mode = (int)syscall_arg(tf, 1);
+	int64_t offset = (int64_t)syscall_arg(tf, 2);
+	int64_t len = (int64_t)syscall_arg(tf, 3);
 	uint64_t uoffset;
 	uint64_t ulen;
 	ssize_t ret;
@@ -604,8 +604,8 @@ ssize_t sys_fallocate(struct trap_frame *tf)
 
 ssize_t sys_pipe2(struct trap_frame *tf)
 {
-	int *user_fds = (int *)tf->a0;
-	int flags = (int)tf->a1;
+	int *user_fds = (int *)syscall_arg(tf, 0);
+	int flags = (int)syscall_arg(tf, 1);
 	int fds[2];
 	int ret;
 

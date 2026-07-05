@@ -4,31 +4,12 @@
 
 #include "internal.h"
 
-#include <asm/csr.h>
-#include <asm/pte.h>
 #include <kernel/exit.h>
 #include <kernel/printk.h>
 
 /* ---- 抢占计数器 ---- */
 
 volatile int preempt_count;
-
-static __always_inline uintptr_t task_satp(const struct task_struct *task)
-{
-	return task && task->arch.satp ? task->arch.satp : kernel_satp();
-}
-
-static __always_inline void switch_address_space(const struct task_struct *prev,
-						 const struct task_struct *next)
-{
-	const uintptr_t satp_val = task_satp(next);
-
-	if (task_satp(prev) == satp_val)
-		return;
-
-	csr_write(satp, satp_val);
-	arch_tlb_flush_all();
-}
 
 void sched_init(void)
 {
@@ -78,7 +59,7 @@ static void sched_account_tick(void)
 	if (!task || task == &idle_task)
 		return;
 
-	if (task->arch.tf && arch_from_user(task->arch.tf))
+	if (arch_task_trap_from_user(task))
 		task->cputime.utime_ticks++;
 	else
 		task->cputime.stime_ticks++;
@@ -119,9 +100,9 @@ void schedule(void)
 			return;
 
 		check_canary(prev);
-		switch_address_space(prev, &idle_task);
+		arch_task_switch_address_space(prev, &idle_task);
 		set_current_task(&idle_task);
-		switch_to(&prev->arch.ctx, &idle_task.arch.ctx);
+		arch_task_switch(prev, &idle_task);
 		return;
 	}
 
@@ -136,8 +117,8 @@ void schedule(void)
 
 	check_canary(prev);
 	set_current_task(next);
-	switch_address_space(prev, next);
-	switch_to(&prev->arch.ctx, &next->arch.ctx);
+	arch_task_switch_address_space(prev, next);
+	arch_task_switch(prev, next);
 }
 
 #ifdef CONFIG_KERNEL_TEST

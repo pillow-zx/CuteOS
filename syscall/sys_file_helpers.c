@@ -12,7 +12,7 @@
 #include <kernel/stat.h>
 #include <kernel/task.h>
 #include <kernel/vfs.h>
-#include <asm/page.h>
+#include <kernel/page.h>
 
 #include "sys_file_internal.h"
 

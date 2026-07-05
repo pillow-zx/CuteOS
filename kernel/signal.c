@@ -44,10 +44,10 @@
 #include <kernel/task.h>
 #include <kernel/user_map.h>
 #include <uapi/syscall.h>
-#include <asm/csr.h>
-#include <asm/page.h>
-#include <asm/pte.h>
-#include <asm/trap.h>
+#include <kernel/processor.h>
+#include <kernel/page.h>
+#include <kernel/pgtable.h>
+#include <kernel/trap.h>
 
 static void *trampoline_page;
 
@@ -281,8 +281,7 @@ int signals_clone(struct task_struct *child, bool share_sighand,
 			sighand_put(sighand);
 			return -ENOMEM;
 		}
-		signal_copy_rlimits(signal,
-				    task_signal_state(current_task()));
+		signal_copy_rlimits(signal, task_signal_state(current_task()));
 	}
 
 	signals_release(child);
@@ -504,11 +503,12 @@ static int signal_map_trampoline(pte_t *pgd)
 			return -ENOMEM;
 		memset(trampoline_page, 0, PAGE_SIZE);
 		memcpy(trampoline_page, code, sizeof(code));
-		arch_icache_flush();
+		flush_icache();
 	}
 
 	return map_page(pgd, SIGNAL_TRAMPOLINE_ADDR,
-			__pa((uintptr_t)trampoline_page), PTE_USER_RX);
+			__pa((uintptr_t)trampoline_page),
+			pgprot_user(true, false, true));
 }
 
 void signal_user_map_init(void)
@@ -542,13 +542,14 @@ static int setup_signal_frame(struct trap_frame *tf, int sig,
 		sp = (top - sizeof(struct signal_frame)) & ~(uintptr_t)0xf;
 		on_altstack = true;
 	} else {
-		sp = (tf->sp - sizeof(struct signal_frame)) & ~(uintptr_t)0xf;
+		sp = (trap_user_sp(tf) - sizeof(struct signal_frame)) &
+		     ~(uintptr_t)0xf;
 	}
 
 	if (!access_ok((void *)sp, sizeof(frame)))
 		return -EFAULT;
 
-	frame.tf = *tf;
+	trap_save_signal_state(&frame.state, tf);
 	frame.blocked = signal_blocked_mask(current_task());
 	frame.sig = sig;
 	frame.on_altstack = on_altstack;
@@ -569,10 +570,8 @@ static int setup_signal_frame(struct trap_frame *tf, int sig,
 	signal_block_mask(current_task(), action->sa_mask);
 	signal_enter_handler(current_task(), sig);
 
-	tf->sepc = (uintptr_t)action->sa_handler;
-	tf->ra = SIGNAL_TRAMPOLINE_ADDR;
-	tf->sp = sp;
-	tf->a0 = (uintptr_t)sig;
+	trap_setup_signal_handler(tf, (uintptr_t)action->sa_handler,
+				  SIGNAL_TRAMPOLINE_ADDR, sp, (uintptr_t)sig);
 	return 0;
 }
 
@@ -605,8 +604,7 @@ static void clear_shared_pending(int sig)
 static int next_signal(bool *shared)
 {
 	uint64_t shared_pending = current_shared_pending();
-	uint64_t pending =
-		task_pending_mask(current_task()) | shared_pending;
+	uint64_t pending = task_pending_mask(current_task()) | shared_pending;
 	uint64_t deliverable;
 
 	*shared = false;
@@ -846,7 +844,7 @@ int do_sigreturn(struct trap_frame *tf, uintptr_t sp)
 	if (!signal_is_valid((int)frame.sig))
 		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 
-	*tf = frame.tf;
+	trap_restore_signal_state(tf, &frame.state);
 	signal_set_blocked_mask(current_task(), frame.blocked);
 	signal_leave_handler(current_task(), (int)frame.sig);
 	if (frame.on_altstack) {
@@ -856,5 +854,5 @@ int do_sigreturn(struct trap_frame *tf, uintptr_t sp)
 			sas->ss_flags &= ~SS_ONSTACK;
 	}
 	task_set_trap_frame(current_task(), tf);
-	return (ssize_t)tf->a0;
+	return (ssize_t)trap_return_value(tf);
 }

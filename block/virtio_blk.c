@@ -30,7 +30,7 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/tools.h>
-#include <asm/page.h>
+#include <kernel/page.h>
 
 /* ---- 配置 ---- */
 

@@ -44,8 +44,8 @@
 #include <kernel/signal.h>
 #include <kernel/task.h>
 #include <kernel/wait.h>
-#include <asm/csr.h>
-#include <asm/pte.h>
+#include <kernel/processor.h>
+#include <kernel/pgtable.h>
 
 #define WEXITCODE(code) ((code) << 8)
 
@@ -162,10 +162,8 @@ static void release_task_mm(struct task_struct *task)
 	task_set_mm(task, NULL);
 	task_set_satp(task, 0);
 
-	if (task == current_task()) {
-		csr_write(satp, kernel_satp());
-		arch_tlb_flush_all();
-	}
+	if (task == current_task())
+		pgtable_activate_kernel();
 
 	mm_put(mm);
 }

@@ -22,12 +22,12 @@
 #include <kernel/signal.h>
 #include <kernel/syscall.h>
 #include <kernel/types.h>
-#include <asm/trap.h>
+#include <kernel/trap.h>
 
 ssize_t sys_kill(struct trap_frame *tf)
 {
-	long pid = (long)tf->a0;
-	int sig = (int)tf->a1;
+	long pid = (long)syscall_arg(tf, 0);
+	int sig = (int)syscall_arg(tf, 1);
 
 	if (pid <= 0)
 		return -EINVAL;
@@ -37,8 +37,8 @@ ssize_t sys_kill(struct trap_frame *tf)
 
 ssize_t sys_tkill(struct trap_frame *tf)
 {
-	long tid = (long)tf->a0;
-	int sig = (int)tf->a1;
+	long tid = (long)syscall_arg(tf, 0);
+	int sig = (int)syscall_arg(tf, 1);
 
 	if (tid <= 0)
 		return -EINVAL;
@@ -48,9 +48,9 @@ ssize_t sys_tkill(struct trap_frame *tf)
 
 ssize_t sys_tgkill(struct trap_frame *tf)
 {
-	long tgid = (long)tf->a0;
-	long tid = (long)tf->a1;
-	int sig = (int)tf->a2;
+	long tgid = (long)syscall_arg(tf, 0);
+	long tid = (long)syscall_arg(tf, 1);
+	int sig = (int)syscall_arg(tf, 2);
 
 	if (tgid <= 0 || tid <= 0)
 		return -EINVAL;
@@ -60,8 +60,8 @@ ssize_t sys_tgkill(struct trap_frame *tf)
 
 ssize_t sys_sigaltstack(struct trap_frame *tf)
 {
-	const struct stack_t *ss = (const struct stack_t *)tf->a0;
-	struct stack_t *old_ss = (struct stack_t *)tf->a1;
+	const struct stack_t *ss = (const struct stack_t *)syscall_arg(tf, 0);
+	struct stack_t *old_ss = (struct stack_t *)syscall_arg(tf, 1);
 	struct stack_t kss;
 	struct stack_t old;
 	int ret;
@@ -84,10 +84,10 @@ ssize_t sys_sigaltstack(struct trap_frame *tf)
 
 ssize_t sys_sigaction(struct trap_frame *tf)
 {
-	int sig = (int)tf->a0;
-	const struct sigaction *act = (const struct sigaction *)tf->a1;
-	struct sigaction *oldact = (struct sigaction *)tf->a2;
-	size_t sigsetsize = (size_t)tf->a3;
+	int sig = (int)syscall_arg(tf, 0);
+	const struct sigaction *act = (const struct sigaction *)syscall_arg(tf, 1);
+	struct sigaction *oldact = (struct sigaction *)syscall_arg(tf, 2);
+	size_t sigsetsize = (size_t)syscall_arg(tf, 3);
 	struct sigaction kact;
 	struct sigaction old;
 	int ret;
@@ -117,10 +117,10 @@ ssize_t sys_sigaction(struct trap_frame *tf)
 
 ssize_t sys_sigprocmask(struct trap_frame *tf)
 {
-	int how = (int)tf->a0;
-	const uint64_t *set = (const uint64_t *)tf->a1;
-	uint64_t *oldset = (uint64_t *)tf->a2;
-	size_t sigsetsize = (size_t)tf->a3;
+	int how = (int)syscall_arg(tf, 0);
+	const uint64_t *set = (const uint64_t *)syscall_arg(tf, 1);
+	uint64_t *oldset = (uint64_t *)syscall_arg(tf, 2);
+	size_t sigsetsize = (size_t)syscall_arg(tf, 3);
 	uint64_t newset;
 	uint64_t old;
 	int ret;
@@ -146,7 +146,7 @@ ssize_t sys_sigprocmask(struct trap_frame *tf)
 
 ssize_t sys_sigreturn(struct trap_frame *tf)
 {
-	uintptr_t sp = (uintptr_t)tf->sp;
+	uintptr_t sp = trap_user_sp(tf);
 
 	return do_sigreturn(tf, sp);
 }

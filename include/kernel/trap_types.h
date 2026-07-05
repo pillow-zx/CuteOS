@@ -1,0 +1,10 @@
+#ifndef _CUTEOS_KERNEL_TRAP_TYPES_H
+#define _CUTEOS_KERNEL_TRAP_TYPES_H
+
+enum trap_access_type {
+	TRAP_ACCESS_READ = 0,
+	TRAP_ACCESS_WRITE,
+	TRAP_ACCESS_EXEC,
+};
+
+#endif

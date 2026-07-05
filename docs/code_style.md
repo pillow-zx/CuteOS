@@ -367,9 +367,9 @@ Example:
 
 ```c
 #include <kernel/mm.h>
+#include <kernel/page.h>
 #include <kernel/task.h>
 #include <uapi/mman.h>
-#include <asm/page.h>
 
 #include "internal.h"
 ```
@@ -678,7 +678,7 @@ static inline bool task_is_runnable(unsigned int state)
 ```
 
 ```c
-static __always_inline uintptr_t pte_to_pa(pte_t pte)
+static __always_inline uintptr_t pte_phys_addr(pte_t pte)
 {
 	return pte & PAGE_MASK;
 }

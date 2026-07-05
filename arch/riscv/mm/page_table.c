@@ -5,8 +5,9 @@
 #include <kernel/printk.h>
 #include <kernel/buddy.h>
 #include <kernel/errno.h>
-#include <asm/page.h>
-#include <asm/pte.h>
+#include <kernel/tools.h>
+#include <arch/page.h>
+#include <arch/pgtable.h>
 #include <asm/csr.h>
 
 /* ---- 页表页分配器 ---- */
@@ -81,12 +82,12 @@ static void *pt_alloc_page(void)
 }
 
 #ifdef CONFIG_KERNEL_TEST
-void arch_pt_test_fail_alloc_after(uint32_t successful_allocs)
+void pagetable_test_fail_alloc_after(uint32_t successful_allocs)
 {
 	pt_alloc_fail_after = (int32_t)successful_allocs;
 }
 
-void arch_pt_test_clear_alloc_failure(void)
+void pagetable_test_clear_alloc_failure(void)
 {
 	pt_alloc_fail_after = -1;
 }
@@ -97,7 +98,7 @@ void arch_pt_test_clear_alloc_failure(void)
  *
  * 在 buddy_init() 之后调用一次。
  */
-void arch_pt_use_buddy(void)
+void pagetable_use_buddy(void)
 {
 	pt_alloc = buddy_alloc_page;
 }
@@ -106,7 +107,7 @@ void arch_pt_use_buddy(void)
 
 static bool pte_is_leaf(pte_t pte)
 {
-	return (pte & (PTE_R | PTE_W | PTE_X)) != 0;
+	return asm_pte_leaf(pte);
 }
 
 static int pt_walk_create(pte_t *root, vaddr_t va, pte_t **out)
@@ -164,7 +165,7 @@ static int pt_walk_create(pte_t *root, vaddr_t va, pte_t **out)
  * 则分配新页并安装。返回最终 PTE 条目的虚拟地址指针。
  * 若 alloc 为假且中间级缺失，返回 NULL。
  */
-pte_t *arch_pt_lookup(pte_t *root, vaddr_t va)
+pte_t *pagetable_lookup(pte_t *root, vaddr_t va)
 {
 	/* L2: root page table index [38:30] */
 	int idx2 = (va >> 30) & 0x1FF;
@@ -203,7 +204,7 @@ int map_page(pte_t *root, vaddr_t va, paddr_t pa, uint64_t perm)
 	pte_t *pte;
 	int ret;
 
-	if ((va & (PAGE_SIZE - 1)) || (pa & (PAGE_SIZE - 1)))
+	if (!IS_ALIGNED(va, PAGE_SIZE) || !IS_ALIGNED(pa, PAGE_SIZE))
 		return -EINVAL;
 	if (!(perm & PTE_V))
 		return -EINVAL;
@@ -236,21 +237,21 @@ pte_t *kernel_pt(void)
 	return (pte_t *)__va(root_pa);
 }
 
-pte_t *arch_pt_lookup_current(uintptr_t va)
+pte_t *pagetable_lookup_current(uintptr_t va)
 {
-	return arch_pt_lookup(current_pt(), va);
+	return pagetable_lookup(current_pt(), va);
 }
 
-void arch_pt_write_current(uintptr_t va, uintptr_t pa, pte_t perm)
+void pagetable_write_current(uintptr_t va, uintptr_t pa, pte_t perm)
 {
-	pte_t *pte = arch_pt_lookup_current(va);
+	pte_t *pte = pagetable_lookup_current(va);
 
 	if (!pte || !(*pte & PTE_V))
 		panic("arch_pt_write_current: no mapping for va=%p",
 		      (void *)va);
 
 	*pte = PA_TO_PTE(pa) | perm;
-	arch_tlb_flush_page(va);
+	tlb_flush_page(va);
 }
 
 /* ---- 公共接口 ---- */
@@ -268,14 +269,13 @@ void arch_pt_write_current(uintptr_t va, uintptr_t pa, pte_t perm)
  *   - 使用 early bump allocator，不依赖 buddy
  *   - L2[258] 和 L2[2] 共享同一 L1 页，节省 128 个 L0 页表页
  */
-void arch_pt_init(void)
+void pagetable_init(void)
 {
 	extern char _end[];
 
 	/* 初始化 early allocator：从 _end 开始，4KB 对齐 */
 	paddr_t end_addr = (paddr_t)_end;
-	early_alloc_ptr =
-		(char *)((end_addr + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1));
+	early_alloc_ptr = (char *)ALIGN_UP(end_addr, PAGE_SIZE);
 
 	/* 页表分配器初始使用 early allocator */
 	pt_alloc = early_alloc_page;
@@ -309,7 +309,7 @@ void arch_pt_init(void)
 	ksatp_val = satp_val;
 
 	csr_write(satp, satp_val);
-	arch_tlb_flush_all();
+	tlb_flush_all();
 
 	pr_info("page_table: switched to kernel page table (root=%p, "
 		"early_alloc=%dKB)\n",

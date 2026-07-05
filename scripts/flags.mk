@@ -19,7 +19,9 @@ CFLAGS += -Wno-unknown-attributes
 CFLAGS += -Wno-main
 CFLAGS += -std=gnu17
 CFLAGS += -I include
+CFLAGS += -I arch/riscv/include
 ASFLAGS += -I include
+ASFLAGS += -I arch/riscv/include
 CFLAGS += -include include/generated/autoconf.h
 CFLAGS += -include include/kernel/compiler.h
 ASFLAGS += -include include/generated/autoconf.h

@@ -10,11 +10,12 @@
 
 #include <asm/csr.h>
 #include <asm/trap.h>
+#include <arch/trap.h>
 #include <kernel/printk.h>
 
 extern void __alltraps(void);
 
-void arch_trap_init(void)
+void trap_init(void)
 {
 	csr_write(stvec, __alltraps);
 	csr_write(sscratch, 0);

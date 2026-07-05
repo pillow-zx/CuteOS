@@ -169,7 +169,7 @@ __access(write_only, 1, 3) __access(read_only, 2, 3);
  * do_page_fault - 缺页异常处理总入口
  * @tf: 指向当前 trap_frame
  *
- * 从 tf->stval 读取故障地址，从 tf->scause 区分缺页类型，
+ * 从 trap facade 读取故障地址和缺页类型，
  * 查找 VMA 判断合法性。合法则分配物理页并映射，非法则 do_exit。
  */
 void __nonnull(1) do_page_fault(struct trap_frame *tf);

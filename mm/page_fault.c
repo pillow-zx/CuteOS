@@ -31,45 +31,14 @@
 #include <kernel/printk.h>
 #include <kernel/signal.h>
 #include <kernel/task.h>
-#include <asm/page.h>
-#include <asm/pte.h>
-#include <asm/trap.h>
-#include <asm/csr.h>
+#include <kernel/page.h>
+#include <kernel/pgtable.h>
+#include <kernel/trap.h>
+#include <kernel/processor.h>
 
 #include "internal.h"
 
 /* ---- 内部辅助函数 ---- */
-
-/*
- * fault_type_name - 获取缺页类型名称（调试用）
- */
-static const char *fault_type_name(uint64_t scause)
-{
-	switch (scause) {
-	case EXC_INST_PAGE_FAULT:
-		return "instruction";
-	case EXC_LOAD_PAGE_FAULT:
-		return "load";
-	case EXC_STORE_PAGE_FAULT:
-		return "store";
-	default:
-		return "unknown";
-	}
-}
-
-static int scause_to_access(uint64_t scause)
-{
-	switch (scause) {
-	case EXC_INST_PAGE_FAULT:
-		return USER_FAULT_EXEC;
-	case EXC_LOAD_PAGE_FAULT:
-		return USER_FAULT_READ;
-	case EXC_STORE_PAGE_FAULT:
-		return USER_FAULT_WRITE;
-	default:
-		return USER_FAULT_READ;
-	}
-}
 
 /*
  * check_vma_permission - 检查访问类型是否与 VMA 权限匹配
@@ -94,16 +63,16 @@ static bool check_vma_permission(int access, struct vm_area_struct *vma)
 
 static bool pte_allows_fault(int access, pte_t pte)
 {
-	if (!pte_present(pte) || !(pte & PTE_U))
+	if (!pte_is_user_page(pte))
 		return false;
 
 	switch (access) {
 	case USER_FAULT_EXEC:
-		return (pte & PTE_X) != 0;
+		return pte_allows_user_exec(pte);
 	case USER_FAULT_READ:
-		return (pte & PTE_R) != 0;
+		return pte_allows_user_read(pte);
 	case USER_FAULT_WRITE:
-		return (pte & PTE_W) != 0;
+		return pte_allows_user_write(pte);
 	default:
 		return false;
 	}
@@ -133,11 +102,11 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		return -EFAULT;
 
 	page_addr = fault_addr & PAGE_MASK;
-	existing = arch_pt_lookup(mm->pgd, page_addr);
+	existing = pagetable_lookup(mm->pgd, page_addr);
 
-	if (existing && pte_present(*existing)) {
+		if (existing && pte_is_present(*existing)) {
 		if (pte_allows_fault(access, *existing)) {
-			arch_tlb_flush_page(page_addr);
+			flush_tlb_page(page_addr);
 			return 0;
 		}
 
@@ -149,7 +118,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 	if (vma->vm_file) {
 		struct page_cache *file_page;
 		uint64_t page_index;
-		pte_t pte_flags;
+			pgprot_t pte_flags;
 
 		page_index = vma_page_index(vma, page_addr);
 		file_page = page_cache_read_page(
@@ -167,7 +136,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 				page_cache_put_page(file_page);
 				return ret;
 			}
-			arch_tlb_flush_page(page_addr);
+			flush_tlb_page(page_addr);
 			return 0;
 		}
 
@@ -192,7 +161,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 			free_page(page, 0);
 			return ret;
 		}
-		arch_tlb_flush_page(page_addr);
+		flush_tlb_page(page_addr);
 		return 0;
 	}
 
@@ -207,7 +176,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		free_page(page, 0);
 		return ret;
 	}
-	arch_tlb_flush_page(page_addr);
+	flush_tlb_page(page_addr);
 	return 0;
 }
 
@@ -277,22 +246,22 @@ int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size,
  * @tf: 指向当前 trap_frame
  *
  * 处理流程：
- *   1. 从 tf->stval 获取故障虚拟地址
- *   2. 从 tf->scause 获取缺页类型（inst/load/store）
+ *   1. 通过 trap facade 获取故障虚拟地址
+ *   2. 通过 trap facade 获取缺页类型（exec/read/write）
  *   3. 判断来源（用户态 / 内核态）
  *   4. find_vma 查找合法性
  *   5. 合法且权限匹配：分配物理页，清零，建立映射，刷新 TLB
  *   6. 非法或权限不匹配：do_exit（杀掉当前进程）
  *
- * 注意：不修改 tf->sepc，缺页指令在 sret 后重新执行。
+ * 注意：不修改用户 PC，缺页指令在 trap return 后重新执行。
  */
 void do_page_fault(struct trap_frame *tf)
 {
-	vaddr_t fault_addr = tf->stval;
-	uint64_t scause = tf->scause & ~SCAUSE_IRQ_FLAG;
-	bool from_user_mode = arch_from_user(tf);
+	vaddr_t fault_addr = trap_fault_addr(tf);
+	const char *fault_name = trap_fault_name(tf);
+	bool from_user_mode = trap_frame_from_user(tf);
 	struct mm_struct *mm = task_mm(current_task());
-	int access = scause_to_access(scause);
+	int access = (int)trap_fault_access(tf);
 	pte_t fault_pte = 0;
 	int ret;
 
@@ -300,8 +269,8 @@ void do_page_fault(struct trap_frame *tf)
 	if (!mm) {
 		panic("page fault in kernel thread: type=%s addr=%p "
 		      "sepc=%p",
-		      fault_type_name(scause), (void *)fault_addr,
-		      (void *)tf->sepc);
+		      fault_name, (void *)fault_addr,
+		      (void *)trap_user_pc(tf));
 	}
 
 	mm_lock(mm);
@@ -326,8 +295,9 @@ void do_page_fault(struct trap_frame *tf)
 		mm_unlock(mm);
 		pr_warn("page fault: illegal access (no VMA) "
 			"type=%s addr=%p sepc=%p origin=%s pid=%d\n",
-			fault_type_name(scause), (void *)fault_addr,
-			(void *)tf->sepc, from_user_mode ? "user" : "kernel",
+			fault_name, (void *)fault_addr,
+			(void *)trap_user_pc(tf),
+			from_user_mode ? "user" : "kernel",
 			task_pid(current_task()));
 		signal_or_exit_segv(from_user_mode);
 		return;
@@ -341,8 +311,9 @@ void do_page_fault(struct trap_frame *tf)
 		pr_warn("page fault: permission denied "
 			"type=%s addr=%p vma_flags=0x%x sepc=%p "
 			"origin=%s pid=%d\n",
-			fault_type_name(scause), (void *)fault_addr, vm_flags,
-			(void *)tf->sepc, from_user_mode ? "user" : "kernel",
+			fault_name, (void *)fault_addr, vm_flags,
+			(void *)trap_user_pc(tf),
+			from_user_mode ? "user" : "kernel",
 			task_pid(current_task()));
 		signal_or_exit_segv(from_user_mode);
 		return;
@@ -351,8 +322,8 @@ void do_page_fault(struct trap_frame *tf)
 
 	pr_warn("page fault: mapped page permission denied "
 		"type=%s addr=%p pte=0x%lx sepc=%p origin=%s pid=%d\n",
-		fault_type_name(scause), (void *)fault_addr, (size_t)fault_pte,
-		(void *)tf->sepc, from_user_mode ? "user" : "kernel",
+		fault_name, (void *)fault_addr, (size_t)fault_pte,
+		(void *)trap_user_pc(tf), from_user_mode ? "user" : "kernel",
 		task_pid(current_task()));
 	signal_or_exit_segv(from_user_mode);
 }

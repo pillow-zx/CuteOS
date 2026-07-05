@@ -10,7 +10,7 @@
  *   - stimecmp CSR: 设置下一次时钟中断的比较值
  *
  * arch_timer_init() 仅负责设置首次 stimecmp 比较值。
- * 中断使能（SIE.STIE、sstatus.SIE）由 arch_trap_init() 统一管理。
+ * 中断使能（SIE.STIE、sstatus.SIE）由 trap_init() 统一管理。
  *
  * 常量和函数声明见 include/kernel/timer.h。
  */
@@ -64,7 +64,7 @@ int timer_sleep_until(uint64_t expires, bool interruptible)
 /*
  * arch_timer_init - 设置首次时钟中断超时值
  *
- * 仅配置 stimecmp，中断使能由 arch_trap_init() 负责。
+ * 仅配置 stimecmp，中断使能由 trap_init() 负责。
  */
 void arch_timer_init(void)
 {

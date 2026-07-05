@@ -10,8 +10,8 @@ extern char boot_stack_top[];
 
 static void current_stack_bounds(uintptr_t *low, uintptr_t *high)
 {
-	if (current_task() && current_task()->arch.kstack) {
-		*low = (uintptr_t)current_task()->arch.kstack;
+	if (task_kernel_stack_safe(current_task())) {
+		*low = (uintptr_t)task_kernel_stack(current_task());
 		*high = *low + KSTACK_SIZE;
 		return;
 	}

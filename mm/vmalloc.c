@@ -22,9 +22,9 @@
 #include <kernel/list.h>
 #include <kernel/printk.h>
 #include <kernel/slab.h>
-#include <asm/csr.h>
-#include <asm/page.h>
-#include <asm/pte.h>
+#include <kernel/processor.h>
+#include <kernel/page.h>
+#include <kernel/pgtable.h>
 
 #define VMALLOC_SIZE (128UL << 20)
 
@@ -45,15 +45,15 @@ static void vmalloc_unmap_pages(uintptr_t start, uintptr_t end)
 	pte_t *root = kernel_pt();
 
 	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-		pte_t *pte = arch_pt_lookup(root, va);
+		pte_t *pte = pagetable_lookup(root, va);
 		paddr_t pa;
 
-		if (!pte || !(*pte & PTE_V))
+		if (!pte || !pte_is_present(*pte))
 			continue;
 
-		pa = PTE_TO_PA(*pte);
+		pa = pte_phys_addr(*pte);
 		*pte = 0;
-		arch_tlb_flush_page(va);
+		flush_tlb_page(va);
 		free_page(__va(pa), 0);
 	}
 }
@@ -202,7 +202,7 @@ void *vmalloc(size_t size)
 
 		memset(page, 0, PAGE_SIZE);
 		ret = map_page(kernel_pt(), va, __pa((uintptr_t)page),
-			       PTE_KERN_RW);
+			       pgprot_kernel(true, true, false));
 		if (ret < 0) {
 			free_page(page, 0);
 			goto fail;

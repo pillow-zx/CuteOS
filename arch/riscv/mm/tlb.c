@@ -28,13 +28,13 @@ static inline void local_sfence_vma(uintptr_t addr, uintptr_t asid)
 	asm volatile("sfence.vma %0, %1" : : "r"(addr), "r"(asid) : "memory");
 }
 
-void arch_tlb_flush_all(void)
+void tlb_flush_all(void)
 {
 	// addr=0, asid=0 => flush all mappings for get_current_task() hart
 	local_sfence_vma(0, 0);
 }
 
-void arch_tlb_flush_page(uintptr_t va)
+void tlb_flush_page(uintptr_t va)
 {
 	local_sfence_vma(va, 0);
 }
@@ -47,7 +47,7 @@ void arch_tlb_flush_page(uintptr_t va)
  *
  * fence.i 保证后续取指能观察到之前所有对指令内存的写入。
  */
-void arch_icache_flush(void)
+void icache_flush(void)
 {
 	asm volatile("fence.i" : : : "memory");
 }

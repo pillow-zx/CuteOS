@@ -4,15 +4,11 @@
 /*
  * include/kernel/sched.h - 调度器与上下文切换
  *
- * 声明调度器核心数据结构与接口。struct context 保存被调用者保存的
- * 寄存器，用于内核线程与用户进程之间的协作式上下文切换。
- *
- * struct context 在 asm/trap.h 中定义：
- *   ra, sp, s0 through s11  (14 registers, 112 bytes)
+ * 声明调度器核心数据结构与接口。低级上下文切换由 arch task 层
+ * 封装，调度器只负责选择下一个 runnable task。
  *
  * Functions:
  *   schedule()  - Pick the next runnable task and switch to it
- *   switch_to(prev, next) - Low-level context switch (asm)
  *
  * Policy:
  *   The scheduler uses a single-core 4-level MLFQ policy.
@@ -24,7 +20,6 @@
 
 #include <kernel/list.h>
 #include <kernel/task.h>
-#include <asm/trap.h>
 
 /* ---- MLFQ 参数 ---- */
 

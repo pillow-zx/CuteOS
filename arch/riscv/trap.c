@@ -14,7 +14,7 @@
 
 #include <asm/csr.h>
 #include <asm/trap.h>
-#include <asm/sbi.h>
+#include <kernel/trap.h>
 #include <kernel/printk.h>
 #include <kernel/types.h>
 #include <kernel/sched.h>
@@ -28,10 +28,10 @@ static trap_test_hook_t trap_test_hook;
 
 static const char *trap_origin(const struct trap_frame *tf)
 {
-	return (tf->sstatus & SSTATUS_SPP) ? "kernel" : "user";
+	return trap_frame_from_user(tf) ? "user" : "kernel";
 }
 
-void arch_trap_set_hook(trap_test_hook_t hook)
+void trap_set_hook(trap_test_hook_t hook)
 {
 	trap_test_hook = hook;
 }
@@ -62,10 +62,10 @@ static void handle_timer_irq(void)
  */
 void trap_handler(struct trap_frame *tf)
 {
-	uint64_t scause = tf->scause;
+	uint64_t scause = trap_frame_cause(tf);
 	bool is_interrupt = (scause & SCAUSE_IRQ_FLAG) != 0;
 	uint64_t code = scause & ~SCAUSE_IRQ_FLAG;
-	bool user = arch_from_user(tf);
+	bool user = trap_frame_from_user(tf);
 
 	if (current_task())
 		task_set_trap_frame(current_task(), tf);
@@ -94,13 +94,14 @@ void trap_handler(struct trap_frame *tf)
 			      "code=%lu "
 			      "sepc=%p stval=%p",
 			      trap_origin(tf), (size_t)scause, (size_t)code,
-			      (void *)tf->sepc, (void *)tf->stval);
+			      (void *)trap_user_pc(tf),
+			      (void *)trap_fault_addr(tf));
 		}
 	} else {
 		switch (code) {
 		case EXC_ECALL_U:
 			/* sepc +4 跳过 ecall 指令 */
-			tf->sepc += 4;
+			trap_advance_pc(tf, 4);
 			do_syscall(tf);
 			if (user)
 				do_signal(tf);
@@ -118,7 +119,8 @@ void trap_handler(struct trap_frame *tf)
 			      "code=%lu "
 			      "sepc=%p stval=%p",
 			      trap_origin(tf), (size_t)scause, (size_t)code,
-			      (void *)tf->sepc, (void *)tf->stval);
+			      (void *)trap_user_pc(tf),
+			      (void *)trap_fault_addr(tf));
 		}
 	}
 }

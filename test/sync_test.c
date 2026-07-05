@@ -9,7 +9,7 @@
 #include <kernel/test.h>
 #include <kernel/timer.h>
 #include <kernel/wait.h>
-#include <asm/csr.h>
+#include <kernel/irq.h>
 
 void test_atomic_basic(void)
 {
@@ -62,15 +62,14 @@ void test_spinlock_irqsave(void)
 	{
 		spinlock_t lock = SPINLOCK_INIT;
 		irq_flags_t flags;
-		irq_flags_t before = csr_read(sstatus);
+		bool was_disabled = irqs_disabled();
 
 		spin_lock_irqsave(&lock, &flags);
 		TEST_ASSERT(lock.locked);
 		TEST_ASSERT(irqs_disabled());
 		spin_unlock_irqrestore(&lock, flags);
 		TEST_ASSERT(!lock.locked);
-		TEST_ASSERT_EQ(csr_read(sstatus) & SSTATUS_SIE,
-			       before & SSTATUS_SIE);
+		TEST_ASSERT_EQ(irqs_disabled(), was_disabled);
 	}
 	TEST_END("sync: spinlock irqsave");
 	return;

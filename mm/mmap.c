@@ -24,9 +24,9 @@
 #include <kernel/task.h>
 #include <kernel/user_map.h>
 #include <uapi/mman.h>
-#include <asm/page.h>
-#include <asm/pte.h>
-#include <asm/csr.h>
+#include <kernel/page.h>
+#include <kernel/pgtable.h>
+#include <kernel/processor.h>
 
 #include "internal.h"
 
@@ -126,9 +126,9 @@ void mm_unmap_user_pages_locked(struct mm_struct *mm,
 				uintptr_t start, uintptr_t end)
 {
 	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-		pte_t *pte = arch_pt_lookup(mm->pgd, va);
+		pte_t *pte = pagetable_lookup(mm->pgd, va);
 
-		if (!pte || !pte_user_page(*pte))
+		if (!pte || !pte_is_user_page(*pte))
 			continue;
 
 		if (vma && vma->vm_file && vma->vm_shared) {
@@ -141,14 +141,14 @@ void mm_unmap_user_pages_locked(struct mm_struct *mm,
 				page_cache_put_page(page);
 			}
 		} else {
-			paddr_t pa = pte_to_pa(*pte);
+			paddr_t pa = pte_phys_addr(*pte);
 
 			if (mm_owns_page_frame(pa))
 				free_page(__va(pa), 0);
 		}
 
 		*pte = 0;
-		arch_tlb_flush_page(va);
+		flush_tlb_page(va);
 	}
 }
 
@@ -171,9 +171,9 @@ int mm_move_user_pages_locked(struct mm_struct *mm, uintptr_t old_start,
 		return -EINVAL;
 
 	for (uintptr_t va = new_start; va < new_end; va += PAGE_SIZE) {
-		pte_t *pte = arch_pt_lookup(mm->pgd, va);
+		pte_t *pte = pagetable_lookup(mm->pgd, va);
 
-		if (pte && pte_user_page(*pte))
+		if (pte && pte_is_user_page(*pte))
 			return -EEXIST;
 	}
 
@@ -181,21 +181,21 @@ int mm_move_user_pages_locked(struct mm_struct *mm, uintptr_t old_start,
 
 	for (uintptr_t old_va = old_start, new_va = new_start; old_va < old_end;
 	     old_va += PAGE_SIZE, new_va += PAGE_SIZE) {
-		pte_t *old_pte = arch_pt_lookup(mm->pgd, old_va);
+		pte_t *old_pte = pagetable_lookup(mm->pgd, old_va);
 		pte_t old_entry;
-		pte_t perm;
+		pgprot_t perm;
 		int ret;
 
-		if (!old_pte || !pte_user_page(*old_pte))
+		if (!old_pte || !pte_is_user_page(*old_pte))
 			continue;
 
 		old_entry = *old_pte;
-		perm = old_entry & ((1UL << PTE_PPN_SHIFT) - 1);
-		ret = map_page(mm->pgd, new_va, pte_to_pa(old_entry), perm);
+		perm = pte_leaf_prot(old_entry);
+		ret = map_page(mm->pgd, new_va, pte_phys_addr(old_entry), perm);
 		if (ret < 0) {
 			for (uintptr_t va = new_start; va < mapped_end;
 			     va += PAGE_SIZE) {
-				pte_t *pte = arch_pt_lookup(mm->pgd, va);
+				pte_t *pte = pagetable_lookup(mm->pgd, va);
 
 				if (pte)
 					*pte = 0;
@@ -207,14 +207,14 @@ int mm_move_user_pages_locked(struct mm_struct *mm, uintptr_t old_start,
 
 	for (uintptr_t old_va = old_start; old_va < old_end;
 	     old_va += PAGE_SIZE) {
-		pte_t *old_pte = arch_pt_lookup(mm->pgd, old_va);
+		pte_t *old_pte = pagetable_lookup(mm->pgd, old_va);
 
-		if (!old_pte || !pte_user_page(*old_pte))
+		if (!old_pte || !pte_is_user_page(*old_pte))
 			continue;
 		*old_pte = 0;
 	}
 
-	arch_tlb_flush_all();
+	flush_tlb_all();
 	return 0;
 }
 
@@ -229,15 +229,15 @@ int mm_move_user_pages_locked(struct mm_struct *mm, uintptr_t old_start,
 static void free_user_page_tables(pte_t *pgd)
 {
 	for (int i = 0; i < 256; i++) {
-		if (!pte_present(pgd[i]))
+		if (!pte_is_present(pgd[i]))
 			continue;
 
-		pte_t *pmd = (pte_t *)__va(pte_to_pa(pgd[i]));
+		pte_t *pmd = (pte_t *)__va(pte_phys_addr(pgd[i]));
 		for (int j = 0; j < 512; j++) {
-			if (!pte_present(pmd[j]))
+			if (!pte_is_present(pmd[j]))
 				continue;
 
-			pte_t *pt = (pte_t *)__va(pte_to_pa(pmd[j]));
+			pte_t *pt = (pte_t *)__va(pte_phys_addr(pmd[j]));
 			for (int k = 0; k < 512; k++)
 				pt[k] = 0;
 			free_page(pt, 0);
@@ -307,7 +307,7 @@ uint32_t mm_membarrier_registrations(const struct mm_struct *mm)
 uintptr_t mm_user_satp(const struct mm_struct *mm)
 {
 	BUG_ON(!mm || !mm->pgd);
-	return SATP_MODE_SV39 | (__pa((uintptr_t)mm->pgd) >> PAGE_SHIFT);
+	return pgtable_make_user_token(mm->pgd);
 }
 
 struct mm_struct *dup_mm(struct mm_struct *oldmm)
@@ -348,11 +348,11 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 		uintptr_t end = oldmm->vma[i].vm_end;
 
 		for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-			pte_t *pte = arch_pt_lookup(oldmm->pgd, va);
-			if (!pte || !pte_user_page(*pte))
+			pte_t *pte = pagetable_lookup(oldmm->pgd, va);
+			if (!pte || !pte_is_user_page(*pte))
 				continue;
 
-			uintptr_t old_pa = pte_to_pa(*pte);
+			uintptr_t old_pa = pte_phys_addr(*pte);
 			void *new_page = get_free_page(0);
 			if (!new_page) {
 				mm_unlock(oldmm);
@@ -362,24 +362,14 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 
 			memcpy(new_page, __va(old_pa), PAGE_SIZE);
 
-			pte_t perm = *pte & (PTE_V | PTE_R | PTE_W | PTE_X |
-					     PTE_U | PTE_A | PTE_D | PTE_G);
-			pte_t install_perm = perm | PTE_V;
+			pgprot_t perm = pte_leaf_prot(*pte);
 			int ret = map_page(newmm->pgd, va,
-					   __pa((uintptr_t)new_page),
-					   install_perm);
+					   __pa((uintptr_t)new_page), perm);
 			if (ret < 0) {
 				free_page(new_page, 0);
 				mm_unlock(oldmm);
 				mm_destroy(newmm);
 				return NULL;
-			}
-			if (install_perm != perm) {
-				pte_t *new_pte = arch_pt_lookup(newmm->pgd, va);
-
-				BUG_ON(!new_pte);
-				*new_pte = PA_TO_PTE(__pa((uintptr_t)new_page)) |
-					   perm;
 			}
 		}
 	}
@@ -454,8 +444,8 @@ int mm_user_page_resident(struct mm_struct *mm, uintptr_t addr, bool *resident)
 		return -ENOMEM;
 	}
 
-	pte = arch_pt_lookup(mm->pgd, addr);
-	*resident = pte && pte_user_page(*pte);
+	pte = pagetable_lookup(mm->pgd, addr);
+	*resident = pte && pte_is_user_page(*pte);
 	mm_unlock(mm);
 	return 0;
 }
@@ -700,16 +690,16 @@ static void madvise_dontneed_range(struct mm_struct *mm, uintptr_t start,
 				   uintptr_t end)
 {
 	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-		pte_t *pte = arch_pt_lookup(mm->pgd, va);
+		pte_t *pte = pagetable_lookup(mm->pgd, va);
 
-		if (!pte || !pte_user_page(*pte))
+		if (!pte || !pte_is_user_page(*pte))
 			continue;
 
-		paddr_t pa = pte_to_pa(*pte);
+		paddr_t pa = pte_phys_addr(*pte);
 		if (mm_owns_page_frame(pa))
 			free_page(__va(pa), 0);
 		*pte = 0;
-		arch_tlb_flush_page(va);
+		flush_tlb_page(va);
 	}
 }
 
@@ -972,8 +962,8 @@ int mm_msync(struct mm_struct *mm, uintptr_t addr, size_t len, int flags)
 		if (!vma->vm_file || !vma->vm_shared)
 			continue;
 
-		pte = arch_pt_lookup(mm->pgd, va);
-		if (pte && pte_user_page(*pte))
+		pte = pagetable_lookup(mm->pgd, va);
+		if (pte && pte_is_user_page(*pte))
 			vma_mark_shared_page_dirty(vma, va);
 
 		if (!(flags & MS_SYNC))
@@ -1015,8 +1005,8 @@ int mm_map_page(struct mm_struct *mm, uintptr_t va, void *page, int prot)
 		return -EINVAL;
 
 	mm_lock(mm);
-	pte = arch_pt_lookup(mm->pgd, va);
-	if (pte && pte_user_page(*pte)) {
+	pte = pagetable_lookup(mm->pgd, va);
+	if (pte && pte_is_user_page(*pte)) {
 		mm_unlock(mm);
 		return -EEXIST;
 	}
@@ -1119,7 +1109,7 @@ int mm_add_stack(struct mm_struct *mm, void *stack_page)
 	vma->vm_type = VMA_STACK;
 	vma->used = true;
 	ret = map_page(mm->pgd, USER_STACK_BASE, __pa((uintptr_t)stack_page),
-		       PTE_USER_RW);
+		       pgprot_user(true, true, false));
 	if (ret < 0)
 		vma->used = false;
 out:
@@ -1150,7 +1140,7 @@ int mm_finalize(struct mm_struct *mm, uintptr_t first_vaddr,
 int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 {
 	uint32_t new_vm_flags;
-	pte_t new_pte_flags;
+	pgprot_t new_pte_flags;
 	uintptr_t end;
 	int ret = 0;
 
@@ -1202,19 +1192,19 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 
 	/* Update PTE permissions for already-mapped pages. */
 	for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {
-		pte_t *pte = arch_pt_lookup(mm->pgd, va);
+		pte_t *pte = pagetable_lookup(mm->pgd, va);
 
-		if (!pte || *pte == 0)
+		if (!pte || !pte_is_present(*pte))
 			continue;
 		if (prot == PROT_NONE) {
-			*pte &= ~PTE_V;
+			pte_clear_present(pte);
 		} else {
-			uintptr_t pa = PTE_TO_PA(*pte);
-			*pte = PA_TO_PTE(pa) | new_pte_flags;
+			uintptr_t pa = pte_phys_addr(*pte);
+			*pte = pte_make(pa, new_pte_flags);
 		}
 	}
 
-	arch_tlb_flush_all();
+	flush_tlb_all();
 	vma_merge_all(mm);
 
 out:

@@ -18,8 +18,8 @@
 #include <kernel/task.h>
 #include <kernel/timer.h>
 #include <kernel/vfs.h>
-#include <asm/page.h>
-#include <asm/trap.h>
+#include <kernel/page.h>
+#include <kernel/trap.h>
 #include <kernel/time.h>
 #include <uapi/eventpoll.h>
 #include <uapi/poll.h>
@@ -502,7 +502,7 @@ static int eventpoll_release(struct file *file)
 
 ssize_t sys_epoll_create1(struct trap_frame *tf)
 {
-	int flags = (int)tf->a0;
+	int flags = (int)syscall_arg(tf, 0);
 	struct eventpoll *ep __cleanup_with(eventpoll) = NULL;
 	struct file *file __cleanup_with(file) = NULL;
 	int fd;
@@ -532,10 +532,10 @@ ssize_t sys_epoll_create1(struct trap_frame *tf)
 
 ssize_t sys_epoll_ctl(struct trap_frame *tf)
 {
-	int epfd = (int)tf->a0;
-	int op = (int)tf->a1;
-	int fd = (int)tf->a2;
-	const struct epoll_event *uevent = (const struct epoll_event *)tf->a3;
+	int epfd = (int)syscall_arg(tf, 0);
+	int op = (int)syscall_arg(tf, 1);
+	int fd = (int)syscall_arg(tf, 2);
+	const struct epoll_event *uevent = (const struct epoll_event *)syscall_arg(tf, 3);
 	struct file *epfile __cleanup_with(file) = NULL;
 	struct file *file __cleanup_with(file) = NULL;
 	struct epitem *item __cleanup_with(epitem) = NULL;
@@ -624,12 +624,12 @@ ssize_t sys_epoll_ctl(struct trap_frame *tf)
 
 ssize_t sys_epoll_pwait(struct trap_frame *tf)
 {
-	int epfd = (int)tf->a0;
-	struct epoll_event *uevents = (struct epoll_event *)tf->a1;
-	int maxevents = (int)tf->a2;
-	long timeout = (long)tf->a3;
-	const unsigned long *usigmask = (const unsigned long *)tf->a4;
-	size_t sigsetsize = (size_t)tf->a5;
+	int epfd = (int)syscall_arg(tf, 0);
+	struct epoll_event *uevents = (struct epoll_event *)syscall_arg(tf, 1);
+	int maxevents = (int)syscall_arg(tf, 2);
+	long timeout = (long)syscall_arg(tf, 3);
+	const unsigned long *usigmask = (const unsigned long *)syscall_arg(tf, 4);
+	size_t sigsetsize = (size_t)syscall_arg(tf, 5);
 	struct epoll_event kevents[NR_OPEN];
 	struct file *epfile __cleanup_with(file) = NULL;
 	struct poll_sigmask_guard sigmask_guard __cleanup_with(
@@ -689,11 +689,11 @@ ssize_t sys_epoll_pwait(struct trap_frame *tf)
 
 ssize_t sys_ppoll(struct trap_frame *tf)
 {
-	struct pollfd *ufds = (struct pollfd *)tf->a0;
-	size_t nfds = (size_t)tf->a1;
-	const struct timespec *utimeout = (const struct timespec *)tf->a2;
-	const unsigned long *usigmask = (const unsigned long *)tf->a3;
-	size_t sigsetsize = (size_t)tf->a4;
+	struct pollfd *ufds = (struct pollfd *)syscall_arg(tf, 0);
+	size_t nfds = (size_t)syscall_arg(tf, 1);
+	const struct timespec *utimeout = (const struct timespec *)syscall_arg(tf, 2);
+	const unsigned long *usigmask = (const unsigned long *)syscall_arg(tf, 3);
+	size_t sigsetsize = (size_t)syscall_arg(tf, 4);
 	struct pollfd fds[NR_OPEN];
 	struct timespec timeout;
 	struct ppoll_scan_ctx scan_ctx;
@@ -750,13 +750,13 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 
 ssize_t sys_pselect6(struct trap_frame *tf)
 {
-	long nfds = (long)tf->a0;
-	fd_set *ureadfds = (fd_set *)tf->a1;
-	fd_set *uwritefds = (fd_set *)tf->a2;
-	fd_set *uexceptfds = (fd_set *)tf->a3;
-	const struct timespec *utimeout = (const struct timespec *)tf->a4;
+	long nfds = (long)syscall_arg(tf, 0);
+	fd_set *ureadfds = (fd_set *)syscall_arg(tf, 1);
+	fd_set *uwritefds = (fd_set *)syscall_arg(tf, 2);
+	fd_set *uexceptfds = (fd_set *)syscall_arg(tf, 3);
+	const struct timespec *utimeout = (const struct timespec *)syscall_arg(tf, 4);
 	const struct pselect6_sigmask *usigpack =
-		(const struct pselect6_sigmask *)tf->a5;
+		(const struct pselect6_sigmask *)syscall_arg(tf, 5);
 	const unsigned long *usigmask;
 	fd_set in_readfds;
 	fd_set in_writefds;

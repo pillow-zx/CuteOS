@@ -46,6 +46,9 @@ static void ext2_free_sbi(struct ext2_sb_info *sbi)
 	if (!sbi)
 		return;
 
+	if (!sbi->s_group_desc)
+		return;
+
 	vfree(sbi->s_group_desc);
 	kfree(sbi);
 }

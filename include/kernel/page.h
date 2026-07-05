@@ -24,6 +24,7 @@
 #include <kernel/list.h>
 #include <kernel/bitops.h>
 #include <kernel/compiler.h>
+#include <arch/page.h>
 
 /* 页标志位定义 */
 #define PG_RESERVED 0
@@ -59,6 +60,11 @@ static __always_inline __nonnull(1) void page_clear_flag(struct page *page,
 							 uint32_t flag)
 {
 	clr_bit(page->flags, flag);
+}
+
+static __always_inline __must_check void *bootmem_end(void)
+{
+	return arch_bootmem_end();
 }
 
 #endif

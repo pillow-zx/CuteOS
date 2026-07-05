@@ -15,7 +15,7 @@
  *
  * Structs:
  *   struct sigaction   - Handler description (sa_handler, sa_mask, sa_flags)
- *   struct signal_frame - Saved trap frame for signal delivery/return
+ *   struct signal_frame - Saved architecture trap state for signal return
  *
  * Constants:
  *   SIG_DFL - Default signal handler sentinel
@@ -32,9 +32,9 @@
 #include <kernel/sync.h>
 #include <kernel/resource.h>
 #include <kernel/time.h>
-#include <asm/page.h>
-#include <asm/pte.h>
-#include <asm/trap.h>
+#include <kernel/page.h>
+#include <kernel/pgtable.h>
+#include <kernel/trap.h>
 #include <uapi/signal.h>
 
 struct sighand_struct {
@@ -55,7 +55,7 @@ struct signal_struct {
 #define SIGNAL_TRAMPOLINE_ADDR (USER_STACK_GUARD_BASE - PAGE_SIZE)
 
 struct signal_frame {
-	struct trap_frame tf;
+	struct signal_frame_state state;
 	uint64_t blocked;
 	uint64_t sig; /* 本帧投递的信号号；sys_sigreturn 据此清 in_handler */
 	uint64_t on_altstack;

@@ -28,7 +28,7 @@
 #include <kernel/printk.h>
 #include <kernel/bitops.h>
 #include <kernel/tools.h>
-#include <asm/page.h>
+#include <kernel/page.h>
 
 /* ---- 全局数据 ---- */
 
@@ -127,7 +127,7 @@ static void buddy_remove_free_block(struct page *page)
  */
 void buddy_init(void)
 {
-	void *mem_start = arch_bootmem_end();
+	void *mem_start = bootmem_end();
 
 	total_pages = DRAM_SIZE / PAGE_SIZE;
 

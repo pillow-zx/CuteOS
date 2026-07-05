@@ -1,8 +1,10 @@
 *
 !arch/
 !arch/riscv/
+!arch/riscv/include/
+!arch/riscv/include/arch/
+!arch/riscv/include/asm/
 !include/
-!include/asm/
 !include/compiler/
 !include/uapi/
 !include/kernel/
@@ -35,6 +37,7 @@
 
 
 !**/*.mk
+!scripts/*.sh
 !Kconfig
 !**/Kconfig
 !**/*.h

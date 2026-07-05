@@ -11,8 +11,8 @@
 #include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <uapi/membarrier.h>
-#include <asm/csr.h>
-#include <asm/trap.h>
+#include <kernel/processor.h>
+#include <kernel/trap.h>
 
 #define MEMBARRIER_SUPPORTED_MASK                                              \
 	(MEMBARRIER_CMD_GLOBAL | MEMBARRIER_CMD_GLOBAL_EXPEDITED |             \
@@ -30,8 +30,8 @@ static inline void membarrier_full_mb(void)
 
 ssize_t sys_membarrier(struct trap_frame *tf)
 {
-	int cmd = (int)tf->a0;
-	unsigned int flags = (unsigned int)tf->a1;
+	int cmd = (int)syscall_arg(tf, 0);
+	unsigned int flags = (unsigned int)syscall_arg(tf, 1);
 	struct mm_struct *mm = task_mm(current_task());
 	uint32_t registrations;
 
@@ -76,7 +76,7 @@ ssize_t sys_membarrier(struct trap_frame *tf)
 		if (!(registrations &
 		      MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_SYNC_CORE))
 			return -EPERM;
-		arch_icache_flush();
+		flush_icache();
 		return 0;
 	case MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ:
 		return -EINVAL;

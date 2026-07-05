@@ -25,7 +25,7 @@
 #include <kernel/stat.h>
 #include <kernel/task.h>
 #include <kernel/vfs.h>
-#include <asm/page.h>
+#include <kernel/page.h>
 
 #include "namei_internal.h"
 

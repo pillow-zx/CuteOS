@@ -36,8 +36,6 @@
 #include <kernel/fdtable.h>
 #include <kernel/fs_struct.h>
 #include <kernel/vfs.h>
-#include <asm/page.h>
-#include <asm/csr.h>
 
 /* ---- 全局变量 ---- */
 
@@ -61,7 +59,7 @@ struct task_struct *init_task;
  */
 static inline uint64_t *stack_canary_ptr(struct task_struct *task)
 {
-	return (uint64_t *)task->arch.kstack;
+	return (uint64_t *)task_kernel_stack(task);
 }
 
 /* ---- 公共接口 ---- */
@@ -89,7 +87,7 @@ void cpu_boot_init(struct task_struct *idle)
 
 void check_canary(struct task_struct *task)
 {
-	if (!task->arch.kstack)
+	if (!task_kernel_stack_safe(task))
 		return;
 
 	uint64_t canary = *stack_canary_ptr(task);
@@ -122,8 +120,8 @@ struct task_struct *task_alloc(void)
 	memset(task, 0, sizeof(struct task_struct));
 	task->ids.pid = (pid_t)pid;
 	task->lifecycle.state = TASK_RUNNING;
-	task->arch.kstack = kstack;
-	task->arch.tf = NULL;
+	arch_task_init(task);
+	task_set_kernel_stack(task, kstack);
 	task->resources.mm = NULL;
 	task->ids.tgid = task->ids.pid;
 	task->ids.pgid = task->ids.pid;
@@ -199,9 +197,9 @@ void task_free(struct task_struct *task)
 	task_release_resources(task);
 
 	/* 释放内核栈 */
-	if (task->arch.kstack) {
-		free_page(task->arch.kstack, KSTACK_ORDER);
-		task->arch.kstack = NULL;
+	if (task_kernel_stack_safe(task)) {
+		free_page(task_kernel_stack(task), KSTACK_ORDER);
+		task_set_kernel_stack(task, NULL);
 	}
 
 	/* 释放 task_struct */
@@ -217,7 +215,7 @@ void task_init(void)
 	memset(&idle_task, 0, sizeof(struct task_struct));
 	idle_task.ids.pid = 0;
 	idle_task.lifecycle.state = TASK_RUNNING;
-	idle_task.arch.kstack = NULL; /* idle 使用 boot_stack，无独立内核栈 */
+	arch_task_init(&idle_task); /* idle 使用 boot_stack，无独立内核栈 */
 	idle_task.resources.mm = NULL;
 	idle_task.ids.tgid = idle_task.ids.pid;
 	idle_task.ids.pgid = idle_task.ids.pid;
@@ -247,9 +245,6 @@ void task_init(void)
 
 /* ---- 内核线程创建 ---- */
 
-/* entry.S 中的 trap 返回入口，switch_to 通过它启动新线程 */
-extern void __trapret(void);
-
 /**
  * kernel_thread - 创建一个内核线程
  * @fn:  线程入口函数
@@ -272,22 +267,7 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 		return NULL;
 	}
 
-	/* 在内核栈顶预留 trap_frame 空间 */
-	struct trap_frame *tf = task_kernel_trap_frame(task);
-
-	memset(tf, 0, sizeof(struct trap_frame));
-
-	/* sret 后 PC 跳转到 fn, a0 传递 arg */
-	tf->sepc = (size_t)fn;
-	tf->a0 = (uintptr_t)arg;
-	/* SPP=1 → 返回 S-mode; SPIE=1 → sret 后 SIE=1 (中断使能) */
-	tf->sstatus = SSTATUS_SPP | SSTATUS_SPIE;
-
-	task->arch.tf = tf;
-
-	/* switch_to 加载 ctx 后 ret → __trapret → 恢复 tf → sret → fn(arg) */
-	task->arch.ctx.ra = (size_t)__trapret;
-	task->arch.ctx.sp = (size_t)tf;
+	arch_task_setup_kernel_thread(task, fn, arg);
 
 	task->links.parent = parent;
 	list_add_tail(&task->links.sibling, &parent->links.children);

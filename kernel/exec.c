@@ -18,10 +18,10 @@
 #include <kernel/task.h>
 #include <kernel/vfs.h>
 #include <uapi/mman.h>
-#include <asm/csr.h>
-#include <asm/page.h>
-#include <asm/pte.h>
-#include <asm/trap.h>
+#include <kernel/processor.h>
+#include <kernel/page.h>
+#include <kernel/pgtable.h>
+#include <kernel/trap.h>
 
 struct exec_image {
 	struct file *file;
@@ -448,7 +448,7 @@ static int finish_exec_mm(struct mm_struct *mm,
 {
 	int ret;
 
-	arch_icache_flush();
+	flush_icache();
 
 	ret = mm_finalize(mm, layout->first_vaddr, layout->last_end);
 	if (ret < 0)
@@ -508,8 +508,7 @@ static void flush_old_exec(struct mm_struct *oldmm)
 	if (!oldmm)
 		return;
 
-	csr_write(satp, kernel_satp());
-	arch_tlb_flush_all();
+	pgtable_activate_kernel();
 	mm_put(oldmm);
 }
 
@@ -526,9 +525,7 @@ static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
 	flush_old_exec(oldmm);
 
 	memset(tf, 0, sizeof(*tf));
-	tf->sepc = entry;
-	tf->sp = sp;
-	tf->sstatus = SSTATUS_SPIE;
+	trap_setup_user_return(tf, entry, sp);
 }
 
 void exec_user_path(const char *path)

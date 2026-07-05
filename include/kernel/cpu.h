@@ -11,7 +11,7 @@
 
 #include <kernel/types.h>
 #include <kernel/compiler.h>
-#include <asm/asm_offsets.h>
+#include <arch/cpu.h>
 
 #define NR_CPUS CONFIG_QEMU_CPUS
 

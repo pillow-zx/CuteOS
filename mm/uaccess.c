@@ -28,8 +28,8 @@
 #include <kernel/mm.h>
 #include <kernel/errno.h>
 #include <kernel/task.h>
-#include <asm/page.h>
-#include <asm/uaccess.h>
+#include <kernel/page.h>
+#include <kernel/uaccess_arch.h>
 
 #include "internal.h"
 

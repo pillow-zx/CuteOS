@@ -2,7 +2,7 @@
 #define _CUTEOS_ASM_CSR_H
 
 /*
- * include/asm/csr.h - RISC-V CSR 寄存器地址和位操作定义
+ * arch/riscv/include/asm/csr.h - RISC-V CSR 寄存器地址和位操作定义
  *
  * 提供内联汇编宏用于读写 RISC-V 控制和状态寄存器，这些寄存器用于trap，
  * 页表和中断管理
@@ -66,8 +66,8 @@
 
 #define wfi() ({ asm volatile("wfi"); })
 
-void arch_tlb_flush_all(void);
-void arch_tlb_flush_page(uintptr_t va);
-void arch_icache_flush(void);
+void tlb_flush_all(void);
+void tlb_flush_page(uintptr_t va);
+void icache_flush(void);
 
 #endif

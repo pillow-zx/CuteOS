@@ -14,13 +14,13 @@
  *   5. console_chrdev_init()    — 注册 /dev/console 字符设备操作
  *   6. buddy_init()             — 物理页分配器（从 _end 到 DRAM 结束）
  *   7. slab_init()              — kmalloc 可用（8 组 size class）
- *   8. arch_trap_init()              — stvec, sscratch, SIE.STIE
+ *   8. trap_init()              — stvec, sscratch, SIE.STIE
  *   9. task_init()              — 创建 idle (PID 0, BSS 静态), 设置当前任务
  *  10. arch_timer_init()             — Sstc stimecmp 设置首次时钟中断
  *  11. sched_init()             — 初始化全局就绪队列
  *  12. kernel_test()            — DEBUG 构建运行内核自测
  *  13. kernel_thread(init_process, NULL) — 创建 init (PID 1)
- *  14. while(1) { wfi(); schedule(); }   — idle 循环
+ *  14. while(1) { wait_for_interrupt(); schedule(); }   — idle 循环
  *
  * 依赖关系：
  *   console → pagetable → buddy → slab → trap → task → timer → sched → thread
@@ -45,10 +45,10 @@
 #include <kernel/vfs.h>
 #include <drivers/console.h>
 #include <drivers/virtio_blk.h>
-#include <asm/trap.h>
-#include <asm/csr.h>
-#include <asm/pte.h>
-#include <asm/user_map.h>
+#include <kernel/trap.h>
+#include <kernel/processor.h>
+#include <kernel/pgtable.h>
+#include <kernel/user_map_arch.h>
 
 #ifdef CONFIG_KERNEL_TEST
 #include <kernel/test.h>
@@ -72,22 +72,22 @@ void kernel_main(void)
 	pr_info(" \\______/  \\______/    \\___/   \\_______/ \\______/  \\______/ \n");
 	pr_info("\n");
 
-	arch_pt_init();
+	pagetable_init();
 	console_init_mmio();
 	console_chrdev_init();
 	pr_info("uart: init successfully\n");
 
 	buddy_init();
-	arch_pt_use_buddy();
+	pagetable_use_buddy();
 	slab_init();
 	vmalloc_init();
-	arch_user_map_init();
+	user_map_init();
 	BUG_ON(user_map_reserve("stack_guard", USER_STACK_GUARD_BASE,
 				USER_STACK_BASE) < 0);
 	signal_user_map_init();
 	pr_info("mm: init successfully\n");
 
-	arch_trap_init();
+	trap_init();
 	pr_info("trap: init successfully\n");
 
 	task_init();
@@ -123,6 +123,6 @@ void kernel_main(void)
 	/* 进入 idle 循环 — idle 进程的执行体 */
 	while (true) {
 		schedule();
-		wfi();
+		wait_for_interrupt();
 	}
 }

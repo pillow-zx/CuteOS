@@ -55,7 +55,7 @@ int timer_sleep_until(uint64_t expires, bool interruptible);
  * arch_timer_init - 设置首次时钟中断超时值
  *
  * 仅配置 stimecmp，中断使能（SIE.STIE、sstatus.SIE）
- * 由 arch_trap_init() 统一管理。
+ * 由 trap_init() 统一管理。
  */
 void arch_timer_init(void);
 

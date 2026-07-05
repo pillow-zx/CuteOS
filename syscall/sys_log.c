@@ -11,7 +11,7 @@
 #include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <uapi/syslog.h>
-#include <asm/trap.h>
+#include <kernel/trap.h>
 
 static inline bool syslog_action_valid(int type)
 {
@@ -33,7 +33,7 @@ static bool syslog_action_requires_root(int type)
 
 ssize_t sys_syslog(struct trap_frame *tf)
 {
-	int type = (int)tf->a0;
+	int type = (int)syscall_arg(tf, 0);
 
 	if (!syslog_action_valid(type))
 		return -EINVAL;

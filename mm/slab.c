@@ -30,7 +30,7 @@
 #include <kernel/printk.h>
 #include <kernel/list.h>
 #include <kernel/compiler.h>
-#include <asm/page.h>
+#include <kernel/page.h>
 
 /* ---- 常量 ---- */
 

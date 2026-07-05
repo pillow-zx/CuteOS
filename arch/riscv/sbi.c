@@ -15,7 +15,13 @@
  *   sbi_shutdown()                  - 系统关机 (EID=0x08)
  */
 
-#include <asm/sbi.h>
+#include <arch/sbi.h>
+#include <kernel/types.h>
+
+struct sbi_ret {
+	int64_t error;
+	int64_t value;
+};
 
 #define SBI_EID_CONSOLE_PUTCHAR 0x01
 #define SBI_EID_SHUTDOWN	0x08

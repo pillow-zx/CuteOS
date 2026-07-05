@@ -2,20 +2,12 @@
 #include <kernel/task.h>
 #include <kernel/cpu.h>
 #include <kernel/pid.h>
-#include <asm/asm_offsets.h>
 
 void test_task_layout_contract(void)
 {
 	TEST_BEGIN("task: layout contract");
 	{
-		TEST_ASSERT_EQ((size_t)TASK_KSTACK,
-			       offsetof(struct task_struct, arch.kstack));
-		TEST_ASSERT_EQ((size_t)TASK_SATP,
-			       offsetof(struct task_struct, arch.satp));
-		TEST_ASSERT_EQ((size_t)CPU_CURRENT_TASK,
-			       offsetof(struct cpu, current_task));
-		TEST_ASSERT_EQ((size_t)CPU_PREEMPT_COUNT,
-			       offsetof(struct cpu, preempt_count));
+		TEST_ASSERT(arch_task_test_layout_contract());
 	}
 	TEST_END("task: layout contract");
 	return;

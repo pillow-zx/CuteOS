@@ -7,9 +7,9 @@
 
 #include <kernel/printk.h>
 #include <kernel/user_map.h>
-#include <asm/page.h>
-#include <asm/pte.h>
-#include <asm/user_map.h>
+#include <arch/page.h>
+#include <arch/pgtable.h>
+#include <arch/user_map.h>
 #include <drivers/uart.h>
 #include <drivers/virtio.h>
 
@@ -26,7 +26,7 @@ static int riscv_user_mmio_map(pte_t *root)
 	return map_page(root, VIRTIO_MMIO_BASE, VIRTIO_MMIO_BASE, PTE_KERN_RW);
 }
 
-void arch_user_map_init(void)
+void user_map_init(void)
 {
 	int ret;
 

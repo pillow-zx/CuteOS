@@ -27,11 +27,11 @@
 #include <kernel/time.h>
 #include <kernel/timer.h>
 #include <kernel/types.h>
-#include <asm/trap.h>
+#include <kernel/trap.h>
 
 ssize_t sys_times(struct trap_frame *tf)
 {
-	struct tms *utms = (struct tms *)tf->a0;
+	struct tms *utms = (struct tms *)syscall_arg(tf, 0);
 	struct tms ktms = {
 		.tms_utime = (int64_t)task_user_ticks(current_task()),
 		.tms_stime = (int64_t)task_system_ticks(current_task()),
@@ -47,8 +47,8 @@ ssize_t sys_times(struct trap_frame *tf)
 
 ssize_t sys_gettimeofday(struct trap_frame *tf)
 {
-	struct timeval *utv = (struct timeval *)tf->a0;
-	struct timezone *utz = (struct timezone *)tf->a1;
+	struct timeval *utv = (struct timeval *)syscall_arg(tf, 0);
+	struct timezone *utz = (struct timezone *)syscall_arg(tf, 1);
 	uint64_t ticks = arch_timer_now();
 	struct timeval ktv;
 
@@ -76,8 +76,8 @@ ssize_t sys_gettimeofday(struct trap_frame *tf)
 
 ssize_t sys_clock_gettime(struct trap_frame *tf)
 {
-	int clock_id = (int)tf->a0;
-	struct timespec *uts = (struct timespec *)tf->a1;
+	int clock_id = (int)syscall_arg(tf, 0);
+	struct timespec *uts = (struct timespec *)syscall_arg(tf, 1);
 	struct timespec kts;
 
 	if (!clock_id_supported(clock_id))
@@ -98,8 +98,8 @@ ssize_t sys_clock_gettime(struct trap_frame *tf)
 
 ssize_t sys_clock_getres(struct trap_frame *tf)
 {
-	int clock_id = (int)tf->a0;
-	struct timespec *uts = (struct timespec *)tf->a1;
+	int clock_id = (int)syscall_arg(tf, 0);
+	struct timespec *uts = (struct timespec *)syscall_arg(tf, 1);
 	struct timespec kts = {
 		.tv_sec = 0,
 		.tv_nsec = 1000000000UL / MTIME_FREQ,
@@ -117,8 +117,8 @@ ssize_t sys_clock_getres(struct trap_frame *tf)
 
 ssize_t sys_nanosleep(struct trap_frame *tf)
 {
-	const struct timespec *ureq = (const struct timespec *)tf->a0;
-	struct timespec *urem = (struct timespec *)tf->a1;
+	const struct timespec *ureq = (const struct timespec *)syscall_arg(tf, 0);
+	struct timespec *urem = (struct timespec *)syscall_arg(tf, 1);
 	struct timespec req;
 	uint64_t deadline;
 	bool has_timeout;
@@ -149,10 +149,10 @@ ssize_t sys_nanosleep(struct trap_frame *tf)
 
 ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 {
-	int clock_id = (int)tf->a0;
-	int flags = (int)tf->a1;
-	const struct timespec *ureq = (const struct timespec *)tf->a2;
-	struct timespec *urem = (struct timespec *)tf->a3;
+	int clock_id = (int)syscall_arg(tf, 0);
+	int flags = (int)syscall_arg(tf, 1);
+	const struct timespec *ureq = (const struct timespec *)syscall_arg(tf, 2);
+	struct timespec *urem = (struct timespec *)syscall_arg(tf, 3);
 	struct timespec req;
 	uint64_t deadline;
 	uint64_t delta;
@@ -198,8 +198,8 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 
 ssize_t sys_getitimer(struct trap_frame *tf)
 {
-	int which = (int)tf->a0;
-	struct itimerval *uvalue = (struct itimerval *)tf->a1;
+	int which = (int)syscall_arg(tf, 0);
+	struct itimerval *uvalue = (struct itimerval *)syscall_arg(tf, 1);
 	struct signal_struct *signal;
 	struct itimerval value;
 	int ret;
@@ -226,9 +226,9 @@ ssize_t sys_getitimer(struct trap_frame *tf)
 
 ssize_t sys_setitimer(struct trap_frame *tf)
 {
-	int which = (int)tf->a0;
-	const struct itimerval *unew_value = (const struct itimerval *)tf->a1;
-	struct itimerval *uold_value = (struct itimerval *)tf->a2;
+	int which = (int)syscall_arg(tf, 0);
+	const struct itimerval *unew_value = (const struct itimerval *)syscall_arg(tf, 1);
+	struct itimerval *uold_value = (struct itimerval *)syscall_arg(tf, 2);
 	struct itimerval new_value = {0};
 	struct itimerval old_value;
 	struct signal_struct *signal;
@@ -265,9 +265,9 @@ ssize_t sys_setitimer(struct trap_frame *tf)
 
 ssize_t sys_timer_create(struct trap_frame *tf)
 {
-	clockid_t clock_id = (clockid_t)tf->a0;
-	const sigevent_t *usevp = (const sigevent_t *)tf->a1;
-	timer_t *utimerid = (timer_t *)tf->a2;
+	clockid_t clock_id = (clockid_t)syscall_arg(tf, 0);
+	const sigevent_t *usevp = (const sigevent_t *)syscall_arg(tf, 1);
+	timer_t *utimerid = (timer_t *)syscall_arg(tf, 2);
 	sigevent_t event;
 	const sigevent_t *eventp = NULL;
 	struct signal_struct *signal;
@@ -306,8 +306,8 @@ ssize_t sys_timer_create(struct trap_frame *tf)
 
 ssize_t sys_timer_gettime(struct trap_frame *tf)
 {
-	timer_t timerid = (timer_t)tf->a0;
-	struct itimerspec *uvalue = (struct itimerspec *)tf->a1;
+	timer_t timerid = (timer_t)syscall_arg(tf, 0);
+	struct itimerspec *uvalue = (struct itimerspec *)syscall_arg(tf, 1);
 	struct signal_struct *signal;
 	struct itimerspec value;
 	int ret;
@@ -330,7 +330,7 @@ ssize_t sys_timer_gettime(struct trap_frame *tf)
 
 ssize_t sys_timer_getoverrun(struct trap_frame *tf)
 {
-	timer_t timerid = (timer_t)tf->a0;
+	timer_t timerid = (timer_t)syscall_arg(tf, 0);
 	struct signal_struct *signal;
 
 	signal = task_signal_state(current_task());
@@ -341,10 +341,10 @@ ssize_t sys_timer_getoverrun(struct trap_frame *tf)
 
 ssize_t sys_timer_settime(struct trap_frame *tf)
 {
-	timer_t timerid = (timer_t)tf->a0;
-	int flags = (int)tf->a1;
-	const struct itimerspec *unew_value = (const struct itimerspec *)tf->a2;
-	struct itimerspec *uold_value = (struct itimerspec *)tf->a3;
+	timer_t timerid = (timer_t)syscall_arg(tf, 0);
+	int flags = (int)syscall_arg(tf, 1);
+	const struct itimerspec *unew_value = (const struct itimerspec *)syscall_arg(tf, 2);
+	struct itimerspec *uold_value = (struct itimerspec *)syscall_arg(tf, 3);
 	struct itimerspec new_value;
 	struct itimerspec old_value;
 	struct signal_struct *signal;
@@ -372,7 +372,7 @@ ssize_t sys_timer_settime(struct trap_frame *tf)
 
 ssize_t sys_timer_delete(struct trap_frame *tf)
 {
-	timer_t timerid = (timer_t)tf->a0;
+	timer_t timerid = (timer_t)syscall_arg(tf, 0);
 	struct signal_struct *signal;
 
 	signal = task_signal_state(current_task());
@@ -383,8 +383,8 @@ ssize_t sys_timer_delete(struct trap_frame *tf)
 
 ssize_t sys_clock_settime(struct trap_frame *tf)
 {
-	int clock_id = (int)tf->a0;
-	const struct timespec *uts = (const struct timespec *)tf->a1;
+	int clock_id = (int)syscall_arg(tf, 0);
+	const struct timespec *uts = (const struct timespec *)syscall_arg(tf, 1);
 	struct timespec kts;
 
 	if (!clock_id_supported(clock_id))

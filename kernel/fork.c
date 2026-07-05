@@ -12,7 +12,6 @@
 #include <kernel/signal.h>
 #include <kernel/task.h>
 #include <uapi/sched.h>
-#include <asm/trap.h>
 
 #define CLONE_EXIT_SIGNAL_MASK 0xffUL
 
@@ -50,8 +49,7 @@ static int validate_clone_flags(unsigned long flags, uintptr_t child_stack)
 		return -EINVAL;
 	if ((flags & CLONE_THREAD) && !(flags & CLONE_SIGHAND))
 		return -EINVAL;
-	if (!clone_wants_thread(flags) &&
-	    !task_is_group_leader(current_task()))
+	if (!clone_wants_thread(flags) && !task_is_group_leader(current_task()))
 		return -EINVAL;
 	if (!clone_wants_thread(flags) && (flags & thread_only_clone_flags))
 		return -EINVAL;
@@ -102,24 +100,6 @@ static int clone_setup_mm(struct task_struct *child, unsigned long flags)
 	return 0;
 }
 
-static void clone_setup_frame(struct task_struct *child, struct trap_frame *tf,
-			      unsigned long flags, uintptr_t child_stack,
-			      uintptr_t tls)
-{
-	struct trap_frame *child_tf = task_kernel_trap_frame(child);
-
-	memcpy(child_tf, tf, sizeof(struct trap_frame));
-	child_tf->a0 = 0;
-	if (child_stack != 0)
-		child_tf->sp = child_stack;
-	if (flags & CLONE_SETTLS)
-		child_tf->tp = tls;
-
-	task_set_trap_frame(child, child_tf);
-	child->arch.ctx.ra = (size_t)__trapret;
-	child->arch.ctx.sp = (size_t)child_tf;
-}
-
 static int clone_copy_resources(struct task_struct *child, unsigned long flags)
 {
 	bool disable_altstack;
@@ -148,8 +128,7 @@ static void clone_setup_task_links(struct task_struct *child,
 	child->lifecycle.exit_signal = (int)(flags & CLONE_EXIT_SIGNAL_MASK);
 	task_set_pgid(child, task_pgid(current_task()));
 	if (clone_wants_thread(flags)) {
-		struct task_struct *leader =
-			task_group_leader(current_task());
+		struct task_struct *leader = task_group_leader(current_task());
 
 		child->ids.tgid = task_tgid(current_task());
 		child->ids.group_leader = leader;
@@ -166,12 +145,11 @@ static void clone_setup_task_links(struct task_struct *child,
 static void clone_link_task(struct task_struct *child, unsigned long flags)
 {
 	if (clone_wants_thread(flags))
-		list_add_tail(&child->links.thread_node,
-			      &task_group_leader(current_task())
-				       ->links.thread_group);
+		list_add_tail(
+			&child->links.thread_node,
+			&task_group_leader(current_task())->links.thread_group);
 	else
-		list_add(&child->links.sibling,
-			 task_children(current_task()));
+		list_add(&child->links.sibling, task_children(current_task()));
 }
 
 int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
@@ -199,7 +177,7 @@ int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
 		return ret;
 	}
 
-	clone_setup_frame(child, tf, flags, child_stack, tls);
+	arch_task_setup_clone_frame(child, tf, flags, child_stack, tls);
 
 	ret = clone_copy_resources(child, flags);
 	if (ret < 0) {

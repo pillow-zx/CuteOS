@@ -26,7 +26,7 @@
 #include <kernel/slab.h>
 #include <kernel/signal.h>
 #include <kernel/wait.h>
-#include <asm/page.h>
+#include <kernel/page.h>
 
 #define PIPE_SIZE PAGE_SIZE
 

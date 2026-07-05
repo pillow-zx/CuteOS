@@ -35,8 +35,9 @@
 
 #include <kernel/printk.h>
 #include <kernel/stacktrace.h>
-#include <asm/csr.h>
-#include <asm/sbi.h>
+#include <kernel/processor.h>
+#include <kernel/compiler.h>
+#include <kernel/sbi.h>
 #include <drivers/uart.h>
 
 /* 控制台字符输出后端，由 console_init_sbi() 设置 */
@@ -171,16 +172,16 @@ void __noreturn __panic(const char *fmt, ...)
 	pr_err("\n");
 
 	/* 输出关键 CSR 寄存器用于事后诊断 */
-	pr_err("  sepc   = %p\n", (void *)(uintptr_t)csr_read(sepc));
-	pr_err("  scause = %p\n", (void *)(uintptr_t)csr_read(scause));
-	pr_err("  stval  = %p\n", (void *)(uintptr_t)csr_read(stval));
+	pr_err("  sepc   = %p\n", (void *)(uintptr_t)trap_pc());
+	pr_err("  scause = %p\n", (void *)(uintptr_t)trap_cause());
+	pr_err("  stval  = %p\n", (void *)(uintptr_t)trap_value());
 	pr_err("  ra     = %p\n", (void *)(uintptr_t)__return_address());
 	pr_err("  sp     = %p\n", (void *)(uintptr_t)__frame_address());
 	dump_stack();
 
 	/* 永久挂起 */
 	while (1)
-		wfi();
+		wait_for_interrupt();
 
 	unreachable();
 }

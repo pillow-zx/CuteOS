@@ -14,8 +14,7 @@
 #include <kernel/wait.h>
 #include <kernel/compiler.h>
 #include <kernel/cpu.h>
-#include <asm/page.h>
-#include <asm/trap.h>
+#include <arch/task.h>
 #include <uapi/futex.h>
 #include <uapi/signal.h>
 
@@ -33,8 +32,8 @@
 
 /* ---- 内核栈常量 ---- */
 
-#define KSTACK_ORDER 1				 /* 2^1 = 2 页 = 8KB */
-#define KSTACK_SIZE  (PAGE_SIZE << KSTACK_ORDER) /* 8192 字节 */
+#define KSTACK_ORDER ARCH_KSTACK_ORDER
+#define KSTACK_SIZE  ARCH_KSTACK_SIZE
 
 #define CANARY_MAGIC 0xDEADBEEFDEADBEEFUL
 
@@ -48,13 +47,6 @@ struct task_struct;
 bool signal_pending(struct task_struct *task);
 
 /* ---- 进程控制块分组 ---- */
-
-struct task_arch_state {
-	struct context ctx;
-	struct trap_frame *tf;
-	void *kstack;
-	uint64_t satp;
-};
 
 struct task_identity {
 	pid_t pid;
@@ -127,17 +119,6 @@ struct task_struct {
 	struct task_cputime child_cputime;
 };
 
-static_assert(offsetof(struct task_struct, arch.kstack) == TASK_KSTACK,
-	      "TASK_KSTACK offset in entry.S out of sync with task_struct");
-static_assert(offsetof(struct task_struct, arch.satp) == TASK_SATP,
-	      "TASK_SATP offset in entry.S out of sync with task_struct");
-static_assert(KSTACK_SIZE == 8192, "entry.S __trapret hardcodes kstack+8192; "
-				   "update both if KSTACK_ORDER changes");
-static_assert((KSTACK_SIZE - sizeof(struct trap_frame)) %
-			      __alignof__(struct trap_frame) ==
-		      0,
-	      "kernel trap frame must be aligned at the top of each kstack");
-
 /* ---- 全局变量 ---- */
 
 /* idle 进程，PID 0，BSS 段静态分配 */
@@ -145,6 +126,8 @@ extern struct task_struct idle_task;
 
 /* PID 1 init 进程。创建后保持有效，用于孤儿进程过继。 */
 extern struct task_struct *init_task;
+
+#include <arch/task_access.h>
 
 /* ---- 窄访问器 ---- */
 
@@ -160,67 +143,8 @@ static inline void task_set_mm(struct task_struct *task, struct mm_struct *mm)
 		task->resources.mm = mm;
 }
 
-static __always_inline __must_check __pure uint64_t
-task_address_space_satp(const struct task_struct *task)
-{
-	return task ? task->arch.satp : 0;
-}
-
-static inline void task_set_satp(struct task_struct *task, uint64_t satp)
-{
-	if (task)
-		task->arch.satp = satp;
-}
-
-static __always_inline __must_check __pure struct context *
-task_context(struct task_struct *task)
-{
-	return task ? &task->arch.ctx : NULL;
-}
-
-static __always_inline __must_check __pure struct trap_frame *
-task_trap_frame(struct task_struct *task)
-{
-	return task ? task->arch.tf : NULL;
-}
-
-static inline void task_set_trap_frame(struct task_struct *task,
-				       struct trap_frame *tf)
-{
-	if (task)
-		task->arch.tf = tf;
-}
-
-static __always_inline __must_check __pure __nonnull(1) __returns_nonnull
-	struct trap_frame *task_kernel_trap_frame(struct task_struct *task)
-{
-	uintptr_t frame = (uintptr_t)task->arch.kstack + KSTACK_SIZE -
-			  sizeof(struct trap_frame);
-
-	return (struct trap_frame *)frame;
-}
-
-static __always_inline __must_check __pure __nonnull(1)
-void *task_kernel_stack(const struct task_struct *task)
-{
-	return task->arch.kstack;
-}
-
-static __always_inline __must_check __pure void *
-task_kernel_stack_safe(const struct task_struct *task)
-{
-	return task ? task_kernel_stack(task) : NULL;
-}
-
-static inline void task_set_kernel_stack(struct task_struct *task, void *kstack)
-{
-	if (task)
-		task->arch.kstack = kstack;
-}
-
-
-static __always_inline __must_check __pure __nonnull(1)
-struct files_struct *task_files(struct task_struct *task)
+static __always_inline __must_check __pure
+	__nonnull(1) struct files_struct *task_files(struct task_struct *task)
 {
 	return task->resources.files;
 }
@@ -425,7 +349,7 @@ task_altstack_safe(struct task_struct *task)
 }
 
 static __always_inline __must_check __pure __nonnull(1) uint32_t
-task_state(const struct task_struct *task)
+	task_state(const struct task_struct *task)
 {
 	return task->lifecycle.state;
 }
@@ -465,8 +389,8 @@ static __always_inline void task_mark_stopped(struct task_struct *task)
 	task_set_state(task, TASK_STOPPED);
 }
 
-static __always_inline __must_check __pure __nonnull(1)
-	struct task_struct *task_group_leader(struct task_struct *task)
+static __always_inline __must_check __pure __nonnull(
+	1) struct task_struct *task_group_leader(struct task_struct *task)
 {
 	return task->ids.group_leader;
 }
@@ -701,6 +625,33 @@ void task_free(struct task_struct *task);
  * 若 canary 被破坏则触发 panic。
  */
 void check_canary(struct task_struct *task);
+
+void __nonnull(1) arch_task_init(struct task_struct *task);
+void __nonnull(1, 2)
+	arch_task_setup_kernel_thread(struct task_struct *task,
+				      void (*fn)(void *), void *arg);
+void __nonnull(1, 2)
+	arch_task_setup_clone_frame(struct task_struct *child,
+				    const struct trap_frame *parent_tf,
+				    unsigned long flags, uintptr_t child_stack,
+				    uintptr_t tls);
+void __nonnull(1, 2)
+	arch_task_switch_address_space(const struct task_struct *prev,
+				       const struct task_struct *next);
+void __nonnull(1, 2)
+	arch_task_switch(struct task_struct *prev, struct task_struct *next);
+bool __must_check __pure
+arch_task_trap_from_user(const struct task_struct *task);
+
+#ifdef CONFIG_KERNEL_TEST
+bool __must_check __pure arch_task_test_kernel_thread_setup(
+	const struct task_struct *task, void (*fn)(void *), void *arg);
+bool __must_check __pure arch_task_test_layout_contract(void);
+void __nonnull(1)
+	arch_task_test_setup_user_return(struct task_struct *task,
+					 size_t user_pc, size_t user_sp,
+					 size_t user_sstatus);
+#endif
 
 /**
  * kernel_thread - 创建一个内核线程

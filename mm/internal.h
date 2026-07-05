@@ -10,8 +10,8 @@
 #include <kernel/types.h>
 #include <uapi/mman.h>
 
-#include <asm/page.h>
-#include <asm/pte.h>
+#include <kernel/page.h>
+#include <kernel/pgtable.h>
 
 struct file;
 
@@ -112,34 +112,19 @@ mm_prot_to_vm_flags(int prot)
 	return flags;
 }
 
-static __always_inline __must_check __const pte_t
+static __always_inline __must_check __const pgprot_t
 mm_prot_to_pte_flags(int prot)
 {
-	pte_t flags = PTE_V | PTE_U | PTE_A | PTE_D;
-
-	if (prot & PROT_READ)
-		flags |= PTE_R;
-	if (prot & PROT_WRITE)
-		flags |= PTE_R | PTE_W;
-	if (prot & PROT_EXEC)
-		flags |= PTE_X;
-
-	return flags;
+	return pgprot_user((prot & PROT_READ) != 0, (prot & PROT_WRITE) != 0,
+			   (prot & PROT_EXEC) != 0);
 }
 
-static __always_inline __must_check __const pte_t
+static __always_inline __must_check __const pgprot_t
 vma_flags_to_pte(uint32_t vm_flags)
 {
-	pte_t flags = PTE_V | PTE_U | PTE_A | PTE_D;
-
-	if (vm_flags & VM_READ)
-		flags |= PTE_R;
-	if (vm_flags & VM_WRITE)
-		flags |= PTE_W;
-	if (vm_flags & VM_EXEC)
-		flags |= PTE_X;
-
-	return flags;
+	return pgprot_user((vm_flags & VM_READ) != 0,
+			   (vm_flags & VM_WRITE) != 0,
+			   (vm_flags & VM_EXEC) != 0);
 }
 
 static __always_inline __must_check __pure __nonnull(1) bool

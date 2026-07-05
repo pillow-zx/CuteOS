@@ -21,8 +21,8 @@
 #include <kernel/task.h>
 #include <kernel/timer.h>
 #include <kernel/vfs.h>
-#include <asm/page.h>
-#include <asm/trap.h>
+#include <kernel/page.h>
+#include <kernel/trap.h>
 #include <kernel/time.h>
 
 #include "sys_file_internal.h"
@@ -111,10 +111,10 @@ static int filldir64(void *arg, const char *name, size_t namelen, uint64_t ino,
 
 ssize_t sys_openat(struct trap_frame *tf)
 {
-	int dfd = (int)tf->a0;
-	const char *upath = (const char *)tf->a1;
-	uint32_t flags = (uint32_t)tf->a2;
-	uint32_t mode = (uint32_t)tf->a3;
+	int dfd = (int)syscall_arg(tf, 0);
+	const char *upath = (const char *)syscall_arg(tf, 1);
+	uint32_t flags = (uint32_t)syscall_arg(tf, 2);
+	uint32_t mode = (uint32_t)syscall_arg(tf, 3);
 	char *path __cleanup_with(page0) = NULL;
 	struct path base __cleanup_with(path) = {};
 	int ret;
@@ -130,9 +130,9 @@ ssize_t sys_openat(struct trap_frame *tf)
 
 ssize_t sys_mkdirat(struct trap_frame *tf)
 {
-	int dfd = (int)tf->a0;
-	const char *upath = (const char *)tf->a1;
-	uint32_t mode = (uint32_t)tf->a2;
+	int dfd = (int)syscall_arg(tf, 0);
+	const char *upath = (const char *)syscall_arg(tf, 1);
+	uint32_t mode = (uint32_t)syscall_arg(tf, 2);
 	char *path __cleanup_with(page0) = NULL;
 	struct path base __cleanup_with(path) = {};
 	int ret;
@@ -148,9 +148,9 @@ ssize_t sys_mkdirat(struct trap_frame *tf)
 
 ssize_t sys_unlinkat(struct trap_frame *tf)
 {
-	int dfd = (int)tf->a0;
-	const char *upath = (const char *)tf->a1;
-	int flags = (int)tf->a2;
+	int dfd = (int)syscall_arg(tf, 0);
+	const char *upath = (const char *)syscall_arg(tf, 1);
+	int flags = (int)syscall_arg(tf, 2);
 	char *path __cleanup_with(page0) = NULL;
 	struct path base __cleanup_with(path) = {};
 	int ret;
@@ -168,7 +168,7 @@ ssize_t sys_unlinkat(struct trap_frame *tf)
 
 ssize_t sys_chdir(struct trap_frame *tf)
 {
-	const char *upath = (const char *)tf->a0;
+	const char *upath = (const char *)syscall_arg(tf, 0);
 	char *path __cleanup_with(page0) = NULL;
 	struct path found __cleanup_with(path) = {};
 	int ret;
@@ -187,9 +187,9 @@ ssize_t sys_chdir(struct trap_frame *tf)
 
 ssize_t sys_faccessat(struct trap_frame *tf)
 {
-	int dfd = (int)tf->a0;
-	const char *upath = (const char *)tf->a1;
-	int mode = (int)tf->a2;
+	int dfd = (int)syscall_arg(tf, 0);
+	const char *upath = (const char *)syscall_arg(tf, 1);
+	int mode = (int)syscall_arg(tf, 2);
 
 	if (mode & ~(R_OK | W_OK | X_OK))
 		return -EINVAL;
@@ -199,10 +199,10 @@ ssize_t sys_faccessat(struct trap_frame *tf)
 
 ssize_t sys_faccessat2(struct trap_frame *tf)
 {
-	int dfd = (int)tf->a0;
-	const char *upath = (const char *)tf->a1;
-	int mode = (int)tf->a2;
-	int flags = (int)tf->a3;
+	int dfd = (int)syscall_arg(tf, 0);
+	const char *upath = (const char *)syscall_arg(tf, 1);
+	int mode = (int)syscall_arg(tf, 2);
+	int flags = (int)syscall_arg(tf, 3);
 
 	if (mode & ~(R_OK | W_OK | X_OK))
 		return -EINVAL;
@@ -215,8 +215,8 @@ ssize_t sys_faccessat2(struct trap_frame *tf)
 
 ssize_t sys_getcwd(struct trap_frame *tf)
 {
-	char *ubuf = (char *)tf->a0;
-	size_t size = tf->a1;
+	char *ubuf = (char *)syscall_arg(tf, 0);
+	size_t size = syscall_arg(tf, 1);
 	struct path cwd __cleanup_with(path) = {};
 	char *path __cleanup_with(page0) = NULL;
 	int ret;
@@ -246,9 +246,9 @@ ssize_t sys_getcwd(struct trap_frame *tf)
 
 ssize_t sys_getdents64(struct trap_frame *tf)
 {
-	int fd = (int)tf->a0;
-	char *dirp = (char *)tf->a1;
-	size_t count = tf->a2;
+	int fd = (int)syscall_arg(tf, 0);
+	char *dirp = (char *)syscall_arg(tf, 1);
+	size_t count = syscall_arg(tf, 2);
 	struct file *file __cleanup_with(file) = fd_get(fd);
 	char kbuf[SYS_FILE_BUF_SIZE];
 	struct getdents_ctx ctx;
@@ -268,8 +268,8 @@ ssize_t sys_getdents64(struct trap_frame *tf)
 	ctx.dirp = kbuf;
 	ctx.count = sizeof(kbuf);
 
-	while ((size_t)((uintptr_t)dirp - tf->a1) < count) {
-		size_t done = (size_t)((uintptr_t)dirp - tf->a1);
+	while ((size_t)((uintptr_t)dirp - syscall_arg(tf, 1)) < count) {
+		size_t done = (size_t)((uintptr_t)dirp - syscall_arg(tf, 1));
 		size_t chunk = count - done;
 		if (chunk > sizeof(kbuf))
 			chunk = sizeof(kbuf);
@@ -300,16 +300,16 @@ ssize_t sys_getdents64(struct trap_frame *tf)
 			break;
 	}
 
-	result = (ssize_t)((uintptr_t)dirp - tf->a1);
+	result = (ssize_t)((uintptr_t)dirp - syscall_arg(tf, 1));
 	return result;
 }
 
 ssize_t sys_readlinkat(struct trap_frame *tf)
 {
-	int dfd = (int)tf->a0;
-	const char *upath = (const char *)tf->a1;
-	char *ubuf = (char *)tf->a2;
-	size_t bufsiz = (size_t)tf->a3;
+	int dfd = (int)syscall_arg(tf, 0);
+	const char *upath = (const char *)syscall_arg(tf, 1);
+	char *ubuf = (char *)syscall_arg(tf, 2);
+	size_t bufsiz = (size_t)syscall_arg(tf, 3);
 	char *path __cleanup_with(page0) = NULL;
 	char *link __cleanup_with(page0) = NULL;
 	size_t link_size;
@@ -352,9 +352,9 @@ ssize_t sys_readlinkat(struct trap_frame *tf)
 
 ssize_t sys_symlinkat(struct trap_frame *tf)
 {
-	const char *utarget = (const char *)tf->a0;
-	int newdfd = (int)tf->a1;
-	const char *ulinkpath = (const char *)tf->a2;
+	const char *utarget = (const char *)syscall_arg(tf, 0);
+	int newdfd = (int)syscall_arg(tf, 1);
+	const char *ulinkpath = (const char *)syscall_arg(tf, 2);
 	char *target __cleanup_with(page0) = NULL;
 	char *linkpath __cleanup_with(page0) = NULL;
 	struct path base __cleanup_with(path) = {};
@@ -373,11 +373,11 @@ ssize_t sys_symlinkat(struct trap_frame *tf)
 
 ssize_t sys_linkat(struct trap_frame *tf)
 {
-	int olddfd = (int)tf->a0;
-	const char *uoldpath = (const char *)tf->a1;
-	int newdfd = (int)tf->a2;
-	const char *unewpath = (const char *)tf->a3;
-	int flags = (int)tf->a4;
+	int olddfd = (int)syscall_arg(tf, 0);
+	const char *uoldpath = (const char *)syscall_arg(tf, 1);
+	int newdfd = (int)syscall_arg(tf, 2);
+	const char *unewpath = (const char *)syscall_arg(tf, 3);
+	int flags = (int)syscall_arg(tf, 4);
 	char *oldpath __cleanup_with(page0) = NULL;
 	char *newpath __cleanup_with(page0) = NULL;
 	struct path old_base __cleanup_with(path) = {};
@@ -408,10 +408,10 @@ ssize_t sys_linkat(struct trap_frame *tf)
 
 ssize_t sys_mknod(struct trap_frame *tf)
 {
-	int dfd = (int)tf->a0;
-	const char *upath = (const char *)tf->a1;
-	uint32_t mode = (uint32_t)tf->a2;
-	dev_t dev = (dev_t)tf->a3;
+	int dfd = (int)syscall_arg(tf, 0);
+	const char *upath = (const char *)syscall_arg(tf, 1);
+	uint32_t mode = (uint32_t)syscall_arg(tf, 2);
+	dev_t dev = (dev_t)syscall_arg(tf, 3);
 	char *path __cleanup_with(page0) = NULL;
 	struct path base __cleanup_with(path) = {};
 	int ret;
@@ -427,8 +427,8 @@ ssize_t sys_mknod(struct trap_frame *tf)
 
 ssize_t sys_umount2(struct trap_frame *tf)
 {
-	const char *utarget = (const char *)tf->a0;
-	int flags = (int)tf->a1;
+	const char *utarget = (const char *)syscall_arg(tf, 0);
+	int flags = (int)syscall_arg(tf, 1);
 	char *target __cleanup_with(page0) = NULL;
 	int ret;
 
@@ -442,11 +442,11 @@ ssize_t sys_umount2(struct trap_frame *tf)
 
 ssize_t sys_mount(struct trap_frame *tf)
 {
-	const char *usource = (const char *)tf->a0;
-	const char *utarget = (const char *)tf->a1;
-	const char *utype = (const char *)tf->a2;
-	unsigned long flags = (unsigned long)tf->a3;
-	const void *data = (const void *)tf->a4;
+	const char *usource = (const char *)syscall_arg(tf, 0);
+	const char *utarget = (const char *)syscall_arg(tf, 1);
+	const char *utype = (const char *)syscall_arg(tf, 2);
+	unsigned long flags = (unsigned long)syscall_arg(tf, 3);
+	const void *data = (const void *)syscall_arg(tf, 4);
 	char *source __cleanup_with(page0) = NULL;
 	char *target __cleanup_with(page0) = NULL;
 	char *type __cleanup_with(page0) = NULL;
@@ -468,11 +468,11 @@ ssize_t sys_mount(struct trap_frame *tf)
 
 ssize_t sys_renameat2(struct trap_frame *tf)
 {
-	int old_dfd = (int)tf->a0;
-	const char *uold_path = (const char *)tf->a1;
-	int new_dfd = (int)tf->a2;
-	const char *unew_path = (const char *)tf->a3;
-	unsigned int flags = (unsigned int)tf->a4;
+	int old_dfd = (int)syscall_arg(tf, 0);
+	const char *uold_path = (const char *)syscall_arg(tf, 1);
+	int new_dfd = (int)syscall_arg(tf, 2);
+	const char *unew_path = (const char *)syscall_arg(tf, 3);
+	unsigned int flags = (unsigned int)syscall_arg(tf, 4);
 	char *old_path __cleanup_with(page0) = NULL;
 	char *new_path __cleanup_with(page0) = NULL;
 	struct path old_base __cleanup_with(path) = {};
@@ -532,10 +532,10 @@ static int sys_utimensat_read_times(const struct timespec *utimes,
 
 ssize_t sys_utimensat(struct trap_frame *tf)
 {
-	int dfd = (int)tf->a0;
-	const char *upath = (const char *)tf->a1;
-	const struct timespec *utimes = (const struct timespec *)tf->a2;
-	int flags = (int)tf->a3;
+	int dfd = (int)syscall_arg(tf, 0);
+	const char *upath = (const char *)syscall_arg(tf, 1);
+	const struct timespec *utimes = (const struct timespec *)syscall_arg(tf, 2);
+	int flags = (int)syscall_arg(tf, 3);
 	struct timespec ktimes[2];
 	bool set_time[2];
 	struct sys_at_lookup_result lookup __cleanup_with(sys_at_lookup) = {};

@@ -1,7 +1,7 @@
 #include <kernel/slab.h>
 #include <kernel/buddy.h>
 #include <kernel/test.h>
-#include <asm/page.h>
+#include <kernel/page.h>
 
 #include "ktest.h"
 

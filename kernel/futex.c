@@ -7,8 +7,8 @@
 #include <kernel/task.h>
 #include <kernel/timer.h>
 #include <kernel/wait.h>
-#include <asm/csr.h>
-#include <asm/uaccess.h>
+#include <kernel/processor.h>
+#include <kernel/uaccess_arch.h>
 
 #define FUTEX_BUCKETS	  32
 #define ROBUST_LIST_LIMIT 2048

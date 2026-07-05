@@ -7,6 +7,7 @@ TEST_OBJS = \
 	test/cleanup_test.o \
 	test/fs_at_test.o \
 	test/hash_test.o \
+	test/arch_interface_test.o \
 	test/kthread_test.o \
 	test/mm_test.o \
 	test/page_cache_metadata_test.o \

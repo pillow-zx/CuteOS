@@ -8,7 +8,7 @@
  * stays in one place: <kernel/syscall_table.h>.
  */
 
-#include <asm/trap.h>
+#include <kernel/trap.h>
 #include <kernel/syscall_table.h>
 #include <kernel/types.h>
 #include <uapi/mman.h>

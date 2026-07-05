@@ -17,7 +17,7 @@
 #include <kernel/exit.h>
 #include <kernel/sched.h>
 #include <kernel/task.h>
-#include <asm/trap.h>
+#include <kernel/trap.h>
 
 ssize_t sys_getpid(struct trap_frame *tf)
 {
@@ -68,7 +68,7 @@ ssize_t sys_gettid(struct trap_frame *tf)
 
 ssize_t sys_getpgid(struct trap_frame *tf)
 {
-	long pid = (long)tf->a0;
+	long pid = (long)syscall_arg(tf, 0);
 	struct task_struct *task;
 
 	if (pid < 0)
@@ -86,8 +86,8 @@ ssize_t sys_getpgid(struct trap_frame *tf)
 
 ssize_t sys_setpgid(struct trap_frame *tf)
 {
-	long pid = (long)tf->a0;
-	long pgid = (long)tf->a1;
+	long pid = (long)syscall_arg(tf, 0);
+	long pgid = (long)syscall_arg(tf, 1);
 	struct task_struct *self;
 	struct task_struct *target;
 	pid_t new_pgid;
@@ -116,14 +116,14 @@ ssize_t sys_setpgid(struct trap_frame *tf)
 
 ssize_t sys_exit(struct trap_frame *tf)
 {
-	int code = (int)tf->a0;
+	int code = (int)syscall_arg(tf, 0);
 	do_exit(code);
 	unreachable();
 }
 
 ssize_t sys_exit_group(struct trap_frame *tf)
 {
-	int code = (int)tf->a0;
+	int code = (int)syscall_arg(tf, 0);
 	do_exit_group(code);
 	unreachable();
 }

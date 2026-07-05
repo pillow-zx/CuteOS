@@ -11,8 +11,8 @@
 #include <kernel/fs.h>
 #include <kernel/mm.h>
 #include <kernel/syscall.h>
-#include <asm/page.h>
-#include <asm/trap.h>
+#include <kernel/page.h>
+#include <kernel/trap.h>
 
 static int copy_user_string(char *dst, const char *user, size_t max_len)
 {
@@ -109,9 +109,9 @@ static int copy_exec_args(const char *const *uargv, const char *const *uenvp,
 
 ssize_t sys_execve(struct trap_frame *tf)
 {
-	const char *upath = (const char *)tf->a0;
-	const char *const *uargv = (const char *const *)tf->a1;
-	const char *const *uenvp = (const char *const *)tf->a2;
+	const char *upath = (const char *)syscall_arg(tf, 0);
+	const char *const *uargv = (const char *const *)syscall_arg(tf, 1);
+	const char *const *uenvp = (const char *const *)syscall_arg(tf, 2);
 	char *path;
 	ssize_t path_len;
 	int ret;
