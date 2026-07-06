@@ -1,0 +1,285 @@
+# 调度架构
+
+cuteOS 当前调度器是单核、非抢占内核模型下的 4 级 MLFQ。timer tick 负责计费和设置重调度标志，真正的上下文切换只发生在显式 `schedule()` 调用或用户 trap 返回安全点。
+
+## 代码边界
+
+主要文件：
+
+- `include/kernel/sched.h`：调度器公共 API。
+- `sched/sched.c`：调度核心和架构切换编排。
+- `sched/mlfq.c`：多级反馈队列策略。
+- `sched/internal.h`：调度内部接口。
+- `arch/riscv/switch.S`：低级 callee-saved 上下文切换。
+- `arch/riscv/task.c`：地址空间切换和 task 架构状态。
+- `kernel/waitqueue.c`：等待队列。
+- `kernel/sync.c`：mutex。
+
+调度器只负责选择 runnable task 和调用架构切换。task 生命周期、信号、futex、wait4 等语义不应塞进调度策略层。
+
+## 单核假设
+
+当前 `task_init()` 只让 CPU 0 online。调度器全局队列没有 per-CPU 分片，也没有跨 CPU 负载均衡。spinlock 和 waitqueue 使用 irqsave 是为了保护中断上下文交错，而不是多核并发。
+
+`preempt_disable()`/`preempt_enable()` 修改 `current_cpu()->preempt_count`。`schedule()` 开头检查：
+
+```c
+if (!preemptible())
+    return;
+```
+
+因此内核临界区内不会主动切换。
+
+## 调度实体
+
+`task_struct.sched` 包含：
+
+```c
+struct task_sched_entity {
+    struct list_head run_list;
+    struct wait_queue_entry wait_entry;
+    volatile uint8_t need_resched;
+    uint8_t sched_level;
+    uint8_t time_slice;
+    uint8_t sched_ticks;
+    uint64_t enqueue_jiffies;
+};
+```
+
+其中：
+
+- `run_list` 是 MLFQ 队列节点。
+- `wait_entry` 是等待队列节点。
+- `need_resched` 由 timer tick 设置，用户 trap 返回点消费。
+- `sched_level` 是 MLFQ 层级，0 最高。
+- `time_slice` 是当前层剩余预算。
+- `sched_ticks` 记录已用 tick。
+- `enqueue_jiffies` 用于记录入队时间。
+
+## MLFQ 策略
+
+`SCHED_MLFQ_LEVELS = 4`。每级时间片为：
+
+```mermaid
+flowchart TD
+    New["new / woken task"]
+    Q0["level 0<br/>slice 1"]
+    Q1["level 1<br/>slice 2"]
+    Q2["level 2<br/>slice 4"]
+    Q3["level 3<br/>slice 8"]
+    Boost["global boost<br/>each HZ ticks"]
+    Pick["mlfq_pick_next()<br/>highest non-empty level"]
+
+    New --> Q0
+    Q0 -->|"slice exhausted"| Q1
+    Q1 -->|"slice exhausted"| Q2
+    Q2 -->|"slice exhausted"| Q3
+    Q3 -->|"slice exhausted"| Q3
+    Q0 --> Pick
+    Q1 --> Pick
+    Q2 --> Pick
+    Q3 --> Pick
+    Boost --> Q0
+```
+
+```c
+slice(level) = 1 << level
+```
+
+即：
+
+| level | tick 预算 |
+| --- | --- |
+| 0 | 1 |
+| 1 | 2 |
+| 2 | 4 |
+| 3 | 8 |
+
+`sched/mlfq.c` 维护：
+
+- `queues[4]`：每级 FIFO list。
+- `nonempty_bitmap`：快速查找非空队列。
+- `runnable_count`：当前 runnable task 数。
+
+入队规则：
+
+- 新 task 从 level 0 开始。
+- `mlfq_enqueue()` 加到当前 level 队尾。
+- `mlfq_pick_next()` 从最低 level 数字的非空队列取队首，并出队。
+- `mlfq_wakeup()` 保持 level，但刷新该 level 完整时间片。
+
+tick 规则：
+
+- 当前非 idle running task 每 tick 减少 `time_slice`。
+- `time_slice` 到 0 时，如果未到最低优先级则 level++。
+- 重置该 level 的时间片。
+- 设置 `need_resched=1`。
+
+每当 `jiffies % HZ == 0`，执行全局 boost：所有队列中任务和当前 running task 回到 level 0。
+
+## schedule()
+
+`schedule()` 的核心流程：
+
+```mermaid
+flowchart TD
+    Enter["schedule()"]
+    Preempt{"preemptible?"}
+    Reap["reap exited threads if pending"]
+    Empty{"runqueue empty?"}
+    Idle{"prev idle or running?"}
+    Pick["mlfq_pick_next()"]
+    Same{"next == prev?"}
+    Requeue["requeue prev if still running"]
+    SwitchAS["arch_task_switch_address_space()"]
+    Switch["arch_task_switch()"]
+    Return["return"]
+
+    Enter --> Preempt
+    Preempt -->|"no"| Return
+    Preempt -->|"yes"| Reap --> Empty
+    Empty -->|"yes"| Idle
+    Idle -->|"yes"| Return
+    Idle -->|"no"| SwitchAS
+    Empty -->|"no"| Pick --> Same
+    Same -->|"yes"| Return
+    Same -->|"no"| Requeue --> SwitchAS --> Switch
+```
+
+1. 如果不可抢占，直接返回。
+2. 如果有待回收 exited threads，先 `reap_exited_threads()`。
+3. 取 `prev = current_task()`。
+4. 如果 runqueue 为空：
+   - 当前是 idle 或仍 running，则继续运行。
+   - 否则切到 idle。
+5. 如果 runqueue 非空：
+   - `next = mlfq_pick_next()`。
+   - 如果 next 是 prev，返回。
+   - 如果 prev 非 idle 且仍 running 且不在 runqueue，将 prev 重新入队。
+   - 检查 prev 栈 canary。
+   - `rseq_sched_switch(prev)`。
+   - `set_current_task(next)`。
+   - `arch_task_switch_address_space(prev, next)`。
+   - `arch_task_switch(prev, next)`。
+
+运行中的 task 通常不在 runqueue 中。被切走时，如果仍 `TASK_RUNNING`，调度器才重新入队。
+
+## 地址空间和上下文切换
+
+调度核心通过架构层切换：
+
+```c
+void arch_task_switch_address_space(const struct task_struct *prev,
+                                    const struct task_struct *next);
+void arch_task_switch(struct task_struct *prev,
+                      struct task_struct *next);
+```
+
+地址空间切换选择 next 的 `satp`，若为 0 则使用 kernel page table。不同 `satp` 时写 CSR 并 flush TLB。
+
+`switch.S` 只保存 callee-saved 上下文，即内核调度上下文；完整用户寄存器由 trap frame 保存，不由 context switch 保存。
+
+## timer 抢占点
+
+timer interrupt 中：
+
+```text
+handle_timer_irq()
+  -> jiffies++
+  -> arch_timer_set(next)
+  -> timer_run_expired(now)
+  -> sched_tick()
+```
+
+如果 trap 来源是用户态，且当前 task `need_resched`，trap handler 会：
+
+```c
+task_set_need_resched(current_task(), 0);
+schedule();
+```
+
+这意味着用户代码可被 timer tick 抢占；内核代码不会在任意位置被异步抢占，只在显式调用 `schedule()` 或等待路径中切换。
+
+## 主动让出 CPU
+
+`sched_yield()`：
+
+- 忽略 idle。
+- 清除当前 task 的 `need_resched`。
+- 调用 `schedule()`。
+
+当前任务在 `schedule()` 中如果仍 running 会被放回同级队尾。yield 不主动降级，也不刷新剩余时间片。
+
+## 等待队列
+
+等待队列定义在 `include/kernel/wait.h`，实现位于 `kernel/waitqueue.c`。
+
+基本对象：
+
+```c
+struct wait_queue_head {
+    spinlock_t lock;
+    struct list_head task_list;
+};
+
+struct wait_queue_entry {
+    struct list_head node;
+    struct task_struct *task;
+    struct wait_queue_head *wq;
+};
+```
+
+典型等待流程：
+
+1. `prepare_to_wait_interruptible()` 或 `prepare_to_wait_uninterruptible()`。
+2. 设置当前 task 状态。
+3. 调用 `schedule()` 或 `wait_schedule_until()`。
+4. 唤醒后 `finish_wait()`，移除 wait entry，并恢复 running。
+
+对外 API 包括：
+
+```c
+void init_waitqueue_head(struct wait_queue_head *wq);
+void init_waitqueue_entry(struct wait_queue_entry *entry,
+                          struct task_struct *task);
+void prepare_to_wait_uninterruptible(struct wait_queue_head *wq);
+void prepare_to_wait_interruptible(struct wait_queue_head *wq);
+void finish_wait(struct wait_queue_head *wq);
+int wait_schedule(uint32_t state);
+int wait_schedule_until(uint32_t state, uint64_t deadline);
+int wait_event(struct wait_queue_head *wq,
+               wait_condition_t condition, void *arg);
+int wait_event_interruptible(struct wait_queue_head *wq,
+                             wait_condition_t condition, void *arg);
+int wake_up(struct wait_queue_head *wq);
+int wake_up_one(struct wait_queue_head *wq);
+```
+
+timeout 等待通过 ktimer 实现。若 runqueue 为空且中断关闭，`wait_schedule_until()` 会临时打开中断并执行 `wfi`，等待 timer 或其他中断推进状态。
+
+## mutex
+
+`kernel/sync.c` 实现的 mutex 建立在 spinlock 和 waitqueue 之上：
+
+```c
+void mutex_init(mutex_t *mutex);
+bool mutex_trylock(mutex_t *mutex);
+void mutex_lock(mutex_t *mutex);
+void mutex_unlock(mutex_t *mutex);
+```
+
+mutex 内部有：
+
+- 自旋锁保护 owner 字段。
+- wait queue 存放等待者。
+- owner 必须是当前任务才能 unlock。
+
+`mutex_lock()` 获取失败时，将当前任务加入 wait queue 并进入不可中断睡眠。`mutex_unlock()` 清空 owner 并 `wake_up_one()`。
+
+## 设计约束
+
+- 调度策略不拥有 task 生命周期资源释放，exit 路径只通过状态和队列与调度器协作。
+- 运行中 task 不应同时留在 runqueue。
+- 等待队列 entry 使用 task 内嵌 `wait_entry`，同一 task 同时等待多个队列需要额外设计。
+- tick 只设置重调度标志；不要在任意内核上下文引入异步抢占。
+- 多核支持不能只增加 `-smp`，还需要重新设计 runqueue、锁、current task 和 TLB shootdown。
