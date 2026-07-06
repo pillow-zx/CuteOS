@@ -1,0 +1,830 @@
+# cuteOS Context
+
+This document is a quick map for building an accurate mental model of
+cuteOS. It explains architecture, subsystem boundaries, stable entry points,
+important APIs, and where to look first when investigating behavior.
+
+`AGENTS.md` contains execution rules for coding agents. This file is reference
+and explanation for maintainers and agents: it should help readers understand
+the system before changing it. Detailed architecture notes live in
+`docs/architecture/`; syscall maturity and caveats live in `SYSCALL.md`.
+
+## Project Intent
+
+cuteOS is a small RISC-V 64 Unix-like teaching and experimental kernel.
+
+Primary target:
+
+- Platform: QEMU `virt`
+- Firmware: OpenSBI
+- ISA/ABI: `rv64gc`, Sv39, Linux riscv64 userspace ABI
+- Kernel mode: supervisor mode
+- Kernel mapping: high-half kernel with shared kernel mappings in user page
+  tables
+- User programs: static ELF64 RISC-V binaries
+- Root filesystem: ext2 image attached through virtio-blk
+
+The compatibility goal is to run real, statically linked riscv64 busybox-style
+programs with a small kernel and correct ABI behavior for implemented syscalls.
+The project prefers clear subsystem boundaries, diagnosable behavior, and Linux
+ABI compatibility over feature breadth.
+
+## Current Runtime Model
+
+These assumptions are architecture constraints, not background comments:
+
+- Only hart 0 runs. Non-zero harts are parked in boot code.
+- `NR_CPUS` and CPU-local structures keep a future SMP shape, but the online
+  CPU count is currently 1.
+- The scheduler is single-core and uses a 4-level MLFQ policy.
+- The kernel is non-preemptible except at explicit scheduling points.
+- Timer interrupts update time, timers, accounting, and MLFQ state. User-mode
+  return paths schedule when `need_resched` is set.
+- UART and virtio-blk I/O are polling-oriented.
+- Device discovery is minimal. DRAM size, CPU count, rootfs image size, and
+  debug options come from Kconfig. Important QEMU `virt` MMIO addresses are
+  driver constants rather than DTB-discovered resources.
+- The root filesystem is ext2 on virtio-blk major 8 minor 0.
+- User memory must not be dereferenced directly. Use uaccess helpers.
+- User virtual memory is VMA based, with a fixed `NR_VMA` array and lazy page
+  allocation through page faults.
+
+## Support Surface
+
+`include/kernel/syscall_table.h` currently installs 110 Linux riscv64 syscall
+entries. An installed entry is not a complete Linux compatibility claim.
+`SYSCALL.md` is the support baseline and classifies entries as:
+
+- A: common semantics usable and backed by real subsystem behavior
+- B: minimal or partial Linux semantics
+- C: probe-safe or shallow compatibility behavior
+- D: unsupported or not suitable to depend on
+
+Keep `CONTEXT.md` focused on architecture. Put syscall maturity, errno policy
+tables, and future prioritization in `SYSCALL.md`.
+
+## Architecture Overview
+
+High-level directory responsibilities:
+
+- `arch/riscv/`: RISC-V boot, trap entry/return, context switch, page-table
+  helpers, SBI, PLIC, Sstc timer, TLB, and architecture-specific user mappings.
+- `init/`: `kernel_main()` and subsystem initialization order.
+- `kernel/`: task lifecycle services, fork/exec/exit/wait, PID, signal, futex,
+  rseq, time/timers, tty, worker helpers, printk, and synchronization services.
+- `sched/`: scheduler core and 4-level MLFQ policy.
+- `mm/`: buddy allocator, slab allocator, vmalloc, user address spaces, VMA
+  management, mmap/brk/mprotect/mremap/msync/mincore/madvise, page faults,
+  uaccess, and special user mappings.
+- `fs/vfs/`: VFS objects, path lookup, mounts, dentries, inodes, open files,
+  fdtable, cwd/root/umask state, character-device routing, read/write,
+  metadata mutation, poll, and ioctl routing.
+- `fs/ext2/`: ext2 filesystem implementation and private on-disk structures.
+- `fs/pipe.c`: pipe file operations.
+- `block/`: block-device abstraction, 4 KiB page cache, dirty tracking,
+  inode/raw block alias handling, writeback, and virtio-blk.
+- `drivers/`: console, UART, and virtio MMIO definitions.
+- `syscall/`: Linux riscv64 ABI boundary and thin handlers that decode trap
+  frame arguments, copy userspace data, and delegate to subsystems.
+- `include/kernel/`: internal kernel APIs.
+- `arch/riscv/include/asm/`: CPU and assembly contracts such as CSR access,
+  PTE bit layout, trap-frame layout, context-switch layout, and offsets used by
+  `.S` files.
+- `arch/riscv/include/arch/`: RISC-V architecture interfaces exported upward
+  through generic kernel headers.
+- `include/uapi/`: kernel/user ABI constants and layouts.
+- `user/`: minimal userspace libc, init, shell, and command/test binaries.
+- `test/`: kernel self tests compiled when `CONFIG_KERNEL_TEST=y`.
+- `docs/architecture/`: subsystem architecture explanations.
+- `tools/` and `scripts/`: kconfig, build, image, and helper tooling.
+
+## Boot And Initialization
+
+The boot path starts in `arch/riscv/boot.S` and reaches `kernel_main()` in
+`init/main.c`.
+
+Current initialization order:
+
+1. `console_init_sbi()`
+2. `pagetable_init()`
+3. `console_init_mmio()`
+4. `console_chrdev_init()`
+5. `buddy_init()`
+6. `pagetable_use_buddy()`
+7. `slab_init()`
+8. `vmalloc_init()`
+9. `user_map_init()`
+10. `user_map_reserve("stack_guard", USER_STACK_GUARD_BASE, USER_STACK_BASE)`
+11. `signal_user_map_init()`
+12. `trap_init()`
+13. `task_init()`
+14. `arch_timer_init()`
+15. `sched_init()`
+16. `syscall_init()`
+17. `vfs_init()`
+18. `virtio_blk_init()`
+19. `mount_root()`
+20. optional `kernel_test()`
+21. `kernel_thread(init_process, NULL)`
+22. `set_init_task(init)`
+23. `kernel_thread(page_cache_wb_thread, NULL)`
+24. idle loop with `schedule()` and `wait_for_interrupt()`
+
+PID 1 starts as a kernel thread. `kernel/init_process.c` calls
+`exec_user_path("/bin/init")`, which replaces the thread image with the
+userspace init program.
+
+Startup boundaries:
+
+- `boot.S` owns the minimal CPU/MMU transition into the high-half kernel.
+- `pagetable_init()` builds the formal kernel page table before buddy memory is
+  used for runtime page-table pages.
+- `vmalloc_init()` depends on buddy-backed page-table allocation.
+- `user_map` registers special mappings once during boot and applies them to
+  every new user page table.
+- `trap_init()` must precede task setup because kernel threads first enter
+  through the trap return path.
+- VFS must be initialized before virtio-blk/ext2 root mounting.
+
+## Boundary Rules
+
+### Arch Layer
+
+`arch/riscv/` owns machine-specific state and assembly contracts. Keep the two
+exported header layers distinct:
+
+- `asm/` is the CPU/assembly contract layer: boot-facing offsets, CSR access,
+  scause/PTE encodings, trap-frame layout, and context-switch layout.
+- `arch/` is the RISC-V architecture interface layer: page-table services,
+  user-access SUM control, trap-frame accessors, SBI services, timer, and
+  platform user mappings.
+
+Generic kernel policy should not depend on raw RISC-V details unless the
+boundary is intentionally architecture-specific.
+
+### Trap And User Return
+
+Trap entry saves a complete `struct trap_frame`. The layout in
+`arch/riscv/include/asm/trap_frame.h` must match `arch/riscv/entry.S` and
+`arch/riscv/include/asm/asm_offsets.h`. Code above the RISC-V layer should use
+`include/kernel/trap.h` accessors rather than raw trap-frame fields.
+
+`arch/riscv/trap.c` dispatches:
+
+- supervisor timer interrupt -> `handle_timer_irq()`, `sched_tick()`, and, for
+  user-origin traps, scheduling when `need_resched` is set
+- user `ecall` -> advance `sepc`, call `do_syscall()`
+- instruction/load/store page fault -> call `do_page_fault()`
+- other traps -> panic during the current development baseline
+
+Before returning to user mode after syscall, page fault, or timer interrupt,
+the trap layer runs:
+
+1. `rseq_resume_user(tf)`
+2. `do_signal(tf)`
+
+This order is ABI-visible. Signal delivery can also force rseq abort handling
+through `rseq_signal_deliver(tf)`.
+
+### Syscall Layer
+
+The syscall layer is an ABI boundary, not the owner of subsystem policy.
+
+Syscall handlers should:
+
+- read arguments with trap accessors
+- use Linux riscv64 syscall numbers and argument ordering
+- copy user pointers with uaccess helpers
+- translate failures to negative errno values
+- delegate core work to VFS, MM, task, signal, time, futex, rseq, or other
+  kernel APIs
+
+Syscall handlers should not:
+
+- contain filesystem, block-device, or VM core logic
+- bypass VFS/file-descriptor abstractions
+- dereference user pointers directly
+- define private ABI layouts when a shared uapi/internal ABI type is needed
+- change only one side of a kernel/user ABI contract
+
+The syscall table metadata lives in `include/kernel/syscall_table.h`.
+`syscall/syscall.c` installs handlers and dispatches by `a7`; return values are
+written to `a0`. `NR_SYSCALL` is derived from the highest known syscall number,
+but only entries present in `SYSCALL_TABLE` are installed.
+
+### Task, Scheduling, And Core Services
+
+`task_struct` is the lifecycle aggregation root, defined in
+`include/kernel/task.h`. Its fields are grouped by owner:
+
+- `arch`: context, trap frame, kernel stack, and `satp`
+- `ids`: `pid`, `tgid`, `pgid`, and group leader
+- `lifecycle`: task state, exit code, and exit signal
+- `links`: parent/child links, thread-group links, and wait queues
+- `resources`: `mm`, fdtable, fs state, sighand, signal state, uid, and gid
+- `sigctx`: per-thread signal mask/pending state, altstack, robust futex, and
+  `clear_child_tid`
+- `rseq`: restartable sequence registration state
+- `sched`: runqueue node, wait entry, MLFQ state, and `need_resched`
+- `cputime`: user/kernel tick accounting and child cputime
+
+Task lifecycle belongs to `kernel/task.c`, `kernel/fork.c`, `kernel/exec.c`,
+and `kernel/exit.c`. Scheduling policy belongs to `sched/`. Signal, futex,
+rseq, time, and resource semantics should stay in their owning modules and
+reach task state through narrow APIs.
+
+The scheduler is currently single-core MLFQ. Timer ticks update policy state
+and set `need_resched`; switching must happen through scheduler paths that
+respect the current trap/task state.
+
+### VFS Layer
+
+The VFS owns:
+
+- path lookup and symlink traversal
+- mount objects and root/cwd path state
+- dentry and inode caches
+- open `struct file` objects
+- file descriptor semantics through `files_struct`
+- cwd/root/umask through `fs_struct`
+- common read/write/llseek/readdir/stat/truncate/sync/poll/ioctl routing
+- character-device registration and dispatch
+
+Filesystem implementations, such as ext2, provide operation vectors. Generic
+syscall code should enter through VFS and fdtable APIs rather than reaching into
+ext2, block devices, or page-cache internals.
+
+### Ext2 Layer
+
+`fs/ext2/` owns ext2 on-disk structures, inode/block allocation, directory
+entries, symlinks, direct/single/double-indirect block mapping, truncate,
+fallocate mode 0, and `statfs`.
+
+VFS sees ext2 only through operation vectors. ext2 metadata may use raw block
+cache pages. File, directory, and block-backed symlink contents should use inode
+page mappings so the inode mapping remains authoritative.
+
+### Block And Page Cache Layer
+
+`block/` owns device-independent block I/O and the 4 KiB page cache.
+
+Important distinction:
+
+- `inode->i_pages` caches file logical blocks.
+- `block_device_pages(dev)` caches disk physical blocks.
+
+`page_mapping` is the page-cache naming domain. The page cache key is always
+`(mapping, index)`, not a global disk block number. ext2 inode mappings set a
+`backing` raw block-device mapping so writeback can refresh or invalidate
+resident raw-block aliases.
+
+Dirty state is tracked both globally and per mapping. `page_cache_wb_thread()`
+uses `worker_run_periodic(5, ...)` to call `page_cache_sync_all()` in the
+background. Explicit fsync, msync, truncate, and inode sync paths use the same
+page-cache synchronization machinery.
+
+`block/virtio_blk.c` is a QEMU virtio-blk MMIO modern transport driver. It
+requires virtio version 1, uses one polling request queue, and registers major 8
+minor 0 as the root block device.
+
+### Memory Layer
+
+`mm/` owns address-space structure and user memory safety:
+
+- `struct mm_struct`
+- fixed `struct vm_area_struct vma[NR_VMA]`
+- user page-table allocation and destruction
+- `brk`, anonymous mmap, file-backed mmap, munmap, mprotect, mremap, msync,
+  mlock/munlock, mincore, and madvise
+- lazy allocation through page faults
+- special user mappings through `user_map`
+- uaccess probing and copy helpers
+
+Kernel code outside `mm/` should not walk user page tables or copy user memory
+by hand unless it is implementing a low-level MM primitive.
+
+### User ABI Layer
+
+`include/uapi/` contains constants and layouts shared with userspace. Keep these
+compatible with Linux where cuteOS claims Linux-like behavior.
+
+Internal kernel headers may contain ABI-shaped structs when the kernel and
+syscall layer need a shared representation. In that case, check Linux uapi
+layout before changing fields or padding.
+
+## Important ABI Rules
+
+- Syscall numbers follow Linux riscv64.
+- Syscall arguments follow the RISC-V Linux convention:
+  - syscall number in `a7`
+  - arguments in `a0` through `a5`
+  - return value in `a0`
+- Return values follow Linux convention:
+  - success: non-negative result
+  - failure: `-errno`
+- Unknown or uninstalled syscall numbers return `-ENOSYS`.
+- Public structs exposed to userspace must match required Linux layouts.
+- Do not change only kernel-side or user-side copies of a shared ABI layout.
+- Be explicit about 32-bit vs 64-bit fields and implicit padding.
+- Use `/usr/riscv64-linux-gnu/include/asm/*.h`,
+  `/usr/riscv64-linux-gnu/include/asm-generic/*.h`, and
+  `/usr/riscv64-linux-gnu/include/linux/*.h` as ABI references.
+
+Useful local ABI files:
+
+- `include/uapi/syscall.h`
+- `include/uapi/mman.h`
+- `include/uapi/sched.h`
+- `include/uapi/signal.h`
+- `include/uapi/time.h`
+- `include/uapi/futex.h`
+- `include/uapi/rseq.h`
+- `include/uapi/eventpoll.h`
+- `include/uapi/poll.h`
+- `include/uapi/resource.h`
+- `include/uapi/stat.h`
+- `include/uapi/statfs.h`
+- `include/uapi/dirent.h`
+- `include/kernel/stat.h`
+- `include/kernel/statfs.h`
+- `arch/riscv/include/asm/trap_frame.h`
+
+## Key Flows
+
+### Syscall Flow
+
+1. Userspace places the syscall number in `a7` and arguments in `a0`-`a5`.
+2. Userspace executes `ecall`.
+3. `arch/riscv/entry.S` saves registers into `struct trap_frame`.
+4. `trap_handler()` sees `EXC_ECALL_U` and advances `sepc` by 4.
+5. `do_syscall()` dispatches through the table installed from
+   `SYSCALL_TABLE`.
+6. The handler returns a signed result.
+7. `do_syscall()` stores the result through the arch syscall return accessor.
+8. User-return work runs rseq first, then signal delivery.
+9. `__trapret` restores registers and returns to userspace.
+
+Start reading:
+
+- `arch/riscv/entry.S`
+- `arch/riscv/trap.c`
+- `include/kernel/trap.h`
+- `arch/riscv/include/asm/trap_frame.h`
+- `include/kernel/syscall_table.h`
+- `syscall/syscall.c`
+
+### Exec Flow
+
+1. `sys_execve()` copies argv/envp/path from userspace.
+2. `kernel_execve()` opens the executable through VFS.
+3. ELF headers and program headers are validated.
+4. A new `mm_struct` and user page table are created.
+5. ELF PT_LOAD segments become VMAs and mapped user pages.
+6. A one-page initial stack is built with argc, argv, and envp.
+7. CLOEXEC fds are closed; rseq and POSIX timer state are reset.
+8. The current task's mm, satp, and trap frame are replaced.
+9. Returning from the syscall path enters the new user image.
+
+Start reading:
+
+- `syscall/sys_exec.c`
+- `kernel/exec.c`
+- `include/kernel/exec.h`
+- `include/kernel/elf.h`
+- `mm/mmap.c`
+- `mm/user_map.c`
+
+### Clone/Fork Flow
+
+1. `sys_clone()` decodes Linux clone arguments from the trap frame.
+2. `kernel_clone_prepare()` validates supported flag combinations.
+3. The child task is allocated.
+4. The address space is duplicated or shared depending on `CLONE_VM`.
+5. Files, fs, signal, and sighand resources are duplicated or shared according
+   to clone flags.
+6. The child trap frame is copied; child `a0` is set to 0.
+7. Parent/child or thread-group links are established.
+8. `kernel_clone_commit()` enqueues the child.
+9. The parent receives the child PID as the syscall return value.
+
+Start reading:
+
+- `syscall/sys_task.c`
+- `kernel/fork.c`
+- `include/kernel/fork.h`
+- `kernel/task.c`
+- `include/uapi/sched.h`
+
+### File Open/Read/Write Flow
+
+Open:
+
+1. syscall handler copies path and flags
+2. resolves `AT_FDCWD` or fd-relative base path
+3. calls VFS open/create logic
+4. allocates a `struct file`
+5. installs it in `current->files`
+
+Read/write:
+
+1. syscall handler obtains `struct file *` from fdtable
+2. validates/probes user buffers
+3. calls `vfs_read()` or `vfs_write()`
+4. VFS dispatches to `file_operations`
+5. filesystem, pipe, tty, or device code performs the operation
+
+Start reading:
+
+- `syscall/sys_file_io.c`
+- `syscall/sys_file_path.c`
+- `syscall/sys_file_helpers.c`
+- `include/kernel/fdtable.h`
+- `fs/vfs/file.c`
+- `fs/vfs/read_write.c`
+- `fs/vfs/namei.c`
+
+### Page Fault Flow
+
+1. RISC-V reports instruction/load/store page fault.
+2. `trap_handler()` calls `do_page_fault(tf)`.
+3. The MM layer reads the fault address and access type through trap accessors.
+4. The faulting address is checked against VMAs and access permissions.
+5. Anonymous mappings allocate zero pages lazily.
+6. File-backed mappings read inode page-cache pages; private mappings copy,
+   shared mappings map the page-cache page.
+7. Valid faults install a user PTE and flush the page TLB entry.
+8. Invalid user faults force `SIGSEGV`.
+
+Start reading:
+
+- `arch/riscv/trap.c`
+- `mm/page_fault.c`
+- `mm/vma.c`
+- `mm/mmap.c`
+- `include/kernel/mm.h`
+
+### Time, Timer, And Scheduling Flow
+
+1. `arch_timer_init()` programs the first Sstc timer interrupt.
+2. timer interrupts call `handle_timer_irq()`.
+3. `jiffies` is incremented.
+4. `arch_timer_set()` programs the next tick.
+5. expired kernel timers are run.
+6. `sched_tick()` updates CPU-time accounting and MLFQ budget.
+7. user trap return calls `schedule()` when `need_resched` is set.
+8. time syscalls convert between mtime ticks and Linux-style time structs.
+
+Start reading:
+
+- `arch/riscv/timer.c`
+- `kernel/time.c`
+- `kernel/worker.c`
+- `sched/sched.c`
+- `sched/mlfq.c`
+- `syscall/sys_time.c`
+- `include/kernel/time.h`
+
+### Page Cache Writeback Flow
+
+1. A filesystem or MM path marks an inode page dirty.
+2. Dirty pages enter both global and per-mapping dirty lists.
+3. fsync/msync/truncate may call mapping or inode sync directly.
+4. The background writeback thread periodically calls `page_cache_sync_all()`.
+5. `page_cache_wb_run()` clusters logically and physically contiguous dirty
+   pages from one mapping.
+6. `mapping->ops->writepages()` writes data through the block-device backend.
+7. raw block aliases are refreshed or invalidated when needed.
+
+Start reading:
+
+- `include/kernel/page_mapping.h`
+- `include/kernel/page_cache.h`
+- `block/page_cache.c`
+- `block/page_cache_dirty.c`
+- `block/page_cache_writeback.c`
+- `block/page_cache_alias.c`
+- `fs/ext2/file.c`
+
+## Important APIs
+
+### User Memory Access
+
+Use these for userspace memory:
+
+- `access_ok(addr, size)`
+- `user_range_probe(addr, size, write)`
+- `copy_to_user(to, from, n)`
+- `copy_from_user(to, from, n)`
+- `strncpy_from_user(dst, src, maxlen)`
+
+Rules:
+
+- never dereference user pointers directly
+- check zero-length and overflow cases deliberately
+- remember that `copy_to_user()` and `copy_from_user()` return uncopied bytes,
+  not a negative errno
+- syscall handlers usually translate copy failures to `-EFAULT`
+
+### File Descriptors
+
+Use fdtable helpers:
+
+- `file_alloc(f_op, mode, private_data)`
+- `file_alloc_path(path, flags, mode)`
+- `file_get(file)`
+- `file_put(file)`
+- `files_alloc()`
+- `files_dup(old)`
+- `files_close_on_exec(files)`
+- `fd_alloc(file)`
+- `fd_alloc_flags(file, flags)`
+- `fd_get(fd)`
+- `fd_get_checked(fd)`
+- `fd_close(fd)`
+- `fd_dup(oldfd)`
+- `fd_dup_from(oldfd, minfd, cloexec)`
+- `fd_dup2(oldfd, newfd, cloexec)`
+- `fd_get_close_on_exec(fd)`
+- `fd_set_close_on_exec(fd, close_on_exec)`
+
+`NR_OPEN` is currently 32.
+
+### VFS
+
+Common entry points:
+
+- `vfs_open(path, flags, mode)`
+- `vfs_openat_path(base, path, flags, mode)`
+- `path_lookupat_path(base, path, flags, &res)`
+- `path_parent_lookupat_path(base, path, name, &namelen, &res)`
+- `vfs_create_at_path(base, path, mode, &res)`
+- `vfs_symlink_at_path(base, target, linkpath)`
+- `vfs_link_at_path(old_dentry, new_base, new_path)`
+- `vfs_mkdir_at_path(base, path, mode)`
+- `vfs_unlink_at_path(base, path, flags)`
+- `vfs_rename_at_path(old_base, old_path, new_base, new_path, flags)`
+- `vfs_mknod_at_path(base, path, mode, dev)`
+- `vfs_read(file, buf, count)`
+- `vfs_write(file, buf, count)`
+- `vfs_read_pos(file, buf, count, &pos)`
+- `vfs_write_pos(file, buf, count, &pos)`
+- `vfs_llseek(file, offset, whence)`
+- `vfs_stat_file(file, st)`
+- `vfs_stat_dentry(dentry, st)`
+- `vfs_statfs(sb, buf)`
+- `vfs_sync_file(file)`
+- `vfs_poll(file, events, table)`
+- `vfs_ioctl(file, cmd, arg)`
+
+Reference objects:
+
+- `struct super_block`
+- `struct inode`
+- `struct dentry`
+- `struct file`
+- `struct vfsmount`
+- `struct path`
+- `struct file_system_type`
+- `struct super_operations`
+- `struct inode_operations`
+- `struct file_operations`
+
+### Memory Management
+
+Common entry points:
+
+- `mm_create_user()`
+- `mm_get(mm)`
+- `mm_put(mm)`
+- `dup_mm(oldmm)`
+- `mm_user_satp(mm)`
+- `mm_user_page_resident(mm, addr, &resident)`
+- `mm_map_page(mm, va, page, prot)`
+- `mm_map_segment(mm, start, end, prot)`
+- `mm_map_file_segment(mm, file, start, end, prot, file_offset)`
+- `mm_add_stack(mm, stack_page)`
+- `mm_finalize(mm, first_vaddr, last_end)`
+- `mm_brk(mm, addr)`
+- `mm_mmap(mm, addr, length, prot, flags)`
+- `mm_mmap_file(mm, addr, length, prot, flags, fd, offset)`
+- `mm_munmap(mm, addr, length)`
+- `mm_mprotect(mm, addr, len, prot)`
+- `mm_mremap(mm, old_addr, old_size, new_size, flags, new_addr)`
+- `mm_msync(mm, addr, len, flags)`
+- `mm_madvise(mm, addr, len, advice)`
+- `mm_mlock(mm, addr, len)`
+- `mm_munlock(mm, addr, len)`
+
+Hold `mm->mmap_lock` only inside MM code that owns the internal layout.
+External code should use `include/kernel/mm.h` APIs.
+
+### Tasks, Scheduling, Wait, And Exit
+
+Common entry points:
+
+- `task_alloc()`
+- `kernel_thread(fn, arg)`
+- `kernel_clone_prepare(...)`
+- `kernel_clone_commit(...)`
+- `kernel_clone_abort(...)`
+- `kernel_clone_from_frame(...)`
+- `schedule()`
+- `sched_enqueue(task)`
+- `sched_wake_task(task)`
+- `sched_yield()`
+- `do_exit(code)`
+- `do_exit_group(code)`
+- `kernel_wait4(...)`
+
+Read `include/kernel/task.h` before changing fields in `struct task_struct`.
+Some fields are coupled to assembly or trap-return expectations through arch
+accessors and offset checks.
+
+### Signals, Futex, Rseq, And Timers
+
+Common entry points:
+
+- `signals_init(task)`
+- `signals_clone(child, share_sighand, share_signal, disable_altstack)`
+- `signals_release(task)`
+- `send_signal(sig, task)`
+- `send_group_signal(sig, leader)`
+- `force_signal(sig, task)`
+- `do_signal(tf)`
+- `signal_user_map_init()`
+- `kernel_futex(...)`
+- `futex_exit_robust_list(task)`
+- `kernel_rseq(area, len, flags, sig)`
+- `rseq_clone(child, parent, flags)`
+- `rseq_execve(task)`
+- `rseq_sched_switch(prev)`
+- `rseq_resume_user(tf)`
+- `ktimer_init(timer, fn, arg)`
+- `ktimer_arm(timer, expires, interval)`
+- `ktimer_cancel(timer)`
+- `ktimer_run_expired(now)`
+
+Rseq and signal ordering on user return is intentional. Do not add another
+user-PC/user-SP rewriting path after signal delivery without defining its
+ordering against both.
+
+### Block Devices And Page Cache
+
+Common entry points:
+
+- `register_block_device(bdev)`
+- `lookup_block_device(dev)`
+- `block_device_pages(dev)`
+- `page_cache_get_page(mapping, index, create, &created)`
+- `page_cache_read_page(mapping, index)`
+- `page_cache_get_block(dev, block)`
+- `page_cache_grab_file_page(inode, index, create, &created)`
+- `page_cache_put_page(page)`
+- `page_cache_mark_dirty(page)`
+- `page_cache_sync_page(page)`
+- `page_cache_sync_mapping(mapping)`
+- `page_cache_sync_inode(inode)`
+- `page_cache_sync_all()`
+- `page_cache_truncate_mapping(mapping, size)`
+- `page_cache_invalidate_mapping(mapping)`
+- `page_cache_truncate_inode(inode, size)`
+- `page_cache_invalidate_inode(inode)`
+
+Block size is currently 4096 bytes. Sector size is 512 bytes.
+
+## Lookup Guide
+
+Use these starting points when investigating behavior:
+
+- architecture overview: `docs/architecture/overview.md`
+- boot/init order: `docs/architecture/boot.md`, `init/main.c`
+- build/link/image behavior: `docs/architecture/compile.md`, `Makefile`
+- hart boot and MMU enable: `arch/riscv/boot.S`
+- trap entry/return register details: `arch/riscv/entry.S`
+- trap dispatch: `docs/architecture/trap.md`, `arch/riscv/trap.c`
+- page tables: `docs/architecture/pgtable.md`,
+  `arch/riscv/mm/page_table.c`
+- syscall number: `include/uapi/syscall.h`
+- syscall support maturity: `SYSCALL.md`
+- syscall table entry: `include/kernel/syscall_table.h`
+- syscall dispatcher: `syscall/syscall.c`
+- syscall implementation: `syscall/sys_*.c`
+- Linux ABI reference: `/usr/riscv64-linux-gnu/include`
+- task layout: `docs/architecture/task.md`, `include/kernel/task.h`
+- clone/fork semantics: `kernel/fork.c`
+- exec/ELF loading: `kernel/exec.c`
+- user address spaces and VMAs: `docs/architecture/memory.md`,
+  `include/kernel/mm.h`, `mm/*.c`
+- user pointer bugs: `mm/uaccess.c`
+- page faults: `mm/page_fault.c`
+- scheduler: `docs/architecture/sched.md`, `sched/sched.c`,
+  `sched/mlfq.c`
+- fd behavior: `include/kernel/fdtable.h`, `fs/vfs/fdtable.c`
+- VFS objects and path lookup: `docs/architecture/vfs.md`,
+  `include/kernel/fs.h`, `fs/vfs/namei.c`
+- file read/write path: `fs/vfs/read_write.c`
+- ext2 behavior: `docs/architecture/ext2.md`, `fs/ext2/*.c`
+- block I/O and page cache: `docs/architecture/block.md`,
+  `include/kernel/blkdev.h`, `include/kernel/page_cache.h`, `block/*.c`
+- timers/time syscalls: `kernel/time.c`, `syscall/sys_time.c`,
+  `include/kernel/time.h`
+- signals: `kernel/signal.c`, `syscall/sys_signal.c`,
+  `include/uapi/signal.h`
+- futex: `kernel/futex.c`, `syscall/sys_futex.c`
+- rseq: `kernel/rseq.c`, `include/kernel/rseq.h`, `include/uapi/rseq.h`
+- tests: `test/*.c` for kernel tests, `user/bin/*_test.c` for userspace tests
+
+Search tips:
+
+- Search syscall names in `include/kernel/syscall_table.h` first.
+- Search public subsystem function names in `include/kernel/*.h` before reading
+  implementation files.
+- For ABI questions, compare local `include/uapi/` and internal ABI structs
+  with the riscv64 Linux headers.
+- For busybox incompatibilities, start from the observed syscall and compare
+  errno, flags, struct layout, and partial-copy behavior against Linux.
+
+## Build And Runtime Map
+
+The top-level `Makefile` includes `filelist.mk`, which includes per-directory
+object lists:
+
+- `arch/riscv/arch.mk`
+- `init/init.mk`
+- `kernel/kernel.mk`
+- `sched/sched.mk`
+- `mm/mm.mk`
+- `fs/fs.mk`
+- `block/block.mk`
+- `drivers/drivers.mk`
+- `syscall/syscall.mk`
+- `lib/lib.mk`
+
+`CONFIG_KERNEL_TEST=y` additionally includes `test/test.mk`. User programs are
+built by `user/user.mk`.
+
+Important targets:
+
+- `make`: build the kernel ELF
+- `make defconfig`: reset `.config`
+- `make menuconfig`: configure features
+- `make user`: build userspace ELFs
+- `make cuteos.img`: build the root filesystem image
+- `make qemu`: build the kernel/image and boot QEMU
+- `make qemu-gdb`: boot QEMU with a GDB stub
+- `make .gdbinit`: generate a GDB startup file
+- `make analyze`: run GCC analyzer and extra diagnostics
+- `make asm`: generate disassembly
+- `make sym`: generate symbols
+- `make tags` or `make gtags`: build source indexes
+
+QEMU uses:
+
+- `-machine virt`
+- `-kernel build/.../cuteos`
+- `-m $(CONFIG_DRAM_SIZE_MB)M`
+- `-smp $(CONFIG_QEMU_CPUS)`
+- `-nographic`
+- `-global virtio-mmio.force-legacy=false`
+- a raw ext2 image attached through `virtio-blk-device`
+
+When adding a source file, update the relevant per-directory `*.mk` list.
+
+## Common Pitfalls
+
+- Trusting remembered Linux ABI details instead of checking riscv64 headers.
+- Treating an installed syscall entry as complete Linux compatibility.
+- Changing `struct trap_frame`, `struct task_struct`, or stack layout without
+  checking assembly offsets and arch accessors.
+- Adding user-return work after signal delivery without defining ordering
+  against rseq and signal frame setup.
+- Putting filesystem, device, task, or VM policy inside syscall handlers.
+- Bypassing VFS to make an individual syscall or test pass.
+- Mixing file logical page-cache indexes with disk physical block indexes.
+- Treating raw block cache as the authoritative copy of file/directory data.
+- Dereferencing userspace pointers directly.
+- Returning positive errno values instead of negative errno values.
+- Forgetting that uaccess copy helpers return uncopied byte counts.
+- Updating only kernel headers or only user headers for a shared layout.
+- Adding source files without updating the relevant build list.
+- Assuming SMP, kernel preemption, interrupt-driven I/O, dynamic device
+  discovery, or a full POSIX surface exists.
+
+## Known Non-Goals And Deferred Areas
+
+These may change over time, but they are not current baseline assumptions:
+
+- SMP support, per-CPU runqueues, IPI, and TLB shootdown
+- production security hardening
+- full POSIX coverage
+- dynamic linking and script interpreter support
+- full device discovery or a generic platform bus
+- interrupt-driven virtio-blk/UART and multi-request virtqueues
+- complete mount namespace and bind/propagation semantics
+- full epoll edge/oneshot semantics and nested epoll
+- full POSIX signal restart and complex signal-mask race behavior
+- full POSIX timer semantics and writable wall-clock time
+- PI futex, futex requeue, bitset waits, and shared inode-key futexes
+- COW fork, swapping, and complete resident page pinning
+- complete ext2 crash consistency or journaling
+- cryptographically secure randomness

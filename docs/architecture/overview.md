@@ -231,16 +231,16 @@ VFS 公共对象定义在 `include/kernel/fs.h`：
 
 ## 文档地图
 
-- `boot.md`：OpenSBI 到 PID 1 的启动路径。
-- `compile.md`：构建系统、对象组织、链接布局和镜像生成。
-- `trap.md`：trap entry/return、syscall、page fault、timer 中断和用户返回工作。
-- `pgtable.md`：Sv39 地址空间、PTE、内核/用户页表和 TLB。
-- `memory.md`：buddy、slab、vmalloc、mm/VMA、uaccess 和缺页。
-- `task.md`：task、fork/clone、exec、exit/wait、signal、futex、rseq、time。
-- `sched.md`：MLFQ、调度点、等待队列和同步原语。
-- `syscall.md`：Linux riscv64 syscall ABI 适配规则和 handler 组织。
-- `vfs.md`：VFS 对象模型、路径、fd、挂载、字符设备和 pipe。
-- `ext2.md`：ext2 私有结构、inode/data/dir 操作和块映射。
-- `block.md`：块设备、page cache、writeback、virtio-blk。
+- [boot.md](boot.md)：OpenSBI 到 PID 1 的启动路径。
+- [compile.md](compile.md)：构建系统、对象组织、链接布局和镜像生成。
+- [trap.md](trap.md)：trap entry/return、syscall、page fault、timer 中断和用户返回工作。
+- [pgtable.md](pgtable.md)：Sv39 地址空间、PTE、内核/用户页表和 TLB。
+- [memory.md](memory.md)：buddy、slab、vmalloc、mm/VMA、uaccess 和缺页。
+- [task.md](task.md)：task、fork/clone、exec、exit/wait、signal、futex、rseq、time。
+- [sched.md](sched.md)：MLFQ、调度点、等待队列和同步原语。
+- [syscall.md](syscall.md)：Linux riscv64 syscall ABI 适配规则和 handler 组织。
+- [vfs.md](vfs.md)：VFS 对象模型、路径、fd、挂载、字符设备和 pipe。
+- [ext2.md](ext2.md)：ext2 私有结构、inode/data/dir 操作和块映射。
+- [block.md](block.md)：块设备、page cache、writeback、virtio-blk。
 
 这些文档互相引用的是架构关系，不替代头文件中的精确声明。涉及函数签名、结构字段和常量时，以代码中的头文件为准。

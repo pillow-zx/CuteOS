@@ -26,6 +26,8 @@
 !tools/
 !tools/kconfig/
 !tools/kconfig/lxdialog/
+!.agents/
+!.agents/skills/
 !user/
 !user/bin/
 !user/init/
@@ -81,6 +83,12 @@
 !.gitignore
 !Makefile
 !README.md
+!AGENTS.md
+!CODE_STYLE.md
+!CONTEXT.md
+!SYSCALL.md
+!TODO.md
+!.agents/skills/**/*
 !mkimg.sh
 !kernel.ld
 tools/kconfig/build/
