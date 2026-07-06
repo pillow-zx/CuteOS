@@ -7,6 +7,7 @@
 
 #include <kernel/errno.h>
 #include <kernel/mm.h>
+#include <kernel/rseq.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <kernel/trap.h>
@@ -81,12 +82,10 @@ ssize_t sys_sched_getaffinity(struct trap_frame *tf)
 
 ssize_t sys_rseq(struct trap_frame *tf)
 {
-	(void)tf;
-	/*
-	 * Compatibility policy: report rseq unsupported so libc falls back to
-	 * normal atomics. Returning success without full
-	 * abort-on-preempt/signal semantics would be more dangerous than an
-	 * explicit -ENOSYS.
-	 */
-	return -ENOSYS;
+	struct rseq *area = (struct rseq *)syscall_arg(tf, 0);
+	uint32_t len = (uint32_t)syscall_arg(tf, 1);
+	int flags = (int)syscall_arg(tf, 2);
+	uint32_t sig = (uint32_t)syscall_arg(tf, 3);
+
+	return kernel_rseq(area, len, flags, sig);
 }

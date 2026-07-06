@@ -11,6 +11,8 @@
 	 MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED |                           \
 	 MEMBARRIER_CMD_PRIVATE_EXPEDITED_SYNC_CORE |                          \
 	 MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_SYNC_CORE |                 \
+	 MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ |                               \
+	 MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ |                      \
 	 MEMBARRIER_CMD_GET_REGISTRATIONS)
 
 static long membarrier(int cmd, unsigned int flags, int cpu_id)
@@ -67,12 +69,35 @@ static int test_membarrier_commands(void)
 		"private sync core after register",
 		membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED_SYNC_CORE, 0, 0),
 		0);
+	failed += smp_expect_ret(
+		"private expedited rseq before register",
+		membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ, 0, 0),
+		-EPERM);
+	failed += smp_expect_ret(
+		"private expedited rseq before register cpu flag",
+		membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ,
+			   MEMBARRIER_CMD_FLAG_CPU, 0),
+		-EPERM);
+	failed += smp_expect_ret(
+		"register private expedited rseq",
+		membarrier(MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ, 0,
+			   0),
+		0);
+	failed += smp_expect_ret(
+		"private expedited rseq after register",
+		membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ, 0, 0), 0);
+	failed += smp_expect_ret(
+		"private expedited rseq after register cpu flag",
+		membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ,
+			   MEMBARRIER_CMD_FLAG_CPU, 0),
+		0);
 
 	registrations = membarrier(MEMBARRIER_CMD_GET_REGISTRATIONS, 0, 0);
 	failed += smp_expect_ret(
 		"registrations", registrations,
 		MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED |
-			MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_SYNC_CORE);
+			MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_SYNC_CORE |
+			MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ);
 
 	return failed;
 }
@@ -87,15 +112,6 @@ static int test_membarrier_errors(void)
 		-EINVAL);
 	failed += smp_expect_ret("unknown command", membarrier(1 << 30, 0, 0),
 				 -EINVAL);
-	failed += smp_expect_ret(
-		"rseq unsupported",
-		membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ, 0, 0),
-		-EINVAL);
-	failed +=
-		smp_expect_ret("rseq unsupported cpu flag",
-			       membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ,
-					  MEMBARRIER_CMD_FLAG_CPU, 0),
-			       -EINVAL);
 	failed += smp_expect_ret(
 		"rseq bad flag",
 		membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ, 2, 0),

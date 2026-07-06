@@ -15,6 +15,26 @@ static volatile int handler_on_altstack;
 static volatile int handler_saw_onstack;
 static volatile int handler_change_denied;
 
+struct test_trap_frame {
+	unsigned long sepc;
+	unsigned long ra, sp, gp, tp;
+	unsigned long t0, t1, t2;
+	unsigned long s0, s1;
+	unsigned long a0, a1, a2, a3, a4, a5, a6, a7;
+	unsigned long s2, s3, s4, s5, s6, s7, s8, s9, s10, s11;
+	unsigned long t3, t4, t5, t6;
+	unsigned long scause;
+	unsigned long stval;
+	unsigned long sstatus;
+};
+
+struct test_signal_frame {
+	struct test_trap_frame tf;
+	unsigned long blocked;
+	unsigned long sig;
+	unsigned long on_altstack;
+};
+
 static void handler_check_stack(int sig)
 {
 	unsigned long sp;
@@ -237,6 +257,67 @@ static int test_invalid_flags(void)
 	return 0;
 }
 
+static __attribute__((noinline, noreturn)) void
+sigreturn_from_frame(struct test_signal_frame *frame)
+{
+	__asm__ volatile("mv sp, %0\n"
+			 "li a7, 139\n"
+			 "ecall\n"
+			 :
+			 : "r"(frame)
+			 : "a7", "memory");
+	__builtin_unreachable();
+}
+
+static __attribute__((naked, noreturn, used)) void
+sigreturn_truncated_pc_exit(void)
+{
+	__asm__ volatile("li a0, 77\n"
+			 "li a7, 93\n"
+			 "ecall\n"
+			 "1: j 1b\n");
+}
+
+static int test_sigreturn_preserves_invalid_64bit_pc(void)
+{
+	struct test_signal_frame frame;
+	unsigned long sp;
+	long child;
+	long waited;
+	int status = 0;
+
+	child = fork();
+	if (child == 0) {
+		memset(&frame, 0, sizeof(frame));
+		__asm__ volatile("mv %0, sp" : "=r"(sp));
+		frame.tf.sepc = (1UL << 32) |
+				(unsigned int)(unsigned long)
+					sigreturn_truncated_pc_exit;
+		frame.tf.sp = sp;
+		frame.sig = SIGUSR1;
+
+		sigreturn_from_frame(&frame);
+	}
+	if (child < 0) {
+		printf("FAIL: fork sigreturn pc: %ld\n", child);
+		return 1;
+	}
+
+	waited = wait4(child, &status, 0, NULL);
+	if (waited != child) {
+		printf("FAIL: sigreturn pc wait got %ld child %ld\n", waited,
+		       child);
+		return 1;
+	}
+	if (status != (SIGNAL_EXIT_CODE(SIGSEGV) << 8)) {
+		printf("FAIL: sigreturn pc status expected 0x%x got 0x%x\n",
+		       SIGNAL_EXIT_CODE(SIGSEGV) << 8, status);
+		return 1;
+	}
+
+	return 0;
+}
+
 static volatile int usr1_count;
 
 static void usr1_handler(int sig)
@@ -322,6 +403,8 @@ int main(void)
 	report_group("invalid altstack flags", test_invalid_flags(), &failed);
 	report_group("tkill self signal", test_tkill_self_signal(), &failed);
 	report_group("tkill error paths", test_tkill_errors(), &failed);
+	report_group("sigreturn invalid pc",
+		     test_sigreturn_preserves_invalid_64bit_pc(), &failed);
 
 	if (failed)
 		printf("signal_test: %d test group(s) FAILED\n", failed);

@@ -8,6 +8,7 @@ KERNEL_OBJS = \
 	kernel/task.o           \
 	kernel/fork.o           \
 	kernel/futex.o          \
+	kernel/rseq.o           \
 	kernel/exec.o           \
 	kernel/exit.o           \
 	kernel/pid.o            \

@@ -13,6 +13,7 @@
 #include <kernel/fs.h>
 #include <kernel/mm.h>
 #include <kernel/printk.h>
+#include <kernel/rseq.h>
 #include <kernel/signal.h>
 #include <kernel/slab.h>
 #include <kernel/task.h>
@@ -577,6 +578,7 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 	 * only write the returned 0 into the new frame's a0 before trap return.
 	 */
 	install_exec_mm(mm, tf, entry, sp);
+	rseq_execve(current_task());
 
 	/* POSIX timers are not preserved across a successful execve(). */
 	struct signal_struct *signal = task_signal_state(current_task());

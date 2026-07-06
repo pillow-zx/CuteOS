@@ -21,6 +21,8 @@
 	 MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED |                           \
 	 MEMBARRIER_CMD_PRIVATE_EXPEDITED_SYNC_CORE |                          \
 	 MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_SYNC_CORE |                 \
+	 MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ |                               \
+	 MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ |                      \
 	 MEMBARRIER_CMD_GET_REGISTRATIONS)
 
 static inline void membarrier_full_mb(void)
@@ -32,6 +34,7 @@ ssize_t sys_membarrier(struct trap_frame *tf)
 {
 	int cmd = (int)syscall_arg(tf, 0);
 	unsigned int flags = (unsigned int)syscall_arg(tf, 1);
+	int cpu_id = (int)syscall_arg(tf, 2);
 	struct mm_struct *mm = task_mm(current_task());
 	uint32_t registrations;
 
@@ -39,7 +42,9 @@ ssize_t sys_membarrier(struct trap_frame *tf)
 	case MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ:
 		if (flags && flags != MEMBARRIER_CMD_FLAG_CPU)
 			return -EINVAL;
-		return -EINVAL;
+		if (flags == MEMBARRIER_CMD_FLAG_CPU && cpu_id != 0)
+			return -EINVAL;
+		break;
 	default:
 		if (flags)
 			return -EINVAL;
@@ -55,6 +60,7 @@ ssize_t sys_membarrier(struct trap_frame *tf)
 	case MEMBARRIER_CMD_REGISTER_GLOBAL_EXPEDITED:
 	case MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED:
 	case MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_SYNC_CORE:
+	case MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ:
 		if (!mm)
 			return -EINVAL;
 		mm_membarrier_register(mm, (uint32_t)cmd);
@@ -78,8 +84,15 @@ ssize_t sys_membarrier(struct trap_frame *tf)
 			return -EPERM;
 		flush_icache();
 		return 0;
-	case MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ:
-		return -EINVAL;
+	case MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ:
+		if (!mm)
+			return -EINVAL;
+		registrations = mm_membarrier_registrations(mm);
+		if (!(registrations &
+		      MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ))
+			return -EPERM;
+		membarrier_full_mb();
+		return 0;
 	case MEMBARRIER_CMD_GET_REGISTRATIONS:
 		if (!mm)
 			return 0;

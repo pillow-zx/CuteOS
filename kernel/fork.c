@@ -8,6 +8,7 @@
 #include <kernel/fs_struct.h>
 #include <kernel/mm.h>
 #include <kernel/printk.h>
+#include <kernel/rseq.h>
 #include <kernel/sched.h>
 #include <kernel/signal.h>
 #include <kernel/task.h>
@@ -188,6 +189,7 @@ int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
 	if (flags & CLONE_CHILD_CLEARTID)
 		task_set_clear_child_tid(child, clear_child_tid);
 
+	rseq_clone(child, current_task(), flags);
 	clone_setup_task_links(child, flags);
 	clone->task = child;
 	clone->flags = flags;

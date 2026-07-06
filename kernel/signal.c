@@ -39,6 +39,7 @@
 #include <kernel/fs.h>
 #include <kernel/mm.h>
 #include <kernel/sched.h>
+#include <kernel/rseq.h>
 #include <kernel/signal.h>
 #include <kernel/slab.h>
 #include <kernel/task.h>
@@ -681,6 +682,8 @@ void do_signal(struct trap_frame *tf)
 			continue;
 		}
 
+		if (rseq_signal_deliver(tf) < 0)
+			do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 		if (setup_signal_frame(tf, sig, &action) < 0)
 			do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 		return;

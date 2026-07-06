@@ -6,6 +6,7 @@
 
 #include <kernel/exit.h>
 #include <kernel/printk.h>
+#include <kernel/rseq.h>
 
 /* ---- 抢占计数器 ---- */
 
@@ -100,6 +101,7 @@ void schedule(void)
 			return;
 
 		check_canary(prev);
+		rseq_sched_switch(prev);
 		arch_task_switch_address_space(prev, &idle_task);
 		set_current_task(&idle_task);
 		arch_task_switch(prev, &idle_task);
@@ -116,6 +118,7 @@ void schedule(void)
 		mlfq_enqueue(prev);
 
 	check_canary(prev);
+	rseq_sched_switch(prev);
 	set_current_task(next);
 	arch_task_switch_address_space(prev, next);
 	arch_task_switch(prev, next);

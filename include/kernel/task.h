@@ -14,6 +14,7 @@
 #include <kernel/wait.h>
 #include <kernel/compiler.h>
 #include <kernel/cpu.h>
+#include <kernel/rseq.h>
 #include <arch/task.h>
 #include <uapi/futex.h>
 #include <uapi/signal.h>
@@ -114,6 +115,7 @@ struct task_struct {
 	struct task_links links;
 	struct task_resources resources;
 	struct task_signal_context sigctx;
+	struct task_rseq_context rseq;
 	struct task_sched_entity sched;
 	struct task_cputime cputime;
 	struct task_cputime child_cputime;
@@ -496,6 +498,54 @@ static __always_inline void task_set_clear_child_tid(struct task_struct *task,
 {
 	if (task)
 		task->sigctx.clear_child_tid = uaddr;
+}
+
+static __always_inline __must_check __pure struct rseq *
+task_rseq_area(const struct task_struct *task)
+{
+	return task ? task->rseq.area : NULL;
+}
+
+static __always_inline __must_check __pure uint32_t
+task_rseq_len(const struct task_struct *task)
+{
+	return task ? task->rseq.len : 0;
+}
+
+static __always_inline __must_check __pure uint32_t
+task_rseq_sig(const struct task_struct *task)
+{
+	return task ? task->rseq.sig : 0;
+}
+
+static __always_inline __must_check __pure uint8_t
+task_rseq_need_update(const struct task_struct *task)
+{
+	return task ? task->rseq.need_update : 0;
+}
+
+static __always_inline void task_set_rseq(struct task_struct *task,
+					  struct rseq *area, uint32_t len,
+					  uint32_t sig)
+{
+	if (!task)
+		return;
+	task->rseq.area = area;
+	task->rseq.len = len;
+	task->rseq.sig = sig;
+	task->rseq.need_update = 0;
+}
+
+static __always_inline void task_clear_rseq(struct task_struct *task)
+{
+	task_set_rseq(task, NULL, 0, 0);
+}
+
+static __always_inline void task_set_rseq_need_update(struct task_struct *task,
+						      uint8_t val)
+{
+	if (task)
+		task->rseq.need_update = val;
 }
 
 static __always_inline __must_check __pure uint64_t

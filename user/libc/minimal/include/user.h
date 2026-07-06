@@ -21,6 +21,7 @@
 #include <uapi/poll.h>
 #include <uapi/random.h>
 #include <uapi/resource.h>
+#include <uapi/rseq.h>
 #include <uapi/mman.h>
 #include <uapi/membarrier.h>
 #include <uapi/sched.h>
