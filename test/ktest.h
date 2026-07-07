@@ -32,6 +32,9 @@ void test_trap_from_user(void);
 void test_trap_context_layout(void);
 void test_trap_irq_codes(void);
 void test_trap_user_return_task_setup(void);
+void test_user_return_work_ecall_path(void);
+void test_user_return_work_page_fault_path(void);
+void test_user_return_work_timer_path(void);
 
 void test_timer_mtime(void);
 void test_timer_mtimecmp(void);

@@ -26,10 +26,10 @@
 
 ### 1.1 建立 user-return-work 边界
 
-- [ ] 新增 generic 用户返回前工作入口，例如 `kernel/user_return.c`。
-- [ ] 定义顺序：rseq resume、signal delivery、未来 syscall restart、其它 pending work。
-- [ ] `arch/riscv/trap.c` 只在用户 trap 返回前调用该入口。
-- [ ] 增加测试覆盖：ecall、page fault、timer interrupt 三条路径都执行同一返回工作。
+- [x] 新增 generic 用户返回前工作入口，例如 `kernel/user_return.c`。
+- [x] 定义顺序：rseq resume、signal delivery、未来 syscall restart、其它 pending work。
+- [x] `arch/riscv/trap.c` 只在用户 trap 返回前调用该入口。
+- [x] 增加测试覆盖：ecall、page fault、timer interrupt 三条路径都执行同一返回工作。
 
 验收：
 
@@ -192,4 +192,3 @@ smp_test
 1. 先做 `user_return` generic helper，不改变用户可见行为，只降低后续耦合。
 2. 再拆 `sys_stub.c`，把 rseq/affinity 放到正确文件。
 3. 然后从 `fcntl/pipe2/ioctl` 和 `mmap/msync/madvise` 两组开始补语义，因为它们对真实软件启动和运行影响最大。
-
