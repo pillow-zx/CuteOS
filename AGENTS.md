@@ -68,7 +68,7 @@ mixed/<task-goal>
 Preferred manual fallback worktree path:
 
 ```text
-/home/pillow/code/.worktrees/cuteos/<task-type>-<task-goal>
+cuteos/.worktrees/cuteos/<task-type>-<task-goal>
 ```
 
 Do not merge, rebase, squash, delete the branch, delete the worktree, publish,
