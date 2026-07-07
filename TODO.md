@@ -10,10 +10,10 @@
 
 目标：让后续工作有清晰基线，避免“入口存在即完整支持”的误解。
 
-- [ ] 把 [SYSCALL.md](./SYSCALL.md) 作为支持面基线。
-- [ ] 在 README 或 CONTEXT 中增加“syscall 支持等级”入口，链接矩阵。
-- [ ] 为每个 B/C/D syscall 建一个测试或注释锚点：当前语义、unsupported errno、未来计划。
-- [ ] 更新 `sys_time.c` 头注释，删除“sys_timer_* 均返回 -ENOSYS”的过期描述。
+- [x] 把 [SYSCALL.md](./SYSCALL.md) 作为支持面基线。
+- [x] 在 README 或 CONTEXT 中增加“syscall 支持等级”入口，链接矩阵。
+- [x] 为每个 B/C/D syscall 建一个测试或注释锚点：当前语义、unsupported errno、未来计划。（本轮按注释锚点完成，暂不建立测试。）
+- [x] 更新 `sys_time.c` 头注释，删除“sys_timer_* 均返回 -ENOSYS”的过期描述。
 
 验收：
 
@@ -192,4 +192,3 @@ smp_test
 1. 先做 `user_return` generic helper，不改变用户可见行为，只降低后续耦合。
 2. 再拆 `sys_stub.c`，把 rseq/affinity 放到正确文件。
 3. 然后从 `fcntl/pipe2/ioctl` 和 `mmap/msync/madvise` 两组开始补语义，因为它们对真实软件启动和运行影响最大。
-

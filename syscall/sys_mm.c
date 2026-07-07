@@ -17,6 +17,14 @@ ssize_t sys_brk(struct trap_frame *tf)
 	return (ssize_t)mm_brk(task_mm(current_task()), addr);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): mmap
+ * Current: maps anonymous or regular file-backed MAP_PRIVATE/MAP_SHARED VMAs.
+ * Unsupported errno: unknown MAP flags, invalid prot/flag combinations, or
+ * bad alignment return -EINVAL; bad fd returns -EBADF; permission mismatch
+ * returns -EACCES.
+ * Future: deepen file-backed MAP_SHARED writeback and permission semantics.
+ */
 ssize_t sys_mmap(struct trap_frame *tf)
 {
 	uintptr_t addr = (uintptr_t)syscall_arg(tf, 0);
@@ -38,6 +46,13 @@ ssize_t sys_munmap(struct trap_frame *tf)
 	return mm_munmap(task_mm(current_task()), addr, length);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): mprotect
+ * Current: updates VMA ranges and resident PTE permissions.
+ * Unsupported errno: unaligned address or invalid prot returns -EINVAL;
+ * unmapped ranges return -ENOMEM.
+ * Future: add cross-VMA and exec-cache/W^X coverage.
+ */
 ssize_t sys_mprotect(struct trap_frame *tf)
 {
 	uintptr_t addr = (uintptr_t)syscall_arg(tf, 0);
@@ -47,6 +62,13 @@ ssize_t sys_mprotect(struct trap_frame *tf)
 	return mm_mprotect(task_mm(current_task()), addr, length, prot);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): mremap
+ * Current: supports basic resize and MAYMOVE/FIXED movement of mmap VMAs.
+ * Unsupported errno: MREMAP_DONTUNMAP, invalid flag combinations, or bad
+ * alignment return -EINVAL; no-move growth failure returns -ENOMEM.
+ * Future: build an explicit mremap flag behavior table.
+ */
 ssize_t sys_mremap(struct trap_frame *tf)
 {
 	uintptr_t old_addr = (uintptr_t)syscall_arg(tf, 0);
@@ -59,6 +81,13 @@ ssize_t sys_mremap(struct trap_frame *tf)
 			 flags, new_addr);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): msync
+ * Current: validates mapped ranges and syncs shared file mappings for MS_SYNC.
+ * Unsupported errno: unknown or conflicting flags return -EINVAL; unmapped
+ * ranges return -ENOMEM.
+ * Future: deepen shared file mapping and writeback semantics.
+ */
 ssize_t sys_msync(struct trap_frame *tf)
 {
 	uintptr_t addr = (uintptr_t)syscall_arg(tf, 0);
@@ -68,6 +97,13 @@ ssize_t sys_msync(struct trap_frame *tf)
 	return mm_msync(task_mm(current_task()), addr, length, flags);
 }
 
+/*
+ * SYSCALL_SUPPORT(C): mlock
+ * Current: validates mapped ranges and faults in readable resident pages.
+ * Unsupported errno: invalid ranges return -EINVAL; unmapped ranges return
+ * -ENOMEM; no real pinning or rlimit accounting is implemented.
+ * Future: avoid advertising complete resident pin semantics.
+ */
 ssize_t sys_mlock(struct trap_frame *tf)
 {
 	uintptr_t addr = (uintptr_t)syscall_arg(tf, 0);
@@ -80,6 +116,13 @@ ssize_t sys_mlock(struct trap_frame *tf)
 	return mm_mlock(mm, addr, len);
 }
 
+/*
+ * SYSCALL_SUPPORT(C): munlock
+ * Current: validates that the range is mapped but stores no lock state.
+ * Unsupported errno: invalid ranges return -EINVAL; unmapped ranges return
+ * -ENOMEM.
+ * Future: pair with real mlock state when resident pinning exists.
+ */
 ssize_t sys_munlock(struct trap_frame *tf)
 {
 	uintptr_t addr = (uintptr_t)syscall_arg(tf, 0);
@@ -92,6 +135,13 @@ ssize_t sys_munlock(struct trap_frame *tf)
 	return mm_munlock(mm, addr, len);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): madvise
+ * Current: accepts common hints; DONTNEED drops anonymous resident pages.
+ * Unsupported errno: unknown advice returns -EINVAL; DONTNEED on non-anonymous
+ * ranges returns -EINVAL; unmapped ranges return -ENOMEM.
+ * Future: build an advice support table.
+ */
 ssize_t sys_madvise(struct trap_frame *tf)
 {
 	uintptr_t addr = (uintptr_t)syscall_arg(tf, 0);
@@ -113,6 +163,13 @@ ssize_t sys_madvise(struct trap_frame *tf)
 	return mm_madvise(task_mm(current_task()), addr, len, advice);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): mincore
+ * Current: reports resident PTE state for mapped user pages.
+ * Unsupported errno: unaligned or overflowing ranges return -EINVAL; NULL vec
+ * returns -EFAULT; file-cache residency semantics are shallow.
+ * Future: add file-backed residency coverage.
+ */
 ssize_t sys_mincore(struct trap_frame *tf)
 {
 	uintptr_t addr = (uintptr_t)syscall_arg(tf, 0);

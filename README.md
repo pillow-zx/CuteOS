@@ -61,6 +61,10 @@ hello
 | C | 探测安全或兼容占位，语义较浅 |
 | D | 局部返回 `-ENOSYS` 或当前不应依赖 |
 
+[SYSCALL.md](SYSCALL.md) 是当前 syscall 支持等级基线；源码中 B/C/D
+handler 旁的 `SYSCALL_SUPPORT(...)` 注释锚点记录实现侧的当前语义、
+unsupported errno 和后续计划。
+
 主要能力概览：
 
 | 领域 | 当前能力 |

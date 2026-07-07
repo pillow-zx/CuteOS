@@ -53,12 +53,17 @@ These assumptions are architecture constraints, not background comments:
 
 `include/kernel/syscall_table.h` currently installs 110 Linux riscv64 syscall
 entries. An installed entry is not a complete Linux compatibility claim.
-`SYSCALL.md` is the support baseline and classifies entries as:
+`SYSCALL.md` is the support baseline and the source of truth for syscall
+support grades. It classifies entries as:
 
 - A: common semantics usable and backed by real subsystem behavior
 - B: minimal or partial Linux semantics
 - C: probe-safe or shallow compatibility behavior
 - D: unsupported or not suitable to depend on
+
+For B/C/D entries, the corresponding `syscall/sys_*.c` handler also carries a
+`SYSCALL_SUPPORT(...)` comment anchor summarizing current semantics,
+unsupported errno behavior, and the next planned direction.
 
 Keep `CONTEXT.md` focused on architecture. Put syscall maturity, errno policy
 tables, and future prioritization in `SYSCALL.md`.

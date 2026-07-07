@@ -26,6 +26,14 @@ static inline void membarrier_full_mb(void)
 	asm volatile("fence rw,rw" ::: "memory");
 }
 
+/*
+ * SYSCALL_SUPPORT(B): membarrier
+ * Current: implements single-core compatible barriers and registration state.
+ * Unsupported errno: unknown commands or bad flags/cpu return -EINVAL;
+ * private expedited commands without registration return -EPERM.
+ * Future: keep this documented as single-core until SMP IPI/runqueue semantics
+ * exist.
+ */
 ssize_t sys_membarrier(struct trap_frame *tf)
 {
 	int cmd = (int)syscall_arg(tf, 0);

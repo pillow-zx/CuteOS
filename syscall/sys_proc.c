@@ -57,6 +57,12 @@ ssize_t sys_gettid(struct trap_frame *tf)
 	return (ssize_t)task_pid(current_task());
 }
 
+/*
+ * SYSCALL_SUPPORT(B): getpgid
+ * Current: returns the process group for self or an existing group leader pid.
+ * Unsupported errno: negative or missing pid returns -ESRCH.
+ * Future: revisit when sessions and job-control semantics exist.
+ */
 ssize_t sys_getpgid(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);
@@ -75,6 +81,13 @@ ssize_t sys_getpgid(struct trap_frame *tf)
 	return (ssize_t)task_pgid(task);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): setpgid
+ * Current: updates a group leader or direct child into an existing/new pgid.
+ * Unsupported errno: negative pid/pgid returns -EINVAL; non-child targets or
+ * missing target groups return -EPERM.
+ * Future: model sessions and shell job-control rules.
+ */
 ssize_t sys_setpgid(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);

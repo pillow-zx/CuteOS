@@ -103,6 +103,13 @@ static void statx_from_stat(const struct stat *st, struct statx *stx)
 	stx->stx_dev_minor = (uint32_t)(st->st_dev & ((1u << MINORBITS) - 1));
 }
 
+/*
+ * SYSCALL_SUPPORT(B): statx
+ * Current: reports STATX_BASIC_STATS converted from struct stat.
+ * Unsupported errno: reserved mask bits and unsupported AT_STATX flag
+ * combinations return -EINVAL.
+ * Future: document the supported mask and only report fields with real data.
+ */
 ssize_t sys_statx(struct trap_frame *tf)
 {
 	int dfd = (int)syscall_arg(tf, 0);
@@ -144,6 +151,13 @@ ssize_t sys_statx(struct trap_frame *tf)
 	return 0;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): statfs64
+ * Current: reports the mounted superblock statfs data for a resolved path.
+ * Unsupported errno: missing mount/superblock returns -EINVAL; detailed field
+ * completeness depends on the filesystem.
+ * Future: complete and document ext2 statfs fields.
+ */
 ssize_t sys_statfs64(struct trap_frame *tf)
 {
 	const char *upath = (const char *)syscall_arg(tf, 0);
@@ -175,6 +189,13 @@ ssize_t sys_statfs64(struct trap_frame *tf)
 	return 0;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): fstatfs64
+ * Current: reports the mounted superblock statfs data for an open file.
+ * Unsupported errno: bad fd returns -EBADF; missing mount/superblock returns
+ * -EINVAL; field completeness depends on the filesystem.
+ * Future: track statfs64 when ext2 field coverage is deepened.
+ */
 ssize_t sys_fstatfs64(struct trap_frame *tf)
 {
 	int fd = (int)syscall_arg(tf, 0);

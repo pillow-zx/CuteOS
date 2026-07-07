@@ -1,5 +1,9 @@
 /*
- * syscall/sys_time.c - 时间相关系统调用（ABI 边界层）
+ * syscall/sys_time.c - time syscall ABI wrappers
+ *
+ * The timer_* entry points below are implemented as a small POSIX timer
+ * subset.  Keep support boundaries here and in SYSCALL.md aligned; these
+ * handlers are not blanket -ENOSYS stubs.
  */
 
 #include <kernel/errno.h>
@@ -12,6 +16,12 @@
 #include <kernel/types.h>
 #include <kernel/trap.h>
 
+/*
+ * SYSCALL_SUPPORT(B): times
+ * Current: reports current task user/system ticks and current jiffies.
+ * Unsupported errno: child CPU time remains partial and zero when unavailable.
+ * Future: add fuller child cputime accounting coverage.
+ */
 ssize_t sys_times(struct trap_frame *tf)
 {
 	struct tms *utms = (struct tms *)syscall_arg(tf, 0);
@@ -28,6 +38,12 @@ ssize_t sys_times(struct trap_frame *tf)
 	return (ssize_t)jiffies;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): gettimeofday
+ * Current: reports boot-relative mtime as timeval and UTC timezone zeroes.
+ * Unsupported errno: no RTC or real wall-clock source exists.
+ * Future: revisit when platform RTC or wall-clock offset support exists.
+ */
 ssize_t sys_gettimeofday(struct trap_frame *tf)
 {
 	struct timeval *utv = (struct timeval *)syscall_arg(tf, 0);
@@ -53,6 +69,13 @@ ssize_t sys_gettimeofday(struct trap_frame *tf)
 	return 0;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): clock_gettime
+ * Current: REALTIME, MONOTONIC, and BOOTTIME all derive from mtime.
+ * Unsupported errno: unsupported clock ids return -EINVAL; REALTIME is not a
+ * real wall clock.
+ * Future: document or split REALTIME once wall-clock state exists.
+ */
 ssize_t sys_clock_gettime(struct trap_frame *tf)
 {
 	int clock_id = (int)syscall_arg(tf, 0);
@@ -123,6 +146,13 @@ ssize_t sys_nanosleep(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): clock_nanosleep
+ * Current: supports relative sleep and TIMER_ABSTIME for supported clocks.
+ * Unsupported errno: unsupported clocks or flags return -EINVAL; clock
+ * differences are shallow because supported clocks share mtime.
+ * Future: align this with clock_gettime when clock sources diverge.
+ */
 ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 {
 	int clock_id = (int)syscall_arg(tf, 0);
@@ -170,6 +200,13 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): getitimer
+ * Current: queries per-signal itimer state, with ITIMER_REAL as the useful
+ * path.
+ * Unsupported errno: invalid timer kind returns -EINVAL.
+ * Future: document ITIMER_REAL priority until virtual/prof accounting exists.
+ */
 ssize_t sys_getitimer(struct trap_frame *tf)
 {
 	int which = (int)syscall_arg(tf, 0);
@@ -198,6 +235,12 @@ ssize_t sys_getitimer(struct trap_frame *tf)
 	return 0;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): setitimer
+ * Current: supports ITIMER_REAL through signal timer state.
+ * Unsupported errno: ITIMER_VIRTUAL and ITIMER_PROF return -EINVAL.
+ * Future: add CPU accounting before expanding virtual/prof timers.
+ */
 ssize_t sys_setitimer(struct trap_frame *tf)
 {
 	int which = (int)syscall_arg(tf, 0);
@@ -237,6 +280,13 @@ ssize_t sys_setitimer(struct trap_frame *tf)
 	return 0;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): timer_create
+ * Current: creates per-signal POSIX timers for supported clocks and sigevents.
+ * Unsupported errno: unsupported clock or sigevent policy is returned by
+ * posix_timer_create(), commonly -EINVAL.
+ * Future: add a sigevent and clock support table.
+ */
 ssize_t sys_timer_create(struct trap_frame *tf)
 {
 	clockid_t clock_id = (clockid_t)syscall_arg(tf, 0);
@@ -278,6 +328,12 @@ ssize_t sys_timer_create(struct trap_frame *tf)
 	return 0;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): timer_gettime
+ * Current: queries a timer owned by the current signal state.
+ * Unsupported errno: invalid timer ids return timer-layer errno.
+ * Future: keep aligned with POSIX timer lifecycle coverage.
+ */
 ssize_t sys_timer_gettime(struct trap_frame *tf)
 {
 	timer_t timerid = (timer_t)syscall_arg(tf, 0);
@@ -302,6 +358,12 @@ ssize_t sys_timer_gettime(struct trap_frame *tf)
 	return 0;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): timer_getoverrun
+ * Current: returns the timer overrun count from current signal timer state.
+ * Unsupported errno: invalid timer ids return timer-layer errno.
+ * Future: deepen when signal queue semantics are expanded.
+ */
 ssize_t sys_timer_getoverrun(struct trap_frame *tf)
 {
 	timer_t timerid = (timer_t)syscall_arg(tf, 0);
@@ -313,6 +375,12 @@ ssize_t sys_timer_getoverrun(struct trap_frame *tf)
 	return posix_timer_getoverrun(signal, timerid);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): timer_settime
+ * Current: arms/disarms timers with relative or absolute expiry.
+ * Unsupported errno: invalid flags, ids, or timespecs return timer-layer errno.
+ * Future: add coverage for realtime offset and flag combinations.
+ */
 ssize_t sys_timer_settime(struct trap_frame *tf)
 {
 	timer_t timerid = (timer_t)syscall_arg(tf, 0);
@@ -344,6 +412,12 @@ ssize_t sys_timer_settime(struct trap_frame *tf)
 	return 0;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): timer_delete
+ * Current: deletes timers from the current signal timer state.
+ * Unsupported errno: invalid timer ids return timer-layer errno.
+ * Future: keep lifecycle behavior aligned with timer_create/settime tests.
+ */
 ssize_t sys_timer_delete(struct trap_frame *tf)
 {
 	timer_t timerid = (timer_t)syscall_arg(tf, 0);
@@ -355,6 +429,14 @@ ssize_t sys_timer_delete(struct trap_frame *tf)
 	return posix_timer_delete(signal, timerid);
 }
 
+/*
+ * SYSCALL_SUPPORT(C): clock_settime
+ * Current: validates the timespec; REALTIME returns -EPERM and other supported
+ * clocks return -EINVAL.
+ * Unsupported errno: unsupported clock ids or invalid timespecs return
+ * -EINVAL.
+ * Future: keep C until RTC or wall-clock offset support exists.
+ */
 ssize_t sys_clock_settime(struct trap_frame *tf)
 {
 	int clock_id = (int)syscall_arg(tf, 0);

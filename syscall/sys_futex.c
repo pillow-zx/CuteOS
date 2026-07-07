@@ -32,6 +32,12 @@ static int futex_copy_timeout(const struct timespec *utimeout,
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): futex
+ * Current: supports FUTEX_WAIT and FUTEX_WAKE plus robust-list exit wakeups.
+ * Unsupported errno: other futex commands return -ENOSYS from kernel_futex().
+ * Future: prioritize PRIVATE, requeue, PI, and bitset ops by pthread demand.
+ */
 ssize_t sys_futex(struct trap_frame *tf)
 {
 	int *uaddr = (int *)syscall_arg(tf, 0);
@@ -52,6 +58,13 @@ ssize_t sys_futex(struct trap_frame *tf)
 	return kernel_futex(uaddr, op, val, &deadline);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): set_robust_list
+ * Current: records the current task robust-list head for exit-time walking.
+ * Unsupported errno: len different from struct robust_list_head returns
+ * -EINVAL.
+ * Future: keep this stable while adding invalid-chain stress coverage.
+ */
 ssize_t sys_set_robust_list(struct trap_frame *tf)
 {
 	struct robust_list_head *head = (struct robust_list_head *)syscall_arg(tf, 0);
@@ -60,6 +73,13 @@ ssize_t sys_set_robust_list(struct trap_frame *tf)
 	return futex_set_robust_list(current_task(), head, len);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): get_robust_list
+ * Current: queries pid 0 or an existing thread's robust-list pointer and len.
+ * Unsupported errno: negative pid returns -EINVAL; missing task returns -ESRCH;
+ * cross-thread permission checks are shallow.
+ * Future: add permission behavior when credentials are deepened.
+ */
 ssize_t sys_get_robust_list(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);

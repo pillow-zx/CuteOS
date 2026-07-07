@@ -69,6 +69,13 @@ ssize_t sys_set_tid_addr(struct trap_frame *tf)
 	return (ssize_t)task_pid(current_task());
 }
 
+/*
+ * SYSCALL_SUPPORT(B): setuid
+ * Current: root may set any uid; non-root may only set its current uid.
+ * Unsupported errno: non-root attempts to change to a different uid return
+ * -EPERM.
+ * Future: replace this with saved/effective uid and capability semantics.
+ */
 ssize_t sys_setuid(struct trap_frame *tf)
 {
 	uint32_t uid = (uint32_t)syscall_arg(tf, 0);
@@ -81,6 +88,13 @@ ssize_t sys_setuid(struct trap_frame *tf)
 	return 0;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): setgid
+ * Current: root may set any gid; non-root may only set its current gid.
+ * Unsupported errno: non-root attempts to change to a different gid return
+ * -EPERM.
+ * Future: replace this with saved/effective gid and capability semantics.
+ */
 ssize_t sys_setgid(struct trap_frame *tf)
 {
 	uint32_t gid = (uint32_t)syscall_arg(tf, 0);
@@ -93,6 +107,13 @@ ssize_t sys_setgid(struct trap_frame *tf)
 	return 0;
 }
 
+/*
+ * SYSCALL_SUPPORT(C): getgroups
+ * Current: reports a fixed single supplementary group id 0.
+ * Unsupported errno: negative size returns -EINVAL; invalid output pointer
+ * returns -EFAULT.
+ * Future: add real supplementary-group storage with the credential model.
+ */
 ssize_t sys_getgroups(struct trap_frame *tf)
 {
 	int size = (int)syscall_arg(tf, 0);
@@ -110,6 +131,13 @@ ssize_t sys_getgroups(struct trap_frame *tf)
 	return 1;
 }
 
+/*
+ * SYSCALL_SUPPORT(C): setgroups
+ * Current: accepts size 0 or a single group id 0 without storing state.
+ * Unsupported errno: negative size returns -EINVAL; any other group set
+ * returns -EPERM.
+ * Future: add real supplementary-group storage with the credential model.
+ */
 ssize_t sys_setgroups(struct trap_frame *tf)
 {
 	int size = (int)syscall_arg(tf, 0);
@@ -135,6 +163,13 @@ ssize_t sys_umask(struct trap_frame *tf)
 	return fs_set_umask(task_fs(current_task()), mask);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): sysinfo
+ * Current: reports uptime, total/free RAM, process count, and mem_unit.
+ * Unsupported errno: unsupported load, swap, and high-memory fields are zeroed
+ * rather than rejected.
+ * Future: document zeroed fields or populate them from future accounting.
+ */
 ssize_t sys_sysinfo(struct trap_frame *tf)
 {
 	struct sysinfo *uinfo = (struct sysinfo *)syscall_arg(tf, 0);
@@ -155,6 +190,13 @@ ssize_t sys_sysinfo(struct trap_frame *tf)
 	return 0;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): prlimit64
+ * Current: gets/sets per-signal rlimits for self or same-thread-group leader.
+ * Unsupported errno: invalid resource returns -EINVAL; cross-task access
+ * outside the current thread group returns -EPERM.
+ * Future: enforce more resources, starting with NOFILE and AS.
+ */
 ssize_t sys_prlimit64(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);
@@ -208,6 +250,12 @@ ssize_t sys_prlimit64(struct trap_frame *tf)
 	return 0;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): getrusage
+ * Current: reports basic self or children CPU time with many fields zeroed.
+ * Unsupported errno: unsupported who values return -EINVAL.
+ * Future: document or populate memory and I/O accounting fields.
+ */
 ssize_t sys_getrusage(struct trap_frame *tf)
 {
 	int who = (int)syscall_arg(tf, 0);
@@ -246,6 +294,13 @@ static uint64_t random_next_u64(void)
 	return x;
 }
 
+/*
+ * SYSCALL_SUPPORT(C): getrandom
+ * Current: returns bytes from a weak xorshift/mtime-seeded generator.
+ * Unsupported errno: unknown flags return -EINVAL; NULL output with nonzero
+ * count returns -EFAULT.
+ * Future: mark this weak random source or connect a real entropy source.
+ */
 ssize_t sys_getrandom(struct trap_frame *tf)
 {
 	uint8_t *ubuf = (uint8_t *)syscall_arg(tf, 0);

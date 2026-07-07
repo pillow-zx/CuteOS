@@ -497,6 +497,12 @@ static int eventpoll_release(struct file *file)
 	return 0;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): epoll_create1
+ * Current: creates an eventpoll file and supports EPOLL_CLOEXEC.
+ * Unsupported errno: unknown flags return -EINVAL.
+ * Future: add nested, close, and epoll-fd readiness coverage.
+ */
 ssize_t sys_epoll_create1(struct trap_frame *tf)
 {
 	int flags = (int)syscall_arg(tf, 0);
@@ -527,6 +533,13 @@ ssize_t sys_epoll_create1(struct trap_frame *tf)
 	return fd;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): epoll_ctl
+ * Current: supports ADD, MOD, and DEL for poll-capable non-epoll fds.
+ * Unsupported errno: invalid ops, targets, or event bits return -EINVAL;
+ * non-pollable fds return -EPERM.
+ * Future: choose whether EPOLLET and EPOLLONESHOT are rejected or implemented.
+ */
 ssize_t sys_epoll_ctl(struct trap_frame *tf)
 {
 	int epfd = (int)syscall_arg(tf, 0);
@@ -619,6 +632,13 @@ ssize_t sys_epoll_ctl(struct trap_frame *tf)
 	return -EINVAL;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): epoll_pwait
+ * Current: waits on registered level-triggered items with optional sigmask.
+ * Unsupported errno: bad sigset size or maxevents returns -EINVAL; registered
+ * EPOLLET/EPOLLONESHOT items currently make scanning return -EINVAL.
+ * Future: fix edge/oneshot policy and signal interruption details.
+ */
 ssize_t sys_epoll_pwait(struct trap_frame *tf)
 {
 	int epfd = (int)syscall_arg(tf, 0);
@@ -684,6 +704,13 @@ ssize_t sys_epoll_pwait(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): ppoll
+ * Current: scans pollfd entries with timeout and optional temporary sigmask.
+ * Unsupported errno: nfds above NR_OPEN or invalid sigset size returns
+ * -EINVAL; signal race semantics are simplified.
+ * Future: document NR_OPEN limits and add signal interruption coverage.
+ */
 ssize_t sys_ppoll(struct trap_frame *tf)
 {
 	struct pollfd *ufds = (struct pollfd *)syscall_arg(tf, 0);
@@ -745,6 +772,13 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): pselect6
+ * Current: scans fd_sets with timeout and optional packed sigmask.
+ * Unsupported errno: nfds outside [0, NR_OPEN] or invalid sigmask metadata
+ * returns -EINVAL; signal race semantics are simplified.
+ * Future: add signal interruption and race-behavior coverage.
+ */
 ssize_t sys_pselect6(struct trap_frame *tf)
 {
 	long nfds = (long)syscall_arg(tf, 0);

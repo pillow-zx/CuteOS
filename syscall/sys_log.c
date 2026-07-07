@@ -27,6 +27,13 @@ static bool syslog_action_requires_root(int type)
 	}
 }
 
+/*
+ * SYSCALL_SUPPORT(D): syslog
+ * Current: only SYSLOG_ACTION_SIZE_BUFFER returns the printk buffer size.
+ * Unsupported errno: valid but unimplemented actions return -ENOSYS; invalid
+ * actions return -EINVAL; privileged unsupported actions may return -EPERM.
+ * Future: implement printk ring-buffer read/clear or keep this marked D.
+ */
 ssize_t sys_syslog(struct trap_frame *tf)
 {
 	int type = (int)syscall_arg(tf, 0);

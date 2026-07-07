@@ -331,6 +331,13 @@ ssize_t sys_pwrite64(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): sendfile
+ * Current: buffered copy from a regular readable input file to writable output.
+ * Unsupported errno: bad fds return -EBADF; non-regular input or O_APPEND
+ * output returns -EINVAL.
+ * Future: document the file-only contract before adding socket or pipe cases.
+ */
 ssize_t sys_sendfile(struct trap_frame *tf)
 {
 	int out_fd = (int)syscall_arg(tf, 0);
@@ -368,6 +375,13 @@ ssize_t sys_sendfile(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): splice
+ * Current: copies between one pipe endpoint and one regular file endpoint.
+ * Unsupported errno: unknown flags, pipe-pipe, file-file, non-regular files,
+ * and O_APPEND output return -EINVAL; pipe offsets return -ESPIPE.
+ * Future: build an explicit pipe/file mode and flag support table.
+ */
 ssize_t sys_splice(struct trap_frame *tf)
 {
 	int fd_in = (int)syscall_arg(tf, 0);
@@ -454,6 +468,13 @@ ssize_t sys_lseek(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): ioctl
+ * Current: delegates to VFS; console handles termios and winsize commands.
+ * Unsupported errno: bad fd returns -EBADF; no handler or unknown device
+ * command returns -ENOTTY through VFS/device fops.
+ * Future: extend and document tty/console probing commands.
+ */
 ssize_t sys_ioctl(struct trap_frame *tf)
 {
 	int fd = (int)syscall_arg(tf, 0);
@@ -469,6 +490,13 @@ ssize_t sys_ioctl(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): fcntl
+ * Current: supports dup, close-on-exec, and file status flag get/set commands.
+ * Unsupported errno: unknown commands return -EINVAL; bad fds return -EBADF.
+ * Future: add a command support table before lock, lease, owner, and pipe-size
+ * commands grow more semantics.
+ */
 ssize_t sys_fcntl(struct trap_frame *tf)
 {
 	int fd = (int)syscall_arg(tf, 0);
@@ -537,6 +565,12 @@ ssize_t sys_fsync(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): fdatasync
+ * Current: intentionally aliases fsync and flushes file data plus metadata.
+ * Unsupported errno: no data-only mode is distinguished; fd errors match fsync.
+ * Future: document the simplification until metadata/data syncing diverges.
+ */
 ssize_t sys_fdatasync(struct trap_frame *tf)
 {
 	return sys_fsync(tf);
@@ -561,6 +595,13 @@ ssize_t sys_ftruncate64(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): fallocate
+ * Current: supports mode 0 allocation within the current maximum file size.
+ * Unsupported errno: nonzero mode and invalid ranges return -EINVAL; too-large
+ * ranges return -EFBIG.
+ * Future: fix a flag/mode table before adding punch-hole or keep-size support.
+ */
 ssize_t sys_fallocate(struct trap_frame *tf)
 {
 	struct file *file __cleanup_with(file) = fd_get((int)syscall_arg(tf, 0));

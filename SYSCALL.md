@@ -1,7 +1,13 @@
 # cuteOS syscall 语义矩阵报告
 
-本文记录当前 `include/kernel/syscall_table.h` 中 110 个 syscall 入口的语义成
-熟度。它不是 Linux 完整兼容声明，而是下一阶段选择工作优先级的依据。
+本文是 cuteOS 当前 syscall 支持面的基线，记录
+`include/kernel/syscall_table.h` 中 110 个 syscall 入口的语义成熟度。它不
+是 Linux 完整兼容声明；入口存在只表示分发表安装了 handler，具体支持等级以
+本文的 A/B/C/D 矩阵为准。
+
+B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
+`SYSCALL_SUPPORT(...)` 注释锚点，用来提示当前语义、unsupported errno 和后
+续计划。修改实现语义时，应同步更新本文矩阵和源码锚点。
 
 ## 成熟度定义
 
@@ -107,7 +113,7 @@
 | 178 | `gettid` | A | 返回 task pid | 保持 |
 | 220 | `clone` | B | 支持 fork-like 和线程子集，拒绝 namespace/vfork/io | clone3/vfork/namespace 不支持 | 完善 clone flag 表 |
 | 221 | `execve` | A | 通过 VFS 加载静态 ELF，复制 argv/envp，安装新 mm | 动态链接、解释器脚本、auxv 完整度有限 | 保持静态 ELF 主线，补 auxv/错误码测试 |
-| 260 | `wait4` | B | 等待 pid `-1` 或正 pid，返回 rusage | options/pgrp wait 不完整 | 扩展 `WNOHANG/WUNTRACED` 等 |
+| 260 | `wait4` | B | 等待 pid `-1` 或正 pid，`options == 0`，返回 rusage | options/pgrp wait 不完整 | 扩展 `WNOHANG/WUNTRACED` 等 |
 
 ## signal
 

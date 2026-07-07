@@ -21,6 +21,13 @@ static int sys_write_tid(int *uaddr, pid_t tid)
 	return 0;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): clone
+ * Current: supports fork-like clone and a thread subset through kernel_clone.
+ * Unsupported errno: namespace, vfork, parent, io, and invalid flag
+ * combinations return -EINVAL.
+ * Future: maintain a clone flag support table.
+ */
 ssize_t sys_clone(struct trap_frame *tf)
 {
 	unsigned long flags = (unsigned long)syscall_arg(tf, 0);
@@ -54,6 +61,13 @@ abort:
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): wait4
+ * Current: waits for pid -1 or a positive pid and can return rusage.
+ * Unsupported errno: pid 0, pid < -1, and nonzero options return -EINVAL;
+ * no wait target returns -ECHILD.
+ * Future: add pgrp waits and WNOHANG/WUNTRACED-style option semantics.
+ */
 ssize_t sys_wait4(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);

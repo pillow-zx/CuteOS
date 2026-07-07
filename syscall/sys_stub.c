@@ -19,6 +19,13 @@ static struct task_struct *affinity_target_task(pid_t pid)
 	return task_find_thread(pid);
 }
 
+/*
+ * SYSCALL_SUPPORT(C): sched_setaffinity
+ * Current: accepts masks that include CPU0 on the single online CPU.
+ * Unsupported errno: empty CPU set returns -EINVAL; missing target returns
+ * -ESRCH; unauthorized cross-user target returns -EPERM.
+ * Future: store per-task affinity when SMP support exists.
+ */
 ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);
@@ -52,6 +59,13 @@ ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 	return 0;
 }
 
+/*
+ * SYSCALL_SUPPORT(C): sched_getaffinity
+ * Current: reports a fixed CPU0 mask for any existing target task.
+ * Unsupported errno: too-small cpusetsize returns -EINVAL; missing target
+ * returns -ESRCH.
+ * Future: return stored per-task affinity when SMP support exists.
+ */
 ssize_t sys_sched_getaffinity(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);
@@ -77,6 +91,13 @@ ssize_t sys_sched_getaffinity(struct trap_frame *tf)
 	return (ssize_t)sizeof(mask);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): rseq
+ * Current: supports single-core register, unregister, resume, and abort paths.
+ * Unsupported errno: unknown flags return -EINVAL; signature mismatch returns
+ * -EPERM; duplicate matching registration returns -EBUSY.
+ * Future: define flag, migration, and mm_cid policy before SMP work.
+ */
 ssize_t sys_rseq(struct trap_frame *tf)
 {
 	struct rseq *area = (struct rseq *)syscall_arg(tf, 0);

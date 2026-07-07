@@ -9,6 +9,12 @@
 #include <kernel/types.h>
 #include <kernel/trap.h>
 
+/*
+ * SYSCALL_SUPPORT(B): kill
+ * Current: delivers to a positive pid.
+ * Unsupported errno: pid <= 0 returns -EINVAL; missing target returns -ESRCH.
+ * Future: add pid 0, -1, process-group, and permission semantics.
+ */
 ssize_t sys_kill(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);
@@ -20,6 +26,12 @@ ssize_t sys_kill(struct trap_frame *tf)
 	return do_kill(pid, sig);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): tkill
+ * Current: delivers to a positive tid.
+ * Unsupported errno: tid <= 0 returns -EINVAL; missing target returns -ESRCH.
+ * Future: add credential checks with the permission model.
+ */
 ssize_t sys_tkill(struct trap_frame *tf)
 {
 	long tid = (long)syscall_arg(tf, 0);
@@ -31,6 +43,13 @@ ssize_t sys_tkill(struct trap_frame *tf)
 	return do_tkill(tid, sig);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): tgkill
+ * Current: delivers to a positive tgid/tid pair.
+ * Unsupported errno: non-positive ids return -EINVAL; missing or mismatched
+ * target returns -ESRCH.
+ * Future: add credential checks with tkill.
+ */
 ssize_t sys_tgkill(struct trap_frame *tf)
 {
 	long tgid = (long)syscall_arg(tf, 0);
@@ -43,6 +62,13 @@ ssize_t sys_tgkill(struct trap_frame *tf)
 	return do_tgkill(tgid, tid, sig);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): sigaltstack
+ * Current: registers, disables, or queries one alternate signal stack.
+ * Unsupported errno: changing while on-stack returns -EPERM; unknown ss_flags
+ * return -EINVAL; too-small stacks return -ENOMEM.
+ * Future: document flag policy such as SS_AUTODISARM.
+ */
 ssize_t sys_sigaltstack(struct trap_frame *tf)
 {
 	const struct stack_t *ss = (const struct stack_t *)syscall_arg(tf, 0);
@@ -67,6 +93,13 @@ ssize_t sys_sigaltstack(struct trap_frame *tf)
 	return do_sigaltstack(&kss, NULL);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): rt_sigaction
+ * Current: installs/query handlers and masks with a fixed unsigned long sigset.
+ * Unsupported errno: bad sigset size, uncatchable signals with act, or SIG_ERR
+ * handler returns -EINVAL; SA_* semantics are shallow.
+ * Future: build a signal action flag matrix.
+ */
 ssize_t sys_sigaction(struct trap_frame *tf)
 {
 	int sig = (int)syscall_arg(tf, 0);
@@ -100,6 +133,12 @@ ssize_t sys_sigaction(struct trap_frame *tf)
 	return do_sigaction(sig, &kact, NULL);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): rt_sigprocmask
+ * Current: updates/query blocked mask with an unsigned long sigset ABI.
+ * Unsupported errno: bad sigset size or invalid how value returns -EINVAL.
+ * Future: keep ABI size assertions and expand signal-mask edge coverage.
+ */
 ssize_t sys_sigprocmask(struct trap_frame *tf)
 {
 	int how = (int)syscall_arg(tf, 0);
@@ -129,6 +168,13 @@ ssize_t sys_sigprocmask(struct trap_frame *tf)
 	return do_sigprocmask(how, &newset, NULL);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): rt_sigreturn
+ * Current: restores the user context from the signal frame at user sp.
+ * Unsupported errno: invalid or inaccessible frames return existing
+ * do_sigreturn errors such as -EFAULT or -EINVAL.
+ * Future: continue illegal-frame and restart-safety coverage.
+ */
 ssize_t sys_sigreturn(struct trap_frame *tf)
 {
 	uintptr_t sp = trap_user_sp(tf);

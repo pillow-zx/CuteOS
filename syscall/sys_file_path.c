@@ -181,6 +181,13 @@ ssize_t sys_chdir(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): faccessat
+ * Current: checks R_OK/W_OK/X_OK through VFS permissions at the target path.
+ * Unsupported errno: invalid mode bits return -EINVAL; real/effective
+ * credential differences are not modeled separately.
+ * Future: deepen this with the credential model.
+ */
 ssize_t sys_faccessat(struct trap_frame *tf)
 {
 	int dfd = (int)syscall_arg(tf, 0);
@@ -193,6 +200,13 @@ ssize_t sys_faccessat(struct trap_frame *tf)
 	return sys_faccessat_path(dfd, upath, mode, 0, 0);
 }
 
+/*
+ * SYSCALL_SUPPORT(B): faccessat2
+ * Current: accepts AT_EACCESS, AT_EMPTY_PATH, and AT_SYMLINK_NOFOLLOW.
+ * Unsupported errno: unknown flags or mode bits return -EINVAL; credential
+ * semantics remain shallow.
+ * Future: tie AT_EACCESS behavior to a fuller credential model.
+ */
 ssize_t sys_faccessat2(struct trap_frame *tf)
 {
 	int dfd = (int)syscall_arg(tf, 0);
@@ -346,6 +360,13 @@ ssize_t sys_readlinkat(struct trap_frame *tf)
 	return len;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): symlinkat
+ * Current: delegates symlink creation to VFS/ext2 after copying both paths.
+ * Unsupported errno: no syscall-layer feature gate; path and filesystem errors
+ * are returned by VFS/ext2.
+ * Future: add long-symlink and filesystem-boundary coverage.
+ */
 ssize_t sys_symlinkat(struct trap_frame *tf)
 {
 	const char *utarget = (const char *)syscall_arg(tf, 0);
@@ -367,6 +388,14 @@ ssize_t sys_symlinkat(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): linkat
+ * Current: supports AT_SYMLINK_FOLLOW and otherwise delegates hard-link policy
+ * to VFS.
+ * Unsupported errno: unknown flags return -EINVAL; cross-mount and directory
+ * cases use VFS errno.
+ * Future: document the linkat errno table.
+ */
 ssize_t sys_linkat(struct trap_frame *tf)
 {
 	int olddfd = (int)syscall_arg(tf, 0);
@@ -402,6 +431,13 @@ ssize_t sys_linkat(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): mknodat
+ * Current: delegates node creation to VFS with the caller mode after umask.
+ * Unsupported errno: no syscall-layer mode filter; unsupported node or device
+ * cases are reported by VFS/filesystem code.
+ * Future: document the supported chr, blk, and fifo range.
+ */
 ssize_t sys_mknod(struct trap_frame *tf)
 {
 	int dfd = (int)syscall_arg(tf, 0);
@@ -421,6 +457,13 @@ ssize_t sys_mknod(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(C): umount2
+ * Current: delegates to the single-namespace VFS unmount path.
+ * Unsupported errno: any nonzero flag returns -EINVAL; root or busy mounts
+ * return -EBUSY.
+ * Future: define mount lifecycle semantics before deepening umount.
+ */
 ssize_t sys_umount2(struct trap_frame *tf)
 {
 	const char *utarget = (const char *)syscall_arg(tf, 0);
@@ -436,6 +479,13 @@ ssize_t sys_umount2(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(C): mount
+ * Current: supports a minimal block-device-to-directory VFS mount path.
+ * Unsupported errno: nonzero flags return -EINVAL; unknown filesystem returns
+ * -ENODEV; non-block sources return -ENOTBLK.
+ * Future: define the minimal mount model before advertising broader support.
+ */
 ssize_t sys_mount(struct trap_frame *tf)
 {
 	const char *usource = (const char *)syscall_arg(tf, 0);
@@ -462,6 +512,12 @@ ssize_t sys_mount(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): renameat2
+ * Current: supports plain rename and RENAME_NOREPLACE through VFS.
+ * Unsupported errno: unknown flags return -EINVAL.
+ * Future: document flag policy before adding exchange or whiteout support.
+ */
 ssize_t sys_renameat2(struct trap_frame *tf)
 {
 	int old_dfd = (int)syscall_arg(tf, 0);
@@ -526,6 +582,13 @@ static int sys_utimensat_read_times(const struct timespec *utimes,
 	return 0;
 }
 
+/*
+ * SYSCALL_SUPPORT(B): utimensat
+ * Current: supports NOW/OMIT, AT_EMPTY_PATH, and AT_SYMLINK_NOFOLLOW.
+ * Unsupported errno: unknown flags or invalid timespec fields return -EINVAL;
+ * permission and ctime behavior remains shallow.
+ * Future: add permission and ctime coverage.
+ */
 ssize_t sys_utimensat(struct trap_frame *tf)
 {
 	int dfd = (int)syscall_arg(tf, 0);
