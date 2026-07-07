@@ -1,4 +1,7 @@
 #include <kernel/cleanup.h>
+#include <kernel/buddy.h>
+#include <kernel/page.h>
+#include <kernel/slab.h>
 #include <kernel/test.h>
 #include <kernel/types.h>
 
@@ -235,4 +238,29 @@ void test_cleanup_class_helpers(void)
 
 fail:
 	TEST_FAIL("cleanup: scope helpers construct and destroy", "see above");
+}
+
+void test_cleanup_kfree_scope(void)
+{
+	size_t free_before;
+
+	TEST_BEGIN("cleanup: __cleanup_with(kfree) frees kmalloc object");
+
+	free_before = buddy_free_pages();
+	{
+		void *ptr __cleanup_with(kfree) = kmalloc(3000);
+
+		TEST_ASSERT_NOT_NULL(ptr);
+		memset(ptr, 0x42, 3000);
+		TEST_ASSERT(buddy_free_pages() < free_before);
+	}
+
+	TEST_ASSERT_EQ(buddy_free_pages(), free_before);
+
+	TEST_END("cleanup: __cleanup_with(kfree) frees kmalloc object");
+	return;
+
+fail:
+	TEST_FAIL("cleanup: __cleanup_with(kfree) frees kmalloc object",
+		  "see above");
 }

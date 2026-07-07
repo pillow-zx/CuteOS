@@ -70,7 +70,6 @@ CLEANUP_DEFINE(
 		kfree(_T);
 	});
 CLEANUP_DEFINE(eventpoll, struct eventpoll *, if (_T) kfree(_T));
-CLEANUP_DEFINE(file, struct file *, if (_T) file_put(_T));
 
 static_assert(NR_OPEN <= __FD_SETSIZE, "NR_OPEN exceeds fd_set ABI limit");
 static_assert(EPOLL_CLOEXEC == O_CLOEXEC, "epoll cloexec flag ABI mismatch");

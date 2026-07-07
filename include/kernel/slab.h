@@ -8,6 +8,7 @@
 
 #include <kernel/types.h>
 #include <kernel/compiler.h>
+#include <kernel/cleanup.h>
 
 /**
  * @brief Initialize slab caches used by kmalloc.
@@ -26,6 +27,8 @@ void *kmalloc(size_t size) __must_check __malloc __alloc_size(1);
  * @param ptr Object pointer, or NULL.
  */
 void kfree(void *ptr);
+
+CLEANUP_DEFINE(kfree, void *, if (_T) kfree(_T));
 
 /**
  * @brief Allocate and zero a small kernel heap object.

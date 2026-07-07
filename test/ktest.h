@@ -64,6 +64,7 @@ void test_cleanup_forget_ptr(void);
 void test_cleanup_guard_scope(void);
 void test_cleanup_with_guard_block(void);
 void test_cleanup_class_helpers(void);
+void test_cleanup_kfree_scope(void);
 
 void test_mm_vma_merge_adjacent(void);
 void test_mm_vma_munmap_middle_split(void);

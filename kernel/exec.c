@@ -528,7 +528,7 @@ static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
 
 void exec_user_path(const char *path)
 {
-	struct exec_args_envp *args;
+	struct exec_args_envp *args __cleanup_with(kfree) = NULL;
 	struct trap_frame tf_storage;
 	size_t len;
 	int ret;
@@ -543,7 +543,6 @@ void exec_user_path(const char *path)
 	args->argv[0][len] = '\0';
 
 	ret = kernel_execve(path, args, &tf_storage);
-	kfree(args);
 	if (ret < 0)
 		panic("exec: %s failed (%d)", path, ret);
 

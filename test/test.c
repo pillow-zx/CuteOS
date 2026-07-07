@@ -104,6 +104,7 @@ void kernel_test(void)
 	test_cleanup_guard_scope();
 	test_cleanup_with_guard_block();
 	test_cleanup_class_helpers();
+	test_cleanup_kfree_scope();
 
 
 	TEST_SECTION("MM/VMA");
