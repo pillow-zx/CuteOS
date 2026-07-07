@@ -1,11 +1,5 @@
 /*
  * arch/riscv/trap_init.c - Trap 基础设施初始化
- *
- * 建立 trap 处理的完整运行环境：
- *   1. 设置 stvec = __alltraps（Direct 模式，统一入口）
- *   2. 清零 sscratch（0 表示当前在 S 态，供 trap 入口判断来源）
- *   3. 启用 SIE.STIE（Supervisor Timer Interrupt Enable）
- *   4. 启用 sstatus.SIE（全局中断开关）
  */
 
 #include <asm/csr.h>

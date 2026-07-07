@@ -76,11 +76,7 @@ static int read_block_alias(struct file *file, uint32_t index, uint8_t *buf)
 	if (!pblock)
 		return -ENOENT;
 
-	/*
-	 * Deliberately read through the block-device mapping, not the inode
-	 * mapping.  The fsync test below uses this to prove file writeback
-	 * refreshes an already cached raw-block alias.
-	 */
+
 	page = page_cache_get_block(file->f_inode->i_sb->s_dev, pblock);
 	if (!page)
 		return -EIO;
@@ -240,10 +236,7 @@ void test_page_cache_raw_alias_fsync(void)
 		TEST_ASSERT_EQ(read_block_alias(file, 0, cached), 0);
 		TEST_ASSERT_NE(memcmp(cached, wbuf, sizeof(wbuf)), 0);
 
-		/*
-		 * fsync writes the inode mapping and then refreshes the cached
-		 * block-device alias for the same physical block.
-		 */
+
 		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
 
 		memset(cached, 0, sizeof(cached));

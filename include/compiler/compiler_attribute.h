@@ -3,11 +3,6 @@
 
 /*
  * include/compiler/compiler_attribute.h - compiler attribute 宏
- *
- * 功能：
- *   封装 GCC/Clang 的 __attribute__((...)) 为简洁的内核宏。
- *   用于控制结构体布局、函数调用约定、变量/函数的段分配、
- *   以及对编译器的优化提示。
  */
 
 #ifndef __has_attribute

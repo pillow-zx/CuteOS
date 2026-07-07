@@ -112,7 +112,7 @@ int main(int argc, char **argv)
 		}
 		for (int j = 1; arg[j] != '\0'; j++) {
 			if (arg[j] == 'F') {
-				/* Fixed string matching is the only mode. */
+
 			} else if (arg[j] == 'n') {
 				opts.line_number = 1;
 			} else if (arg[j] == 'c') {

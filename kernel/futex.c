@@ -228,11 +228,7 @@ void futex_exit_robust_list(struct task_struct *task)
 	struct robust_list *entry;
 	struct robust_list *pending;
 
-	/*
-	 * Linux robust futex ABI requires exit-time traversal of a user-owned
-	 * linked list, then OWNER_DIED writeback and futex wake. This is an
-	 * explicit ABI side effect, not ordinary syscall argument copying.
-	 */
+
 	head_ptr = task_robust_list(task);
 	if (!task || !head_ptr)
 		return;

@@ -4,8 +4,7 @@
 /*
  * arch/riscv/include/asm/asm_offsets.h - assembly-visible structure offsets
  *
- * Keep low-level assembly layout constants in one place so trap entry,
- * trap return, and context switch code do not drift apart.
+ * Keep these constants synchronized with C layouts and low-level assembly.
  */
 
 /* ---- struct trap_frame offsets ---- */

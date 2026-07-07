@@ -1,4 +1,6 @@
-/* syscall/sys_file_internal.h — shared helpers between sys_file_*.c */
+/*
+ * syscall/sys_file_internal.h - shared helpers between sys_file_*.c
+ */
 #ifndef SYS_FILE_INTERNAL_H
 #define SYS_FILE_INTERNAL_H
 
@@ -41,4 +43,4 @@ int __must_check sys_at_lookup(struct sys_at_lookup_result *lookup, int dfd,
 CLEANUP_DEFINE(sys_at_lookup, struct sys_at_lookup_result,
 	       sys_at_lookup_release(&_T));
 
-#endif /* SYS_FILE_INTERNAL_H */
+#endif

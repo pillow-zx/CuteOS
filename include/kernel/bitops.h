@@ -1,30 +1,28 @@
 #ifndef _CUTEOS_KERNEL_BITOPS_H
 #define _CUTEOS_KERNEL_BITOPS_H
 
-/*
- * include/kernel/bitops.h - 位操作工具
- *
- * 提供 buddy 分配器、调度器位图及其他通过位图管理资源的子系统
- * 所使用的位级辅助函数。
- *
- * 宏：
- *   BIT(n)      - 生成第 n 位被置位的掩码（1UL << n）
- *   GENMASK(h,l)- 生成从位 l 到位 h 的连续位掩码
- *
- * 函数：
- *   ffz(x) - 查找 x 中第一个零位（返回位索引）
- *   fls(x) - 查找 x 中最后一个置位（返回基于 1 的位置，x==0 返回 0）
+/**
+ * @file bitops.h
+ * @brief 位操作、mask 和对齐工具。
  */
 
 #include <kernel/types.h>
 #include <kernel/compiler.h>
 #include <kernel/tools.h>
 
+/** @def BIT Build an unsigned long value with bit @p n set. */
 #define BIT(n)	   (1UL << (n))
+/** @def BIT_U8 Build a uint8_t value with bit @p n set. */
 #define BIT_U8(n)  ((uint8_t)1U << (n))
+/** @def BIT_U32 Build a uint32_t value with bit @p n set. */
 #define BIT_U32(n) ((uint32_t)1U << (n))
+/** @def BIT_U64 Build a uint64_t value with bit @p n set. */
 #define BIT_U64(n) ((uint64_t)1ULL << (n))
 
+/**
+ * @def GENMASK
+ * @brief Build an unsigned long mask covering inclusive bit range h..l.
+ */
 #define GENMASK(h, l)                                                          \
 	(((~0UL) << (l)) & (~0UL >> ((sizeof(uintptr_t) * 8) - 1 - (h))))
 
@@ -34,6 +32,13 @@
 #define test_bit(x, n) (!!((x) & BIT(n)))
 
 #define MASK(n) (BIT(n) - 1)
+/**
+ * @def BITS
+ * @brief Extract an inclusive bit range from an integer expression.
+ * @param x Source value.
+ * @param hi Highest bit index.
+ * @param lo Lowest bit index.
+ */
 #define BITS(x, hi, lo)                                                        \
 	statement_expr(static_assert((hi) >= (lo), "BITS: hi must be >= lo");  \
 		       static_assert((lo) >= 0, "BITS: lo must be >= 0");      \
@@ -41,16 +46,28 @@
 
 #define __ALIGN_MASK(x, mask) (((x) + (mask)) & ~(mask))
 
+/**
+ * @def ALIGN_UP
+ * @brief Round @p x up to the next multiple of power-of-two @p a.
+ */
 #define ALIGN_UP(x, a)                                                         \
 	statement_expr(auto _x = (x); auto _a = (a);                           \
 		       if (constexpr(a)) BUILD_BUG_ON(!IS_POWER_OF_2(a));      \
 		       __ALIGN_MASK(_x, _a - 1);)
 
+/**
+ * @def ALIGN_DOWN
+ * @brief Round @p x down to a multiple of power-of-two @p a.
+ */
 #define ALIGN_DOWN(x, a)                                                       \
 	statement_expr(auto _x = (x); auto _a = (a);                           \
 		       if (constexpr(a)) BUILD_BUG_ON(!IS_POWER_OF_2(a));      \
 		       _x & ~(_a - 1);)
 
+/**
+ * @def IS_ALIGNED
+ * @brief Test whether @p x is aligned to power-of-two @p a.
+ */
 #define IS_ALIGNED(x, a)                                                       \
 	statement_expr(auto _x = (x); auto _a = (a);                           \
 		       if (constexpr(a)) BUILD_BUG_ON(!IS_POWER_OF_2(a));      \

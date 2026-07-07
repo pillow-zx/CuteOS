@@ -1,26 +1,5 @@
 /*
  * mm/page_fault.c - 缺页异常处理
- *
- * 功能：
- *   处理由 MMU 触发的缺页异常（Page Fault）。仅处理两种情况：
- *   - 合法缺页（legal fault）：虚拟地址落在合法 VMA 内，分配物理页
- *     并建立映射。
- *   - 非法访问：向进程发送 SIGSEGV（当前直接 do_exit）。
- *
- *   支持三种缺页类型：
- *     - 指令缺页（scause=12）：检查 VMA 的 VM_EXEC 权限
- *     - 加载缺页（scause=13）：检查 VMA 的 VM_READ 权限
- *     - 存储缺页（scause=15）：检查 VMA 的 VM_WRITE 权限
- *
- * 内核态缺页：
- *   支持内核态下由 copy_to_user / copy_from_user 触发的缺页，
- *   此时自动为对应的用户页分配物理页（而非发送信号）。
- *   若内核态访问非法地址，打印警告后 do_exit 当前进程。
- *
- * 主要函数：
- *   do_page_fault(tf) - 缺页异常总入口。读取 stval 获取出错虚拟地址，
- *             读取 scause 区分读/写缺页类型，查找 VMA 判断合法性，
- *             调用对应处理（分配页面或终止进程）。
  */
 
 #include <kernel/mm.h>
@@ -38,15 +17,6 @@
 
 #include "internal.h"
 
-/* ---- 内部辅助函数 ---- */
-
-/*
- * check_vma_permission - 检查访问类型是否与 VMA 权限匹配
- * @access: 访问类型
- * @vma:    匹配到的 VMA
- *
- * 返回 true 表示权限匹配，false 表示权限冲突。
- */
 static bool check_vma_permission(int access, struct vm_area_struct *vma)
 {
 	switch (access) {
@@ -180,8 +150,6 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 	return 0;
 }
 
-/* ---- 公共接口 ---- */
-
 int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size,
 			int access)
 {
@@ -241,20 +209,6 @@ int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size,
 	return 0;
 }
 
-/*
- * do_page_fault - 缺页异常处理总入口
- * @tf: 指向当前 trap_frame
- *
- * 处理流程：
- *   1. 通过 trap facade 获取故障虚拟地址
- *   2. 通过 trap facade 获取缺页类型（exec/read/write）
- *   3. 判断来源（用户态 / 内核态）
- *   4. find_vma 查找合法性
- *   5. 合法且权限匹配：分配物理页，清零，建立映射，刷新 TLB
- *   6. 非法或权限不匹配：do_exit（杀掉当前进程）
- *
- * 注意：不修改用户 PC，缺页指令在 trap return 后重新执行。
- */
 void do_page_fault(struct trap_frame *tf)
 {
 	vaddr_t fault_addr = trap_fault_addr(tf);
@@ -265,7 +219,6 @@ void do_page_fault(struct trap_frame *tf)
 	pte_t fault_pte = 0;
 	int ret;
 
-	/* 内核线程没有 mm，不应发生缺页 */
 	if (!mm) {
 		panic("page fault in kernel thread: type=%s addr=%p "
 		      "sepc=%p",
@@ -303,7 +256,6 @@ void do_page_fault(struct trap_frame *tf)
 		return;
 	}
 
-	/* 检查权限 */
 	if (!check_vma_permission(access, vma)) {
 		uint32_t vm_flags = vma->vm_flags;
 

@@ -1,13 +1,4 @@
-# CuteOS Build System
-#
-# Top-level Makefile for the CuteOS kernel — a RISC-V 64-bit teaching OS.
-# Inspired by xv6-riscv but reorganized for a modular kernel layout.
-#
-# Quick start:
-#   make qemu        — build and run in QEMU
-#   make qemu-gdb    — run with GDB server stub
-#   make clean       — remove build artifacts
-#   make format      — run clang-format on all sources
+# Top-level CuteOS build rules.
 
 .DEFAULT_GOAL := all
 
@@ -15,10 +6,6 @@ include scripts/toolchain.mk
 include scripts/kconfig.mk
 include scripts/build.mk
 include scripts/flags.mk
-
-# =============================================================================
-# Include Per-Directory Object Lists
-# =============================================================================
 
 include filelist.mk
 
@@ -31,7 +18,6 @@ endif
 
 include user/user.mk
 
-# Aggregate all kernel objects
 OBJ_REL = \
 	$(ARCH_OBJS)        \
 	$(INIT_OBJS)        \
@@ -45,7 +31,6 @@ OBJ_REL = \
 	$(KERNEL_TEST_OBJS) \
 	$(LIB_OBJS)
 
-# Kernel artifact names
 KERNEL_NAME = cuteos
 KERNEL      = $(OUTDIR)/$(KERNEL_NAME)
 KERNEL_STAGE1 = $(OUTDIR)/$(KERNEL_NAME).stage1
@@ -62,11 +47,6 @@ KSYMS_OBJ =
 OBJS        = $(OBJS_NOKSYMS)
 endif
 
-# =============================================================================
-# Build Rules
-# =============================================================================
-
-# Default target
 all: $(KERNEL)
 
 help:
@@ -95,12 +75,10 @@ help:
 	@printf '  make menuconfig\n'
 	@printf '  TOOLPREFIX=riscv64-linux-gnu- make qemu\n'
 
-# Backward-compatible aliases
 $(KERNEL_NAME): $(KERNEL)
 
 $(KERNEL_NAME).img: $(KERNEL_IMG)
 
-# Link the kernel
 $(KERNEL): $(OBJS) kernel.ld
 	$(Q)mkdir -p $(dir $@)
 	$(QUIET_LD)
@@ -127,7 +105,6 @@ $(KSYMS_OBJ): $(KSYMS_GEN_C)
 	$(Q)$(CC) $(CFLAGS) -c -o $@ $<
 endif
 
-# Compile C sources
 $(OUTDIR)/%.o: %.c $(AUTOCONF_H)
 	$(Q)mkdir -p $(dir $@)
 	$(QUIET_CC)
@@ -137,38 +114,24 @@ ifeq ($(CONFIG_LTO),y)
 $(addprefix $(OUTDIR)/,$(KERNEL_NO_LTO_OBJS)): CFLAGS := $(filter-out -flto%,$(CFLAGS)) $(COMMON_NO_LTO_CFLAGS)
 endif
 
-# Assemble .S sources
 $(OUTDIR)/%.o: %.S $(AUTOCONF_H)
 	$(Q)mkdir -p $(dir $@)
 	$(QUIET_AS)
 	$(Q)$(CC) $(ASFLAGS) -c -o $@ $<
 
-# =============================================================================
-# Dependency Inclusion
-# =============================================================================
-
 -include $(OBJS:.o=.d)
 
-# =============================================================================
-# QEMU Targets
-# =============================================================================
-
-# Number of CPU cores (single core for now, SMP ready)
 CPUS := $(CONFIG_QEMU_CPUS)
 
-# QEMU GDB port (based on user ID to avoid conflicts)
 GDBPORT = $(shell expr `id -u` % 5000 + 25000)
 
-# QEMU GDB stub
 QEMUGDB = $(shell if $(QEMU) -help | grep -q '^-gdb'; \
 	then echo "-gdb tcp::$(GDBPORT)"; \
 	else echo "-s -p $(GDBPORT)"; fi)
 
-# GDB startup file
 .gdbinit: .gdbinit.tmpl-riscv FORCE
 	$(Q)sed -e "s/:1234/:$(GDBPORT)/" -e "s|@KERNEL@|$(KERNEL)|" < $< > $@
 
-# QEMU options for riscv-virt platform
 QEMUOPTS  = -machine virt
 QEMUOPTS += -kernel $(KERNEL)
 QEMUOPTS += -m $(CONFIG_DRAM_SIZE_MB)M
@@ -178,7 +141,6 @@ QEMUOPTS += -global virtio-mmio.force-legacy=false
 QEMUOPTS += -drive file=$(KERNEL_IMG),if=none,format=raw,id=x0
 QEMUOPTS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
 
-# Check QEMU version
 QEMU_VERSION := $(shell $(QEMU) --version | head -n 1 | sed -E 's/^QEMU emulator version ([0-9]+\.[0-9]+)\..*/\1/')
 check-qemu-version:
 	@if [ "$(shell echo "$(QEMU_VERSION) >= $(MIN_QEMU_VERSION)" | bc)" -eq 0 ]; then \
@@ -186,34 +148,24 @@ check-qemu-version:
 		exit 1; \
 	fi
 
-# Run in QEMU
 qemu: check-qemu-version $(KERNEL) $(KERNEL_IMG)
 	$(QEMU) $(QEMUOPTS)
 
-# Run in QEMU with GDB
 qemu-gdb: $(KERNEL) $(KERNEL_IMG) .gdbinit
 	@echo "*** Now run 'gdb' in another window (target remote :$(GDBPORT))." 1>&2
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
 
-# Create an EXT2 disk image with the test init program.
 $(KERNEL_IMG): $(USER_ELFS) $(MKIMG) $(AUTO_CONF)
 	$(Q)mkdir -p $(dir $@)
 	$(QUIET_FSIMG)
 	$(Q)MKIMG_SIZE_MB=$(CONFIG_ROOTFS_IMAGE_SIZE_MB) $(MKIMG) $@ $(USER_INIT_ELF) $(USER_SH_ELF) $(filter-out $(USER_INIT_ELF) $(USER_SH_ELF),$(USER_ELFS))
 
-# =============================================================================
-# Utility Targets
-# =============================================================================
-
-# Print GDB port
 print-gdbport:
 	@echo $(GDBPORT)
 
-# Print compiler prefix
 print-toolprefix:
 	@echo $(TOOLPREFIX)
 
-# Source index files. Keep generated output and build directories out of tags.
 INDEX_PRUNE_DIRS = \( -path './.git' -o -path './build' -o \
 		      -path './tools/kconfig/build' -o -path './.cache' \)
 CTAGS_SOURCE_EXPR = \( -name '*.[ch]' -o -name '*.S' -o -name '*.s' -o \
@@ -240,13 +192,10 @@ gtags:
 	find . $(INDEX_PRUNE_DIRS) -prune -o $(GTAGS_SOURCE_EXPR) -print | sort > "$$tmp"; \
 	gtags -q --skip-unreadable -f "$$tmp" .
 
-# Run clang-format on C source and header files only
 FMT_FILES := $(shell find . \( -name '*.c' -o -name '*.h' \))
 format:
 	$(Q)clang-format -i $(FMT_FILES)
 
-# GCC static analyzer plus compile-only diagnostics. This pass is too noisy and
-# expensive to run as part of the normal build.
 ANALYZE_OUT = $(OUTROOT)/analyze
 ANALYZE_KERNEL_SRCS = $(wildcard $(OBJ_REL:.o=.c))
 ANALYZE_USER_SRCS = user/init/init.c user/init/shell.c
@@ -304,7 +253,6 @@ $(ANALYZE_OUT)/user/%.analyze: user/%.c $(AUTOCONF_H) FORCE
 	$(QUIET_ANALYZE)
 	$(Q)$(USER_CC) $(ANALYZE_USER_CFLAGS) -c -o /dev/null $<
 
-# Disassembly and analysis
 ifeq ($(V),1)
 QUIET_ASM :=
 QUIET_SYM :=
@@ -321,10 +269,6 @@ sym: $(KERNEL)
 	$(QUIET_SYM)
 	$(Q)$(OBJDUMP) -t $(KERNEL) | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $(KERNEL).sym
 
-# =============================================================================
-# Cleanup
-# =============================================================================
-
 user: $(USER_ELFS)
 
 clean-user:
@@ -335,12 +279,10 @@ clean: clean-user
 	$(Q)rm -f .gdbinit
 	$(Q)rm -f tags GTAGS GRTAGS GPATH ID
 
-# Prevent deletion of intermediate .o files
 .PRECIOUS: $(OUTDIR)/%.o
 
 FORCE:
 
-# Declare phony targets
 .PHONY: all help qemu qemu-gdb check-qemu-version clean clean-user FORCE
 .PHONY: user format analyze analyze-kernel analyze-user asm sym tags gtags
 .PHONY: $(KERNEL_NAME) $(KERNEL_NAME).img

@@ -1,30 +1,9 @@
 #ifndef _CUTEOS_KERNEL_SIGNAL_H
 #define _CUTEOS_KERNEL_SIGNAL_H
 
-/*
- * include/kernel/signal.h - 信号编号、处理函数与投递
- *
- * 声明 POSIX 信号基础设施：信号编号常量、sigaction 结构体
- * 用于注册处理函数，以及用于向用户进程投递信号的信号帧。
- *
- * Signal numbers (1-31):
- *   SIGHUP=1, SIGINT=2, SIGQUIT=3, SIGILL=4, SIGTRAP=5,
- *   SIGABRT=6, SIGBUS=7, SIGFPE=8, SIGKILL=9, SIGUSR1=10,
- *   SIGSEGV=11, SIGUSR2=12, SIGPIPE=13, SIGALRM=14, SIGTERM=15,
- *   ... up to SIGSYS=31
- *
- * Structs:
- *   struct sigaction   - Handler description (sa_handler, sa_mask, sa_flags)
- *   struct signal_frame - Saved architecture trap state for signal return
- *
- * Constants:
- *   SIG_DFL - Default signal handler sentinel
- *   SIG_IGN - Ignore signal sentinel
- *
- * 信号状态封装：sighand_struct 持有可共享的 handler 表，
- * signal_struct 持有线程组共享 pending；task_struct 仅保留每线程
- * blocked / pending / in_handler。外部模块通过 send_signal /
- * send_group_signal / signals_clone 等 API 管理生命周期和语义。
+/**
+ * @file signal.h
+ * @brief 内核信号状态、投递、用户返回与 sigaltstack 接口。
  */
 
 #include <kernel/types.h>
@@ -37,12 +16,33 @@
 #include <kernel/trap.h>
 #include <uapi/signal.h>
 
+/**
+ * @struct sighand_struct
+ * @brief Shared signal-handler table referenced by a thread group.
+ *
+ * @par Fields
+ * - @c refcount: References from tasks sharing handlers.
+ * - @c lock: Serializes sigaction updates.
+ * - @c sigactions: Linux signal action table.
+ */
 struct sighand_struct {
 	refcount_t refcount;
 	mutex_t lock;
 	struct sigaction sigactions[NSIG];
 };
 
+/**
+ * @struct signal_struct
+ * @brief Thread-group shared signal, timer, and resource-limit state.
+ *
+ * @par Fields
+ * - @c refcount: References from tasks in the group.
+ * - @c lock: Serializes shared signal-state updates.
+ * - @c shared_pending: Pending process-directed signal mask.
+ * - @c itimers: setitimer state.
+ * - @c posix_timers: POSIX timer table.
+ * - @c rlimits: prlimit64 state.
+ */
 struct signal_struct {
 	refcount_t refcount;
 	mutex_t lock;
@@ -52,12 +52,26 @@ struct signal_struct {
 	struct rlimit64 rlimits[RLIM_NLIMITS];
 };
 
+/**
+ * @def SIGNAL_TRAMPOLINE_ADDR
+ * @brief Fixed user virtual address of the signal trampoline mapping.
+ */
 #define SIGNAL_TRAMPOLINE_ADDR (USER_STACK_GUARD_BASE - PAGE_SIZE)
 
+/**
+ * @struct signal_frame
+ * @brief Kernel-built user stack frame consumed by rt_sigreturn.
+ *
+ * @par Fields
+ * - @c state: Architecture trap-frame payload.
+ * - @c blocked: Signal mask to restore on sigreturn.
+ * - @c sig: Delivered signal number.
+ * - @c on_altstack: Whether delivery entered an alternate stack.
+ */
 struct signal_frame {
 	struct signal_frame_state state;
 	uint64_t blocked;
-	uint64_t sig; /* 本帧投递的信号号；sys_sigreturn 据此清 in_handler */
+	uint64_t sig;
 	uint64_t on_altstack;
 };
 
@@ -85,17 +99,75 @@ int signals_init(struct task_struct *task);
 int signals_clone(struct task_struct *child, bool share_sighand,
 		  bool share_signal, bool disable_altstack);
 void signals_release(struct task_struct *task);
+/**
+ * @brief Deliver one pending signal before returning to userspace.
+ * @param tf User trap frame to rewrite for handler entry.
+ */
 void do_signal(struct trap_frame *tf);
+
+/**
+ * @brief Register the fixed signal trampoline user mapping.
+ */
 void signal_user_map_init(void);
 
-/* 内部 API（供 syscall/sys_signal.c ABI 边界调用） */
+/**
+ * @brief Implement kill() pid-directed signal semantics.
+ * @param pid Linux pid argument.
+ * @param sig Signal number, or 0 for permission/existence probe.
+ * @return 0 on success, or a negative errno.
+ */
 int do_kill(pid_t pid, int sig);
+
+/**
+ * @brief Implement tkill() thread-directed signal semantics.
+ * @param tid Target thread id.
+ * @param sig Signal number.
+ * @return 0 on success, or a negative errno.
+ */
 int do_tkill(pid_t tid, int sig);
+
+/**
+ * @brief Implement tgkill() thread-group-qualified signal semantics.
+ * @param tgid Target thread-group id.
+ * @param tid Target thread id.
+ * @param sig Signal number.
+ * @return 0 on success, or a negative errno.
+ */
 int do_tgkill(pid_t tgid, pid_t tid, int sig);
+
+/**
+ * @brief Register or query the current task alternate signal stack.
+ * @param ss Optional new userspace stack_t.
+ * @param old_ss Optional output for previous stack_t.
+ * @return 0 on success, or a negative errno.
+ */
 int do_sigaltstack(const struct stack_t *ss, struct stack_t *old_ss);
+
+/**
+ * @brief Install or query one signal action.
+ * @param sig Signal number.
+ * @param act Optional new action.
+ * @param oldact Optional output for previous action.
+ * @return 0 on success, or a negative errno.
+ */
 int do_sigaction(int sig, const struct sigaction *act,
 		 struct sigaction *oldact);
+
+/**
+ * @brief Apply Linux rt_sigprocmask operation to the current task.
+ * @param how SIG_BLOCK, SIG_UNBLOCK, or SIG_SETMASK.
+ * @param set Optional new mask.
+ * @param oldset Optional output for previous mask.
+ * @return 0 on success, or a negative errno.
+ */
 int do_sigprocmask(int how, const uint64_t *set, uint64_t *oldset);
+
+/**
+ * @brief Restore a userspace context from a signal frame.
+ * @param tf Current syscall trap frame.
+ * @param sp User stack pointer pointing at signal_frame.
+ * @return Does not return normally to the syscall ABI on success.
+ */
 int do_sigreturn(struct trap_frame *tf, uintptr_t sp);
 
 #endif

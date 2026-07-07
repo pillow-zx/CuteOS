@@ -1,9 +1,5 @@
 /*
  * syscall/sys_membarrier.c - membarrier Linux ABI compatibility wrapper
- *
- * 当前 cuteOS 保持单核执行。本文件实现 Linux riscv64 membarrier(2)
- * 的单核兼容子集，使 libc 探测和已注册 private expedited 命令获得稳定
- * 结果；完整 SMP IPI/runqueue 语义留给后续多核调度支持。
  */
 
 #include <kernel/errno.h>

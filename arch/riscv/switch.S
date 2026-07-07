@@ -1,12 +1,5 @@
 /*
  * arch/riscv/switch.S - cooperative context switch
- *
- * switch_to(prev, next)
- *   a0 = &prev->context
- *   a1 = &next->context
- *
- * Only callee-saved registers are preserved here. Trap entry/return owns
- * full user register save/restore.
  */
 
 #include <asm/asm_offsets.h>

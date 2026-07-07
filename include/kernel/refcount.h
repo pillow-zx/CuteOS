@@ -46,10 +46,6 @@ static __always_inline void refcount_inc(refcount_t *ref)
 	BUG_ON(!refcount_inc_not_zero(ref));
 }
 
-/*
- * Only for immortal cache entries whose zero count does not imply object
- * destruction, such as inode/dentry cache records.
- */
 static __always_inline void refcount_inc_allow_zero(refcount_t *ref)
 {
 	int old;

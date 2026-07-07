@@ -413,7 +413,6 @@ static int test_wait4_bad_rusage_preserves_child(void)
 	return 0;
 }
 
-/* Shared state between parent and child thread. */
 static volatile int ready_flag;
 static volatile int tid_word = -1;
 static volatile int result;
@@ -422,7 +421,7 @@ static int thread_fn(void *arg)
 {
 	(void)arg;
 	result = 42;
-	/* Signal parent that we're done. */
+
 	__atomic_store_n((int *)&ready_flag, 1, __ATOMIC_RELEASE);
 	futex((int *)&ready_flag, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, NULL, 0,
 	      0);
@@ -457,7 +456,7 @@ static int test_basic_thread_wake(void)
 		return 1;
 	}
 
-	/* Wait for the child to signal readiness. */
+
 	while (__atomic_load_n((int *)&ready_flag, __ATOMIC_ACQUIRE) == 0)
 		futex((int *)&ready_flag, FUTEX_WAIT | FUTEX_PRIVATE_FLAG, 0,
 		      NULL, 0, 0);
@@ -468,8 +467,7 @@ static int test_basic_thread_wake(void)
 		return 1;
 	}
 
-	/* Wait for thread to fully exit (tid_word cleared by CHILD_CLEARTID).
-	 */
+
 	int tid;
 
 	while ((tid = __atomic_load_n((int *)&tid_word, __ATOMIC_ACQUIRE)) != 0)
@@ -524,7 +522,7 @@ static int test_shared_counter(void)
 		return 1;
 	}
 
-	/* Parent also increments. */
+
 	for (int i = 0; i < N; i++)
 		__atomic_fetch_add((int *)&counter, 1, __ATOMIC_SEQ_CST);
 
@@ -547,8 +545,6 @@ static int test_shared_counter(void)
 	}
 	return 0;
 }
-
-/* ---- test 1: basic create/join ---- */
 
 static void *thread_return_value(void *arg)
 {
@@ -579,8 +575,6 @@ static int test_create_join(void)
 	}
 	return 0;
 }
-
-/* ---- test 2: mutex-protected shared counter ---- */
 
 #define N_THREADS 4
 #define N_ITERS	  500
@@ -632,8 +626,6 @@ static int test_mutex_counter(void)
 	return 0;
 }
 
-/* ---- test 3: mutex error paths ---- */
-
 static int test_mutex_errors(void)
 {
 	pthread_mutex_t m;
@@ -652,8 +644,6 @@ static int test_mutex_errors(void)
 		return 1;
 	return 0;
 }
-
-/* ---- test 4: pthread_self consistency ---- */
 
 static volatile long child_self_tid;
 

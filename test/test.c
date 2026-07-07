@@ -1,14 +1,5 @@
 /*
  * test/test.c - 内核子系统自测入口
- *
- * 功能：
- *   汇总 test/ 下各子系统测试函数，由 kernel_test() 统一调用。
- *   每项测试独立运行，失败时打印 FAIL 但不中止内核。
- *
- * 添加新测试：
- *   1. 在对应测试源文件中编写 test_xxx(void)
- *   2. 在 test/ktest.h 中声明
- *   3. 在 kernel_test() 中调用
  */
 
 #include <kernel/types.h>
@@ -17,22 +8,10 @@
 
 #include "ktest.h"
 
-/* ---- 测试计数器 ---- */
-
 uint32_t __test_total;
 uint32_t __test_passed;
 uint32_t __test_failed;
 
-/* ================================================================
- *  公共接口
- * ================================================================ */
-
-/**
- * kernel_test - 运行所有内核自测
- *
- * 在 kernel_main 中、各子系统初始化完成后调用。
- * 每个子系统前后打印分隔线，方便阅读。最后输出汇总。
- */
 void kernel_test(void)
 {
 	__test_total = 0;
@@ -44,23 +23,23 @@ void kernel_test(void)
 	pr_info("        CuteOS Kernel Self-Test         \n");
 	pr_info("========================================\n");
 
-	/* ---- Bitmap ---- */
+
 	TEST_SECTION("Bitmap");
 	test_bitmap();
 	test_bitmap_find_first_zero();
 	test_bitmap_odd_bits();
 
-	/* ---- Hash Table ---- */
+
 	TEST_SECTION("Hash Table");
 	test_hash_insert_lookup();
 	test_hash_collision_delete();
 
-	/* ---- PID ---- */
+
 	TEST_SECTION("PID");
 	test_pid_basic();
 	test_pid_exhaust();
 
-	/* ---- Buddy ---- */
+
 	TEST_SECTION("Buddy");
 	test_buddy_single_page();
 	test_buddy_multi_order();
@@ -70,7 +49,7 @@ void kernel_test(void)
 	test_buddy_multi_order_preserves_free_count();
 	test_buddy_stress();
 
-	/* ---- SLAB ---- */
+
 	TEST_SECTION("SLAB");
 	test_slab_basic();
 	test_slab_cross_cache();
@@ -80,7 +59,7 @@ void kernel_test(void)
 	test_kzalloc_large_zeroes_requested_size();
 	test_kmalloc_oversize_preserves_free_count();
 
-	/* ---- Trap ---- */
+
 	TEST_SECTION("Trap");
 	test_trap_frame_layout();
 	test_trap_from_user();
@@ -88,7 +67,7 @@ void kernel_test(void)
 	test_trap_irq_codes();
 	test_trap_user_return_task_setup();
 
-	/* ---- Timer ---- */
+
 	TEST_SECTION("Timer");
 	test_timer_mtime();
 	test_timer_mtimecmp();
@@ -101,7 +80,7 @@ void kernel_test(void)
 	test_ktimer_timer_run_expired_callback();
 	test_ktimer_interval_rearms_after_expiry();
 
-	/* ---- Sync ---- */
+
 	TEST_SECTION("Sync");
 	test_atomic_basic();
 	test_spinlock_irqsave();
@@ -114,7 +93,7 @@ void kernel_test(void)
 	test_wait_schedule_preserves_early_wakeup();
 	test_mutex_blocking();
 
-	/* ---- Cleanup RAII ---- */
+
 	TEST_SECTION("Cleanup");
 	test_cleanup_free_scope();
 	test_cleanup_take_ptr();
@@ -123,7 +102,7 @@ void kernel_test(void)
 	test_cleanup_with_guard_block();
 	test_cleanup_class_helpers();
 
-	/* ---- MM/VMA ---- */
+
 	TEST_SECTION("MM/VMA");
 	test_mm_vma_merge_adjacent();
 	test_mm_vma_munmap_middle_split();
@@ -148,7 +127,7 @@ void kernel_test(void)
 	test_vmalloc_free_merges_adjacent_ranges();
 	test_vmalloc_mapping_failure_rolls_back();
 
-	/* ---- Task ---- */
+
 	TEST_SECTION("Task");
 	test_task_idle();
 	test_task_layout_contract();
@@ -160,7 +139,7 @@ void kernel_test(void)
 	test_task_process_tree();
 	test_task_free_null();
 
-	/* ---- Task Resources ---- */
+
 	TEST_SECTION("Task Resources");
 	test_files_struct_copy_and_share();
 	test_files_struct_copy_preserves_cloexec();
@@ -169,7 +148,7 @@ void kernel_test(void)
 	test_signal_struct_pending();
 	test_signal_struct_rlimits_copy();
 
-	/* ---- Syscall Compat Helpers ---- */
+
 	TEST_SECTION("Syscall Compat");
 	test_rlimit_defaults();
 	test_vfs_default_poll_masks();
@@ -181,7 +160,7 @@ void kernel_test(void)
 	test_root_statfs_fields();
 	test_pipe2_file_alloc_failure_cleanup();
 
-	/* ---- fs-at Path/fd Semantics ---- */
+
 	TEST_SECTION("fs-at");
 	test_fs_at_path_lookup_basics();
 	test_fs_at_empty_path_error();
@@ -193,7 +172,7 @@ void kernel_test(void)
 	test_fs_mount_ext2_on_directory();
 	test_ext2_bgdt_uses_vmalloc_for_large_tables();
 
-	/* ---- Sched ---- */
+
 	TEST_SECTION("Sched");
 	test_sched_init();
 	test_sched_enqueue_dequeue();
@@ -202,24 +181,24 @@ void kernel_test(void)
 	test_sched_wakeup_refresh();
 	test_sched_boost();
 
-	/* ---- Kernel Thread ---- */
+
 	TEST_SECTION("Kernel Thread");
 	test_kernel_thread_basic();
 	test_kernel_thread_ctx_setup();
 
-	/* ---- virtio-blk ---- */
+
 	TEST_SECTION("VirtIO-Blk");
 	test_virtio_blk();
 	test_virtio_blk_errors();
 
-	/* ---- Page Cache Metadata ---- */
+
 	TEST_SECTION("Page Cache Metadata");
 	test_page_cache_metadata_basic();
 	test_page_cache_metadata_errors();
 	test_page_cache_block_zero_writeback();
 	test_page_cache_metadata_eviction();
 
-	/* ---- Page Cache ---- */
+
 	TEST_SECTION("Page Cache");
 	test_page_cache_dirty_write_visibility();
 	test_page_cache_fsync_inode_scope();
@@ -232,7 +211,7 @@ void kernel_test(void)
 	test_page_cache_truncate_extend_zero_fill();
 	test_page_cache_large_offset_rejected();
 
-	/* ---- 汇总 ---- */
+
 	pr_info("\n========================================\n");
 	pr_info("  Total: %d  |  Passed: %d  |  Failed: %d\n",
 		(int)__test_total, (int)__test_passed, (int)__test_failed);

@@ -1,6 +1,15 @@
 #ifndef _CUTEOS_UAPI_FCNTL_H
 #define _CUTEOS_UAPI_FCNTL_H
 
+/**
+ * @file fcntl.h
+ * @brief Linux openat/fcntl/access/rename/splice flag constants.
+ *
+ * These numeric values are UAPI. cuteOS may implement only documented subsets
+ * of the Linux flag semantics, but the bit assignments must remain compatible
+ * with riscv64 userspace.
+ */
+
 #define AT_FDCWD	    -100
 #define AT_SYMLINK_NOFOLLOW 0x100
 #define AT_REMOVEDIR	    0x200

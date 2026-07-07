@@ -1,8 +1,5 @@
 /*
  * arch/riscv/mm/user_map.c - QEMU virt 用户页表平台映射
- *
- * 用户进程运行在自己的页表上，trap 进入内核后仍需要低地址 MMIO
- * 映射，供轮询 UART 和 virtio-blk 访问。映射权限不包含 PTE_U。
  */
 
 #include <kernel/printk.h>

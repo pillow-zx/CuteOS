@@ -1,8 +1,5 @@
 /*
  * syscall/sys_stub.c - 当前内核子系统尚不足的系统调用占位实现
- *
- * 每个函数保留 Linux riscv64 ABI 入口和明确 TODO，等对应子系统成熟后
- * 再补完整语义。
  */
 
 #include <kernel/errno.h>

@@ -1,6 +1,11 @@
 #ifndef _CUTEOS_UAPI_STAT_H
 #define _CUTEOS_UAPI_STAT_H
 
+/**
+ * @file stat.h
+ * @brief Linux-compatible stat, statx, mode, and dev_t UAPI definitions.
+ */
+
 #define S_IFMT	 00170000
 #define S_IFSOCK 0140000
 #define S_IFLNK	 0120000
@@ -28,13 +33,57 @@
 #define S_ISCHR(m)  (((m) & S_IFMT) == S_IFCHR)
 #define S_ISFIFO(m) (((m) & S_IFMT) == S_IFIFO)
 
+/**
+ * @def MINORBITS
+ * @brief Number of low bits reserved for a Linux device minor number.
+ */
 #define MINORBITS 20u
+
+/**
+ * @def MKDEV
+ * @brief Pack major/minor numbers into a dev_t-compatible unsigned long.
+ */
 #define MKDEV(major, minor)                                                    \
 	(((unsigned long)(major) << MINORBITS) | (unsigned long)(minor))
+
+/**
+ * @def MAJOR
+ * @brief Extract the major device number from a packed dev_t value.
+ */
 #define MAJOR(dev) ((unsigned int)((unsigned long)(dev) >> MINORBITS))
+
+/**
+ * @def MINOR
+ * @brief Extract the minor device number from a packed dev_t value.
+ */
 #define MINOR(dev)                                                             \
 	((unsigned int)((unsigned long)(dev) & ((1UL << MINORBITS) - 1)))
 
+/**
+ * @struct stat
+ * @brief Linux riscv64 stat layout returned by fstat/newfstatat.
+ *
+ * @par Fields
+ * - @c st_dev: Device containing the inode.
+ * - @c st_ino: Inode number.
+ * - @c st_mode: File type and permission bits.
+ * - @c st_nlink: Hard-link count.
+ * - @c st_uid: Owner uid.
+ * - @c st_gid: Owner gid.
+ * - @c st_rdev: Device id for special files.
+ * - @c __pad1: ABI padding.
+ * - @c st_size: File size in bytes.
+ * - @c st_blksize: Preferred I/O block size.
+ * - @c __pad2: ABI padding.
+ * - @c st_blocks: Allocated 512-byte blocks.
+ * - @c st_atime_sec: Last access time, seconds.
+ * - @c st_atime_nsec: Last access time, nanoseconds.
+ * - @c st_mtime_sec: Last data modification time, seconds.
+ * - @c st_mtime_nsec: Last modification time, nanoseconds.
+ * - @c st_ctime_sec: Last metadata change time, seconds.
+ * - @c st_ctime_nsec: Last change time, nanoseconds.
+ * - @c st_unused: Reserved ABI padding.
+ */
 struct stat {
 	unsigned long st_dev;
 	unsigned long st_ino;
@@ -57,12 +106,52 @@ struct stat {
 	unsigned int st_unused[2];
 };
 
+/**
+ * @struct statx_timestamp
+ * @brief Timestamp layout embedded in Linux statx.
+ *
+ * @par Fields
+ * - @c tv_sec: Whole seconds.
+ * - @c tv_nsec: Nanoseconds within the current second.
+ * - @c __reserved: Reserved ABI padding.
+ */
 struct statx_timestamp {
 	long tv_sec;
 	unsigned int tv_nsec;
 	int __reserved;
 };
 
+/**
+ * @struct statx
+ * @brief Linux statx result layout.
+ *
+ * @par Fields
+ * - @c stx_mask: STATX_* bits describing valid fields.
+ * - @c stx_blksize: Preferred I/O block size.
+ * - @c stx_attributes: Filesystem attribute bits.
+ * - @c stx_nlink: Hard-link count.
+ * - @c stx_uid: Owner uid.
+ * - @c stx_gid: Owner gid.
+ * - @c stx_mode: File type and permission bits.
+ * - @c __spare0: Reserved ABI padding.
+ * - @c stx_ino: Inode number.
+ * - @c stx_size: File size in bytes.
+ * - @c stx_blocks: Allocated 512-byte blocks.
+ * - @c stx_attributes_mask: Supported attribute bits.
+ * - @c stx_atime: Last access time.
+ * - @c stx_btime: Creation/birth time if known.
+ * - @c stx_ctime: Last metadata change time.
+ * - @c stx_mtime: Last data modification time.
+ * - @c stx_rdev_major: Special-file device major.
+ * - @c stx_rdev_minor: Special-file device minor.
+ * - @c stx_dev_major: Containing device major.
+ * - @c stx_dev_minor: Containing device minor.
+ * - @c stx_mnt_id: Mount id when available.
+ * - @c stx_dio_mem_align: Direct-I/O memory alignment.
+ * - @c stx_dio_offset_align: Direct-I/O offset alignment.
+ * - @c stx_subvol: Subvolume id when available.
+ * - @c __spare3: Reserved ABI extension space.
+ */
 struct statx {
 	unsigned int stx_mask;
 	unsigned int stx_blksize;

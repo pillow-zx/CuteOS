@@ -1,20 +1,6 @@
-/*
- * include/kernel/page.h - 物理页描述符
- *
- * 功能：
- *   定义 struct page，系统中每个物理页帧对应一个实例。全局数组 mem_map
- *   保存所有 struct page 条目，由 buddy 分配器管理分配与释放。
- *
- * struct page 字段：
- *   flags    - 页状态标志位（PG_RESERVED, PG_SLAB, PG_BUDDY 等）
- *   order    - 在 buddy 空闲链表中的分配阶数
- *   refcount - 引用计数
- *   lru      - 链表节点，用于 buddy 空闲链表链接
- *
- * 页标志：
- *   PG_RESERVED - 保留给内核使用（不可分配）
- *   PG_SLAB     - 页由 SLAB 分配器管理
- *   PG_BUDDY    - 页块当前挂在 buddy 空闲链表中
+/**
+ * @file page.h
+ * @brief 物理页描述符和 page flag helpers。
  */
 
 #ifndef _CUTEOS_KERNEL_PAGE_H
@@ -26,16 +12,33 @@
 #include <kernel/compiler.h>
 #include <arch/page.h>
 
-/* 页标志位定义 */
+/**
+ * @def PG_RESERVED
+ * @brief Physical page is reserved and unavailable to general allocators.
+ */
 #define PG_RESERVED 0
-#define PG_SLAB	    1
-#define PG_BUDDY    2
 
 /**
- * struct page - 物理页帧描述符
+ * @def PG_SLAB
+ * @brief Physical page is owned by the slab allocator.
+ */
+#define PG_SLAB 1
+
+/**
+ * @def PG_BUDDY
+ * @brief Physical page is currently managed by the buddy allocator.
+ */
+#define PG_BUDDY 2
+
+/**
+ * @struct page
+ * @brief Physical page descriptor in the global mem_map array.
  *
- * 全局数组 mem_map[] 中每个页帧对应一个实例。buddy 分配器通过
- * lru 将空闲页块串入 free_area[order] 链表。
+ * @par Fields
+ * - @c flags: PG_* bitset.
+ * - @c order: Buddy order when page is a free block head.
+ * - @c refcount: References held by allocators/users.
+ * - @c lru: Allocator or cache intrusive list node.
  */
 struct page {
 	uint32_t flags;

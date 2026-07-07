@@ -1,33 +1,5 @@
 /*
  * init/main.c - kernel_main() 内核初始化入口
- *
- * 功能：
- *   内核 C 代码的主入口点。由 arch/riscv/boot.S 在建立临时页表和
- *   开启 MMU 后跳转至此。负责按依赖顺序调用各子系统初始化函数，
- *   建立完整的内核运行环境，最后创建 init 进程并启动调度器。
- *
- * 初始化流程（严格按依赖顺序）：
- *   1. console_init_sbi()       — SBI ecall 控制台，printk 可用
- *   2. pr_info("cuteOS starting...")
- *   3. arch_pt_init()  — 建立正式内核页表（4KB 页 + MMIO mega page）
- *   4. console_init_mmio()      — 切换到 UART MMIO 轮询模式
- *   5. console_chrdev_init()    — 注册 /dev/console 字符设备操作
- *   6. buddy_init()             — 物理页分配器（从 _end 到 DRAM 结束）
- *   7. slab_init()              — kmalloc 可用（8 组 size class）
- *   8. trap_init()              — stvec, sscratch, SIE.STIE
- *   9. task_init()              — 创建 idle (PID 0, BSS 静态), 设置当前任务
- *  10. arch_timer_init()             — Sstc stimecmp 设置首次时钟中断
- *  11. sched_init()             — 初始化全局就绪队列
- *  12. kernel_test()            — DEBUG 构建运行内核自测
- *  13. kernel_thread(init_process, NULL) — 创建 init (PID 1)
- *  14. while(1) { wait_for_interrupt(); schedule(); }   — idle 循环
- *
- * 依赖关系：
- *   console → pagetable → buddy → slab → trap → task → timer → sched → thread
- *
- * 注意事项：
- *   不解析 DTB；设备地址仍硬编码，DRAM 大小等参数来自 Kconfig。
- *   仅 hart0 运行，非 0 hart 在 boot.S 中已被 park。
  */
 
 #include <kernel/printk.h>
@@ -120,7 +92,7 @@ void kernel_main(void)
 	writeback = kernel_thread(page_cache_wb_thread, NULL);
 	BUG_ON(!writeback);
 
-	/* 进入 idle 循环 — idle 进程的执行体 */
+
 	while (true) {
 		schedule();
 		wait_for_interrupt();

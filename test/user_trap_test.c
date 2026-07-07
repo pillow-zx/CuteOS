@@ -1,14 +1,4 @@
-/*
- * init/user_trap_test.c - 用户态 trap 往返测试
- *
- * 真实执行一段用户 stub（写满寄存器后 ecall），在 trap hook 中校验
- * trap_frame 是否完整保存了用户寄存器值，然后改写返回目标切回 idle。
- *
- * 测试路径：
- *   kernel_test() -> schedule() -> __trapret -> sret(U-mode)
- *   -> user ecall -> __alltraps(U->S) -> trap_handler(test hook)
- *   -> __trapret(S-mode) -> user_trap_test_resume() -> switch_to(idle)
- */
+
 
 #include <kernel/test.h>
 #include <kernel/printk.h>
@@ -22,20 +12,11 @@
 
 #include "ktest.h"
 
-/* entry.S 中的 trap 返回入口 */
 extern void __trapret(void);
 extern char user_trap_test_start[];
 extern char user_trap_test_ecall[];
 extern char user_trap_test_end[];
 
-/*
- * UTEST_* 哨兵值 — 必须与 init/user_trap_test_stub.S 中的 li 立即数保持同步，
- * 修改其中一处时必须同步更新另一处。
- *
- * gp (x3) 和 tp (x4) 故意不设哨兵值：
- *   gp — 用于 GP 相对寻址，加载假值会导致访问异常
- *   tp — 保存线程指针 (TLS)，覆写会破坏 TP 相对访问
- */
 #define UTEST_RA  0x0101010101010101UL
 #define UTEST_T0  0x0202020202020202UL
 #define UTEST_T1  0x0303030303030303UL
@@ -157,10 +138,7 @@ static bool user_trap_test_hook(struct trap_frame *tf)
 			"t6 was not preserved");
 
 intercept:
-	/*
-	 * 改写返回目标：不再回用户页，而是直接从 __trapret 的 S 分支
-	 * 回到一个内核 continuation，然后手动 switch 回 idle 上下文。
-	 */
+
 	trap_set_kernel_return(tf, (uintptr_t)user_trap_test_resume);
 	return true;
 
@@ -178,16 +156,6 @@ static void __noreturn user_trap_test_resume(void)
 	panic("user trap test resume returned unexpectedly");
 }
 
-/**
- * forge_user_return_task - 伪造一个首次调度时将返回到 U-mode 的任务
- * @user_pc: 用户入口 PC（写入 tf->sepc）
- * @user_sp: 用户栈顶 SP（写入 tf->sp）
- *
- * 该 helper 复用 kernel_thread 的启动机制：
- *   ctx.ra = __trapret
- *   ctx.sp = tf
- * 但 trap_frame 的 sstatus 不设置 SPP，因此 __trapret 会走用户态返回路径。
- */
 static struct task_struct *
 forge_user_return_task(size_t user_pc, size_t user_sp, size_t user_sstatus)
 {
@@ -200,14 +168,6 @@ forge_user_return_task(size_t user_pc, size_t user_sp, size_t user_sstatus)
 	return task;
 }
 
-/**
- * test_trap_user_return_task_setup - 真实运行 U->S trap 往返
- *
- * 关键点：
- *   - 临时分配代码页/用户栈页，并把现有 identity mapping 改成 PTE_U
- *   - 真实执行一段用户 stub，写满寄存器后触发 ecall
- *   - 在 trap hook 中校验 trap_frame 是否完整保存用户寄存器
- */
 void test_trap_user_return_task_setup(void)
 {
 	struct task_struct *t = NULL;
@@ -244,10 +204,6 @@ void test_trap_user_return_task_setup(void)
 		user_pc = code_pa;
 		user_sp = stack_pa + PAGE_SIZE;
 
-		/*
-		 * 复用现有 DRAM identity mapping：临时把测试页改成用户页。
-		 * 这样无需在 3.1 阶段就引入完整的用户页表分配逻辑。
-		 */
 		pagetable_write_current(code_pa, code_pa,
 					pgprot_user(true, false, true));
 		pagetable_write_current(stack_pa, stack_pa,
@@ -268,16 +224,7 @@ void test_trap_user_return_task_setup(void)
 		trap_set_hook(user_trap_test_hook);
 		hook_installed = true;
 
-		/*
-		 * 关闭时钟中断，使整段手工编排的 U->S 往返对 timer 原子。
-		 *
-		 * 本测试的 test hook 会把"测试任务发出的任意 trap"一律改写到
-		 * resume 并手工 switch_to(idle)。若 timer 在 schedule() /
-		 * __trapret / resume 等 S 态脚手架中（此时 SIE=1）打断，hook
-		 * 会在上下文切换中途强行 switch，破坏手工切换的不变量，随机
-		 * 表现为 panic 退出或卡死。注意伪造任务的 sstatus=0 已保证 U
-		 * 态中断关闭，但 S 态脚手架仍暴露在 timer 下，故在此显式屏蔽。
-		 */
+
 		saved_sie = csr_read(sie);
 		csr_clear(sie, SIE_STIE);
 		timer_quiesced = true;

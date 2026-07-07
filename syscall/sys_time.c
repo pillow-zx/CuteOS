@@ -1,22 +1,5 @@
 /*
  * syscall/sys_time.c - 时间相关系统调用（ABI 边界层）
- *
- * 功能：
- *   实现时间相关的系统调用。本文件属于 ABI 边界层：负责从 trap_frame
- *   解包参数、验证用户指针，并委托给 kernel/time.c 中的核心逻辑。
- *
- *   所有 stub 实现原地返回 -ENOSYS，并附有待实现的 TODO 注释。
- *
- * 主要函数：
- *   sys_times(tf)              - times 系统调用
- *   sys_gettimeofday(tf, tz)   - gettimeofday 系统调用
- *   sys_clock_gettime(tf)      - 获取指定时钟的时间
- *   sys_clock_getres(tf)       - 获取指定时钟的分辨率
- *   sys_nanosleep(tf)          - 高精度休眠
- *   sys_clock_nanosleep(tf)    - 基于指定时钟的休眠
- *   sys_getitimer/setitimer    - 进程 interval timer ABI
- *   sys_timer_*                - 均返回 -ENOSYS
- *   sys_clock_settime(tf)      - 返回 Linux 兼容的显式不支持错误
  */
 
 #include <kernel/errno.h>
@@ -63,10 +46,6 @@ ssize_t sys_gettimeofday(struct trap_frame *tf)
 	if (utz) {
 		struct timezone ktz = {0};
 
-		/*
-		 * TODO(time): 当前没有 RTC/时区配置，gettimeofday 暂以启动
-		 * 时间为 0 点，timezone 始终返回 UTC。
-		 */
 		if (copy_to_user(utz, &ktz, sizeof(ktz)) != 0)
 			return -EFAULT;
 	}
@@ -85,10 +64,7 @@ ssize_t sys_clock_gettime(struct trap_frame *tf)
 	if (!uts)
 		return -EFAULT;
 
-	/*
-	 * TODO(time): CLOCK_REALTIME 需要 RTC 或启动时 wall-clock offset。
-	 * 在当前平台上 REALTIME/MONOTONIC/BOOTTIME 都基于 mtime。
-	 */
+
 	mtime_to_timespec(arch_timer_now(), &kts);
 	if (copy_to_user(uts, &kts, sizeof(kts)) != 0)
 		return -EFAULT;
@@ -193,8 +169,6 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 
 	return ret;
 }
-
-/* ---- stubs ---- */
 
 ssize_t sys_getitimer(struct trap_frame *tf)
 {
@@ -398,10 +372,7 @@ ssize_t sys_clock_settime(struct trap_frame *tf)
 
 	switch (clock_id) {
 	case CLOCK_REALTIME:
-		/*
-		 * cuteOS has no CAP_SYS_TIME model and no writable wall-clock
-		 * offset.  The syscall exists, but user space cannot mutate it.
-		 */
+
 		return -EPERM;
 	case CLOCK_MONOTONIC:
 	case CLOCK_BOOTTIME:

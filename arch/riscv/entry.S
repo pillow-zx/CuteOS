@@ -1,11 +1,5 @@
 /*
  * arch/riscv/entry.S - Trap 汇编入口/出口
- *
- * __alltraps : 统一 trap 向量入口, 区分 U→S / S→S 后保存 trap_frame
- * __trapret  : 从 trap_frame 恢复寄存器并 sret
- *
- * Trap 帧布局 (struct trap_frame, 35 × 8 = 280 字节):
- *   sepc, ra, sp, gp, tp, t0-t6, s0-s11, a0-a7, scause, stval, sstatus
  */
 
 #include <asm/asm_offsets.h>
@@ -16,33 +10,17 @@
 	.globl trapret_to_user
 	.align 4
 
-/* ================================================================
- * __alltraps - Trap 向量入口 (Direct mode)
- *
- * 判断 trap 来源:
- *   读 sscratch → 如果 t0 != 0 则来自用户态 (U→S)
- *   否则来自内核态 (S→S), 需恢复 t0 后直接用当前 sp。
- *
- * 关键: csrrw t0, sscratch, t0 将用户态 t0 交换到 sscratch 中,
- *       后续可从 sscratch 恢复。
- * ================================================================ */
 __alltraps:
-	csrrw   t0, sscratch, t0       /* t0 = old sscratch; sscratch = old t0 */
+	csrrw   t0, sscratch, t0
 	bnez    t0, .Lfrom_user
 
-	/* ============================================================
-	 * S → S path
-	 * sscratch 里存的是被换出的旧 t0, 换回来即可。
-	 * sp 不变, 直接在当前内核栈上分配 trap_frame。
-	 * ============================================================ */
-	csrrw   zero, sscratch, t0     /* sscratch = 0; 恢复 t0 */
+
+	csrrw   zero, sscratch, t0
 	addi    sp, sp, -TRAP_FRAME_SIZE
 
-	/* 保存原始 sp (分配前的值) */
 	addi    t1, sp, TRAP_FRAME_SIZE
 	sd      t1, TF_SP(sp)
 
-	/* 保存所有 GPR */
 	sd      ra,  TF_RA(sp)
 	sd      gp,  TF_GP(sp)
 	sd      tp,  TF_TP(sp)
@@ -74,7 +52,6 @@ __alltraps:
 	sd      t5,  TF_T5(sp)
 	sd      t6,  TF_T6(sp)
 
-	/* 保存 CSR */
 	csrr    t1, sepc
 	sd      t1, TF_SEPC(sp)
 	csrr    t1, scause
@@ -86,33 +63,20 @@ __alltraps:
 
 	j       .Lcall_handler
 
-	/* ============================================================
-	 * U → S path
-	 * t0 = 内核栈顶 (来自 sscratch)
-	 * sp 仍为用户态 sp (未被修改)
-	 * 用户态 t0 在 sscratch 里 (被 csrrw 交换进去)
-	 * ============================================================ */
 .Lfrom_user:
-	/* 将用户 sp 暂存到栈顶下方的 scratch slot。 */
-	/* 暂存槽 = TF_SSTATUS 字 (kstack_top-8)。user_sp 必须在读入 TF_SP
-	* 之后再保存 sstatus，否则会被覆盖。 */
 	sd      sp, -8(t0)
-	/* 切换到内核栈 */
+
 	mv      sp, t0
 	addi    sp, sp, -TRAP_FRAME_SIZE
 
-	/* 取回用户 sp, 存入 TF_SP */
 	ld      t0, TRAP_SCRATCH_OFFSET(sp)
 	sd      t0, TF_SP(sp)
 
-	/* 从 sscratch 取回用户态原始 t0 */
 	csrr    t0, sscratch
 	sd      t0, TF_T0(sp)
 
-	/* sscratch 清零 */
 	csrw    sscratch, zero
 
-	/* 保存其余 GPR (都是原始用户态值) */
 	sd      ra,  TF_RA(sp)
 	sd      gp,  TF_GP(sp)
 	sd      tp,  TF_TP(sp)
@@ -143,7 +107,6 @@ __alltraps:
 	sd      t5,  TF_T5(sp)
 	sd      t6,  TF_T6(sp)
 
-	/* 保存 CSR */
 	csrr    t0, sepc
 	sd      t0, TF_SEPC(sp)
 	csrr    t0, scause
@@ -153,18 +116,12 @@ __alltraps:
 	csrr    t0, sstatus
 	sd      t0, TF_SSTATUS(sp)
 
-	/* fall through */
-
 .Lcall_handler:
 	mv      a0, sp
 	jal     ra, trap_handler
 
-/* ================================================================
- * __trapret - 从 trap 返回
- * ================================================================ */
 	.align 4
 __trapret:
-	/* 恢复 CSR */
 	ld      t0, TF_SEPC(sp)
 	csrw    sepc, t0
 	ld      t0, TF_SCAUSE(sp)
@@ -174,7 +131,6 @@ __trapret:
 	ld      t0, TF_SSTATUS(sp)
 	csrw    sstatus, t0
 
-	/* 恢复 GPR (sp, t0 留到最后) */
 	ld      ra,  TF_RA(sp)
 	ld      gp,  TF_GP(sp)
 	ld      tp,  TF_TP(sp)
@@ -205,7 +161,6 @@ __trapret:
 	ld      t5,  TF_T5(sp)
 	ld      t6,  TF_T6(sp)
 
-	/* 判断返回目标: SPP=0 → 用户态, SPP=1 → 内核态 */
 	csrr    t0, sstatus
 	andi    t0, t0, (1 << 8)
 	bnez    t0, .Lret_supervisor
@@ -220,19 +175,18 @@ __trapret:
 	 * exec_user_path() 首次进入用户态时使用的是普通内核栈局部 frame。
 	 */
 	la      t0, cpu_table
-	ld      t0, CPU_CURRENT_TASK(t0) /* t0 = active task_struct * */
-	ld      t0, TASK_KSTACK(t0)     /* t0 = task->kstack */
+	ld      t0, CPU_CURRENT_TASK(t0)
+	ld      t0, TASK_KSTACK(t0)
 	addi    t0, t0, 2047
 	addi    t0, t0, 2047
 	addi    t0, t0, 2047
 	addi    t0, t0, 2047
-	addi    t0, t0, 4               /* t0 = kstack + 8192 */
+	addi    t0, t0, 4
 	csrw    sscratch, t0
 
-	/* 切换到当前进程的用户页表 */
 	la      t0, cpu_table
-	ld      t0, CPU_CURRENT_TASK(t0) /* t0 = active task_struct * */
-	ld      t0, TASK_SATP(t0)       /* t0 = task->satp */
+	ld      t0, CPU_CURRENT_TASK(t0)
+	ld      t0, TASK_SATP(t0)
 	beqz    t0, .Lret_user_noswitch
 	csrw    satp, t0
 	sfence.vma zero, zero

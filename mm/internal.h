@@ -164,12 +164,6 @@ struct vm_area_struct *__must_check find_vma(struct mm_struct *mm,
 int __must_check mm_range_end_page_aligned(uintptr_t start, size_t length,
 					   uintptr_t *end);
 
-/*
- * fault_in_user_range - 预缺页用户地址范围
- *
- * 仅执行 VMA/PTE 校验和合法 lazy allocation。失败返回负 errno，
- * 不发送 signal、不退出当前任务。
- */
 int __must_check fault_in_user_range(struct mm_struct *mm, uintptr_t addr,
 				     size_t size, int access);
 
@@ -205,4 +199,4 @@ int __must_check mm_move_user_pages_locked(struct mm_struct *mm,
 					   uintptr_t old_start,
 					   uintptr_t new_start, size_t len);
 
-#endif /* _CUTEOS_MM_INTERNAL_H */
+#endif

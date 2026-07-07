@@ -1,23 +1,9 @@
 #ifndef _CUTEOS_KERNEL_BLKDEV_H
 #define _CUTEOS_KERNEL_BLKDEV_H
 
-/*
- * include/kernel/blkdev.h - 块设备抽象层
- *
- * 在文件系统/page cache 与具体块设备驱动之间提供设备无关的扇区读写接口。
- * 调用方通过设备号查找到 struct block_device，再经 bd_ops->read_sectors /
- * write_sectors 发起 I/O，无需感知底层是 virtio-blk 还是其它驱动。
- *
- * 设备号编码（与 Linux kdev_t 一致）：高 12 位为主设备号，低 20 位为次设备号。
- *
- * Structs:
- *   struct block_device_operations - 扇区化操作向量（read/write_sectors）
- *   struct block_device            - 已注册块设备（设备号 + ops +
- * 驱动私有数据）
- *
- * Functions:
- *   register_block_device(bdev) - 以主设备号为索引注册到 dev_table[]
- *   lookup_block_device(dev)    - 按设备号查找已注册的 struct block_device
+/**
+ * @file blkdev.h
+ * @brief 块设备抽象层和 512-byte sector / 4 KiB block 合同。
  */
 
 #include <kernel/page_mapping.h>
@@ -25,24 +11,39 @@
 #include <kernel/compiler.h>
 #include <uapi/stat.h>
 
-/* 块设备扇区大小：virtio-blk 与绝大多数块设备固定 512 字节/扇区 */
-#define SECTOR_SIZE  512u
+/**
+ * @def SECTOR_SIZE
+ * @brief Block-device ABI sector size in bytes.
+ */
+#define SECTOR_SIZE 512u
+
+/**
+ * @def SECTOR_SHIFT
+ * @brief log2(SECTOR_SIZE), used for byte/sector conversion.
+ */
 #define SECTOR_SHIFT 9
 
-/* cuteOS 目前只支持 4KiB 文件系统块；块缓存和 EXT2 均以此为单位。 */
-#define BLOCK_SIZE    4096u
+/**
+ * @def BLOCK_SIZE
+ * @brief Kernel page-cache block size in bytes.
+ */
+#define BLOCK_SIZE 4096u
+
+/**
+ * @def BLOCK_SECTORS
+ * @brief Number of 512-byte sectors contained in one 4 KiB cache block.
+ */
 #define BLOCK_SECTORS (BLOCK_SIZE / SECTOR_SIZE)
 
 struct block_device;
 
-/*
- * struct block_device_operations - 块设备扇区化操作向量
+/**
+ * @struct block_device_operations
+ * @brief Low-level sector I/O callbacks implemented by block drivers.
  *
- * @read_sectors:  从 @sector 起连续读 @nsec 个 512 字节扇区到 @buf
- * @write_sectors: 将 @buf 中 @nsec 个扇区写入 @sector 起
- *
- * 返回值：0 成功；负数错误码（-EIO / -EINVAL）失败。
- * @buf 必须位于内核直接映射区（驱动用 __pa() 取物理地址交给设备）。
+ * @par Fields
+ * - @c read_sectors: Read @p nsec sectors starting at @p sector into @p buf.
+ * - @c write_sectors: Write @p nsec sectors starting at @p sector from @p buf.
  */
 struct block_device_operations {
 	int (*read_sectors)(struct block_device *bdev, void *buf,
@@ -51,14 +52,16 @@ struct block_device_operations {
 			     uint64_t sector, uint32_t nsec);
 };
 
-/*
- * struct block_device - 已注册的块设备
+/**
+ * @struct block_device
+ * @brief Registered block device visible to VFS/filesystems by dev_t.
  *
- * @bd_dev:     设备号（MKDEV(主, 次)）
- * @bd_sectors: 设备容量（512 字节扇区数），由驱动在注册前设置
- * @bd_ops:     操作向量
- * @bd_private: 驱动私有数据（如 virtio 驱动的 MMIO 基址等）
- * @bd_pages:   块设备 page cache 命名域，index 为 4 KiB 物理块号
+ * @par Fields
+ * - @c bd_dev: Linux-style device number.
+ * - @c bd_sectors: Total capacity measured in 512-byte sectors.
+ * - @c bd_ops: Driver I/O hooks.
+ * - @c bd_private: Driver-private state.
+ * - @c bd_pages: Raw 4 KiB page-cache mapping.
  */
 struct block_device {
 	dev_t bd_dev;
@@ -68,13 +71,25 @@ struct block_device {
 	struct page_mapping bd_pages;
 };
 
-/* 以主设备号为索引注册块设备；返回 0 成功，-EINVAL 主设备号非法或越界 */
+/**
+ * @brief Register a block device by dev_t.
+ * @param bdev Initialized block device.
+ * @return 0 on success, or a negative errno.
+ */
 int register_block_device(struct block_device *bdev);
 
-/* 按设备号查找；未注册返回 NULL */
+/**
+ * @brief Lookup a registered block device.
+ * @param dev Device number.
+ * @return Matching block device, or NULL.
+ */
 struct block_device *__must_check lookup_block_device(dev_t dev);
 
-/* 返回块设备自己的 page_mapping；未注册返回 NULL */
+/**
+ * @brief Return the raw page-cache mapping for a block device.
+ * @param dev Device number.
+ * @return Page mapping, or NULL when @p dev is unknown.
+ */
 struct page_mapping *__must_check block_device_pages(dev_t dev);
 
-#endif /* _CUTEOS_KERNEL_BLKDEV_H */
+#endif

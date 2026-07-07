@@ -8,4 +8,4 @@ int __clzdi2(uint64_t x);
 int __ffsdi2(uint64_t x);
 int ffs(uint32_t x);
 
-#endif /* _CUTEOS_KERNEL_LIBGCC_H */
+#endif

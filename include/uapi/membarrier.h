@@ -1,8 +1,13 @@
 #ifndef _CUTEOS_UAPI_MEMBARRIER_H
 #define _CUTEOS_UAPI_MEMBARRIER_H
 
-/*
- * Linux membarrier(2) UAPI command values.
+/**
+ * @file membarrier.h
+ * @brief Linux membarrier command and flag UAPI constants.
+ *
+ * The constants are ABI values from Linux. cuteOS currently provides
+ * single-core-compatible behavior for supported commands; the bit values must
+ * not be renumbered even when an implementation remains shallow.
  */
 
 #define MEMBARRIER_CMD_QUERY				    0
@@ -17,8 +22,16 @@
 #define MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ	    (1 << 8)
 #define MEMBARRIER_CMD_GET_REGISTRATIONS		    (1 << 9)
 
+/**
+ * @def MEMBARRIER_CMD_SHARED
+ * @brief Historical Linux alias for the global membarrier command.
+ */
 #define MEMBARRIER_CMD_SHARED MEMBARRIER_CMD_GLOBAL
 
+/**
+ * @def MEMBARRIER_CMD_FLAG_CPU
+ * @brief Optional flag meaning the caller supplied a target CPU argument.
+ */
 #define MEMBARRIER_CMD_FLAG_CPU (1 << 0)
 
 #endif

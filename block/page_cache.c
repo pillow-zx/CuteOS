@@ -1,16 +1,5 @@
 /*
  * block/page_cache.c - unified 4 KiB page cache
- *
- * The cache key is (struct page_mapping *, index).  This is deliberately
- * more general than the old split between "metadata block" and "file data":
- * block devices own a mapping whose indexes are physical disk blocks, while
- * inodes own mappings whose indexes are file logical blocks.  The page cache
- * stores and writes back pages without embedding ext2-specific knowledge.
- *
- * Some disk blocks can be visible through two names at once: as an inode page
- * (logical block N of a file) and as a raw block-device page (physical block
- * P).  page_mapping::backing records that relationship so successful inode
- * writeback can refresh an already-cached raw block alias.
  */
 
 #include "page_cache_internal.h"
@@ -46,11 +35,7 @@ static uint32_t page_cache_hash(struct page_mapping *mapping, uint64_t index)
 {
 	uintptr_t key = (uintptr_t)mapping;
 
-	/*
-	 * mapping addresses are stable for the lifetime of their owner.  Mixing
-	 * the pointer with the index keeps file logical block 0 distinct from
-	 * physical disk block 0 and from every other inode's block 0.
-	 */
+
 	return (uint32_t)(key ^ index ^ (index >> PAGE_CACHE_HASH_BITS));
 }
 
@@ -107,11 +92,7 @@ static void page_cache_drop_page(struct page_cache *page)
 	if (!page)
 		return;
 
-	/*
-	 * Drop removes the page from all discoverable structures immediately.
-	 * A caller may still be using page->data, so actual memory release
-	 * waits until the reference count reaches zero.
-	 */
+
 	page_cache_alias_invalidate(page);
 	page_cache_clear_dirty(page);
 	page->writeback = false;
@@ -148,11 +129,7 @@ static bool page_cache_flush_one_victim(void)
 	struct list_head *pos;
 	struct list_head *next;
 
-	/*
-	 * If the cache is full and no clean page can be evicted, write one
-	 * dirty unreferenced page first.  wb_run() may also flush adjacent
-	 * pages, after which a clean victim should be available.
-	 */
+
 	list_for_each_safe (pos, next, &page_cache_lru) {
 		struct page_cache *page =
 			list_entry(pos, struct page_cache, lru_node);
@@ -242,11 +219,7 @@ struct page_cache *page_cache_get_page(struct page_mapping *mapping,
 	if (!create)
 		return NULL;
 
-	/*
-	 * Allocation only installs an empty cache page.  Callers that need
-	 * valid contents must use page_cache_read_page() or fill and mark the
-	 * page uptodate themselves.
-	 */
+
 	page = page_cache_alloc_page();
 	if (!page)
 		return NULL;
@@ -277,11 +250,7 @@ struct page_cache *page_cache_read_page(struct page_mapping *mapping,
 	if (!page->uptodate) {
 		ret = mapping->ops->readpage(mapping, index, page->data);
 		if (ret < 0) {
-			/*
-			 * A newly allocated page must not remain visible after
-			 * read failure.  Existing stale pages keep their old
-			 * identity but are returned as failure to the caller.
-			 */
+
 			if (created)
 				page_cache_drop_page(page);
 			page_cache_put_page(page);
@@ -347,11 +316,7 @@ void page_cache_truncate_mapping(struct page_mapping *mapping, uint64_t size)
 	if (!mapping)
 		return;
 
-	/*
-	 * Pages beyond EOF cannot be found again through this mapping and must
-	 * be dropped.  The partial tail page stays cached, but bytes beyond the
-	 * new size are zeroed so later extension cannot expose stale data.
-	 */
+
 	list_for_each_safe (pos, next, &mapping->pages) {
 		struct page_cache *page =
 			list_entry(pos, struct page_cache, mapping_node);

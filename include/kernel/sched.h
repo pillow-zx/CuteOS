@@ -1,99 +1,70 @@
 #ifndef _CUTEOS_KERNEL_SCHED_H
 #define _CUTEOS_KERNEL_SCHED_H
 
-/*
- * include/kernel/sched.h - 调度器与上下文切换
- *
- * 声明调度器核心数据结构与接口。低级上下文切换由 arch task 层
- * 封装，调度器只负责选择下一个 runnable task。
- *
- * Functions:
- *   schedule()  - Pick the next runnable task and switch to it
- *
- * Policy:
- *   The scheduler uses a single-core 4-level MLFQ policy.
- *
- * Preemption stubs (currently no-op):
- *   preempt_disable()
- *   preempt_enable()
+/**
+ * @file sched.h
+ * @brief Scheduler entry points and preemption counters.
  */
 
 #include <kernel/list.h>
 #include <kernel/task.h>
 
-/* ---- MLFQ 参数 ---- */
-
+/**
+ * @def SCHED_MLFQ_LEVELS
+ * @brief Number of runqueue levels in the single-core MLFQ scheduler.
+ */
 #define SCHED_MLFQ_LEVELS 4
 
-/* ---- 调度器函数声明 ---- */
-
 /**
- * sched_init - 初始化调度器
- *
- * 初始化全局就绪队列。
+ * @brief Initialize scheduler queues and policy state.
  */
 void sched_init(void);
 
 /**
- * schedule - 主调度函数
- *
- * 从就绪队列取队首进程，将当前进程放回队尾，
- * 校验 canary 完整性，调用 switch_to 进行上下文切换。
+ * @brief Switch from current task to the next runnable task.
  */
 void schedule(void);
 
 /**
- * sched_tick - timer tick 调度计费
- *
- * 由时钟中断处理调用。当前只在 trap 返回用户态前根据 need_resched
- * 实际切换，sched_tick 只负责策略状态更新和置位。
+ * @brief Account one timer tick and request reschedule when needed.
  */
 void sched_tick(void);
 
 /**
- * sched_yield - 当前任务主动让出 CPU
- *
- * 当前任务按同级队尾重排，不主动降级，不刷新剩余时间片。
+ * @brief Voluntarily yield the CPU from the current task.
  */
 void sched_yield(void);
 
 /**
- * sched_task_init - 初始化 task_struct 内的调度字段
- * @task: 新分配或静态初始化的任务
+ * @brief Initialize scheduler fields in a new task.
+ * @param task Task being initialized.
  */
 void sched_task_init(struct task_struct *task);
 
 /**
- * sched_enqueue - 将进程加入就绪队列尾部
- * @task: 要入队的任务
+ * @brief Insert a runnable task into the scheduler.
+ * @param task Task in TASK_RUNNING state.
  */
 void sched_enqueue(struct task_struct *task);
 
 /**
- * sched_wakeup - 唤醒任务并按策略入队
- * @task: 被唤醒任务
- *
- * 保持当前 MLFQ 等级，刷新该等级完整时间片；若已在队列中则不重复入队。
+ * @brief Make a sleeping task runnable.
+ * @param task Task to wake.
  */
 void sched_wakeup(struct task_struct *task);
 bool sched_has_runnable(void);
 
 /**
- * sched_wake_task - 将睡眠任务转为可运行状态
- * @task: 被唤醒任务
- *
- * 统一封装 TASK_RUNNING 状态切换和非当前任务入队。sched_wakeup()
- * 仍保留为底层 MLFQ 入队接口。
+ * @brief Wake a specific task and enqueue it if needed.
+ * @param task Task to wake.
  */
 void sched_wake_task(struct task_struct *task);
 
 /**
- * sched_dequeue - 将进程从就绪队列中移除
- * @task: 要出队的任务
+ * @brief Remove a task from its runqueue.
+ * @param task Task that may currently be queued.
  */
 void sched_dequeue(struct task_struct *task);
-
-/* ---- 抢占控制 ---- */
 
 static __always_inline void preempt_disable(void)
 {
@@ -105,11 +76,6 @@ static __always_inline void preempt_enable(void)
 	cpu_dec_preempt_count(current_cpu());
 }
 
-/**
- * preemptible - 检查当前是否允许调度
- *
- * 当 preempt_count == 0 时返回 true。
- */
 static __always_inline bool preemptible(void)
 {
 	return cpu_preempt_count(current_cpu()) == 0;

@@ -46,7 +46,7 @@
 !arch/**/*.c
 !arch/**/*.S
 !block/**/*.c
-!docs/**/*
+!docs/architecture/*
 !drivers/**/*.c
 !fs/**/*.c
 !include/**/*.h
@@ -87,6 +87,7 @@
 !CODE_STYLE.md
 !CONTEXT.md
 !SYSCALL.md
+!Doxyfile
 !TODO.md
 !.agents/skills/**/*
 !mkimg.sh

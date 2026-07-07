@@ -1,26 +1,5 @@
 /*
  * mm/buddy.c - 伙伴系统（物理页分配）
- *
- * 功能：
- *   实现经典的伙伴分配算法管理物理内存页框。max_order=9（最大块 2MB），
- *   即 free_area[10]。struct page 包含 flags、order、refcount、lru 字段。
- *   mem_map 数组位于内核映像 _end 之后，覆盖全部物理页。分配失败（OOM）
- *   时返回 NULL。
- *
- * 数据结构：
- *   struct page {flags, order, refcount, lru}
- *   struct free_area {free_list, nr_free}  free_area[MAX_ORDER + 1]
- *   mem_map[]  - 全局 struct page 数组，紧接 early allocator 结束位置
- *
- * 主要函数：
- *   buddy_init()             - 从 arch_bootmem_end() 到 DRAM 末尾初始化，
- *                               将可用物理内存区域按最大可能阶数加入空闲链表。
- *   get_free_page(order)     - 分配 2^order 个连续物理页，返回首页虚拟地址。
- *   free_page(addr, order)   - 释放指定地址的页块，并尝试伙伴合并。
- *
- * 合并策略：
- *   释放时计算伙伴地址，若伙伴同样空闲且 order 相同则合并，递归向上
- *   直到无法合并或达到 max_order 为止。
  */
 
 #include <kernel/buddy.h>
@@ -30,42 +9,26 @@
 #include <kernel/tools.h>
 #include <kernel/page.h>
 
-/* ---- 全局数据 ---- */
-
 struct page *mem_map;
 struct free_area free_area[MAX_ORDER + 1];
 static size_t total_pages;
 static size_t nr_free_pages;
 
-/* ---- 内联辅助 ---- */
-
-/**
- * page_to_pfn - 由 mem_map 下标得到页帧号（即下标本身）
- */
 static inline size_t page_to_pfn(const struct page *page)
 {
 	return (size_t)(page - mem_map);
 }
 
-/**
- * pfn_to_page - 由页帧号得到 struct page 指针
- */
 static inline struct page *pfn_to_page(size_t pfn)
 {
 	return &mem_map[pfn];
 }
 
-/**
- * pfn_to_virt - 页帧号转内核虚拟地址
- */
 static inline void *pfn_to_virt(size_t pfn)
 {
 	return __va(DRAM_BASE + pfn * PAGE_SIZE);
 }
 
-/**
- * virt_to_pfn - 内核虚拟地址转页帧号
- */
 static inline size_t virt_to_pfn(void *addr)
 {
 	return (__pa((uintptr_t)addr) - DRAM_BASE) / PAGE_SIZE;
@@ -108,33 +71,16 @@ static void buddy_remove_free_block(struct page *page)
 	free_area[page->order].nr_free--;
 }
 
-/* ---- 公共接口 ---- */
-
-/**
- * buddy_init - 初始化伙伴系统
- *
- * 内存布局（物理视角）：
- *   DRAM_BASE				← 内核映像 + 页表
- *   arch_bootmem_end()		← mem_map 起始
- *   mem_map + total_pages*sizeof(page) ← 可用页起始（4KB 对齐）
- *   DRAM_BASE + DRAM_SIZE		← DRAM 结束
- *
- * 步骤：
- *   1. 在 arch_bootmem_end() 处放置 mem_map 数组
- *   2. 将所有页标记为 PRESERVED（不可分配）
- *   3. 初始化 free_area 空闲链表
- *   4. 从首个可用页开始，按最大对齐阶数将连续块加入空闲链表
- */
 void buddy_init(void)
 {
 	void *mem_start = bootmem_end();
 
 	total_pages = DRAM_SIZE / PAGE_SIZE;
 
-	/* 1. 放置 mem_map */
+
 	mem_map = (struct page *)mem_start;
 
-	/* 2. 初始化所有页描述符为 reserved */
+
 	for (size_t i = 0; i < total_pages; i++) {
 		mem_map[i].flags = BIT(PG_RESERVED);
 		mem_map[i].order = 0;
@@ -142,13 +88,13 @@ void buddy_init(void)
 		INIT_LIST_HEAD(&mem_map[i].lru);
 	}
 
-	/* 3. 初始化 free_area */
+
 	for (int i = 0; i <= MAX_ORDER; i++) {
 		INIT_LIST_HEAD(&free_area[i].free_list);
 		free_area[i].nr_free = 0;
 	}
 
-	/* 4. 计算可用页范围 */
+
 	uintptr_t mem_map_bytes = total_pages * sizeof(struct page);
 	vaddr_t free_start_va =
 		ALIGN_UP((uintptr_t)mem_start + mem_map_bytes, PAGE_SIZE);
@@ -156,12 +102,12 @@ void buddy_init(void)
 	size_t free_idx = (free_start_pa - DRAM_BASE) / PAGE_SIZE;
 	size_t remaining = total_pages - free_idx;
 
-	/* 5. 将可用页按最大对齐阶数分块加入空闲链表 */
+
 	nr_free_pages = 0;
 	size_t idx = free_idx;
 
 	while (remaining > 0) {
-		/* 找当前 idx 处可放入的最大阶数 */
+
 		uint32_t order = MAX_ORDER;
 		while (order > 0 && ((idx & ((1UL << order) - 1)) != 0 ||
 				     remaining < (1UL << order)))
@@ -178,41 +124,34 @@ void buddy_init(void)
 		(int)(nr_free_pages * PAGE_SIZE >> 20));
 }
 
-/**
- * get_free_page - 分配 2^order 个连续物理页
- * @order: 分配阶数
- *
- * 从 free_area[order] 取一个空闲块；若为空则从更高阶拆分。
- * 返回首页的内核虚拟地址，OOM 返回 NULL。
- */
 void *get_free_page(uint32_t order)
 {
 	if (order > MAX_ORDER)
 		return NULL;
 
-	/* 在 order 及以上找一个非空链表 */
+
 	uint32_t cur = order;
 	while (cur <= MAX_ORDER && list_empty(&free_area[cur].free_list))
 		cur++;
 
 	if (cur > MAX_ORDER)
-		return NULL; /* OOM */
+		return NULL;
 
-	/* 从链表取出一个块 */
+
 	struct page *page =
 		list_entry(free_area[cur].free_list.next, struct page, lru);
 	buddy_remove_free_block(page);
 
-	/* 向下拆分直到目标阶数 */
+
 	while (cur > order) {
 		cur--;
-		/* 后半块作为新的空闲块加入 free_area[cur] */
+
 		size_t buddy_pfn = page_to_pfn(page) + (1UL << cur);
 
 		buddy_add_free_block(buddy_pfn, cur, false);
 	}
 
-	/* 标记为已分配 */
+
 	page->flags = 0;
 	page->order = order;
 	page->refcount = 1;
@@ -222,13 +161,6 @@ void *get_free_page(uint32_t order)
 	return pfn_to_virt(page_to_pfn(page));
 }
 
-/**
- * free_page - 释放页块并尝试伙伴合并
- * @addr:  get_free_page 返回的内核虚拟地址
- * @order: 释放的阶数，须与分配时一致
- *
- * 释放后递归尝试与伙伴合并，直到伙伴不空闲或达到 MAX_ORDER。
- */
 void free_page(void *addr, uint32_t order)
 {
 	size_t freed_pages;
@@ -260,35 +192,35 @@ void free_page(void *addr, uint32_t order)
 		panic("free_page: pfn %zu order %u != %u", pfn, page->order,
 		      order);
 
-	/* 标记为空闲 */
+
 	page->flags = 0;
 	page->refcount = 0;
 
-	/* 尝试向上合并 */
+
 	while (order < MAX_ORDER) {
 		size_t buddy_pfn = pfn ^ (1UL << order);
 
-		/* buddy 超出范围，停止合并 */
+
 		if (buddy_pfn >= total_pages)
 			break;
 
 		struct page *buddy = pfn_to_page(buddy_pfn);
 
-		/* buddy 必须空闲且同阶才能合并 */
+
 		if (!page_test_flag(buddy, PG_BUDDY))
 			break;
 		if (buddy->order != order)
 			break;
 
-		/* 合并：从空闲链表中摘除 buddy */
+
 		buddy_remove_free_block(buddy);
 
-		/* 取较低 pfn 作为合并后的块首 */
+
 		pfn = pfn < buddy_pfn ? pfn : buddy_pfn;
 		order++;
 	}
 
-	/* 将合并后的块加入对应阶的空闲链表 */
+
 	buddy_add_free_block(pfn, order, false);
 
 	nr_free_pages += freed_pages;

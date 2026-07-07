@@ -3,8 +3,6 @@
 
 /*
  * arch/riscv/include/arch/task_access.h - RISC-V task accessors
- *
- * Included by <kernel/task.h> after struct task_struct is complete.
  */
 
 #include <kernel/compiler.h>

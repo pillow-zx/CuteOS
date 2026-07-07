@@ -1,9 +1,5 @@
 /*
  * syscall/sys_log.c - syslog ABI compatibility wrapper
- *
- * This file intentionally implements only the probe-safe syslog(2) subset.
- * printk does not yet keep a readable ring buffer, so read/clear operations
- * remain explicit TODOs instead of returning fabricated log data.
  */
 
 #include <kernel/errno.h>
@@ -45,8 +41,7 @@ ssize_t sys_syslog(struct trap_frame *tf)
 	case SYSLOG_ACTION_SIZE_BUFFER:
 		return (ssize_t)log_buffer_size();
 	default:
-		/* TODO(log): implement printk ring-buffer read/clear semantics.
-		 */
+
 		return -ENOSYS;
 	}
 }

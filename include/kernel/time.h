@@ -1,6 +1,11 @@
 #ifndef _CUTEOS_KERNEL_TIME_H
 #define _CUTEOS_KERNEL_TIME_H
 
+/**
+ * @file time.h
+ * @brief Kernel timer, itimer, POSIX timer, and mtime conversion APIs.
+ */
+
 #include <kernel/compiler.h>
 #include <kernel/list.h>
 #include <kernel/spinlock.h>
@@ -12,8 +17,24 @@ struct ktimer;
 struct signal_struct;
 struct task_struct;
 
+/**
+ * @typedef ktimer_fn_t
+ * @brief Callback invoked when a kernel timer expires.
+ */
 typedef void (*ktimer_fn_t)(struct ktimer *timer, void *arg);
 
+/**
+ * @struct ktimer
+ * @brief Kernel timer driven by the architecture mtime clock.
+ *
+ * @par Fields
+ * - @c node: Node in the active timer list.
+ * - @c function: Expiration callback.
+ * - @c arg: Opaque callback argument.
+ * - @c expires: Absolute mtime tick when the timer fires.
+ * - @c interval: Repeat interval in mtime ticks, or 0.
+ * - @c active: True while linked into timer state.
+ */
 struct ktimer {
 	struct list_head node;
 	ktimer_fn_t function;
@@ -23,8 +44,22 @@ struct ktimer {
 	bool active;
 };
 
+/**
+ * @def ITIMER_COUNT
+ * @brief Number of Linux interval timer slots per signal_struct.
+ */
 #define ITIMER_COUNT 3
 
+/**
+ * @struct itimer_state
+ * @brief Per-thread-group state for setitimer/getitimer.
+ *
+ * @par Fields
+ * - @c lock: Protects value and timer state.
+ * - @c value: Current Linux itimerval.
+ * - @c timer: Backing kernel timer.
+ * - @c target: Task receiving SIGALRM-style delivery.
+ */
 struct itimer_state {
 	spinlock_t lock;
 	struct itimerval value;
@@ -32,8 +67,29 @@ struct itimer_state {
 	struct task_struct *target;
 };
 
+/**
+ * @def POSIX_TIMER_COUNT
+ * @brief Maximum number of POSIX timers per signal_struct.
+ */
 #define POSIX_TIMER_COUNT 32
 
+/**
+ * @struct posix_timer
+ * @brief One POSIX timer created by timer_create.
+ *
+ * @par Fields
+ * - @c timer: Backing kernel timer.
+ * - @c signal: Owning thread-group signal state.
+ * - @c target: Target task for notification delivery.
+ * - @c value: Current Linux timer value.
+ * - @c sigev_value: sigevent payload.
+ * - @c clock_id: CLOCK_* id selected at creation.
+ * - @c id: Userspace-visible timer id.
+ * - @c signo: Signal number for SIGEV_SIGNAL-like modes.
+ * - @c notify: SIGEV_* notification mode.
+ * - @c overrun: Overrun count reported by timer_getoverrun.
+ * - @c allocated: Slot is owned by userspace.
+ */
 struct posix_timer {
 	struct ktimer timer;
 	struct signal_struct *signal;
@@ -48,6 +104,15 @@ struct posix_timer {
 	bool allocated;
 };
 
+/**
+ * @struct posix_timer_table
+ * @brief Fixed-size POSIX timer table owned by signal_struct.
+ *
+ * @par Fields
+ * - @c lock: Protects allocation bitmap and slots.
+ * - @c allocated: Bitset of allocated timer ids.
+ * - @c timers: Timer slots.
+ */
 struct posix_timer_table {
 	spinlock_t lock;
 	unsigned long allocated;
@@ -106,11 +171,30 @@ static __always_inline __must_check __pure __nonnull(1)
 	return timer->expires - now;
 }
 
+/**
+ * @brief Convert architecture mtime ticks to a Linux timespec.
+ * @param ticks mtime tick count.
+ * @param ts Output timespec.
+ */
 void __nonnull(2) __access_no_size(write_only, 2)
 	mtime_to_timespec(uint64_t ticks, struct timespec *ts);
+
+/**
+ * @brief Convert a relative Linux timespec to mtime ticks.
+ * @param ts Input relative timespec.
+ * @param delta Output tick delta.
+ * @return 0 on success, or a negative errno.
+ */
 int __must_check __access_no_size(read_only, 1)
 	__access_no_size(write_only, 2)
 	timespec_to_mtime_delta(const struct timespec *ts, uint64_t *delta);
+
+/**
+ * @brief Add a tick delta to a current mtime value with saturation handling.
+ * @param now Current mtime.
+ * @param delta Relative tick delta.
+ * @return Absolute deadline.
+ */
 uint64_t __must_check __const mtime_deadline_after(uint64_t now,
 						  uint64_t delta);
 int __must_check __nonnull(2, 3) __access_no_size(write_only, 2)
@@ -122,10 +206,30 @@ int __must_check __nonnull(2, 3) __access_no_size(write_only, 2)
 	mtime_deadline_from_ms(long timeout_ms, bool *has_timeout,
 			       uint64_t *deadline);
 
+/**
+ * @brief Initialize a kernel timer object.
+ * @param timer Timer to initialize.
+ * @param function Expiration callback.
+ * @param arg Opaque callback argument.
+ */
 void __nonnull(1) __access_no_size(write_only, 1)
 	ktimer_init(struct ktimer *timer, ktimer_fn_t function, void *arg);
+
+/**
+ * @brief Arm or rearm a kernel timer.
+ * @param timer Timer to arm.
+ * @param expires Absolute mtime expiration.
+ * @param interval Repeat interval, or 0 for one-shot.
+ * @return 0 on success, or a negative errno.
+ */
 int __must_check __nonnull(1) __access_no_size(read_write, 1)
 	ktimer_arm(struct ktimer *timer, uint64_t expires, uint64_t interval);
+
+/**
+ * @brief Cancel an active kernel timer.
+ * @param timer Timer to cancel.
+ * @return true if the timer was active.
+ */
 bool __must_check __nonnull(1) __access_no_size(read_write, 1)
 	ktimer_cancel(struct ktimer *timer);
 

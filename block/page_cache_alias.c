@@ -1,10 +1,5 @@
 /*
  * block/page_cache_alias.c - page cache block-alias coherency policy
- *
- * Inode mappings are authoritative for file, directory, and block-backed
- * symlink data.  A backing block-device mapping is only a raw physical-block
- * view.  This module keeps resident raw aliases coherent without creating new
- * reverse indexes or changing I/O routing.
  */
 
 #include "page_cache_internal.h"
@@ -28,10 +23,7 @@ void page_cache_alias_refresh(struct page_mapping *mapping, uint32_t blocknr,
 	if (!alias)
 		return;
 
-	/*
-	 * The authoritative page has reached disk.  A cached raw-block alias
-	 * can now safely mirror those bytes and become clean.
-	 */
+
 	memcpy(alias->data, data, BLOCK_SIZE);
 	alias->uptodate = true;
 	page_cache_clear_dirty(alias);
@@ -58,11 +50,7 @@ void page_cache_alias_invalidate(struct page_cache *page)
 	if (!alias)
 		return;
 
-	/*
-	 * The upper mapping is explicitly dropping its authoritative copy. Keep
-	 * the raw alias object resident if it exists, but force the next raw
-	 * read to fetch from the block device.
-	 */
+
 	alias->uptodate = false;
 	page_cache_clear_dirty(alias);
 }

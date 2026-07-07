@@ -6,10 +6,10 @@ KERNEL_VBASE = 0xFFFFFFC000000000;
 
 PHDRS
 {
-  text   PT_LOAD FLAGS(5);   /* R|X */
-  rodata PT_LOAD FLAGS(4);   /* R */
-  data   PT_LOAD FLAGS(6);   /* R|W */
-  bss    PT_LOAD FLAGS(6);   /* R|W */
+  text   PT_LOAD FLAGS(5);
+  rodata PT_LOAD FLAGS(4);
+  data   PT_LOAD FLAGS(6);
+  bss    PT_LOAD FLAGS(6);
 }
 
 SECTIONS

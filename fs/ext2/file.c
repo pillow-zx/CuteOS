@@ -17,14 +17,6 @@ static bool ext2_file_page_range_valid(uint64_t start, uint32_t nr_pages)
 	return nr_pages - 1 <= EXT2_MAX_FILE_INDEX - start;
 }
 
-/*
- * ext2 inode page_mapping operations.
- *
- * mapping->host is the owning struct inode.  The page-cache index is an ext2
- * logical block number, not a disk block number; map_block() is the only place
- * that translates it through ext2_bmap().  This keeps page_cache.c independent
- * from ext2 direct/indirect block layout.
- */
 static int ext2_readpage(struct page_mapping *mapping, uint64_t index,
 			 void *data)
 {
@@ -39,11 +31,7 @@ static int ext2_readpage(struct page_mapping *mapping, uint64_t index,
 
 	pblock = ext2_bmap_readonly(inode, (uint32_t)index);
 	if (!pblock) {
-		/*
-		 * A missing ext2 block reads as a zero-filled sparse page.
-		 * No cache page should be left uninitialized just because the
-		 * file has no physical block allocated yet.
-		 */
+
 		memset(data, 0, BLOCK_SIZE);
 		return 0;
 	}
@@ -72,11 +60,6 @@ static int ext2_map_block(struct page_mapping *mapping, uint64_t index,
 	else
 		pblock = ext2_bmap_readonly(inode, (uint32_t)index);
 
-	/*
-	 * Returning errno instead of pblock==0 keeps physical block 0 valid for
-	 * block-device mappings and gives callers a clear "allocate or fail"
-	 * decision.
-	 */
 	if (!pblock)
 		return create ? -ENOSPC : -EIO;
 
@@ -96,10 +79,6 @@ static int ext2_writepages(struct page_mapping *mapping, uint64_t start_index,
 	if (!ext2_file_page_range_valid(start_index, nr_pages))
 		return -EFBIG;
 
-	/*
-	 * page_cache_wb_run() only batches pages whose physical blocks
-	 * are contiguous, so a single sector-range write is sufficient here.
-	 */
 	pblock = ext2_bmap_readonly(inode, (uint32_t)start_index);
 	if (!pblock)
 		return -EIO;
@@ -193,11 +172,6 @@ ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count,
 		if (!page)
 			return done ? (ssize_t)done : -ENOMEM;
 
-		/*
-		 * First check whether the logical block already has storage.
-		 * In this ext2 mapping API, -EIO from a readonly lookup means
-		 * "hole"; other errors are real failures.
-		 */
 		ret = inode->i_pages.ops->map_block(&inode->i_pages, lblock,
 						    false, &pblock);
 		if (ret < 0) {
@@ -211,22 +185,14 @@ ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count,
 				page_cache_put_page(page);
 				return done ? (ssize_t)done : ret;
 			}
-			/*
-			 * Newly allocated blocks have no old disk contents to
-			 * preserve.  Start from zeroes so partial writes do not
-			 * expose heap or stale cache bytes.
-			 */
+
 			if (!page_cache_is_uptodate(page)) {
 				memset(page_cache_data(page), 0, BLOCK_SIZE);
 				page_cache_set_uptodate(page, true);
 			}
 		} else if (!page_cache_is_uptodate(page) &&
 			   !(offset == 0 && chunk == BLOCK_SIZE)) {
-			/*
-			 * Partial overwrite of an existing block must preserve
-			 * bytes outside the write range, so read the old page
-			 * before copying user data into it.
-			 */
+
 			ret = inode->i_pages.ops->readpage(
 				&inode->i_pages, lblock, page_cache_data(page));
 			if (ret < 0) {
@@ -236,17 +202,11 @@ ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count,
 			page_cache_set_uptodate(page, true);
 		} else if (!page_cache_is_uptodate(page) && created &&
 			   offset == 0 && chunk == BLOCK_SIZE) {
-			/*
-			 * Full-page overwrite does not need a
-			 * read-before-write.
-			 */
+
 			page_cache_set_uptodate(page, true);
 		} else if (!page_cache_is_uptodate(page) && offset == 0 &&
 			   chunk == BLOCK_SIZE) {
-			/*
-			 * Same optimization when the page existed but was not
-			 * loaded.
-			 */
+
 			page_cache_set_uptodate(page, true);
 		}
 

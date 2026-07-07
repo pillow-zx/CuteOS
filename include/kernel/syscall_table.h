@@ -1,13 +1,23 @@
 #ifndef _CUTEOS_KERNEL_SYSCALL_TABLE_H
 #define _CUTEOS_KERNEL_SYSCALL_TABLE_H
 
+/**
+ * @file syscall_table.h
+ * @brief Installed Linux riscv64 syscall dispatch entries.
+ */
+
 #include <uapi/syscall.h>
 
-/*
- * Single source of truth for syscall dispatch metadata.
+/**
+ * @def SYSCALL_TABLE
+ * @brief X-macro list of syscalls wired into the dispatcher.
+ * @param X Macro invoked as `X(number, name, handler)` for every entry.
  *
- * Each entry is:
- *   X(syscall_number, linux_trace_name, handler)
+ * `number` is a SYS_* Linux riscv64 ABI constant, `name` is diagnostic text,
+ * and `handler` is the kernel implementation installed in the dispatch table.
+ * An entry in this list means the syscall has a handler, not that cuteOS
+ * implements complete Linux semantics; the maturity matrix lives in
+ * SYSCALL.md.
  */
 #define SYSCALL_TABLE(X)                                                       \
 	X(SYS_getcwd, "getcwd", sys_getcwd)                                    \

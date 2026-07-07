@@ -1,8 +1,5 @@
 /*
  * syscall/sys_exec.c - execve ABI wrapper
- *
- * This file owns userspace path/argv/envp copying for execve.  The core exec
- * loader only receives kernel buffers.
  */
 
 #include <kernel/buddy.h>

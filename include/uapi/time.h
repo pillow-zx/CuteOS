@@ -1,7 +1,21 @@
 #ifndef _CUTEOS_UAPI_TIME_H
 #define _CUTEOS_UAPI_TIME_H
 
+/**
+ * @file time.h
+ * @brief Linux-compatible time and timer UAPI layouts.
+ */
+
+/**
+ * @typedef clockid_t
+ * @brief Linux clock id type used by clock_gettime and related syscalls.
+ */
 typedef int clockid_t;
+
+/**
+ * @typedef timer_t
+ * @brief POSIX timer id type returned to userspace by timer_create.
+ */
 typedef int timer_t;
 
 #define CLOCK_REALTIME		 0
@@ -27,6 +41,16 @@ typedef int timer_t;
 #define ITIMER_VIRTUAL 1
 #define ITIMER_PROF    2
 
+/**
+ * @struct tms
+ * @brief CPU tick accounting returned by times().
+ *
+ * @par Fields
+ * - @c tms_utime: User ticks charged to the calling process.
+ * - @c tms_stime: Kernel ticks charged to the calling process.
+ * - @c tms_cutime: User ticks of waited-for children.
+ * - @c tms_cstime: Kernel ticks of waited-for children.
+ */
 struct tms {
 	long tms_utime;
 	long tms_stime;
@@ -34,26 +58,66 @@ struct tms {
 	long tms_cstime;
 };
 
+/**
+ * @struct timeval
+ * @brief Seconds plus microseconds layout used by gettimeofday.
+ *
+ * @par Fields
+ * - @c tv_sec: Whole seconds.
+ * - @c tv_usec: Microseconds within the current second.
+ */
 struct timeval {
 	long tv_sec;
 	long tv_usec;
 };
 
+/**
+ * @struct timezone
+ * @brief Obsolete Linux timezone ABI layout.
+ *
+ * @par Fields
+ * - @c tz_minuteswest: Minutes west of UTC.
+ * - @c tz_dsttime: Daylight-saving correction type.
+ */
 struct timezone {
 	int tz_minuteswest;
 	int tz_dsttime;
 };
 
+/**
+ * @struct timespec
+ * @brief Seconds plus nanoseconds layout used by modern time syscalls.
+ *
+ * @par Fields
+ * - @c tv_sec: Whole seconds.
+ * - @c tv_nsec: Nanoseconds within the current second.
+ */
 struct timespec {
 	long tv_sec;
 	long tv_nsec;
 };
 
+/**
+ * @struct itimerspec
+ * @brief POSIX timer interval and next-expiration values.
+ *
+ * @par Fields
+ * - @c it_interval: Period for repeating timers.
+ * - @c it_value: Next expiration or zero to disarm.
+ */
 struct itimerspec {
 	struct timespec it_interval;
 	struct timespec it_value;
 };
 
+/**
+ * @struct itimerval
+ * @brief setitimer/getitimer interval and next-expiration values.
+ *
+ * @par Fields
+ * - @c it_interval: Period for repeating interval timers.
+ * - @c it_value: Next expiration or zero to disarm.
+ */
 struct itimerval {
 	struct timeval it_interval;
 	struct timeval it_value;

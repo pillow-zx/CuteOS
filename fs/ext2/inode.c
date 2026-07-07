@@ -238,11 +238,7 @@ static int ext2_zero_truncate_tail(struct inode *inode, uint64_t size)
 	if (!page)
 		return -EIO;
 
-	/*
-	 * Truncating inside a block must persist zeroes past the new EOF before
-	 * block pointers are released.  Otherwise a later extension could
-	 * expose stale file contents from the same allocated block.
-	 */
+
 	memset(page_cache_data(page) + offset, 0, BLOCK_SIZE - offset);
 	page_cache_mark_dirty(page);
 	if (page_cache_sync_page(page) < 0) {
@@ -274,22 +270,13 @@ static int ext2_zero_extend_tail(struct inode *inode, uint64_t old_size)
 	if (!page)
 		return -EIO;
 
-	/*
-	 * When extending from the middle of an existing block, Linux file
-	 * semantics require the old EOF-to-block-end range to read as zero
-	 * until userspace writes it.  Keep that invariant in the inode mapping.
-	 */
+
 	memset(page_cache_data(page) + offset, 0, BLOCK_SIZE - offset);
 	page_cache_mark_dirty(page);
 	page_cache_put_page(page);
 	return 0;
 }
 
-/*
- * ext2 inode mappings are backed by the mounted block device.  The backing
- * pointer is used only for cache-coherency refreshes after file/dir page
- * writeback; actual block allocation and I/O still go through ext2_inode_aops.
- */
 static struct page_mapping *ext2_inode_backing(struct inode *inode)
 {
 	if (!inode || !inode->i_sb)
@@ -307,12 +294,7 @@ void ext2_init_inode_ops(struct inode *inode)
 	inode->i_fop = NULL;
 	inode->i_pages.ops = NULL;
 	inode->i_pages.backing = NULL;
-	/*
-	 * Directories and block-backed symlinks are file data from the page
-	 * cache's point of view, even though ext2 interprets the bytes as
-	 * records or link targets.  Device special files do not expose file
-	 * data here, so their mapping remains without a_ops.
-	 */
+
 	switch (inode->i_mode & EXT2_S_IFMT) {
 	case EXT2_S_IFDIR:
 		inode->i_op = &ext2_dir_inode_operations;
@@ -360,13 +342,6 @@ static void ext2_fill_vfs_inode(struct inode *inode)
 	ext2_init_inode_ops(inode);
 }
 
-/*
- * 读取符号链接目标。EXT2 有两种存储方式：
- *   快速符号链接 (i_blocks == 0)：目标内联存放在 i_block[] 数组（最多
- *                                 60 字节），不占用数据块；
- *   慢速符号链接：目标存放在第一个数据块中。
- * 最多写入 size 字节（不追加结尾 '\0'），返回写入的字节数。
- */
 static int ext2_readlink(struct inode *inode, char *buf, size_t size)
 {
 	struct ext2_inode *raw = &EXT2_I(inode)->raw_inode;
@@ -582,13 +557,6 @@ static int ext2_read_block_words(struct super_block *sb, uint32_t block,
 					  BLOCK_SECTORS);
 }
 
-/*
- * Used by page-cache writeback/reclaim through map_block(false).  Check the
- * block-device page cache first so we see any dirty indirect-block data the
- * mutable path has not yet flushed.  Use create=false so this lookup never
- * allocates a page and cannot re-enter the eviction/writeback path.  Fall back
- * to a direct sector read only when the page is not cached.
- */
 static uint32_t ext2_ind_bmap_readonly(struct super_block *sb,
 				       uint32_t ind_block, uint32_t index)
 {

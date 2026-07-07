@@ -13,11 +13,7 @@ void page_cache_clear_dirty(struct page_cache *page)
 	if (!page)
 		return;
 
-	/*
-	 * Dirty membership is duplicated: the global list drives background
-	 * writeback, and the mapping list drives fsync/truncate-scoped work.
-	 * Always update both lists together.
-	 */
+
 	if (!list_empty(&page->dirty_node))
 		list_del_init(&page->dirty_node);
 	if (!list_empty(&page->dirty_map_node))
@@ -35,10 +31,7 @@ void page_cache_mark_dirty(struct page_cache *page)
 	if (!page || !page->owner || page->dropped)
 		return;
 
-	/*
-	 * Marking dirty also asserts the cache has the newest bytes.  A dirty
-	 * non-uptodate page would make writeback copy undefined data to disk.
-	 */
+
 	if (!page->dirty) {
 		list_add_tail(&page->dirty_node, &dirty_pages);
 		list_add_tail(&page->dirty_map_node, &page->owner->dirty_pages);

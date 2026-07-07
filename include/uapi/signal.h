@@ -1,8 +1,9 @@
 #ifndef _CUTEOS_UAPI_SIGNAL_H
 #define _CUTEOS_UAPI_SIGNAL_H
 
-/*
- * Signal ABI shared by kernel and user space.
+/**
+ * @file signal.h
+ * @brief Linux-compatible signal UAPI constants and layouts.
  */
 
 #define SIGHUP	1
@@ -27,9 +28,26 @@
 
 #define NSIG 32
 
+/**
+ * @typedef __sighandler_t
+ * @brief Userspace signal handler pointer taking the delivered signal number.
+ */
 typedef void (*__sighandler_t)(int);
+
+/**
+ * @typedef __sigrestorer_t
+ * @brief Userspace trampoline pointer used to enter rt_sigreturn.
+ */
 typedef void (*__sigrestorer_t)(void);
 
+/**
+ * @union sigval
+ * @brief POSIX timer/sigevent value passed back to userspace.
+ *
+ * @par Fields
+ * - @c sival_int: Integer payload.
+ * - @c sival_ptr: Pointer payload.
+ */
 typedef union sigval {
 	int sival_int;
 	void *sival_ptr;
@@ -43,6 +61,16 @@ typedef union sigval {
 #define SIG_UNBLOCK 1
 #define SIG_SETMASK 2
 
+/**
+ * @struct sigaction
+ * @brief Linux rt_sigaction layout used by userspace and the kernel.
+ *
+ * @par Fields
+ * - @c sa_handler: Handler, SIG_DFL, or SIG_IGN.
+ * - @c sa_flags: SA_* behavior flags.
+ * - @c sa_restorer: Userspace restorer trampoline.
+ * - @c sa_mask: Additional blocked signal mask.
+ */
 struct sigaction {
 	__sighandler_t sa_handler;
 	unsigned long sa_flags;
@@ -50,7 +78,6 @@ struct sigaction {
 	unsigned long sa_mask;
 };
 
-/* sa_flags */
 #define SA_ONSTACK 0x08000000
 #define SA_RESTART 0x10000000
 #define SA_NODEFER 0x40000000
@@ -65,6 +92,23 @@ struct sigaction {
 #define SIGEV_PREAMBLE_SIZE (sizeof(int) * 2 + sizeof(sigval_t))
 #define SIGEV_PAD_SIZE ((SIGEV_MAX_SIZE - SIGEV_PREAMBLE_SIZE) / sizeof(int))
 
+/**
+ * @struct sigevent
+ * @brief Linux sigevent ABI layout for POSIX timer notification.
+ *
+ * The union padding keeps the structure at 64 bytes and preserves the Linux
+ * offsets asserted below. cuteOS currently implements SIGEV_NONE and
+ * SIGEV_SIGNAL semantics most deeply.
+ *
+ * @par Fields
+ * - @c sigev_value: Payload delivered with timer notification.
+ * - @c sigev_signo: Signal number for SIGEV_SIGNAL/THREAD_ID.
+ * - @c sigev_notify: SIGEV_* notification mode.
+ * - @c _pad: Reserved ABI padding.
+ * - @c _tid: Target tid for SIGEV_THREAD_ID.
+ * - @c _function: SIGEV_THREAD function.
+ * - @c _attribute: SIGEV_THREAD attributes pointer.
+ */
 typedef struct sigevent {
 	sigval_t sigev_value;
 	int sigev_signo;
@@ -83,7 +127,15 @@ typedef struct sigevent {
 #define sigev_notify_attributes _sigev_un._sigev_thread._attribute
 #define sigev_notify_thread_id	_sigev_un._tid
 
-/* alternate signal stack */
+/**
+ * @struct stack_t
+ * @brief Linux sigaltstack userspace layout.
+ *
+ * @par Fields
+ * - @c ss_sp: Base pointer of the alternate signal stack.
+ * - @c ss_flags: SS_* state flags.
+ * - @c ss_size: Stack size in bytes.
+ */
 struct stack_t {
 	void *ss_sp;
 	int ss_flags;
@@ -96,6 +148,10 @@ struct stack_t {
 #define MINSIGSTKSZ 2048
 #define SIGSTKSZ    8192
 
+/**
+ * @def SIGNAL_EXIT_CODE
+ * @brief Shell-visible exit status for a process killed by a signal.
+ */
 #define SIGNAL_EXIT_CODE(sig) (128 + (sig))
 
 #undef offsetof

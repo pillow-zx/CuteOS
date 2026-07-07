@@ -1,21 +1,5 @@
 /*
  * fs/vfs/namei.c - 路径解析
- *
- * 功能：
- *   实现 VFS 层的路径名解析（Pathname Lookup）。path_lookup 逐分量
- *   解析路径。绝对路径从当前 fs_struct 的 root 开始，相对路径从
- *   fs_struct 的 cwd 开始。每个分量处理 "."（跳过）和 ".."（回溯到
- *   d_parent）。遇到
- *   符号链接时读取其目标并继续解析；中间分量总是跟随符号链接，末端
- *   分量在未设置 LOOKUP_NOFOLLOW 时跟随。跟随深度受 MAXSYMLINKS 限制
- *   以防环路。每个分量最终调用 i_op->lookup 在磁盘上查找。
- *
- * 主要函数：
- *   path_lookupat_path(base, path, flags, res) - 主路径解析函数。
- *   walk_path(base, path, …) - 从 base 起逐分量解析并跟随符号链接
- *   follow_symlink(dir, link, …) - 读取符号链接目标并解析出目标 dentry
- *   follow_dotdot(dentry)    - 处理 ".." 分量，通过 d_parent 回溯
- *   vfs_lookup_one(parent, name) - 单级分量解析，调用 i_op->lookup
  */
 
 #include <kernel/fs.h>
@@ -31,7 +15,6 @@
 
 struct dentry *root_dentry;
 
-/* 单次路径解析中允许跟随的符号链接最大深度，防止符号链接环路。 */
 #define MAXSYMLINKS 8
 
 struct namei_context {
@@ -257,12 +240,6 @@ int vfs_readlink(struct dentry *dentry, char *buf, size_t size)
 static int walk_path(struct path *base, const char *path, uint32_t flags,
 		     struct namei_context *ctx, struct path *res);
 
-/*
- * 跟随符号链接：读取 link 指向的目标路径，并从合适的起点解析出目标
- * dentry。dir 是 link 所在的目录（用于解析相对目标），调用者保留其
- * 引用；link 的引用由本函数释放。成功时通过 res 返回目标 dentry（已
- * dget），失败返回负错误码。
- */
 static int follow_symlink(const struct path *dir, struct path *link,
 			  uint32_t flags, struct namei_context *ctx,
 			  struct path *res)
@@ -312,11 +289,6 @@ static int follow_symlink(const struct path *dir, struct path *link,
 	return ret;
 }
 
-/*
- * 从 base 起逐分量解析 path。消费 base 的引用：成功时返回最终 dentry
- * （持有引用），失败时释放 base 并返回负错误码。中间分量总是跟随
- * 符号链接；末端分量在未设置 LOOKUP_NOFOLLOW 时也跟随。
- */
 static int walk_path(struct path *base, const char *path, uint32_t flags,
 		     struct namei_context *ctx, struct path *res)
 {

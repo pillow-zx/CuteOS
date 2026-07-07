@@ -3,9 +3,6 @@
 
 /*
  * include/kernel/vfs.h - VFS 内部声明
- *
- * VFS 内部辅助函数声明。大部分 VFS 类型和操作定义在 kernel/fs.h 中；
- * 本头文件补充内部路由和查找辅助函数。未来可能会合并到 fs.h 中。
  */
 
 #include <kernel/fs.h>
@@ -31,9 +28,8 @@ void dcache_init(void);
 
 extern struct dentry *root_dentry;
 
-/* path_lookupat_path() flags */
-#define LOOKUP_NOFOLLOW 0x0001 /* 不跟随路径末端的符号链接 */
-#define LOOKUP_NO_MOUNT 0x0002 /* 不跨越路径末端的挂载点 */
+#define LOOKUP_NOFOLLOW 0x0001
+#define LOOKUP_NO_MOUNT 0x0002
 
 #define VFS_MAY_EXEC  0x1
 #define VFS_MAY_WRITE 0x2

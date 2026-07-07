@@ -1,8 +1,5 @@
 /*
  * syscall/sys_file_poll.c - poll/select/epoll 系统调用
- *
- * 覆盖范围：
- *   超时时间戳转换、fd 就绪扫描，以及带信号掩码的等待循环。
  */
 
 #include <kernel/fdtable.h>

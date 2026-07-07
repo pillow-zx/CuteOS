@@ -1,8 +1,5 @@
 /*
  * syscall/sys_misc.c - 轻量兼容系统调用
- *
- * 当前只实现不依赖复杂内核子系统的查询/兼容入口。涉及挂载、epoll、
- * futex、权限模型或随机源的系统调用放在 sys_stub.c 中保留 TODO。
  */
 
 #include <kernel/buddy.h>
@@ -100,14 +97,11 @@ ssize_t sys_getgroups(struct trap_frame *tf)
 {
 	int size = (int)syscall_arg(tf, 0);
 	uint32_t *groups = (uint32_t *)syscall_arg(tf, 1);
-	uint32_t group = 0; /* 当前固定一个补充组 (gid 0) */
+	uint32_t group = 0;
 
 	if (size < 0)
 		return -EINVAL;
-	/*
-	 * size == 0 是 libc 探测补充组数量的约定：只返回组数，不写入。
-	 * 本内核固定返回 1，与下方 size >= 1 写出单个 gid 0 的语义一致。
-	 */
+
 	if (size == 0)
 		return 1;
 	if (!groups || copy_to_user(groups, &group, sizeof(group)))
@@ -130,7 +124,7 @@ ssize_t sys_setgroups(struct trap_frame *tf)
 	    copy_from_user(&group, groups, sizeof(group)) == 0 && group == 0)
 		return 0;
 
-	/* TODO(cred): 需要补充 supplementary groups 存储。 */
+
 	return -EPERM;
 }
 

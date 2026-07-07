@@ -3,10 +3,6 @@
 
 /*
  * include/kernel/cpu.h - CPU-local kernel state
- *
- * The kernel still runs only hart 0, but CPU-local state is kept behind this
- * interface so scheduler/task code can grow toward SMP without spreading raw
- * global state further.
  */
 
 #include <kernel/types.h>

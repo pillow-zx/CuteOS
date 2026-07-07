@@ -42,11 +42,11 @@ static void handler_check_stack(int sig)
 	struct stack_t disabled;
 
 	(void)sig;
-	/* Read current stack pointer. */
+
 	__asm__ volatile("mv %0, sp" : "=r"(sp));
 
 	handler_ran = 1;
-	/* Check SP is within [alt_base, alt_base + ALT_STACK_SIZE). */
+
 	if (sp >= (unsigned long)alt_base &&
 	    sp < (unsigned long)alt_base + ALT_STACK_SIZE)
 		handler_on_altstack = 1;
@@ -61,7 +61,6 @@ static void handler_check_stack(int sig)
 		handler_change_denied = 1;
 }
 
-/* test 1: install alternate stack and verify return is 0 */
 static int test_install_altstack(void)
 {
 	struct stack_t ss;
@@ -86,7 +85,6 @@ static int test_install_altstack(void)
 	return 0;
 }
 
-/* test 2: query current altstack state */
 static int test_query_altstack(void)
 {
 	struct stack_t old;
@@ -114,7 +112,6 @@ static int test_query_altstack(void)
 	return 0;
 }
 
-/* test 3: SA_ONSTACK handler runs on alternate stack */
 static int test_handler_on_altstack(void)
 {
 	struct sigaction sa;
@@ -164,7 +161,6 @@ static int test_handler_on_altstack(void)
 	return 0;
 }
 
-/* test 4: fork inherits the alternate stack and clears SS_ONSTACK */
 static int test_fork_inherits_altstack(void)
 {
 	struct sigaction sa;
@@ -214,7 +210,6 @@ static int test_fork_inherits_altstack(void)
 	return 0;
 }
 
-/* test 5: SS_DISABLE prevents use of alternate stack */
 static int test_disable_altstack(void)
 {
 	struct stack_t ss, old;
@@ -229,7 +224,7 @@ static int test_disable_altstack(void)
 		printf("FAIL: sigaltstack SS_DISABLE: %ld\n", ret);
 		return 1;
 	}
-	/* Query must now show SS_DISABLE. */
+
 	sigaltstack(NULL, &old);
 	if (old.ss_flags != SS_DISABLE) {
 		printf("FAIL: after disable, flags=%d (want SS_DISABLE=%d)\n",
@@ -239,18 +234,17 @@ static int test_disable_altstack(void)
 	return 0;
 }
 
-/* test 6: invalid flags return -EINVAL */
 static int test_invalid_flags(void)
 {
 	struct stack_t ss;
 	long ret;
 
 	ss.ss_sp = alt_base;
-	ss.ss_flags = 0xff; /* invalid flags */
+	ss.ss_flags = 0xff;
 	ss.ss_size = ALT_STACK_SIZE;
 
 	ret = sigaltstack(&ss, NULL);
-	if (ret != -22) { /* -EINVAL */
+	if (ret != -22) {
 		printf("FAIL: invalid flags: expected -22 got %ld\n", ret);
 		return 1;
 	}

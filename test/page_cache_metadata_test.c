@@ -1,8 +1,5 @@
 /*
  * test/page_cache_metadata_test.c - Page cache metadata block self-tests
- *
- * Covers raw block-device mapping lookup, write-through sync, repeated
- * acquisition, error handling, and clean metadata-page eviction under pressure.
  */
 
 #include <drivers/virtio_blk.h>
@@ -90,11 +87,7 @@ void test_page_cache_block_zero_writeback(void)
 
 	TEST_BEGIN("page cache metadata: block zero writeback");
 	{
-		/*
-		 * Physical block 0 is a valid block-device mapping index.
-		 * This catches regressions where map_block() uses 0 as an
-		 * implicit failure sentinel instead of returning errno.
-		 */
+
 		page = page_cache_get_block(ROOT_DEV, 0);
 		TEST_ASSERT_NOT_NULL(page);
 

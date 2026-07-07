@@ -1,12 +1,5 @@
 /*
  * syscall/sys_file_stat.c - stat/statfs 元数据查询系统调用
- *
- * 覆盖范围：
- *   fstat、newfstatat（含 AT_EMPTY_PATH 和 AT_SYMLINK_NOFOLLOW）、
- *   statfs64、fstatfs64。
- *
- *   路径解析辅助函数（copy_user_path、dirfd_path_base）来自
- *   sys_file_path.c，通过 sys_file_internal.h 声明引用。
  */
 
 #include <kernel/fdtable.h>

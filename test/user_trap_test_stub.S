@@ -1,20 +1,4 @@
-/*
- * init/user_trap_test_stub.S - 3.1 运行时用户态 trap 自测 stub
- *
- * 该代码会被复制到一页临时用户页中，然后通过 schedule() 首次切入：
- *   1. 填充多数通用寄存器为唯一哨兵值
- *   2. 执行 ecall，触发真实的 U->S trap
- *
- * trap_handler 中的测试 hook 会检查 trap_frame 保存结果，
- * 然后把返回目标改写为一个内核 continuation，再切回 idle 上下文。
- *
- * gp (x3) 和 tp (x4) 故意不加载哨兵值：
- *   gp — 用于 GP 相对寻址，加载假值会导致访问异常
- *   tp — 保存线程指针 (TLS)，覆写会破坏 TP 相对访问
- *
- * NOTE: li 立即数必须与 init/user_trap_test.c 中的 UTEST_* 宏保持同步，
- *       修改其中一处时必须同步更新另一处。
- */
+
 
 	.section .text
 	.align 2

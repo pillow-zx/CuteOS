@@ -1,6 +1,11 @@
 #ifndef _CUTEOS_UAPI_POLL_H
 #define _CUTEOS_UAPI_POLL_H
 
+/**
+ * @file poll.h
+ * @brief Linux poll/ppoll UAPI constants and pollfd layout.
+ */
+
 #define POLLIN	       0x0001
 #define POLLPRI	       0x0002
 #define POLLOUT	       0x0004
@@ -17,6 +22,15 @@
 #define POLLFREE       0x4000
 #define POLL_BUSY_LOOP 0x8000
 
+/**
+ * @struct pollfd
+ * @brief One file descriptor entry used by poll and ppoll.
+ *
+ * @par Fields
+ * - @c fd: File descriptor number.
+ * - @c events: Requested POLL* events.
+ * - @c revents: Returned ready/error POLL* events.
+ */
 struct pollfd {
 	int fd;
 	short events;

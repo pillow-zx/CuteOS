@@ -1,36 +1,5 @@
 /*
  * kernel/signal.c - 信号机制
- *
- * 功能：
- *   实现符合 POSIX 语义的信号机制。每个 task_struct 中包含：
- *     - sigaction[32]：32 个信号的处理器描述。
- *     - blocked       ：被阻塞的信号掩码。
- *     - pending       ：待处理信号位图。
- *
- *   信号投递流程（do_signal）：
- *     - 在每次 trap 返回用户态（U-mode）前调用 do_signal。
- *     - 遍历 pending 位图，找到第一个未被 blocked 的待处理信号。
- *     - SIGKILL（9）和 SIGSTOP（19）不可捕获、不可阻塞，
- *       始终执行默认行为。
- *     - 投递动作：在用户栈上构建 signal_frame（保存当前 trap_frame
- *       和 blocked 掩码），修改 trap_frame 使返回后执行信号处理器
- *      （sepc = handler 地址，a0 = signo，ra = trampoline 地址）。
- *     - sigreturn 系统调用：从 signal_frame 恢复原始 trap_frame
- *       和 blocked 掩码，使信号处理器返回后继续执行被中断的程序。
- *
- * 主要函数：
- *   do_signal(tf)                  - 在所有 trap 返回 U-mode 前调用，
- *                                     检查并投递 pending 信号。
- *   do_kill(pid, sig)              - kill 系统调用内部实现。
- *   do_sigaction(sig, act, oldact) - sigaction 系统调用内部实现
- *                                    （注册/查询处理器）。
- *   do_sigreturn(tf, sp)           - 从信号处理器返回，恢复 trap_frame
- *                                     + blocked。
- *   send_signal(sig, target)       - 向目标进程发送信号（置 pending 位）。
- *   setup_signal_frame(tf, ka)     - 在用户栈上构建 signal_frame，
- *                                     保存 trap_frame 和 blocked，
- *                                     修改 trap_frame（sepc=handler,
- *                                     a0=signo, ra=trampoline）。
  */
 
 #include <kernel/errno.h>
@@ -456,17 +425,7 @@ int force_signal(int sig, struct task_struct *task)
 	if (!task)
 		return -ESRCH;
 
-	/*
-	 * 重入护栏：当该信号的 handler 正在运行时再次被强制投递（典型场景：
-	 * 用户安装了 SIGSEGV 处理器，而该处理器自身又访问了非法地址）。
-	 *
-	 * "handler 运行期间本信号不可重入"这条不变量由两处共同维护：
-	 * setup_signal_frame 在投递时把本信号加入 blocked 并置 in_handler 位，
-	 * sys_sigreturn 返回时清除。若不检查而直接解除屏蔽再投递，会击穿这层
-	 * 保护，导致 setup_signal_frame → 缺页 → force_signal 的无限递归。
-	 * 因此一旦发现该信号已在投递中，对 get_current_task()
-	 * 直接按默认处置终止。
-	 */
+
 	if (task_in_handler_mask(task) & signal_mask(sig)) {
 		if (task == current_task())
 			do_exit(SIGNAL_EXIT_CODE(sig));
@@ -536,7 +495,6 @@ static int setup_signal_frame(struct trap_frame *tf, int sig,
 	struct stack_t *sas = task_altstack(current_task());
 	bool on_altstack = false;
 
-	/* SA_ONSTACK: use the alternate signal stack if installed. */
 	if ((action->sa_flags & SA_ONSTACK) && sas &&
 	    !(sas->ss_flags & (SS_DISABLE | SS_ONSTACK))) {
 		uintptr_t top = (uintptr_t)sas->ss_sp + sas->ss_size;
@@ -561,12 +519,6 @@ static int setup_signal_frame(struct trap_frame *tf, int sig,
 	if (on_altstack)
 		sas->ss_flags |= SS_ONSTACK;
 
-	/*
-	 * 投递不变量：handler 运行期间本信号必须被屏蔽，且 in_handler 置位。
-	 * blocked 由 sys_sigreturn 用 frame.blocked 恢复，in_handler 由
-	 * frame.sig 清除。force_signal 依赖 in_handler 判断是否重入，故二者
-	 * 必须成对维护。详见 force_signal 的重入护栏注释。
-	 */
 	signal_block_mask(current_task(), signal_mask(sig));
 	signal_block_mask(current_task(), action->sa_mask);
 	signal_enter_handler(current_task(), sig);
@@ -752,7 +704,7 @@ int do_sigaltstack(const struct stack_t *ss, struct stack_t *old_ss)
 		*old_ss = *sas;
 
 	if (ss) {
-		/* Cannot change while running on the alternate stack. */
+
 		if (sas->ss_flags & SS_ONSTACK)
 			return -EPERM;
 

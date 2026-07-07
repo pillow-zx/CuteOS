@@ -1,6 +1,4 @@
-/*
- * kernel/sched/mlfq.c - 教学版多级反馈队列调度策略
- */
+
 
 #include "internal.h"
 

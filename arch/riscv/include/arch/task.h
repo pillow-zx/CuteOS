@@ -1,12 +1,9 @@
 #ifndef _CUTEOS_ARCH_RISCV_TASK_H
 #define _CUTEOS_ARCH_RISCV_TASK_H
 
-/*
- * arch/riscv/include/arch/task.h - RISC-V task architecture state
- *
- * This header owns the architecture-specific part embedded in task_struct.
- * Generic task code may keep the storage and use narrow accessors, while
- * RISC-V code owns the meaning of context, trap frame, and satp fields.
+/**
+ * @file
+ * @brief RISC-V task architecture state.
  */
 
 #include <kernel/types.h>
@@ -16,9 +13,25 @@
 #include <asm/context.h>
 #include <asm/trap_frame.h>
 
+/** @def ARCH_KSTACK_ORDER
+ * @brief Buddy allocation order for one kernel stack.
+ */
 #define ARCH_KSTACK_ORDER 1
+/** @def ARCH_KSTACK_SIZE
+ * @brief Kernel stack size in bytes for each task.
+ */
 #define ARCH_KSTACK_SIZE  (PAGE_SIZE << ARCH_KSTACK_ORDER)
 
+/**
+ * @struct task_arch_state
+ * @brief RISC-V-owned task state embedded in struct task_struct.
+ *
+ * @par Fields
+ * - @c ctx: Callee-saved kernel context for switch.S.
+ * - @c tf: Current trap frame while running in kernel.
+ * - @c kstack: Base address of the task kernel stack allocation.
+ * - @c satp: User page-table root installed before U-mode return.
+ */
 struct task_arch_state {
 	struct context ctx;
 	struct trap_frame *tf;

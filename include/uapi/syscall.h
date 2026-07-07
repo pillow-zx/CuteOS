@@ -1,8 +1,14 @@
 #ifndef _CUTEOS_UAPI_SYSCALL_H
 #define _CUTEOS_UAPI_SYSCALL_H
 
-/*
- * Linux riscv64 syscall numbers shared by kernel and user space.
+/**
+ * @file syscall.h
+ * @brief Linux riscv64 syscall numbers exported to kernel and userspace.
+ *
+ * The numeric values are ABI: userspace places the syscall number in RISC-V
+ * register a7, syscall arguments in a0-a5, and the kernel returns the result
+ * in a0. Successful calls return non-negative values; failures return Linux
+ * negative errno values.
  */
 
 #define SYS_getcwd	      17
@@ -116,6 +122,10 @@
 #define SYS_rseq	      293
 #define SYS_faccessat2	      439
 
+/**
+ * @def NR_SYSCALL
+ * @brief Dispatch-table size derived from the highest known syscall number.
+ */
 #define NR_SYSCALL (SYS_faccessat2 + 1)
 
 #ifndef __ASSEMBLER__

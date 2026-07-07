@@ -1,9 +1,5 @@
 /*
  * syscall/sys_file_path.c - 路径与目录操作系统调用
- *
- * 覆盖范围：
- *   用户空间路径拷贝（copy_user_path）、dirfd 解析（dirfd_path_base）、
- *   umask 应用、目录条目格式转换，以及所有基于路径的文件系统操作。
  */
 
 #include <kernel/fdtable.h>
@@ -323,7 +319,7 @@ ssize_t sys_readlinkat(struct trap_frame *tf)
 	if (!ubuf || !access_ok(ubuf, bufsiz))
 		return -EFAULT;
 
-	/* readlink 操作链接本身，绝不跟随末端符号链接。 */
+
 	ret = copy_user_path_at(dfd, upath, &path, &base);
 	if (ret < 0)
 		return ret;

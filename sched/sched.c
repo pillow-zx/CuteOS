@@ -1,14 +1,10 @@
-/*
- * kernel/sched/core.c - 调度器核心
- */
+
 
 #include "internal.h"
 
 #include <kernel/exit.h>
 #include <kernel/printk.h>
 #include <kernel/rseq.h>
-
-/* ---- 抢占计数器 ---- */
 
 volatile int preempt_count;
 

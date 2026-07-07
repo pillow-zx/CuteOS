@@ -3,31 +3,6 @@
 
 /*
  * fs/ext2/ext2.h - EXT2 磁盘格式定义
- *
- * 功能：
- *   定义 EXT2 文件系统的磁盘数据结构，包括超级块、块组描述符、
- *   inode、目录项等。这些结构体直接对应磁盘上的二进制布局，
- *   字段顺序和位宽必须严格与 EXT2 规范一致。仅在此目录内使用，
- *   不对外暴露。
- *
- * 主要定义：
- *   struct ext2_super_block         - 超级块（inodes_count, blocks_count,
- *                                     first_data_block, log_block_size,
- *                                     log_frag_size, blocks_per_group,
- *                                     magic（0xEF53）等）
- *   struct ext2_group_desc          - 块组描述符（bg_block_bitmap,
- *                                     bg_inode_bitmap, bg_inode_table,
- *                                     bg_free_blocks_count 等）
- *   struct ext2_inode               - inode 磁盘格式（i_mode, i_uid,
- *                                     i_size, i_atime, i_block[15] 等）
- *   struct ext2_dir_entry_2         - 目录项（inode, rec_len,
- *                                     name_len, file_type, name[]）
- *   EXT2_SUPER_MAGIC               - EXT2 魔数（0xEF53）
- *   EXT2_ROOT_INO                  - 根 inode 号（2）
- *   EXT2_GOOD_OLD_REVISION         - EXT2 修订版本
- *   EXT2_NAME_LEN                  - 最大文件名长度
- *   EXT2_NDIR_BLOCKS / EXT2_IND_BLOCK / EXT2_DIND_BLOCK / EXT2_TIND_BLOCK
- *                                   - 直接/间接块索引
  */
 
 #include <kernel/blkdev.h>

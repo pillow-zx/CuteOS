@@ -1,16 +1,5 @@
 /*
  * mm/mmap.c - 用户地址空间管理
- *
- * 功能：
- *   管理用户进程的虚拟地址空间。mm_struct 包含 pgd、brk、代码段范围
- *   以及 vma[NR_VMA] 固定数组。每个 vm_area_struct 描述一段连续虚拟区域。
- *
- * 主要函数：
- *   mm_alloc()           - 分配并初始化 mm_struct
- *   mm_destroy()         - 销毁用户地址空间
- *   mm_create_user_pgd() - 创建用户页表 + 复制内核映射 + 应用注册映射
- *   find_vma()           - 查找包含指定地址的 VMA
- *   mm_brk()             - brk 内部实现（lazy allocation，不缩小）
  */
 
 #include <kernel/mm.h>
@@ -29,8 +18,6 @@
 #include <kernel/processor.h>
 
 #include "internal.h"
-
-/* ---- 内部辅助函数 ---- */
 
 static int __must_check mm_unmap_range_locked(struct mm_struct *mm,
 					      uintptr_t addr, uintptr_t end);
@@ -237,14 +224,6 @@ int mm_move_user_pages_locked(struct mm_struct *mm, uintptr_t old_start,
 	return 0;
 }
 
-/*
- * free_user_page_tables - 释放用户页表中的所有页表页和映射的物理页
- * @pgd: 用户 PGD
- *
- * 遍历低 256 个 PGD 项（用户地址空间部分），释放每个有效 PMD 下
- * 的所有 PTE 页和映射的物理页，最后释放 PMD 页和 PGD 页本身。
- * 高 256 项是内核映射的共享引用，不释放。
- */
 static void free_user_page_tables(pte_t *pgd)
 {
 	for (int i = 0; i < 256; i++) {
@@ -265,8 +244,6 @@ static void free_user_page_tables(pte_t *pgd)
 	}
 	free_page(pgd, 0);
 }
-
-/* ---- 公共接口 ---- */
 
 struct mm_struct *mm_alloc(void)
 {
@@ -418,19 +395,18 @@ pte_t *mm_create_user_pgd(void)
 	pte_t *kern_root;
 	int ret;
 
-	/* 1. 分配 PGD 页 */
+
 	user_pgd = (pte_t *)get_free_page(0);
 	if (!user_pgd)
 		return NULL;
 	memset(user_pgd, 0, PAGE_SIZE);
 
-	/* 2. 复制内核高地址映射（PGD[256-511]）
-	 *    确保 trap 进内核后内核代码/数据仍可访问 */
+
 	kern_root = current_pt();
 	for (int i = 256; i < 512; i++)
 		user_pgd[i] = kern_root[i];
 
-	/* 3. 应用平台和子系统注册的用户页表特殊映射。 */
+
 	ret = user_map_apply(user_pgd);
 	if (ret < 0) {
 		free_user_page_tables(user_pgd);
@@ -469,17 +445,6 @@ int mm_user_page_resident(struct mm_struct *mm, uintptr_t addr, bool *resident)
 	return 0;
 }
 
-/*
- * mm_brk - brk 内部实现
- * @mm:   进程地址空间描述符
- * @addr: 新的 brk 地址，0 表示查询
- *
- * 不允许缩小堆。仅更新 VMA 边界和 brk 指针，不分配物理页。
- * 实际的物理页在缺页时由 do_page_fault() 按需分配（lazy allocation）。
- * 如果当前没有堆 VMA，则创建一个新的。
- *
- * 返回新的 brk 值，失败返回当前 brk 值。
- */
 uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr)
 {
 	uintptr_t ret;
@@ -942,10 +907,7 @@ mremap_move_locked(struct mm_struct *mm, const struct vm_area_struct *old_vma,
 
 	ret = mm_unmap_range_locked(mm, old_addr, old_end);
 	if (ret < 0) {
-		/*
-		 * This is guarded by the slot check above.  If it ever fails,
-		 * keep the new mapping rather than dropping moved pages.
-		 */
+
 		return ret;
 	}
 
@@ -1255,12 +1217,6 @@ int mm_finalize(struct mm_struct *mm, uintptr_t first_vaddr,
 	return 0;
 }
 
-/*
- * mm_mprotect - 修改地址范围内 VMA 的访问权限并更新页表 PTE。
- *
- * 需要在范围边界分裂 VMA（最多 2 次），更新 vm_flags，然后对所有已映射
- * 的页更新 PTE 权限位并刷新 TLB。
- */
 int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 {
 	uint32_t new_vm_flags;
@@ -1314,7 +1270,7 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 
 	vma_update_flags_range(mm, addr, end, new_vm_flags);
 
-	/* Update PTE permissions for already-mapped pages. */
+
 	for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {
 		pte_t *pte = pagetable_lookup(mm->pgd, va);
 

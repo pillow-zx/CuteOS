@@ -1,6 +1,15 @@
 #ifndef _CUTEOS_UAPI_SCHED_H
 #define _CUTEOS_UAPI_SCHED_H
 
+/**
+ * @file sched.h
+ * @brief Linux clone flag UAPI constants.
+ *
+ * These values are consumed by clone on the Linux riscv64 syscall ABI.
+ * Supported semantics are a documented subset, but bit assignments are ABI and
+ * must stay Linux-compatible.
+ */
+
 #define CLONE_NEWTIME	     0x00000080
 #define CLONE_VM	     0x00000100
 #define CLONE_FS	     0x00000200

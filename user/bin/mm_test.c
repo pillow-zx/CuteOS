@@ -65,8 +65,6 @@ static int create_mmap_test_file(const char *data, size_t len)
 	return 0;
 }
 
-/* ---- test 1: brk growth ---- */
-
 static int test_brk_growth(void)
 {
 	long old_brk = brk(0);
@@ -78,7 +76,7 @@ static int test_brk_growth(void)
 		return 1;
 	}
 
-	/* Grow heap by one page. */
+
 	new_brk = brk(old_brk + (long)PAGE_SIZE);
 	if (new_brk != old_brk + (long)PAGE_SIZE) {
 		printf("FAIL: brk grow: expected %ld got %ld\n",
@@ -86,7 +84,7 @@ static int test_brk_growth(void)
 		return 1;
 	}
 
-	/* New page must be zero-initialized. */
+
 	p = (char *)old_brk;
 	for (size_t i = 0; i < PAGE_SIZE; i++) {
 		if (p[i] != 0) {
@@ -96,7 +94,7 @@ static int test_brk_growth(void)
 		}
 	}
 
-	/* Write a pattern and read it back. */
+
 	for (size_t i = 0; i < PAGE_SIZE; i++)
 		p[i] = (char)(i & 0xff);
 	for (size_t i = 0; i < PAGE_SIZE; i++) {
@@ -107,12 +105,10 @@ static int test_brk_growth(void)
 		}
 	}
 
-	/* Restore heap top. */
+
 	brk(old_brk);
 	return 0;
 }
-
-/* ---- test 2: mmap anonymous write/read ---- */
 
 static int test_mmap_anon(void)
 {
@@ -126,7 +122,7 @@ static int test_mmap_anon(void)
 		return 1;
 	}
 
-	/* Zero-init check. */
+
 	for (size_t i = 0; i < len; i++) {
 		if (m[i] != 0) {
 			printf("FAIL: mmap not zero at %zu\n", i);
@@ -135,7 +131,7 @@ static int test_mmap_anon(void)
 		}
 	}
 
-	/* Write and read back. */
+
 	for (size_t i = 0; i < len; i++)
 		m[i] = (char)(i * 7 & 0xff);
 	for (size_t i = 0; i < len; i++) {
@@ -150,8 +146,6 @@ static int test_mmap_anon(void)
 	return 0;
 }
 
-/* ---- test 3: VMA split via middle munmap ---- */
-
 static int test_munmap_split(void)
 {
 	char *m;
@@ -164,11 +158,11 @@ static int test_munmap_split(void)
 		return 1;
 	}
 
-	/* Write sentinel bytes at first and last page. */
+
 	m[0] = 0xAA;
 	m[len - 1] = 0xBB;
 
-	/* Unmap the two middle pages. */
+
 	long rc = munmap(m + PAGE_SIZE, 2 * PAGE_SIZE);
 
 	if (rc != 0) {
@@ -177,7 +171,7 @@ static int test_munmap_split(void)
 		return 1;
 	}
 
-	/* First and last pages should still be accessible. */
+
 	if ((unsigned char)m[0] != 0xAA) {
 		printf("FAIL: head sentinel lost after split munmap\n");
 		munmap(m, PAGE_SIZE);
@@ -191,13 +185,11 @@ static int test_munmap_split(void)
 		return 1;
 	}
 
-	/* Clean up the two remaining VMAs. */
+
 	munmap(m, PAGE_SIZE);
 	munmap(m + 3 * PAGE_SIZE, PAGE_SIZE);
 	return 0;
 }
-
-/* ---- test 4: multiple independent mappings ---- */
 
 static int test_mmap_independent(void)
 {
@@ -217,7 +209,7 @@ static int test_mmap_independent(void)
 		maps[i][0] = (char)i;
 	}
 
-	/* Verify each mapping has its own data. */
+
 	for (int i = 0; i < N_MAPS; i++) {
 		if (maps[i][0] != (char)i) {
 			printf("FAIL: map[%d] data corrupted\n", i);
@@ -231,8 +223,6 @@ static int test_mmap_independent(void)
 	return failed;
 }
 
-/* test 1: write to mprotect(PROT_READ) triggers SIGSEGV,
- *         then mprotect back to RW allows writes */
 static int test_ro_rw(void)
 {
 	char *m;
@@ -248,11 +238,11 @@ static int test_ro_rw(void)
 		return 1;
 	}
 
-	/* Touch both pages. */
+
 	m[0] = 0xab;
 	m[PAGE_SIZE] = 0xcd;
 
-	/* Remove write on first page. */
+
 	ret = mprotect(m, PAGE_SIZE, PROT_READ);
 	if (ret != 0) {
 		printf("FAIL: mprotect PROT_READ: %ld\n", ret);
@@ -260,7 +250,7 @@ static int test_ro_rw(void)
 		return 1;
 	}
 
-	/* Writing to read-only page must fault. */
+
 	p = (volatile char *)m;
 	pid = fork();
 	if (pid == 0) {
@@ -283,7 +273,7 @@ static int test_ro_rw(void)
 		return 1;
 	}
 
-	/* Restore write permission. */
+
 	ret = mprotect(m, PAGE_SIZE, PROT_READ | PROT_WRITE);
 	if (ret != 0) {
 		printf("FAIL: mprotect restore RW: %ld\n", ret);
@@ -291,7 +281,7 @@ static int test_ro_rw(void)
 		return 1;
 	}
 
-	/* Write must succeed now. */
+
 	m[0] = 0x42;
 	if (m[0] != 0x42) {
 		printf("FAIL: write after restore failed\n");
@@ -299,7 +289,7 @@ static int test_ro_rw(void)
 		return 1;
 	}
 
-	/* Second page (never mprotected) must still be writable. */
+
 	m[PAGE_SIZE] = 0x77;
 	if (m[PAGE_SIZE] != 0x77) {
 		printf("FAIL: second page write failed\n");
@@ -351,7 +341,6 @@ static int test_ro_rw(void)
 	return 0;
 }
 
-/* test 2: mprotect a subset range (middle page of 3) */
 static int test_partial_range(void)
 {
 	char *m;
@@ -364,12 +353,12 @@ static int test_partial_range(void)
 		return 1;
 	}
 
-	/* Touch all pages. */
+
 	m[0] = 1;
 	m[PAGE_SIZE] = 2;
 	m[2 * PAGE_SIZE] = 3;
 
-	/* Protect only the middle page read-only. */
+
 	ret = mprotect(m + PAGE_SIZE, PAGE_SIZE, PROT_READ);
 	if (ret != 0) {
 		printf("FAIL: mprotect middle: %ld\n", ret);
@@ -377,7 +366,7 @@ static int test_partial_range(void)
 		return 1;
 	}
 
-	/* First and last pages still writable. */
+
 	m[0] = 0x11;
 	m[2 * PAGE_SIZE] = 0x33;
 	if (m[0] != 0x11 || m[2 * PAGE_SIZE] != 0x33) {
@@ -386,7 +375,7 @@ static int test_partial_range(void)
 		return 1;
 	}
 
-	/* Restore middle page. */
+
 	ret = mprotect(m + PAGE_SIZE, PAGE_SIZE, PROT_READ | PROT_WRITE);
 	if (ret != 0) {
 		printf("FAIL: mprotect restore middle: %ld\n", ret);
@@ -398,7 +387,6 @@ static int test_partial_range(void)
 	return 0;
 }
 
-/* test 3: unaligned address returns -EINVAL */
 static int test_unaligned(void)
 {
 	char *m;
@@ -412,7 +400,7 @@ static int test_unaligned(void)
 	}
 
 	ret = mprotect(m + 1, PAGE_SIZE - 1, PROT_READ);
-	if (ret != -22) { /* -EINVAL */
+	if (ret != -22) {
 		printf("FAIL: unaligned: expected -22 got %ld\n", ret);
 		munmap(m, PAGE_SIZE);
 		return 1;
@@ -422,19 +410,16 @@ static int test_unaligned(void)
 	return 0;
 }
 
-/* test 4: unmapped range returns -ENOMEM */
 static int test_unmapped(void)
 {
 	long ret = mprotect((void *)0x100000, PAGE_SIZE, PROT_READ);
 
-	if (ret != -12) { /* -ENOMEM */
+	if (ret != -12) {
 		printf("FAIL: unmapped: expected -12 got %ld\n", ret);
 		return 1;
 	}
 	return 0;
 }
-
-/* ---- madvise tests ---- */
 
 static int test_madvise_valid(void)
 {
@@ -454,7 +439,7 @@ static int test_madvise_valid(void)
 		return 1;
 	}
 
-	/* Touch pages so they exist. */
+
 	m[0] = 1;
 	m[PAGE_SIZE] = 2;
 
@@ -471,7 +456,7 @@ static int test_madvise_valid(void)
 	}
 
 	ret = madvise(m, PAGE_SIZE, MADV_REMOVE);
-	if (ret != -22) { /* -EINVAL */
+	if (ret != -22) {
 		printf("FAIL: MADV_REMOVE should be rejected, got %ld\n", ret);
 		munmap(m, 2 * PAGE_SIZE);
 		return 1;
@@ -522,7 +507,7 @@ static int test_madvise_unaligned(void)
 	}
 
 	ret = madvise(m + 1, PAGE_SIZE, MADV_DONTNEED);
-	if (ret != -22) { /* -EINVAL */
+	if (ret != -22) {
 		printf("FAIL: unaligned addr: expected -22 got %ld\n", ret);
 		munmap(m, 2 * PAGE_SIZE);
 		return 1;
@@ -545,7 +530,7 @@ static int test_madvise_unknown_advice(void)
 	}
 
 	ret = madvise(m, PAGE_SIZE, 0x7fff);
-	if (ret != -22) { /* -EINVAL */
+	if (ret != -22) {
 		printf("FAIL: unknown advice: expected -22 got %ld\n", ret);
 		munmap(m, PAGE_SIZE);
 		return 1;
@@ -554,8 +539,6 @@ static int test_madvise_unknown_advice(void)
 	munmap(m, PAGE_SIZE);
 	return 0;
 }
-
-/* ---- mincore tests ---- */
 
 static int test_mincore_basic(void)
 {
@@ -570,9 +553,9 @@ static int test_mincore_basic(void)
 		return 1;
 	}
 
-	/* Write only the first page to trigger page fault (map it). */
+
 	m[0] = 42;
-	/* Leave second page untouched. */
+
 
 	vec[0] = 0;
 	vec[1] = 0;
@@ -614,7 +597,7 @@ static int test_mincore_unaligned(void)
 	}
 
 	ret = mincore(m + 1, PAGE_SIZE, vec);
-	if (ret != -22) { /* -EINVAL */
+	if (ret != -22) {
 		printf("FAIL: mincore unaligned: expected -22 got %ld\n", ret);
 		munmap(m, PAGE_SIZE);
 		return 1;

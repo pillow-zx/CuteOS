@@ -1,18 +1,5 @@
 /*
  * arch/riscv/sbi.c - OpenSBI ecall 封装
- *
- * 封装 RISC-V SBI（Supervisor Binary Interface）调用，通过 ecall 指令
- * 陷入 M 模式下的 OpenSBI 固件执行特权操作。SBI 是内核与底层固件之间的
- * 标准接口层，提供平台无关的服务抽象。
- *
- * 当前仅保留控制台输出和系统关机两个 SBI 调用。
- * 定时器操作（sbi_set_timer）已迁移至 timer.c，改用 Sstc 扩展的
- * stimecmp CSR 直接写入，避免 ecall 陷入 M 模式的开销。
- *
- * 主要函数：
- *   sbi_ecall(eid, fid, arg0~arg4)  - 通用 SBI 调用入口
- *   sbi_console_putchar(ch)         - 早期控制台输出 (EID=0x01)
- *   sbi_shutdown()                  - 系统关机 (EID=0x08)
  */
 
 #include <arch/sbi.h>

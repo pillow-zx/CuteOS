@@ -36,12 +36,7 @@ static int validate_clone_flags(unsigned long flags, uintptr_t child_stack)
 		return -EINVAL;
 	if ((flags & CLONE_SIGHAND) && !(flags & CLONE_VM))
 		return -EINVAL;
-	/*
-	 * Shared address spaces need an explicit child stack. Bare CLONE_VM is
-	 * still unsupported for now, but CLONE_VM|CLONE_SIGHAND is allowed as
-	 * the fork-like form that shares handler state without joining a thread
-	 * group.
-	 */
+
 	if ((flags & CLONE_VM) && child_stack == 0)
 		return -EINVAL;
 	if ((flags & CLONE_VM) && !(flags & CLONE_SIGHAND))

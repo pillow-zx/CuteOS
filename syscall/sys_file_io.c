@@ -1,10 +1,5 @@
 /*
  * syscall/sys_file_io.c - fd I/O 和 iovec 系统调用
- *
- * 覆盖范围：
- *   fd 可读/可写校验、分块用户内存拷贝（rw_user_buffer）、
- *   偏移读写（rw_at_offset）、scatter-gather I/O（rw_iovec），
- *   以及所有基于 fd 的读写、定位、控制和管理系统调用。
  */
 
 #include <kernel/fdtable.h>
@@ -64,12 +59,8 @@
 #define F_SETDELEG	      (F_LINUX_SPECIFIC_BASE + 16)
 #define SPLICE_F_SUPPORTED_HINTS                                             \
 	(SPLICE_F_MOVE | SPLICE_F_MORE | SPLICE_F_GIFT)
-/*
- * ftruncate/fallocate 允许设置的最大 i_size。真实上界取决于具体文件系统；
- * 此处取保守值，主要防止无界膨胀导致 fill_kstat 的 st_blocks 计算溢出，
- * 以及未来 extent/块分配逻辑对越界 i_size 误判。
- */
-#define MAX_FILE_SIZE (1ULL << 40) /* 1 TiB */
+
+#define MAX_FILE_SIZE (1ULL << 40)
 
 static struct file *fd_get_readable(int fd)
 {
@@ -122,11 +113,7 @@ static ssize_t read_user_buffer_pos(struct file *file, void *buf, size_t len,
 				copy_to_user((char *)buf + done, kbuf, (size_t)ret);
 
 			if (left != 0) {
-				/*
-				 * vfs_read_pos 已推进位置整个 ret，但只有
-				 * (ret - left) 字节真正送达用户。回退未送达的
-				 * 尾部，避免下次读静默跳过这些字节。
-				 */
+
 				if (pos)
 					*pos -= (loff_t)left;
 				else

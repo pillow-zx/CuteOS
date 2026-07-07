@@ -35,21 +35,21 @@ static struct termios console_termios = {
 	.c_lflag = ISIG | ICANON | ECHO,
 	.c_cc =
 		{
-			[VINTR] = 3,	/* Ctrl-C */
-			[VQUIT] = 28,	/* Ctrl-\ */
-			[VERASE] = 127, /* DEL */
-			[VKILL] = 21,	/* Ctrl-U */
-			[VEOF] = 4,	    /* Ctrl-D */
+			[VINTR] = 3,
+			[VQUIT] = 28,
+			[VERASE] = 127,
+			[VKILL] = 21,
+			[VEOF] = 4,
 			[VTIME] = 0,
 			[VMIN] = 1,
-			[VSTART] = 17,  /* Ctrl-Q */
-			[VSTOP] = 19,   /* Ctrl-S */
+			[VSTART] = 17,
+			[VSTOP] = 19,
 			[VSUSP] = 0,
 			[VEOL] = 0,
-			[VREPRINT] = 18, /* Ctrl-R */
-			[VDISCARD] = 15, /* Ctrl-O */
-			[VWERASE] = 23,	 /* Ctrl-W */
-			[VLNEXT] = 22,	 /* Ctrl-V */
+			[VREPRINT] = 18,
+			[VDISCARD] = 15,
+			[VWERASE] = 23,
+			[VLNEXT] = 22,
 			[VEOL2] = 0,
 		},
 };

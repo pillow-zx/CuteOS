@@ -2,7 +2,7 @@
 #define _CUTEOS_KERNEL_ATOMIC_H
 
 #include <kernel/sync.h>
-#include <compiler/compiler_builtin.h>
+#include <kernel/compiler.h>
 
 typedef struct {
 	volatile int __aligned(sizeof(int)) counter;

@@ -1,6 +1,11 @@
 #ifndef _CUTEOS_UAPI_RSEQ_H
 #define _CUTEOS_UAPI_RSEQ_H
 
+/**
+ * @file rseq.h
+ * @brief Linux restartable sequences UAPI structures.
+ */
+
 #define RSEQ_CPU_ID_UNINITIALIZED ((unsigned int)-1)
 #define RSEQ_CPU_ID_REGISTRATION_FAILED ((unsigned int)-2)
 
@@ -10,6 +15,20 @@
 #define RSEQ_CS_FLAG_NO_RESTART_ON_SIGNAL  (1U << 1)
 #define RSEQ_CS_FLAG_NO_RESTART_ON_MIGRATE (1U << 2)
 
+/**
+ * @struct rseq_cs
+ * @brief Userspace critical-section descriptor read by the kernel.
+ *
+ * The structure is 32 bytes and aligned to 4 * sizeof(unsigned long), matching
+ * Linux riscv64 expectations. Userspace publishes its address in struct rseq.
+ *
+ * @par Fields
+ * - @c version: Descriptor version, currently 0.
+ * - @c flags: RSEQ_CS_FLAG_* restart suppression bits.
+ * - @c start_ip: First instruction of the critical section.
+ * - @c post_commit_offset: Offset of post-commit instruction.
+ * - @c abort_ip: Abort handler instruction pointer.
+ */
 struct rseq_cs {
 	unsigned int version;
 	unsigned int flags;
@@ -18,6 +37,19 @@ struct rseq_cs {
 	unsigned long abort_ip;
 } __attribute__((aligned(4 * sizeof(unsigned long))));
 
+/**
+ * @struct rseq
+ * @brief Per-thread userspace rseq area registered by the rseq syscall.
+ *
+ * @par Fields
+ * - @c cpu_id_start: CPU id sampled before user critical path.
+ * - @c cpu_id: Current CPU id; single-core cuteOS writes 0.
+ * - @c rseq_cs: User pointer to current struct rseq_cs.
+ * - @c flags: Thread-level rseq flags.
+ * - @c node_id: NUMA node id; single-node cuteOS writes 0.
+ * - @c mm_cid: Memory-map concurrency id compatibility field.
+ * - @c end: Flexible ABI extension marker.
+ */
 struct rseq {
 	unsigned int cpu_id_start;
 	unsigned int cpu_id;

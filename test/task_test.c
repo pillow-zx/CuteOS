@@ -66,29 +66,29 @@ void test_task_alloc_free(void)
 		struct task_struct *task = task_alloc();
 		TEST_ASSERT_NOT_NULL(task);
 
-		/* PID 应 > 0（idle 占用了 0） */
+
 		TEST_ASSERT(task_pid(task) > 0);
 		TEST_ASSERT(task_pid(task) <= PID_MAX);
 
-		/* 初始状态应为 RUNNING */
+
 		TEST_ASSERT_EQ(task_state(task), (uint32_t)TASK_RUNNING);
 
-		/* 内核栈应已分配 */
+
 		TEST_ASSERT_NOT_NULL(task_kernel_stack(task));
 
-		/* 内核栈应按 KSTACK_SIZE 对齐 */
+
 		TEST_ASSERT_ALIGNED(task_kernel_stack(task), PAGE_SIZE);
 
-		/* mm 应为 NULL（内核线程） */
+
 		TEST_ASSERT_NULL(task_mm(task));
 
-		/* tf 应为 NULL */
+
 		TEST_ASSERT_NULL(task_trap_frame(task));
 
-		/* canary 应完好 */
+
 		check_canary(task);
 
-		/* 进程树链接应已初始化 */
+
 		TEST_ASSERT(list_empty(task_children(task)));
 		TEST_ASSERT(!task_has_parent_link(task));
 		TEST_ASSERT(!task_is_queued(task));
@@ -108,7 +108,7 @@ void test_task_canary(void)
 		struct task_struct *task = task_alloc();
 		TEST_ASSERT_NOT_NULL(task);
 
-		/* 直接读取 canary 值 */
+
 		uint64_t *canary_ptr = (uint64_t *)task_kernel_stack(task);
 		TEST_ASSERT_EQ(*canary_ptr, CANARY_MAGIC);
 
@@ -135,14 +135,14 @@ void test_task_multiple(void)
 			pids[i] = task_pid(tasks[i]);
 		}
 
-		/* 所有 PID 应互不相同 */
+
 		for (int i = 0; i < TASK_N_TASKS; i++) {
 			for (int j = i + 1; j < TASK_N_TASKS; j++) {
 				TEST_ASSERT_NE(pids[i], pids[j]);
 			}
 		}
 
-		/* 释放 */
+
 		for (int i = 0; i < TASK_N_TASKS; i++)
 			task_free(tasks[i]);
 #undef TASK_N_TASKS
@@ -166,12 +166,12 @@ void test_task_process_tree(void)
 		struct task_struct *child2 = task_alloc();
 		TEST_ASSERT_NOT_NULL(child2);
 
-		/* 构建父子关系 */
+
 		task_link_child(parent, child1);
 
 		task_link_child(parent, child2);
 
-		/* 验证 parent 有 2 个子进程 */
+
 		TEST_ASSERT(!list_empty(task_children(parent)));
 
 		int child_count = 0;
@@ -180,7 +180,7 @@ void test_task_process_tree(void)
 			child_count++;
 		TEST_ASSERT_EQ(child_count, 2);
 
-		/* 清理 */
+
 		task_unlink_child(child1);
 		task_unlink_child(child2);
 		task_free(child2);
@@ -214,7 +214,7 @@ void test_task_free_null(void)
 	TEST_BEGIN("task: free(NULL) safe");
 	{
 		task_free(NULL);
-		/* 如果没崩溃就算通过 */
+
 	}
 	TEST_END("task: free(NULL) safe");
 }

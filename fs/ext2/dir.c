@@ -52,24 +52,12 @@ static int ext2_sync_dir_page(struct page_cache *page)
 	return page_cache_sync_page(page) < 0 ? -EIO : 0;
 }
 
-/*
- * ext2 directories are ordinary inode data blocks whose payload is a sequence
- * of ext2_dir_entry_2 records.  Read them through inode->i_pages so the
- * page cache key is (directory inode, logical block).  Reading the raw physical
- * block through page_cache_get_block() would create a second authoritative
- * cache entry and make later fsync/writeback ordering ambiguous.
- */
 static struct page_cache *ext2_read_inode_page(struct inode *inode,
 					       uint32_t lblock)
 {
 	return inode ? page_cache_read_page(&inode->i_pages, lblock) : NULL;
 }
 
-/*
- * A freshly allocated directory block has no meaningful old contents.  Create
- * or grab the logical inode page, zero it, and mark it uptodate before callers
- * lay out "."/".." or a new directory entry.
- */
 static struct page_cache *ext2_new_inode_page(struct inode *inode,
 					      uint32_t lblock)
 {
@@ -164,12 +152,7 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 			if (!de->inode && de->rec_len >= need) {
 				ext2_dirent_init(de, ino, de->rec_len, name,
 						 namelen, type);
-				/*
-				 * Directory updates remain synchronous in this
-				 * teaching kernel, but they still go through
-				 * the inode mapping so block-cache aliases are
-				 * refreshed by page_cache_sync_page().
-				 */
+
 				page_cache_mark_dirty(page);
 				if (ext2_sync_dir_page(page) < 0) {
 					page_cache_put_page(page);
@@ -732,13 +715,6 @@ static int ext2_readdir(struct file *file, void *ctx, filldir_t filldir)
 	return 0;
 }
 
-/*
- * ext2_set_dotdot - update ".." entry in a directory to point to new parent.
- *
- * Called when a directory is moved to a different parent (cross-directory
- * rename).  Scans the first blocks of @dir looking for the ".." entry and
- * rewrites its inode number to @new_parent_ino.
- */
 static int ext2_set_dotdot(struct inode *dir, uint32_t new_parent_ino)
 {
 	uint32_t blocks =
@@ -810,7 +786,7 @@ static int ext2_rename(struct inode *old_dir, struct dentry *old_dentry,
 	if (new_inode == old_inode)
 		return 0;
 
-	/* Target exists: validate replaceability before touching metadata. */
+
 	if (new_inode) {
 		new_is_dir = (new_inode->i_mode & EXT2_S_IFMT) == EXT2_S_IFDIR;
 
@@ -822,11 +798,6 @@ static int ext2_rename(struct inode *old_dir, struct dentry *old_dentry,
 			return -ENOTEMPTY;
 	}
 
-	/*
-	 * Install the destination name before removing the source name.  For an
-	 * existing target, rewrite the target directory entry in place so a
-	 * later failure can restore it without losing the old target.
-	 */
 	ftype = ext2_file_type(old_inode->i_mode);
 	if (replacing)
 		ret = ext2_replace_entry(new_dir, new_dentry,
@@ -844,7 +815,6 @@ static int ext2_rename(struct inode *old_dir, struct dentry *old_dentry,
 			goto rollback_new;
 	}
 
-	/* Remove old entry; roll back the destination update on failure. */
 	ret = ext2_delete_entry(old_dir, old_dentry);
 	if (ret < 0) {
 		if (cross_dir)
@@ -867,7 +837,6 @@ static int ext2_rename(struct inode *old_dir, struct dentry *old_dentry,
 		iput(new_inode);
 	}
 
-	/* For cross-directory directory moves, update parent link counts. */
 	if (cross_dir) {
 		if (old_dir->i_nlink > 0)
 			old_dir->i_nlink--;

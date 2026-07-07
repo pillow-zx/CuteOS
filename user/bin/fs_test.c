@@ -18,7 +18,6 @@
 #define MOUNT_FD_CREATED "/tmp/mount_dir/fd_created_on_mount"
 #define MOUNT_FD_RENAMED "/tmp/mount_dir/fd_renamed_on_mount"
 
-/* Helper: create a file and write data to it. */
 static int make_file(const char *path, const char *data, int len)
 {
 	int fd = openat(AT_FDCWD, path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
@@ -30,7 +29,6 @@ static int make_file(const char *path, const char *data, int len)
 	return 0;
 }
 
-/* Helper: read first nbytes from file, return 0 on match. */
 static int read_check(const char *path, const char *expect, int len)
 {
 	char buf[64];
@@ -57,7 +55,6 @@ static int read_check(const char *path, const char *expect, int len)
 	return 0;
 }
 
-/* test 1: basic rename: src disappears, dst appears with right content */
 static int test_basic(void)
 {
 	long ret;
@@ -75,7 +72,7 @@ static int test_basic(void)
 		return 1;
 	}
 
-	/* src must be gone */
+
 	fd = openat(AT_FDCWD, "/tmp/rn_src", O_RDONLY, 0);
 	if (fd >= 0) {
 		printf("FAIL: src still exists after rename\n");
@@ -85,7 +82,7 @@ static int test_basic(void)
 		return 1;
 	}
 
-	/* dst must contain "hello" */
+
 	if (read_check("/tmp/rn_dst", "hello", 5) != 0) {
 		printf("FAIL: dst data wrong\n");
 		unlinkat(AT_FDCWD, "/tmp/rn_dst", 0);
@@ -96,7 +93,6 @@ static int test_basic(void)
 	return 0;
 }
 
-/* test 2: RENAME_NOREPLACE when dst exists → -EEXIST */
 static int test_noreplace(void)
 {
 	long ret;
@@ -124,7 +120,6 @@ static int test_noreplace(void)
 	return 0;
 }
 
-/* test 3: replacing an existing regular file updates dst */
 static int test_replace_existing(void)
 {
 	long ret;
@@ -155,7 +150,6 @@ static int test_replace_existing(void)
 	return 0;
 }
 
-/* test 4: renaming a path to itself is a no-op */
 static int test_same_path(void)
 {
 	long ret;
@@ -177,7 +171,6 @@ static int test_same_path(void)
 	return 0;
 }
 
-/* test 5: reject moving a directory into its own subtree */
 static int test_dir_into_subtree(void)
 {
 	long ret;
@@ -200,7 +193,6 @@ static int test_dir_into_subtree(void)
 	return 0;
 }
 
-/* test 6: target exists on disk even if this test did not create/cache it */
 static int test_noreplace_existing_uncached_target(void)
 {
 	long ret;
@@ -228,8 +220,6 @@ static int test_noreplace_existing_uncached_target(void)
 	return 0;
 }
 
-/* test 7: an existing cwd dentry remains usable after its directory is renamed
- */
 static int test_rename_cwd_keeps_reference(void)
 {
 	char cwd[64];

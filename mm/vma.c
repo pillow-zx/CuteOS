@@ -1,8 +1,5 @@
 /*
  * mm/vma.c - 固定数组 VMA 操作
- *
- * 这里集中处理 mm->vma[] 的 slot 分配、split、merge 和范围校验。
- * 调用者仍负责持有 mm->mmap_lock，以及执行页表/PTE 级副作用。
  */
 
 #include "internal.h"

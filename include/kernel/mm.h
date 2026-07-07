@@ -1,50 +1,52 @@
 #ifndef _CUTEOS_KERNEL_MM_H
 #define _CUTEOS_KERNEL_MM_H
 
-/*
- * include/kernel/mm.h - 用户地址空间管理与虚拟内存公共接口
- *
- * mm_struct 的布局和 VMA 存储方式属于 mm/ 内部实现细节。外部子系统只能
- * 通过本文件声明的接口创建、复制、查询和修改用户地址空间。
+/**
+ * @file mm.h
+ * @brief 用户地址空间、mmap/brk ABI 支持与 uaccess 公共接口。
  */
 
 #include <kernel/compiler.h>
 #include <kernel/types.h>
 #include <kernel/fs.h>
 
-/* ---- 函数声明 ---- */
-
-/*
- * mm_create_user - 创建用户地址空间
- *
- * 分配 mm_struct 和用户页表，并应用用户页表特殊映射。失败返回 NULL。
+/**
+ * @brief Create an empty user address space.
+ * @return New mm with a user page table, or NULL on allocation failure.
  */
 struct mm_struct *__must_check mm_create_user(void);
 
+/**
+ * @brief Take a reference to an mm_struct.
+ * @param mm Address space to pin; may be NULL.
+ */
 void mm_get(struct mm_struct *mm);
+
+/**
+ * @brief Drop an mm_struct reference and destroy it at the last reference.
+ * @param mm Address space to release; may be NULL.
+ */
 void mm_put(struct mm_struct *mm);
 void mm_membarrier_register(struct mm_struct *mm, uint32_t cmd);
 uint32_t __must_check mm_membarrier_registrations(const struct mm_struct *mm);
 
-/*
- * dup_mm - 深拷贝用户地址空间
- * @oldmm: 父进程地址空间
+/**
+ * @brief Duplicate a user address space for fork/clone.
+ * @param oldmm Source address space.
+ * @return New mm on success, or NULL.
  *
- * 复制 mm 元数据、VMA 数组以及所有已经映射的用户物理页。未映射的
- * lazy allocation 页面保持未映射，后续访问继续走缺页处理。
+ * The current implementation copies user mappings rather than installing a
+ * copy-on-write contract.
  */
 struct mm_struct *__must_check dup_mm(struct mm_struct *oldmm);
 
-/*
- * mm_user_satp - 返回该用户地址空间可安装到 task 的 SATP 值
+/**
+ * @brief Return the architecture SATP value for entering a user mm.
+ * @param mm Address space to inspect.
+ * @return RISC-V satp value, or 0 for NULL.
  */
 uintptr_t __must_check mm_user_satp(const struct mm_struct *mm);
 
-/*
- * mm_user_page_resident - 查询用户页是否已经有有效用户 PTE 映射
- *
- * 地址没有 VMA 覆盖时返回 -ENOMEM；成功时通过 resident 返回驻留状态。
- */
 int __must_check mm_user_page_resident(struct mm_struct *mm, uintptr_t addr,
 				       bool *resident);
 
@@ -59,41 +61,47 @@ int __must_check mm_add_stack(struct mm_struct *mm, void *stack_page);
 int __must_check mm_finalize(struct mm_struct *mm, uintptr_t first_vaddr,
 			     uintptr_t last_end);
 
-/*
- * mm_brk - brk 内部实现
- * @mm:   进程地址空间描述符
- * @addr: 新的 brk 值，0 表示查询当前值
- *
- * 不允许缩小堆。仅更新 VMA，物理页由缺页处理按需分配。
- * 返回新的 brk 值，失败返回当前 brk 值。
+/**
+ * @brief Implement Linux brk heap query/growth semantics for one mm.
+ * @param mm Address space whose heap VMA is modified.
+ * @param addr Requested program break, or 0 to query current break.
+ * @return Current program break after validation.
  */
 uintptr_t __must_check mm_brk(struct mm_struct *mm, uintptr_t addr);
 
-/*
- * mm_mmap - 创建匿名用户映射
- * @mm:     进程地址空间描述符
- * @addr:   建议起始地址，0 表示由内核选择
- * @length: 映射长度，按页向上取整
- * @prot:   Linux PROT_* 权限位
- * @flags:  Linux MAP_* 标志
- * @fd:     file-backed mmap 的文件描述符；匿名映射忽略
- * @offset: file-backed mmap 的字节偏移，必须页对齐
- *
- * 返回映射起始地址，失败返回负 errno。
+/**
+ * @brief Create an anonymous user mapping.
+ * @param mm Address space that receives the mapping.
+ * @param addr Requested base address, or 0 for kernel-selected placement.
+ * @param length Mapping length in bytes.
+ * @param prot Linux PROT_* bits.
+ * @param flags Linux MAP_* bits accepted by cuteOS.
+ * @return Mapped user address, or a negative errno.
  */
 ssize_t __must_check mm_mmap(struct mm_struct *mm, uintptr_t addr,
 			     size_t length, int prot, int flags);
+
+/**
+ * @brief Create a file-backed user mapping.
+ * @param mm Address space that receives the mapping.
+ * @param addr Requested base address, or 0 for kernel-selected placement.
+ * @param length Mapping length in bytes.
+ * @param prot Linux PROT_* bits.
+ * @param flags Linux MAP_* bits accepted by cuteOS.
+ * @param fd File descriptor resolved by the syscall layer.
+ * @param offset File offset in bytes; must satisfy page-alignment rules.
+ * @return Mapped user address, or a negative errno.
+ */
 ssize_t __must_check mm_mmap_file(struct mm_struct *mm, uintptr_t addr,
 				  size_t length, int prot, int flags, int fd,
 				  uint64_t offset);
 
-/*
- * mm_munmap - 解除用户映射
- * @mm:     进程地址空间描述符
- * @addr:   起始地址，必须页对齐
- * @length: 解除长度，按页向上取整
- *
- * 释放范围内已经分配的物理页，并调整受影响的 VMA。
+/**
+ * @brief Remove mappings from a user address range.
+ * @param mm Address space to update.
+ * @param addr Page-aligned start address.
+ * @param length Range length in bytes.
+ * @return 0 on success, or a negative errno.
  */
 int __must_check mm_munmap(struct mm_struct *mm, uintptr_t addr, size_t length);
 
@@ -104,15 +112,13 @@ int __must_check __nonnull(1) mm_mlock(struct mm_struct *mm, uintptr_t addr,
 int __must_check __nonnull(1) mm_munlock(struct mm_struct *mm, uintptr_t addr,
 					 size_t len);
 
-/*
- * mm_mprotect - 修改地址范围内 VMA 权限并更新 PTE
- * @mm:   进程地址空间描述符
- * @addr: 起始地址（必须页对齐）
- * @len:  字节长度（按页向上取整）
- * @prot: PROT_READ | PROT_WRITE | PROT_EXEC 的组合
- *
- * 在边界处分裂 VMA，更新受影响 VMA 的 vm_flags，并对已映射的页
- * 更新 PTE 权限位后刷新 TLB。
+/**
+ * @brief Change VMA and resident PTE permissions for a user range.
+ * @param mm Address space to update.
+ * @param addr Page-aligned range start.
+ * @param len Range length in bytes.
+ * @param prot Linux PROT_* permission mask.
+ * @return 0 on success, or a negative errno.
  */
 int __must_check mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len,
 			     int prot);
@@ -122,59 +128,60 @@ ssize_t __must_check mm_mremap(struct mm_struct *mm, uintptr_t old_addr,
 int __must_check mm_msync(struct mm_struct *mm, uintptr_t addr, size_t len,
 			  int flags);
 
-/* ---- 用户空间安全访问（uaccess） ---- */
-
-/*
- * access_ok - 检查用户空间地址范围是否合法
- * @addr: 用户空间起始地址
- * @size: 要访问的字节数
- *
- * 返回 true 表示合法，false 表示非法。
+/**
+ * @brief Validate that a user pointer range is inside user virtual memory.
+ * @param addr User pointer start.
+ * @param size Number of bytes in the range.
+ * @return true when the range is a valid user address interval.
  */
 bool __must_check access_ok(const void *addr, size_t size);
 
+/**
+ * @brief Probe that a user range is mapped and has requested access.
+ * @param addr User pointer start.
+ * @param size Number of bytes to probe.
+ * @param write true when write permission is required.
+ * @return 0 on success, or a negative errno.
+ */
 int __must_check user_range_probe(const void *addr, size_t size, bool write);
 
-/*
- * copy_to_user - 从内核空间复制数据到用户空间
- * @to:   用户空间目标地址
- * @from: 内核空间源地址
- * @n:    要复制的字节数
+/**
+ * @brief Copy bytes from kernel memory to userspace.
+ * @param to Destination user pointer.
+ * @param from Source kernel pointer.
+ * @param n Number of bytes requested.
+ * @return Number of bytes not copied; 0 means complete success.
  *
- * 返回未能复制的字节数（0 表示全部成功）。
+ * User memory must cross the kernel/userspace boundary through this helper or
+ * an equivalent uaccess helper, never through direct dereference.
  */
 size_t __must_check copy_to_user(void *to, const void *from, size_t n)
 	__access(write_only, 1, 3) __access(read_only, 2, 3);
 
-/*
- * copy_from_user - 从用户空间复制数据到内核空间
- * @to:   内核空间目标地址
- * @from: 用户空间源地址
- * @n:    要复制的字节数
- *
- * 返回未能复制的字节数（0 表示全部成功）。
+/**
+ * @brief Copy bytes from userspace to kernel memory.
+ * @param to Destination kernel pointer.
+ * @param from Source user pointer.
+ * @param n Number of bytes requested.
+ * @return Number of bytes not copied; 0 means complete success.
  */
 size_t __must_check copy_from_user(void *to, const void *from, size_t n)
 	__access(write_only, 1, 3) __access(read_only, 2, 3);
 
-/*
- * strncpy_from_user - 复制 NUL 结尾的用户字符串到内核缓冲区
- * @dst:    内核空间目标缓冲区
- * @src:    用户空间源字符串
- * @maxlen: 目标缓冲区大小，包含结尾 NUL
- *
- * 成功时返回不含 NUL 的字符串长度；失败返回负 errno。
+/**
+ * @brief Copy a NUL-terminated string from userspace.
+ * @param dst Kernel destination buffer.
+ * @param src User source pointer.
+ * @param maxlen Maximum bytes to copy, including the terminator.
+ * @return String length excluding NUL, or a negative errno.
  */
 ssize_t __must_check strncpy_from_user(char *dst, const char *src,
 				       size_t maxlen)
 __access(write_only, 1, 3) __access(read_only, 2, 3);
 
-/*
- * do_page_fault - 缺页异常处理总入口
- * @tf: 指向当前 trap_frame
- *
- * 从 trap facade 读取故障地址和缺页类型，
- * 查找 VMA 判断合法性。合法则分配物理页并映射，非法则 do_exit。
+/**
+ * @brief Resolve a user instruction/load/store page fault.
+ * @param tf Trap frame holding faulting user context and scause/stval state.
  */
 void __nonnull(1) do_page_fault(struct trap_frame *tf);
 

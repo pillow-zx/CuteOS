@@ -1,8 +1,9 @@
 #ifndef _CUTEOS_KERNEL_FS_STRUCT_H
 #define _CUTEOS_KERNEL_FS_STRUCT_H
 
-/*
- * include/kernel/fs_struct.h - 可共享的进程文件系统上下文
+/**
+ * @file fs_struct.h
+ * @brief 可共享的进程文件系统上下文。
  */
 
 #include <kernel/fs.h>
@@ -10,6 +11,17 @@
 #include <kernel/sync.h>
 #include <kernel/types.h>
 
+/**
+ * @struct fs_struct
+ * @brief cwd/root/umask state shared by tasks using CLONE_FS.
+ *
+ * @par Fields
+ * - @c refcount: References from tasks sharing this context.
+ * - @c lock: Serializes root/cwd/umask updates.
+ * - @c root: Filesystem root for absolute path lookup.
+ * - @c cwd: Current working directory for relative lookup.
+ * - @c umask: Process umask applied to newly created objects.
+ */
 struct fs_struct {
 	refcount_t refcount;
 	mutex_t lock;
@@ -18,13 +30,43 @@ struct fs_struct {
 	uint32_t umask;
 };
 
+/**
+ * @brief Allocate a filesystem context.
+ * @return New fs_struct, or NULL.
+ */
 struct fs_struct *__must_check fs_alloc(void);
+
+/**
+ * @brief Duplicate a filesystem context for fork without CLONE_FS.
+ * @param old Source context.
+ * @return New context with referenced paths, or NULL.
+ */
 struct fs_struct *__must_check fs_dup(struct fs_struct *old);
 void fs_get(struct fs_struct *fs);
 void fs_put(struct fs_struct *fs);
 
+/**
+ * @brief Snapshot the current root path.
+ * @param fs Filesystem context.
+ * @param path Output path receiving references.
+ * @return 0 on success, or a negative errno.
+ */
 int __must_check fs_get_root_path(struct fs_struct *fs, struct path *path);
+
+/**
+ * @brief Snapshot the current working directory path.
+ * @param fs Filesystem context.
+ * @param path Output path receiving references.
+ * @return 0 on success, or a negative errno.
+ */
 int __must_check fs_get_cwd_path(struct fs_struct *fs, struct path *path);
+
+/**
+ * @brief Replace the current working directory.
+ * @param fs Filesystem context.
+ * @param path New cwd path.
+ * @return 0 on success, or a negative errno.
+ */
 int __must_check fs_set_cwd_path(struct fs_struct *fs, const struct path *path);
 uint32_t __must_check fs_get_umask(struct fs_struct *fs);
 uint32_t fs_set_umask(struct fs_struct *fs, uint32_t mask);

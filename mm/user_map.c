@@ -1,8 +1,5 @@
 /*
  * mm/user_map.c - 用户页表特殊映射注册表
- *
- * 保持 mm_create_user_pgd() 对平台设备和高层子系统无感。注册表固定大小，
- * 符合当前单核、启动期注册、用户页表创建期应用的内核假设。
  */
 
 #include <kernel/user_map.h>

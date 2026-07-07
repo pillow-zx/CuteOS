@@ -3,9 +3,6 @@
 
 /*
  * include/kernel/user_map.h - 用户页表特殊映射注册点
- *
- * mm_create_user_pgd() 只负责创建页表和复制内核高半区映射。必须出现在
- * 每个用户页表中的平台或子系统特殊映射，通过本注册点接入。
  */
 
 #include <kernel/compiler.h>
@@ -22,4 +19,4 @@ int __must_check user_map_apply(pte_t *pgd);
 bool __must_check __pure user_map_reserved_contains(vaddr_t addr);
 bool __must_check __pure user_map_reserved_overlaps(vaddr_t start, vaddr_t end);
 
-#endif /* _CUTEOS_KERNEL_USER_MAP_H */
+#endif

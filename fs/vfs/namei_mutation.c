@@ -1,9 +1,5 @@
 /*
  * fs/vfs/namei_mutation.c - VFS 命名修改操作
- *
- * 本文件承载 create/mkdir/unlink/rename/mknod 的 VFS 层公共模式：
- * 定位父目录、准备目标 dentry、调用具体文件系统 inode_operations，并维护
- * dcache 状态。路径逐分量解析仍位于 namei.c。
  */
 
 #include <kernel/errno.h>

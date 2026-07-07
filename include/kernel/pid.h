@@ -1,13 +1,6 @@
-/*
- * include/kernel/pid.h - PID 分配器
- *
- * 管理进程 ID（PID）的分配与回收。使用位图（bitmap）跟踪 PID 使用状态，
- * PID 范围为 0~255，提供 O(1) 的分配和释放操作。
- *
- * Functions:
- *   pid_init()    - 初始化 PID 位图，预留 PID 0 给 idle 进程
- *   alloc_pid()   - 分配一个未使用的 PID
- *   free_pid(pid) - 释放 PID 回可用池
+/**
+ * @file pid.h
+ * @brief PID allocator and pid-to-task lookup table.
  */
 
 #ifndef _CUTEOS_KERNEL_PID_H
@@ -16,30 +9,40 @@
 #include <kernel/types.h>
 #include <kernel/task.h>
 
-#define PID_MAX	  255 /* 最大 PID 值 */
-#define PID_COUNT 256 /* PID 总数 (0 ~ PID_MAX) */
+/**
+ * @def PID_MAX
+ * @brief Highest allocatable PID/TID in the current teaching kernel.
+ */
+#define PID_MAX	  255
 
 /**
- * pid_init - 初始化 PID 位图
- *
- * 清零全部位，然后置位 PID 0（idle 进程保留）。
+ * @def PID_COUNT
+ * @brief Number of entries in the PID lookup table, including PID 0.
+ */
+#define PID_COUNT 256
+
+/**
+ * @brief Initialize PID allocator state.
  */
 void pid_init(void);
 
 /**
- * alloc_pid - 分配一个可用的 PID
- *
- * 在位图中查找第一个为 0 的位，置 1 并返回对应的 PID 值。
- * 若无可用 PID 则返回 -ENOSPC。
+ * @brief Allocate a free positive PID/TID.
+ * @return PID on success, or a negative errno.
  */
 int32_t __must_check alloc_pid(void);
 
 /**
- * free_pid - 释放一个 PID
- * @pid: 要释放的 PID 值
+ * @brief Release a PID allocated by alloc_pid().
+ * @param pid PID/TID to free.
  */
 void free_pid(pid_t pid);
 
+/**
+ * @brief Attach a task to a PID lookup slot.
+ * @param pid PID/TID.
+ * @param task Task owning the id.
+ */
 void pid_attach_task(pid_t pid, struct task_struct *task);
 void pid_detach_task(pid_t pid, const struct task_struct *task);
 struct task_struct *__must_check __pure pid_task(pid_t pid);

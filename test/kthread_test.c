@@ -4,14 +4,14 @@
 static void dummy_thread_fn(void *arg)
 {
 	(void)arg;
-	/* 不会被实际执行（测试中不调用 schedule） */
+
 }
 
 void test_kernel_thread_basic(void)
 {
 	TEST_BEGIN("kthread: basic create");
 	{
-		/* 先记录队列状态 */
+
 		int was_empty = sched_test_runqueue_empty();
 
 		struct task_struct *t = kernel_thread(dummy_thread_fn, NULL);
@@ -20,14 +20,14 @@ void test_kernel_thread_basic(void)
 		TEST_ASSERT_EQ(task_state(t), (uint32_t)TASK_RUNNING);
 		TEST_ASSERT_NOT_NULL(task_kernel_stack(t));
 
-		/* kernel_thread 应已将任务入队 */
+
 		TEST_ASSERT(!sched_test_runqueue_empty());
 
-		/* 清理：出队并释放 */
+
 		sched_dequeue(t);
 		task_free(t);
 
-		/* 队列应恢复原状 */
+
 		if (was_empty)
 			TEST_ASSERT(sched_test_runqueue_empty());
 	}
@@ -49,7 +49,7 @@ void test_kernel_thread_ctx_setup(void)
 		TEST_ASSERT(arch_task_test_kernel_thread_setup(
 			t, dummy_thread_fn, (void *)(size_t)test_arg_val));
 
-		/* 清理 */
+
 		sched_dequeue(t);
 		task_free(t);
 	}

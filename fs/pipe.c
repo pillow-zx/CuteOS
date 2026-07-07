@@ -1,21 +1,5 @@
 /*
  * fs/pipe.c - 管道
- *
- * 功能：
- *   实现进程间通信的匿名管道。pipe_buffer 使用一页 4KB 循环缓冲区，
- *   并维护读者/写者计数以及两端等待队列。do_pipe2 创建两个匿名 file
- *   对象共享同一个 pipe_buffer。pipe_read 在缓冲区为空且仍有
- *   写端时睡眠；pipe_write 在缓冲区满且仍有读端时睡眠。最后一个
- *   读端关闭后写返回 -EPIPE；最后一个写端关闭后读完剩余数据返回 0。
- *
- * 主要函数：
- *   do_pipe2(fds, flags)      - 创建两个 file 共享一个 pipe_buffer
- *   pipe_read(buf, count)     - 读数据，缓冲区空时在 readers_wq 睡眠
- *   pipe_write(buf, count)    - 写数据，缓冲区满时在 writers_wq 睡眠
- *
- * 关键数据结构：
- *   pipe_buffer               - {data, head, tail, used, readers, writers,
- *                               readers_wq, writers_wq}
  */
 
 #include <kernel/buddy.h>
@@ -35,11 +19,7 @@ struct pipe_buffer {
 	size_t head;
 	size_t tail;
 	size_t used;
-	/*
-	 * Current Stage 4 semantics are single-core and non-preemptive while
-	 * executing syscalls. When kernel preemption or SMP is introduced,
-	 * protect the buffer state and wait-queue condition checks with a lock.
-	 */
+
 	int readers;
 	int writers;
 	struct wait_queue_head readers_wq;

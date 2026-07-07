@@ -3,19 +3,6 @@
 
 /*
  * include/kernel/types.h - 定宽整数类型与基础宏
- *
- * 定义内核基础类型别名。不使用标准库头文件，所有类型自行定义。
- * 设计上整个代码库统一使用定宽类型（uint8_t、uint32_t 等），
- * 不使用裸 unsigned int / unsigned long，确保在所有编译环境下
- * 类型大小一致。
- *
- * Types:
- *   uint8_t / uint16_t / uint32_t / uint64_t  - Unsigned fixed-width
- *   int8_t / int16_t / int32_t / int64_t      - Signed fixed-width
- *   size_t / ssize_t                          - Size / pointer-diff types
- *   uintptr_t / ptrdiff_t                     - Pointer-sized int types
- *   bool / true / false                       - Boolean (int-based)
- *   NULL / nullptr                            - Null pointer constant
  */
 
 typedef signed char		int8_t;

@@ -1,12 +1,5 @@
 /*
  * user/user.ld - 用户程序链接脚本
- *
- * 基址 0x10000，与 exec loader 的低地址用户映射一致。
- * .text.entry 放在最前，确保 _start 位于第一个可执行 LOAD。
- *
- * 用户 ELF 由内核按 PT_LOAD 的 p_flags 建立页权限。这里显式拆分
- * RX / R / RW 段，并让每个段页对齐，避免 ld 把 text/data 合并成
- * 一个 RWE LOAD。
  */
 
 OUTPUT_ARCH(riscv)
@@ -16,9 +9,9 @@ PAGE_SIZE = 0x1000;
 
 PHDRS
 {
-    text   PT_LOAD FLAGS(5); /* PF_R | PF_X */
-    rodata PT_LOAD FLAGS(4); /* PF_R */
-    data   PT_LOAD FLAGS(6); /* PF_R | PF_W */
+    text   PT_LOAD FLAGS(5);
+    rodata PT_LOAD FLAGS(4);
+    data   PT_LOAD FLAGS(6);
     stack  PT_GNU_STACK FLAGS(6);
 }
 

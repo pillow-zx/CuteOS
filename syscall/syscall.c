@@ -1,17 +1,5 @@
 /*
  * syscall/syscall.c - 系统调用分发
- *
- * 功能：
- *   管理系统调用分发表（syscall_table）。每个系统调用处理器接收完整的
- *   trap_frame 指针，通过 syscall_arg() 提取参数，无需占位符。
- *   从 syscall_nr(tf) 读取系统调用号，调用 syscall_table[nr](tf)，
- *   返回值写入 syscall 返回寄存器。未知的系统调用号返回 -ENOSYS。
- *
- * 主要函数：
- *   do_syscall(tf)
- *
- * 关键类型：
- *   syscall_fn_t           - 系统调用处理函数指针
  */
 
 #include <kernel/syscall.h>
@@ -42,11 +30,7 @@ void do_syscall(struct trap_frame *tf)
 		return;
 	}
 
-	/*
-	 * Some successful syscalls may rewrite the trap frame in place. execve
-	 * installs the new user context this way; after the handler returns,
-	 * keep dispatcher post-processing limited to storing the return value.
-	 */
+
 	ret = syscall_table[nr](tf);
 	syscall_set_return(tf, ret);
 	syscall_trace_log(nr, args, ret);

@@ -1,16 +1,6 @@
-/*
- * include/kernel/bitmap.h - 位图操作
- *
- * 提供位图（bitmap）的声明、初始化及基本操作。位图使用 uintptr_t
- * 数组作为底层存储，每个 word 占 sizeof(uintptr_t) * 8 位。
- *
- * 接口：
- *   BITMAP_DECLARE(name, nbits)  - 声明并初始化一个全局位图
- *   bitmap_zero(map)             - 清零全部位
- *   bitmap_set(map, bit)         - 置位指定位
- *   bitmap_clear(map, bit)       - 清除指定位
- *   bitmap_test(map, bit)        - 测试指定位是否为 1
- *   bitmap_find_first_zero(map)  - 查找第一个为 0 的位
+/**
+ * @file bitmap.h
+ * @brief Fixed-size bitmap helpers.
  */
 
 #ifndef _CUTEOS_KERNEL_BITMAP_H
@@ -19,10 +9,28 @@
 #include <kernel/types.h>
 #include <kernel/compiler.h>
 
+/**
+ * @def BITMAP_WORD_BITS
+ * @brief Number of bits represented by one uintptr_t bitmap word.
+ */
 #define BITMAP_WORD_BITS ((size_t)(sizeof(uintptr_t) * 8U))
+
+/**
+ * @def BITMAP_WORDS
+ * @brief Number of uintptr_t storage words required for @p nbits bits.
+ */
 #define BITMAP_WORDS(nbits)                                                    \
 	(((nbits) + BITMAP_WORD_BITS - 1) / BITMAP_WORD_BITS)
 
+/**
+ * @struct bitmap
+ * @brief Bitmap view over caller-owned uintptr_t storage.
+ *
+ * @par Fields
+ * - @c words: Storage words.
+ * - @c nbits: Number of valid bits.
+ * - @c nwords: Number of words in @ref words.
+ */
 struct bitmap {
 	uintptr_t *words;
 	size_t nbits;
@@ -30,13 +38,10 @@ struct bitmap {
 };
 
 /**
- * BITMAP_DECLARE - 声明一个全局位图（含存储空间）
- * @name: 位图变量名
- * @nbits: 位数
- *
- * 若需要 static 作用域，请手动展开：
- *   static uintptr_t name_storage[BITMAP_WORDS(nbits)];
- *   static struct bitmap name = { .words = name_storage, ... };
+ * @def BITMAP_DECLARE
+ * @brief Declare automatic bitmap storage and a bitmap descriptor.
+ * @param name Base variable name.
+ * @param n Number of valid bits.
  */
 #define BITMAP_DECLARE(name, n)                                                \
 	uintptr_t name##_storage[BITMAP_WORDS(n)];                             \
@@ -46,6 +51,12 @@ struct bitmap {
 		.nwords = BITMAP_WORDS(n),                                     \
 	}
 
+/**
+ * @def BITMAP_DECLARE_STATIC
+ * @brief Declare static bitmap storage and a bitmap descriptor.
+ * @param name Base variable name.
+ * @param n Number of valid bits.
+ */
 #define BITMAP_DECLARE_STATIC(name, n)                                         \
 	static uintptr_t name##_storage[BITMAP_WORDS(n)];                      \
 	static struct bitmap name = {                                          \

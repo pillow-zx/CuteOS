@@ -1,10 +1,6 @@
 #ifndef _CUTEOS_UAPI_SYSLOG_H
 #define _CUTEOS_UAPI_SYSLOG_H
 
-/*
- * Linux syslog(2) command values.
- */
-
 #define SYSLOG_ACTION_CLOSE	    0
 #define SYSLOG_ACTION_OPEN	    1
 #define SYSLOG_ACTION_READ	    2

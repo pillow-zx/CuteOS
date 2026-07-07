@@ -10,4 +10,4 @@ struct dentry *__must_check vfs_lookup_one(struct dentry *parent,
 struct dentry *__must_check vfs_lookup_one_any(struct dentry *parent,
 					       const char *name, size_t len);
 
-#endif /* _CUTEOS_FS_VFS_NAMEI_INTERNAL_H */
+#endif

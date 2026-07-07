@@ -4,4 +4,4 @@
 void kernel_main(void);
 void init_process(void *arg);
 
-#endif /* _CUTEOS_KERNEL_INIT_H */
+#endif

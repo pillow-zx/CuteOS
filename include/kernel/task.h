@@ -1,12 +1,9 @@
 #ifndef _CUTEOS_KERNEL_TASK_H
 #define _CUTEOS_KERNEL_TASK_H
 
-/*
- * include/kernel/task.h - 进程控制块与任务管理
- *
- * task_struct 是任务生命周期的聚合根。具体子系统状态按所有权分组：
- * arch 保存低级上下文，resources 保存可共享资源，sigctx 保存每线程
- * 信号状态，links 保存进程树/线程组关系，sched 保存调度器私有实体。
+/**
+ * @file task.h
+ * @brief 进程控制块、线程组关系与 task 生命周期公共接口。
  */
 
 #include <kernel/types.h>
@@ -19,23 +16,64 @@
 #include <uapi/futex.h>
 #include <uapi/signal.h>
 
-/* ---- 任务状态 ---- */
+/**
+ * @def TASK_RUNNING
+ * @brief task is runnable or currently executing on the single CPU.
+ */
+#define TASK_RUNNING 0x00u
 
-#define TASK_RUNNING	     0x00u /* 可运行或正在执行 */
-#define TASK_UNINTERRUPTIBLE 0x01u /* 不可中断等待 */
-#define TASK_INTERRUPTIBLE   0x02u /* 可被未屏蔽信号打断的等待 */
-#define TASK_ZOMBIE	     0x04u /* 已退出，等待父进程回收 */
-#define TASK_DEAD	     0x08u /* 已被回收 */
-#define TASK_STOPPED	     0x10u /* 被 SIGSTOP 暂停 */
+/**
+ * @def TASK_UNINTERRUPTIBLE
+ * @brief task sleeps until an explicit wakeup, ignoring pending signals.
+ */
+#define TASK_UNINTERRUPTIBLE 0x01u
 
-/* 任意睡眠状态的位掩码 */
+/**
+ * @def TASK_INTERRUPTIBLE
+ * @brief task sleeps until wakeup or signal delivery makes it runnable.
+ */
+#define TASK_INTERRUPTIBLE 0x02u
+
+/**
+ * @def TASK_ZOMBIE
+ * @brief task has exited and keeps waitable exit status for its parent.
+ */
+#define TASK_ZOMBIE 0x04u
+
+/**
+ * @def TASK_DEAD
+ * @brief task resources have been released and the task is no longer runnable.
+ */
+#define TASK_DEAD 0x08u
+
+/**
+ * @def TASK_STOPPED
+ * @brief task is stopped by job-control style state, not eligible to run.
+ */
+#define TASK_STOPPED 0x10u
+
+/**
+ * @def TASK_ANY_SLEEP
+ * @brief Mask matching both interruptible and uninterruptible sleep states.
+ */
 #define TASK_ANY_SLEEP (TASK_UNINTERRUPTIBLE | TASK_INTERRUPTIBLE)
 
-/* ---- 内核栈常量 ---- */
-
+/**
+ * @def KSTACK_ORDER
+ * @brief Architecture-selected allocation order for every task kernel stack.
+ */
 #define KSTACK_ORDER ARCH_KSTACK_ORDER
-#define KSTACK_SIZE  ARCH_KSTACK_SIZE
 
+/**
+ * @def KSTACK_SIZE
+ * @brief Size in bytes of the per-task kernel stack.
+ */
+#define KSTACK_SIZE ARCH_KSTACK_SIZE
+
+/**
+ * @def CANARY_MAGIC
+ * @brief Stack canary value placed at the low end of task kernel stacks.
+ */
 #define CANARY_MAGIC 0xDEADBEEFDEADBEEFUL
 
 struct files_struct;
@@ -47,8 +85,16 @@ struct task_struct;
 
 bool signal_pending(struct task_struct *task);
 
-/* ---- 进程控制块分组 ---- */
-
+/**
+ * @struct task_identity
+ * @brief Linux-visible task identifiers and thread-group leadership.
+ *
+ * @par Fields
+ * - @c pid: Kernel thread id; userspace observes it through gettid.
+ * - @c tgid: Thread-group id; userspace observes it through getpid.
+ * - @c pgid: Process-group id used by setpgid/getpgid semantics.
+ * - @c group_leader: Leader whose pid equals @ref tgid.
+ */
 struct task_identity {
 	pid_t pid;
 	pid_t tgid;
@@ -56,12 +102,33 @@ struct task_identity {
 	struct task_struct *group_leader;
 };
 
+/**
+ * @struct task_lifecycle
+ * @brief Run state and exit status owned by scheduler and wait paths.
+ *
+ * @par Fields
+ * - @c state: TASK_* state sampled by wake/schedule paths.
+ * - @c exit_code: Wait-visible process status recorded at exit.
+ * - @c exit_signal: Signal delivered to parent when this task exits.
+ */
 struct task_lifecycle {
 	volatile uint32_t state;
 	int exit_code;
 	int exit_signal;
 };
 
+/**
+ * @struct task_links
+ * @brief Intrusive links connecting parent/child and thread-group topology.
+ *
+ * @par Fields
+ * - @c parent: Reaper/wait parent, or NULL for root.
+ * - @c children: Head of children whose parent is this task.
+ * - @c sibling: Node in parent's children list.
+ * - @c thread_group: Head of threads when this task is leader.
+ * - @c thread_node: Node in group leader's thread list.
+ * - @c wait_child_queue: wait4 sleepers for children.
+ */
 struct task_links {
 	struct task_struct *parent;
 	struct list_head children;
@@ -71,6 +138,19 @@ struct task_links {
 	struct wait_queue_head wait_child_queue;
 };
 
+/**
+ * @struct task_resources
+ * @brief Shared subsystem resources referenced by a task.
+ *
+ * @par Fields
+ * - @c mm: User address space; NULL for pure kernel tasks.
+ * - @c files: File descriptor table.
+ * - @c fs: cwd/root/umask state.
+ * - @c sighand: Installed signal actions.
+ * - @c signal: Thread-group shared signal state.
+ * - @c uid: Current real/effective uid in the simplified cred model.
+ * - @c gid: Current real/effective gid in the simplified cred model.
+ */
 struct task_resources {
 	struct mm_struct *mm;
 	struct files_struct *files;
@@ -81,6 +161,19 @@ struct task_resources {
 	gid_t gid;
 };
 
+/**
+ * @struct task_signal_context
+ * @brief Per-thread signal, futex robust-list, and alt-stack state.
+ *
+ * @par Fields
+ * - @c blocked: Linux signal mask; bit n represents signal n+1.
+ * - @c pending: Per-thread pending signal mask.
+ * - @c in_handler: Signals currently executing a handler.
+ * - @c sas: sigaltstack state copied to/from userspace ABI.
+ * - @c clear_child_tid: User futex word cleared by set_tid_addr exit.
+ * - @c robust_list: User robust futex list head.
+ * - @c robust_list_len: Userspace-reported robust-list head size.
+ */
 struct task_signal_context {
 	uint64_t blocked;
 	uint64_t pending;
@@ -91,6 +184,19 @@ struct task_signal_context {
 	size_t robust_list_len;
 };
 
+/**
+ * @struct task_sched_entity
+ * @brief Scheduler-private runnable/waiting metadata embedded in a task.
+ *
+ * @par Fields
+ * - @c run_list: Node in the selected run queue.
+ * - @c wait_entry: Reusable wait-queue entry.
+ * - @c need_resched: User-return path should call schedule.
+ * - @c sched_level: Current MLFQ priority level.
+ * - @c time_slice: Remaining ticks in the current queue level.
+ * - @c sched_ticks: Ticks consumed in the current accounting window.
+ * - @c enqueue_jiffies: Time when the task entered a run queue.
+ */
 struct task_sched_entity {
 	struct list_head run_list;
 	struct wait_queue_entry wait_entry;
@@ -101,13 +207,39 @@ struct task_sched_entity {
 	uint64_t enqueue_jiffies;
 };
 
+/**
+ * @struct task_cputime
+ * @brief Tick counters reported through times/getrusage-style interfaces.
+ *
+ * @par Fields
+ * - @c utime_ticks: Timer ticks charged while executing user code.
+ * - @c stime_ticks: Timer ticks charged while executing kernel code.
+ */
 struct task_cputime {
 	uint64_t utime_ticks;
 	uint64_t stime_ticks;
 };
 
-/* ---- 进程控制块 ---- */
-
+/**
+ * @struct task_struct
+ * @brief Task lifecycle aggregate and subsystem ownership root.
+ *
+ * Field groups mirror subsystem ownership. Code outside the owning subsystem
+ * should prefer the helpers in this header so future layout changes do not
+ * leak across VFS, MM, signal, scheduler, and architecture boundaries.
+ *
+ * @par Fields
+ * - @c arch: RISC-V context, trap frame, stack, satp.
+ * - @c ids: PID/TGID/PGID and leader identity.
+ * - @c lifecycle: Runnable, sleep, stopped, exit state.
+ * - @c links: Parent/child and thread-group intrusive links.
+ * - @c resources: MM, fd, fs, signal, and credential refs.
+ * - @c sigctx: Per-thread signal/futex ABI state.
+ * - @c rseq: Restartable sequences registration.
+ * - @c sched: Scheduler queueing and tick state.
+ * - @c cputime: CPU time charged to this task.
+ * - @c child_cputime: Reaped child CPU time totals.
+ */
 struct task_struct {
 	struct task_arch_state arch;
 	struct task_identity ids;
@@ -121,24 +253,28 @@ struct task_struct {
 	struct task_cputime child_cputime;
 };
 
-/* ---- 全局变量 ---- */
-
-/* idle 进程，PID 0，BSS 段静态分配 */
 extern struct task_struct idle_task;
 
-/* PID 1 init 进程。创建后保持有效，用于孤儿进程过继。 */
 extern struct task_struct *init_task;
 
 #include <arch/task_access.h>
 
-/* ---- 窄访问器 ---- */
-
+/**
+ * @brief Return a task's user address space.
+ * @param task Task to inspect, or NULL.
+ * @return The task mm, or NULL for NULL/kernel-only tasks.
+ */
 static __always_inline __must_check __pure struct mm_struct *
 task_mm(struct task_struct *task)
 {
 	return task ? task->resources.mm : NULL;
 }
 
+/**
+ * @brief Replace a task's user address-space pointer.
+ * @param task Task to update, or NULL.
+ * @param mm New mm pointer; may be NULL for kernel tasks or after teardown.
+ */
 static inline void task_set_mm(struct task_struct *task, struct mm_struct *mm)
 {
 	if (task)
@@ -195,18 +331,33 @@ static __always_inline __must_check __pure __nonnull(1) pid_t
 	return task->ids.pid;
 }
 
+/**
+ * @brief Return the Linux thread-group id observed by getpid().
+ * @param task Non-NULL task.
+ * @return Thread-group id; equal to the group leader pid.
+ */
 static __always_inline __must_check __pure __nonnull(1) pid_t
 	task_tgid(const struct task_struct *task)
 {
 	return task->ids.tgid;
 }
 
+/**
+ * @brief Return the POSIX process-group id attached to a task.
+ * @param task Non-NULL task.
+ * @return Process-group id used by getpgid/setpgid paths.
+ */
 static __always_inline __must_check __pure __nonnull(1) pid_t
 	task_pgid(const struct task_struct *task)
 {
 	return task->ids.pgid;
 }
 
+/**
+ * @brief Update one task's process-group id.
+ * @param task Non-NULL task to update.
+ * @param pgid New process-group id.
+ */
 static __always_inline __nonnull(1) void task_set_pgid(struct task_struct *task,
 						       pid_t pgid)
 {
@@ -457,6 +608,15 @@ static __always_inline void task_unlink_child(struct task_struct *task)
 	task->links.parent = NULL;
 }
 
+/**
+ * @def task_for_each_child
+ * @brief Iterate over a parent's direct children.
+ * @param pos Cursor of type `struct task_struct *`.
+ * @param parent Parent task whose children list is traversed.
+ *
+ * The cursor is recovered from the embedded @c links.sibling node with
+ * container-of logic inherited from @ref list_for_each_entry.
+ */
 #define task_for_each_child(pos, parent)                                       \
 	list_for_each_entry (pos, task_children(parent), links.sibling)
 
@@ -639,57 +799,94 @@ static __always_inline void task_set_need_resched(struct task_struct *task,
 		task->sched.need_resched = val;
 }
 
-/* ---- 函数声明 ---- */
-
 /**
- * task_init - 初始化进程管理子系统
- *
- * 创建 idle 进程（PID 0，BSS 静态分配），设置 get_current_task() 指针，
- * 初始化 PID 分配器。
+ * @brief Initialize global task-management state.
  */
 void task_init(void);
 
 /**
- * task_alloc - 分配并初始化一个新的 task_struct
- *
- * 从 SLAB 分配 task_struct，从 buddy 分配 8KB 内核栈，
- * 在栈底写入 CANARY_MAGIC。返回初始化后的 task 指针，
- * 失败返回 NULL。
+ * @brief Allocate a zeroed task_struct with architecture stack storage.
+ * @return New task on success, or NULL when allocation fails.
  */
 struct task_struct *__must_check task_alloc(void);
+
+/**
+ * @brief Initialize reference-counted resources for a new task.
+ * @param task Task returned by task_alloc().
+ * @return 0 on success, or a negative errno.
+ */
 int __must_check task_init_resources(struct task_struct *task);
+
+/**
+ * @brief Drop all resources held by a task.
+ * @param task Task whose resources are no longer externally reachable.
+ */
 void task_release_resources(struct task_struct *task);
 
 /**
- * task_free - 释放 task_struct 及其内核栈
- * @task: 要释放的任务
- *
- * 释放内核栈回 buddy，释放 task_struct 回 SLAB。
+ * @brief Free a task_struct and its architecture-owned storage.
+ * @param task Task to free; may be NULL.
  */
 void task_free(struct task_struct *task);
 
 /**
- * check_canary - 检查任务内核栈 canary 是否完好
- * @task: 要检查的任务
- *
- * 若 canary 被破坏则触发 panic。
+ * @brief Validate the task kernel-stack canary.
+ * @param task Task whose stack canary should still equal @ref CANARY_MAGIC.
  */
 void check_canary(struct task_struct *task);
 
+/**
+ * @brief Initialize architecture-owned task fields.
+ * @param task Non-NULL task being prepared for execution.
+ */
 void __nonnull(1) arch_task_init(struct task_struct *task);
+
+/**
+ * @brief Build the initial kernel-thread return frame.
+ * @param task Task being initialized.
+ * @param fn Kernel function to run.
+ * @param arg Opaque argument passed to @p fn.
+ */
 void __nonnull(1, 2)
 	arch_task_setup_kernel_thread(struct task_struct *task,
 				      void (*fn)(void *), void *arg);
+
+/**
+ * @brief Build the child trap frame for clone/fork.
+ * @param child Child task being initialized.
+ * @param parent_tf Parent trap frame used as the ABI template.
+ * @param flags Linux clone flags selected by syscall layer.
+ * @param child_stack Optional userspace stack pointer override.
+ * @param tls Optional thread-local storage value for clone.
+ */
 void __nonnull(1, 2)
 	arch_task_setup_clone_frame(struct task_struct *child,
 				    const struct trap_frame *parent_tf,
 				    unsigned long flags, uintptr_t child_stack,
 				    uintptr_t tls);
+
+/**
+ * @brief Switch active user page-table context between tasks.
+ * @param prev Task being switched out.
+ * @param next Task being switched in.
+ */
 void __nonnull(1, 2)
 	arch_task_switch_address_space(const struct task_struct *prev,
 				       const struct task_struct *next);
+
+/**
+ * @brief Switch callee-saved CPU context from @p prev to @p next.
+ * @param prev Current task.
+ * @param next Next scheduled task.
+ */
 void __nonnull(1, 2)
 	arch_task_switch(struct task_struct *prev, struct task_struct *next);
+
+/**
+ * @brief Check whether the saved trap frame came from user mode.
+ * @param task Task whose architecture state is inspected.
+ * @return true when the saved trap frame represents user context.
+ */
 bool __must_check __pure
 arch_task_trap_from_user(const struct task_struct *task);
 
@@ -704,28 +901,69 @@ void __nonnull(1)
 #endif
 
 /**
- * kernel_thread - 创建一个内核线程
- * @fn:  线程入口函数，签名为 void (*fn)(void *arg)
- * @arg: 传递给入口函数的参数
- *
- * 分配 task_struct，在内核栈顶构造 trap_frame，使线程通过
- * __trapret 恢复上下文后进入 fn(arg)。线程以 S-mode 运行，
- * 中断使能（SPIE=1）。创建后自动加入就绪队列。
- *
- * 返回新创建的 task_struct，失败返回 NULL。
+ * @brief Create a runnable kernel task.
+ * @param fn Kernel function to execute.
+ * @param arg Opaque argument passed to @p fn.
+ * @return New task on success, or NULL on allocation/setup failure.
  */
 struct task_struct *__must_check kernel_thread(void (*fn)(void *), void *arg);
 
+/**
+ * @brief Publish the process that becomes PID 1 after exec.
+ * @param task Task selected as the init task.
+ */
 void set_init_task(struct task_struct *task);
 
+/**
+ * @brief Test whether a task is its thread-group leader.
+ * @param task Task to inspect.
+ * @return true when task->pid equals task->tgid.
+ */
 bool __must_check __pure task_is_group_leader(const struct task_struct *task);
+
+/**
+ * @brief Check whether a thread group contains tasks besides its leader.
+ * @param task Any task in the group.
+ * @return true when another task shares the same tgid.
+ */
 bool __must_check __pure
 task_group_has_other_threads(const struct task_struct *task);
+
+/**
+ * @brief Find a thread-group leader by TGID.
+ * @param tgid Thread-group id to search for.
+ * @return Matching leader, or NULL.
+ */
 struct task_struct *__must_check __pure task_find_group_leader(pid_t tgid);
+
+/**
+ * @brief Find a task by Linux TID.
+ * @param tid Thread id to search for.
+ * @return Matching task, or NULL.
+ */
 struct task_struct *__must_check __pure task_find_thread(pid_t tid);
+
+/**
+ * @brief Check whether a task belongs to a thread group.
+ * @param task Task to inspect.
+ * @param tgid Thread-group id.
+ * @return true when @p task is in @p tgid.
+ */
 bool __must_check __pure task_in_thread_group(const struct task_struct *task,
 					      pid_t tgid);
+
+/**
+ * @brief Check whether any task currently uses a process-group id.
+ * @param pgid Process-group id.
+ * @return true if at least one task has @p pgid.
+ */
 bool __must_check __pure task_pgid_exists(pid_t pgid);
+
+/**
+ * @brief Set one thread group's process-group id.
+ * @param leader Non-NULL thread-group leader.
+ * @param pgid Process-group id applied to all group members.
+ */
 void __nonnull(1) task_set_pgid_all(struct task_struct *leader, pid_t pgid);
 
 #endif

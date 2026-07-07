@@ -1,6 +1,11 @@
 #ifndef _CUTEOS_UAPI_EVENTPOLL_H
 #define _CUTEOS_UAPI_EVENTPOLL_H
 
+/**
+ * @file eventpoll.h
+ * @brief Linux epoll UAPI constants and event layout.
+ */
+
 #include <uapi/fcntl.h>
 
 #define EPOLL_CLOEXEC O_CLOEXEC
@@ -26,6 +31,14 @@
 #define EPOLLONESHOT   (1U << 30)
 #define EPOLLET	       (1U << 31)
 
+/**
+ * @struct epoll_event
+ * @brief Event payload exchanged with epoll_ctl/epoll_pwait.
+ *
+ * @par Fields
+ * - @c events: EPOLL* event mask.
+ * - @c data: Userspace opaque payload.
+ */
 struct epoll_event {
 	unsigned int events;
 	unsigned long long data;

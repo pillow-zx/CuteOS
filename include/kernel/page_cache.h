@@ -1,18 +1,9 @@
 #ifndef _CUTEOS_KERNEL_PAGE_CACHE_H
 #define _CUTEOS_KERNEL_PAGE_CACHE_H
 
-/*
- * include/kernel/page_cache.h - 4 KiB page cache 公共接口
- *
- * page cache 以 page_mapping 为命名域，缓存单位固定为 BLOCK_SIZE。调用者
- * 负责选择正确的 mapping：
- *   - inode->i_pages 表示文件逻辑块缓存；
- *   - block_device_pages(dev) 表示磁盘物理块缓存。
- *
- * 对文件数据，优先使用 page_cache_read_page()/page_cache_grab_file_page()；
- * 对 ext2 位图、inode 表、super block 等裸磁盘块，继续使用
- * page_cache_get_block()。两者共享同一个缓存实现，但不会混淆逻辑块号和
- * 物理块号。
+/**
+ * @file page_cache.h
+ * @brief 4 KiB page cache 公共接口。
  */
 
 #include <kernel/page_mapping.h>
@@ -20,8 +11,26 @@
 #include <kernel/types.h>
 #include <kernel/compiler.h>
 
+/**
+ * @struct page_cache
+ * @brief Cached 4 KiB page shared by file and block-device paths.
+ *
+ * @par Fields
+ * - @c owner: Mapping that owns this cached page.
+ * - @c index: 4 KiB page index within @ref owner.
+ * - @c data: Kernel buffer containing cached bytes.
+ * - @c refcount: Pin count held by cache users.
+ * - @c uptodate: Data buffer has valid contents from backing store.
+ * - @c dirty: Page contains modifications not fully written back.
+ * - @c writeback: Page is currently being written to backing storage.
+ * - @c dropped: Page was removed from lookup while still referenced.
+ * - @c hash_node: Node in global cache hash.
+ * - @c lru_node: Node in replacement/LRU list.
+ * - @c mapping_node: Node in owner->pages.
+ * - @c dirty_node: Node in global dirty list.
+ * - @c dirty_map_node: Node in owner->dirty_pages.
+ */
 struct page_cache {
-	/* Stable cache identity: this page represents owner[index]. */
 	struct page_mapping *owner;
 	uint64_t index;
 	uint8_t *data;
@@ -29,69 +38,113 @@ struct page_cache {
 	bool uptodate;
 	bool dirty;
 	bool writeback;
-
-	/*
-	 * dropped means the page has been removed from all lookup lists but is
-	 * still held by an active caller.  The final put frees it.
-	 */
 	bool dropped;
-
-	/* Global lookup/LRU membership. */
 	struct list_head hash_node;
 	struct list_head lru_node;
-
-	/* Per-mapping page and dirty-page membership. */
 	struct list_head mapping_node;
 	struct list_head dirty_node;
 	struct list_head dirty_map_node;
 };
 
-/*
- * 返回 (mapping, index) 对应的缓存页。create=false 时仅查找已有页；
- * create=true 时会分配一个未 uptodate 的新页，并通过 @created 告知调用者。
- * 返回页持有一次引用，调用者必须 page_cache_put_page()。
+/**
+ * @brief Lookup or optionally create a cached page.
+ * @param mapping Mapping that owns the page.
+ * @param index 4 KiB page index.
+ * @param create Whether a missing page may be allocated.
+ * @param created Optional output set true when allocation happened.
+ * @return Referenced page_cache, or NULL on miss/allocation failure.
  */
 struct page_cache *__must_check
 page_cache_get_page(struct page_mapping *mapping, uint64_t index, bool create,
 		    bool *created);
 
-/*
- * 查找或创建缓存页，并在页不是 uptodate 时调用 mapping->ops->readpage()
- * 读入数据。失败返回 NULL；成功返回持引用的 uptodate 页。
+/**
+ * @brief Return an uptodate cached page, reading it from backing storage.
+ * @param mapping Mapping that owns the page.
+ * @param index 4 KiB page index.
+ * @return Referenced page_cache, or NULL/ERR-style failure depending path.
  */
 struct page_cache *__must_check
 page_cache_read_page(struct page_mapping *mapping, uint64_t index);
 
-/* 读取块设备物理块缓存页；block 是 4 KiB 块号，不是 512 字节扇区号。 */
+/**
+ * @brief Lookup or read a raw block-device cache page.
+ * @param dev Block device id.
+ * @param block 4 KiB block index.
+ * @return Referenced page_cache, or NULL on failure.
+ */
 struct page_cache *__must_check page_cache_get_block(dev_t dev, uint64_t block);
 
-/* inode 文件页兼容包装；等价于 page_cache_get_page(&inode->i_pages, ...)。 */
+/**
+ * @brief Lookup or optionally create a file page owned by an inode.
+ * @param inode File inode.
+ * @param index 4 KiB file page index.
+ * @param create Whether allocation is allowed on a miss.
+ * @param created Optional output set true when allocation happened.
+ * @return Referenced page_cache, or NULL on failure.
+ */
 struct page_cache *__must_check page_cache_grab_file_page(struct inode *inode,
 							  uint64_t index,
 							  bool create,
 							  bool *created);
+
+/**
+ * @brief Drop one page_cache reference and recycle when possible.
+ * @param page Referenced page; may be NULL.
+ */
 void page_cache_put_page(struct page_cache *page);
 uint8_t *__must_check __pure page_cache_data(struct page_cache *page);
 bool __must_check __pure page_cache_is_uptodate(const struct page_cache *page);
 void page_cache_set_uptodate(struct page_cache *page, bool uptodate);
 bool __must_check __pure page_cache_is_dirty(const struct page_cache *page);
+/**
+ * @brief Mark a cached page dirty and enqueue it for writeback.
+ * @param page Page whose contents were modified.
+ */
 void page_cache_mark_dirty(struct page_cache *page);
 
-/* 同步单页到其 mapping 后端；成功后会清除脏标记并刷新可能存在的块设备别名。 */
+/**
+ * @brief Write one dirty page back to its mapping.
+ * @param page Page to synchronize.
+ * @return 0 on success, or a negative errno.
+ */
 int page_cache_sync_page(struct page_cache *page);
 
-/* 同步一个 mapping、一个 inode 或全局所有脏页。 */
+/**
+ * @brief Write back all dirty pages owned by a mapping.
+ * @param mapping Mapping to synchronize.
+ * @return 0 on success, or a negative errno.
+ */
 int __must_check page_cache_sync_mapping(struct page_mapping *mapping);
+
+/**
+ * @brief Write back all dirty pages for an inode.
+ * @param inode Inode whose page mapping is synchronized.
+ * @return 0 on success, or a negative errno.
+ */
 int __must_check page_cache_sync_inode(struct inode *inode);
+
+/**
+ * @brief Write back all dirty cached pages in the system.
+ * @return 0 on success, or a negative errno.
+ */
 int page_cache_sync_all(void);
 
-/* 截断/失效某个 mapping 的缓存页；inode 版本是对 i_pages 的包装。 */
+/**
+ * @brief Drop cached pages beyond a new mapping size.
+ * @param mapping Mapping being truncated.
+ * @param size New byte size.
+ */
 void page_cache_truncate_mapping(struct page_mapping *mapping, uint64_t size);
+
+/**
+ * @brief Invalidate all cached pages for a mapping.
+ * @param mapping Mapping whose cache entries are invalidated.
+ */
 void page_cache_invalidate_mapping(struct page_mapping *mapping);
 void page_cache_truncate_inode(struct inode *inode, uint64_t size);
 void page_cache_invalidate_inode(struct inode *inode);
 
-/* 块设备页的旧接口名，保留给 ext2 元数据路径使用。 */
 int page_cache_sync_block(struct page_cache *page);
 
 void page_cache_wb_thread(void *arg);

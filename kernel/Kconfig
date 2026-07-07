@@ -39,10 +39,6 @@ config LTO
 	bool "Link-time optimization"
 	default n
 
-# endmenu
-
-# menu "Debug"
-
 config DEBUG_INFO
 	bool "Debug information"
 	default y

@@ -1,27 +1,5 @@
 /*
  * kernel/task.c - 进程控制块管理
- *
- * 功能：
- *   负责 task_struct 的分配、初始化与回收。task_struct 是内核中
- *   最重要的数据结构之一，包含进程的所有状态信息（调度、内存、文件、
- *   信号等）。
- *
- *   idle 进程（PID 0）在 BSS 段中静态分配，不经过动态分配路径。
- *   其余进程通过 SLAB 分配器动态分配 task_struct。
- *
- *   每个进程拥有 8KB 内核栈，栈底写入 CANARY_MAGIC 魔数用于
- *   栈溢出检测，调度切换时校验 canary 完整性。
- *
- * 主要函数：
- *   task_init()         - 初始化进程管理子系统：
- *                         创建 idle (PID 0, BSS 静态),
- *                         初始化 PID 分配器，设置 get_current_task() 指针。
- *   task_alloc()        - 从 SLAB cache 分配一个新的 task_struct，
- *                         初始化各字段为默认值，分配 8KB 内核栈，
- *                         在栈底写入 CANARY_MAGIC。
- *   task_free(task)     - 释放 task_struct 及其内核栈回 SLAB cache。
- *   check_canary(task)  - 检查任务内核栈 canary 是否完好。
- *   kernel_thread(fn,arg) - 创建内核线程并通过 __trapret 启动 fn(arg)。
  */
 
 #include <kernel/task.h>
@@ -37,32 +15,17 @@
 #include <kernel/fs_struct.h>
 #include <kernel/vfs.h>
 
-/* ---- 全局变量 ---- */
-
-/* idle 进程，BSS 段静态分配 */
 struct task_struct idle_task;
 
-/* CPU-local state. Only hart 0 is online in this boot path. */
 struct cpu cpu_table[NR_CPUS];
 uint32_t nr_cpu_ids;
 
-/* PID 1 init 进程，供 exit/reparent 路径直接引用。 */
 struct task_struct *init_task;
 
-/* ---- 内联辅助 ---- */
-
-/**
- * stack_canary_ptr - 获取内核栈 canary 的地址
- * @task: 目标任务
- *
- * canary 位于栈底（最低地址）的前 8 字节。
- */
 static inline uint64_t *stack_canary_ptr(struct task_struct *task)
 {
 	return (uint64_t *)task_kernel_stack(task);
 }
-
-/* ---- 公共接口 ---- */
 
 void cpu_boot_init(struct task_struct *idle)
 {
@@ -96,19 +59,16 @@ void check_canary(struct task_struct *task)
 
 struct task_struct *task_alloc(void)
 {
-	/* 1. 从 SLAB 分配 task_struct */
 	struct task_struct *task = kmalloc(sizeof(struct task_struct));
 	if (!task)
 		return NULL;
 
-	/* 2. 从 buddy 分配内核栈 (8KB = 2 pages) */
 	void *kstack = get_free_page(KSTACK_ORDER);
 	if (!kstack) {
 		kfree(task);
 		return NULL;
 	}
 
-	/* 3. 分配 PID */
 	int32_t pid = alloc_pid();
 	if (pid < 0) {
 		free_page(kstack, KSTACK_ORDER);
@@ -116,7 +76,6 @@ struct task_struct *task_alloc(void)
 		return NULL;
 	}
 
-	/* 4. 初始化 task_struct */
 	memset(task, 0, sizeof(struct task_struct));
 	task->ids.pid = (pid_t)pid;
 	task->lifecycle.state = TASK_RUNNING;
@@ -140,7 +99,6 @@ struct task_struct *task_alloc(void)
 	init_waitqueue_entry(&task->sched.wait_entry, task);
 	init_waitqueue_head(&task->links.wait_child_queue);
 
-	/* 5. 内核栈清零并在栈底写入 canary */
 	memset(kstack, 0, KSTACK_SIZE);
 	*stack_canary_ptr(task) = CANARY_MAGIC;
 
@@ -190,32 +148,27 @@ void task_free(struct task_struct *task)
 	if (!task)
 		return;
 
-	/* 释放 PID */
 	pid_detach_task(task->ids.pid, task);
 	free_pid(task->ids.pid);
 
 	task_release_resources(task);
 
-	/* 释放内核栈 */
 	if (task_kernel_stack_safe(task)) {
 		free_page(task_kernel_stack(task), KSTACK_ORDER);
 		task_set_kernel_stack(task, NULL);
 	}
 
-	/* 释放 task_struct */
 	kfree(task);
 }
 
 void task_init(void)
 {
-	/* 1. 初始化 PID 分配器 */
 	pid_init();
 
-	/* 2. 初始化 idle 进程（PID 0，BSS 静态分配） */
 	memset(&idle_task, 0, sizeof(struct task_struct));
 	idle_task.ids.pid = 0;
 	idle_task.lifecycle.state = TASK_RUNNING;
-	arch_task_init(&idle_task); /* idle 使用 boot_stack，无独立内核栈 */
+	arch_task_init(&idle_task);
 	idle_task.resources.mm = NULL;
 	idle_task.ids.tgid = idle_task.ids.pid;
 	idle_task.ids.pgid = idle_task.ids.pid;
@@ -236,25 +189,12 @@ void task_init(void)
 	BUG_ON(task_init_resources(&idle_task) < 0);
 	pid_attach_task(idle_task.ids.pid, &idle_task);
 
-	/* 3. 初始化 boot CPU 并设置当前任务指针 */
 	cpu_boot_init(&idle_task);
 	set_current_task(&idle_task);
 
 	pr_info("task: idle (PID 0) created\n");
 }
 
-/* ---- 内核线程创建 ---- */
-
-/**
- * kernel_thread - 创建一个内核线程
- * @fn:  线程入口函数
- * @arg: 传递给入口函数的参数
- *
- * 在内核栈顶构造一个 trap_frame，设置 sepc=fn, a0=arg,
- * sstatus=SPP|SPIE（S-mode 返回 + 中断使能）。
- * ctx.ra 设为 __trapret，使 switch_to 首次切入时通过
- * __trapret → sret 进入 fn(arg)。
- */
 struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 {
 	struct task_struct *parent = current_task();

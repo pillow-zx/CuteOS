@@ -1,6 +1,11 @@
 #ifndef _CUTEOS_UAPI_FUTEX_H
 #define _CUTEOS_UAPI_FUTEX_H
 
+/**
+ * @file futex.h
+ * @brief Linux futex command bits and robust-list UAPI layouts.
+ */
+
 #define FUTEX_WAIT	   0
 #define FUTEX_WAKE	   1
 #define FUTEX_PRIVATE_FLAG 128
@@ -9,10 +14,26 @@
 #define FUTEX_OWNER_DIED   0x40000000U
 #define FUTEX_TID_MASK	   0x3fffffffU
 
+/**
+ * @struct robust_list
+ * @brief Intrusive userspace node used by Linux robust futex lists.
+ *
+ * @par Fields
+ * - @c next: Next userspace robust-list node.
+ */
 struct robust_list {
 	struct robust_list *next;
 };
 
+/**
+ * @struct robust_list_head
+ * @brief Userspace robust futex list head registered per task.
+ *
+ * @par Fields
+ * - @c list: Circular list head.
+ * - @c futex_offset: Offset from node address to futex word.
+ * - @c list_op_pending: Node being modified.
+ */
 struct robust_list_head {
 	struct robust_list list;
 	long futex_offset;

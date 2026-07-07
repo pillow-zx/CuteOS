@@ -3,10 +3,6 @@
 
 /*
  * include/compiler/compiler_builtin.h - compiler builtin 宏
- *
- * 功能：
- *   封装 GCC/Clang 内建函数（builtins）为内核友好宏。主要用于
- *   分支预测优化、不可达代码标记、编译期常量控制等场景。
  */
 
 #define likely(x)		  __builtin_expect(!!(x), 1)
@@ -39,12 +35,12 @@
 #define types_compatible(a, b)                                                 \
 	__builtin_types_compatible_p(__typeof__(a), __typeof__(b))
 
-#define ATOMIC_RELAXED __ATOMIC_RELAXED /* 0 */
-#define ATOMIC_CONSUME __ATOMIC_CONSUME /* 1 */
-#define ATOMIC_ACQUIRE __ATOMIC_ACQUIRE /* 2 */
-#define ATOMIC_RELEASE __ATOMIC_RELEASE /* 3 */
-#define ATOMIC_ACQ_REL __ATOMIC_ACQ_REL /* 4 */
-#define ATOMIC_SEQ_CST __ATOMIC_SEQ_CST /* 5 */
+#define ATOMIC_RELAXED __ATOMIC_RELAXED
+#define ATOMIC_CONSUME __ATOMIC_CONSUME
+#define ATOMIC_ACQUIRE __ATOMIC_ACQUIRE
+#define ATOMIC_RELEASE __ATOMIC_RELEASE
+#define ATOMIC_ACQ_REL __ATOMIC_ACQ_REL
+#define ATOMIC_SEQ_CST __ATOMIC_SEQ_CST
 
 #define atomic_load_n(ptr, memorder)	   __atomic_load_n(ptr, memorder)
 #define atomic_store_n(ptr, val, memorder) __atomic_store_n(ptr, val, memorder)

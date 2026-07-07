@@ -48,12 +48,7 @@ int page_cache_sync_page(struct page_cache *page)
 	ret = mapping->ops->writepages(mapping, page->index, 1, page->data);
 	page->writeback = false;
 	if (ret == 0) {
-		/*
-		 * The page's own mapping is authoritative after writeback.
-		 * If it also names a physical block through backing, update the
-		 * raw block cache alias so later metadata reads see the same
-		 * bytes without forcing an invalidate.
-		 */
+
 		page_cache_clear_dirty(page);
 		page->uptodate = true;
 		if (mapping->ops->map_block &&
@@ -91,13 +86,7 @@ int page_cache_wb_run(struct page_cache *start)
 	if (!wb_buf || wb_pages == 0)
 		return -ENOMEM;
 
-	/*
-	 * Clustered writeback is conservative: collect only dirty pages from
-	 * the same mapping whose logical indexes are adjacent and whose
-	 * physical blocks are adjacent.  That lets writepages() issue one
-	 * contiguous device write without requiring the filesystem to handle
-	 * scatter/gather.
-	 */
+
 	index = start->index;
 	limit = wb_pages;
 	if (limit > 32u)

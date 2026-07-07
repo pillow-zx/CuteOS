@@ -1,8 +1,5 @@
 /*
  * kernel/exec.c - ELF 加载与 execve 替换语义
- *
- * exec 成功时替换当前进程的 mm/satp/trap_frame，保留 PID、父子关系、
- * 打开的 fd 和信号占位状态。
  */
 
 #include <kernel/elf.h>
@@ -533,10 +530,7 @@ void exec_user_path(const char *path)
 {
 	struct exec_args_envp args;
 	memset(&args, 0, sizeof(args));
-	/*
-	 * BusyBox 通过 argv[0] 的 basename 派发 applet，必须传入路径作为
-	 * argv[0]，否则 applet 派发会解引用空 argv[0] 而崩溃。
-	 */
+
 	args.argc = 1;
 	size_t len = strnlen(path, EXEC_MAX_ARGS - 1);
 	memcpy(args.argv[0], path, len);
@@ -573,20 +567,17 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 	if (ret < 0)
 		return ret;
 
-	/*
-	 * Success replaces the get_current_task() trap frame. do_syscall() will
-	 * only write the returned 0 into the new frame's a0 before trap return.
-	 */
+
 	install_exec_mm(mm, tf, entry, sp);
 	rseq_execve(current_task());
 
-	/* POSIX timers are not preserved across a successful execve(). */
+
 	struct signal_struct *signal = task_signal_state(current_task());
 
 	if (signal)
 		posix_timer_table_clear(&signal->posix_timers);
 
-	/* 关闭所有设置了 FD_CLOEXEC 的文件描述符。 */
+
 	files_close_on_exec(task_files_safe(current_task()));
 
 	return 0;

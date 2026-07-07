@@ -1,33 +1,9 @@
 #ifndef _CUTEOS_KERNEL_FS_H
 #define _CUTEOS_KERNEL_FS_H
 
-/*
- * include/kernel/fs.h - 虚拟文件系统 (VFS) 核心对象与操作
- *
- * 声明四个基本 VFS 对象及其操作向量，每个具体文件系统都必须实现。
- * VFS 层将通用文件操作翻译为具体文件系统的动作。
- *
- * Core objects:
- *   struct super_block      - Mounted filesystem instance (device, block size,
- *                             root dentry, super_operations pointer)
- *   struct inode            - File metadata (ino, mode, size, nlink, ops,
- *                             page-cache page_mapping)
- *   struct dentry           - dentry cache (name, parent inode,
- *                             child linkage, reference count)
- *   struct file             - Open file descriptor (dentry, position, flags,
- *                             file_operations pointer)
- *
- * Operation vectors:
- *   struct super_operations  - read_inode, write_inode, sync_fs
- *   struct inode_operations - lookup, create, link, unlink, mkdir
- *   struct file_operations  - read, write, llseek, open, release
- *
- * Callback type:
- *   filldir_t - Callback for readdir to fill directory entries
- *
- * Functions:
- *   register_filesystem(fs) - Register a filesystem driver
- *   mount_root()            - Mount the root filesystem
+/**
+ * @file fs.h
+ * @brief 虚拟文件系统核心对象、操作表与通用文件 API。
  */
 
 #include <kernel/page_mapping.h>
@@ -50,21 +26,64 @@ struct super_block;
 struct statfs64;
 struct vfs_poll_table;
 
+/**
+ * @def VFS_NAME_MAX
+ * @brief Maximum single path-component length accepted by VFS.
+ */
 #define VFS_NAME_MAX 255
+
+/**
+ * @def VFS_PATH_MAX
+ * @brief Maximum absolute or relative path string length copied from userspace.
+ */
 #define VFS_PATH_MAX 4096
 
-#define KERN_STDIN  0
+/** @def KERN_STDIN Kernel-reserved stdin file descriptor number. */
+#define KERN_STDIN 0
+
+/** @def KERN_STDOUT Kernel-reserved stdout file descriptor number. */
 #define KERN_STDOUT 1
+
+/** @def KERN_STDERR Kernel-reserved stderr file descriptor number. */
 #define KERN_STDERR 2
 
+/**
+ * @def NR_OPEN
+ * @brief Per-task fdtable size and poll/select descriptor ceiling.
+ */
 #define NR_OPEN 32
 
-#define FMODE_READ  0x1
+/** @def FMODE_READ File object permits read operations. */
+#define FMODE_READ 0x1
+
+/** @def FMODE_WRITE File object permits write operations. */
 #define FMODE_WRITE 0x2
 
+/**
+ * @typedef filldir_t
+ * @brief Callback used by filesystem readdir implementations.
+ * @param ctx Caller-owned output context.
+ * @param name Directory entry name.
+ * @param namelen Length of @p name in bytes.
+ * @param ino Filesystem inode number.
+ * @param type Linux d_type-compatible directory entry type.
+ * @param off Directory stream offset to report for this entry.
+ * @return 0 to continue, or a negative errno to stop.
+ */
 typedef int (*filldir_t)(void *ctx, const char *name, size_t namelen,
 			 uint64_t ino, uint8_t type, loff_t off);
 
+/**
+ * @struct super_operations
+ * @brief Filesystem-wide operations hanging off a super_block.
+ *
+ * @par Fields
+ * - @c read_inode: Populate an inode from persistent filesystem metadata.
+ * - @c write_inode: Write dirty inode metadata back to persistent storage.
+ * - @c evict_inode: Release filesystem-private inode state at final eviction.
+ * - @c sync_fs: Flush filesystem-wide dirty state.
+ * - @c statfs: Fill Linux statfs64-compatible filesystem statistics.
+ */
 struct super_operations {
 	int (*read_inode)(struct inode *inode);
 	int (*write_inode)(struct inode *inode);
@@ -73,6 +92,23 @@ struct super_operations {
 	int (*statfs)(struct super_block *sb, struct statfs64 *buf);
 };
 
+/**
+ * @struct inode_operations
+ * @brief Namespace and metadata operations implemented by a filesystem.
+ *
+ * @par Fields
+ * - @c lookup: Resolve @p dentry under directory inode @p dir.
+ * - @c create: Create a regular file with VFS-applied mode bits.
+ * - @c symlink: Create a symbolic link storing @p target.
+ * - @c link: Add a hard link from @p new_dentry to @p old_dentry.
+ * - @c unlink: Remove a non-directory entry from @p dir.
+ * - @c mkdir: Create a directory entry and backing directory inode.
+ * - @c rmdir: Remove an empty directory entry.
+ * - @c readlink: Copy symlink target bytes into @p buf.
+ * - @c truncate: Resize file contents and metadata to @p size.
+ * - @c fallocate: Allocate blocks for a file range according to Linux fallocate flags.
+ * - @c rename: Move or exchange namespace entries according to renameat2 flags.
+ */
 struct inode_operations {
 	struct dentry *(*lookup)(struct inode *dir, struct dentry *dentry);
 	int (*create)(struct inode *dir, struct dentry *dentry, uint32_t mode);
@@ -92,6 +128,20 @@ struct inode_operations {
 		      unsigned int flags);
 };
 
+/**
+ * @struct file_operations
+ * @brief Open-file operations used by VFS read/write/poll/ioctl paths.
+ *
+ * @par Fields
+ * - @c read: Read from current file position into a kernel buffer.
+ * - @c write: Write from a kernel buffer at the current file position.
+ * - @c llseek: Implement SEEK_* repositioning for this file type.
+ * - @c open: Finish opening @p file for @p inode.
+ * - @c readdir: Emit directory entries through @p filldir.
+ * - @c poll: Report readiness and optionally register wait queues.
+ * - @c ioctl: Handle file-type-specific ioctl commands.
+ * - @c release: Release file-private resources at final close.
+ */
 struct file_operations {
 	ssize_t (*read)(struct file *file, char *buf, size_t count);
 	ssize_t (*write)(struct file *file, const char *buf, size_t count);
@@ -104,6 +154,15 @@ struct file_operations {
 	int (*release)(struct file *file);
 };
 
+/**
+ * @struct file_system_type
+ * @brief Registered filesystem driver and mount entry point.
+ *
+ * @par Fields
+ * - @c name: Filesystem type name, for example "ext2".
+ * - @c mount: Mount hook.
+ * - @c next: Intrusive node in the global fs list.
+ */
 struct file_system_type {
 	const char *name;
 	struct super_block *(*mount)(struct file_system_type *fs_type,
@@ -111,6 +170,20 @@ struct file_system_type {
 	struct file_system_type *next;
 };
 
+/**
+ * @struct super_block
+ * @brief Mounted filesystem instance shared by inodes and mount state.
+ *
+ * @par Fields
+ * - @c s_dev: Device id backing this superblock.
+ * - @c s_blocksize: Filesystem block size in bytes.
+ * - @c s_flags: Mount/superblock flags.
+ * - @c s_root: Root dentry of this filesystem.
+ * - @c s_op: Filesystem super operations.
+ * - @c s_type: Registered filesystem driver.
+ * - @c s_private: Filesystem-private superblock data.
+ * - @c s_inodes: Inodes attached to this superblock.
+ */
 struct super_block {
 	dev_t s_dev;
 	uint32_t s_blocksize;
@@ -122,6 +195,31 @@ struct super_block {
 	struct list_head s_inodes;
 };
 
+/**
+ * @struct inode
+ * @brief VFS inode metadata and page-cache identity.
+ *
+ * @par Fields
+ * - @c i_ino: Filesystem inode number.
+ * - @c i_mode: Linux stat mode bits, including file type.
+ * - @c i_uid: Owner uid reported through stat-like syscalls.
+ * - @c i_gid: Owner gid reported through stat-like syscalls.
+ * - @c i_nlink: Link count.
+ * - @c i_size: File size in bytes.
+ * - @c i_blocks: Allocated 512-byte blocks for stat ABI.
+ * - @c i_atime_sec: Last access time, seconds.
+ * - @c i_mtime_sec: Last modification time, seconds.
+ * - @c i_ctime_sec: Last metadata-change time, seconds.
+ * - @c i_rdev: Device id for special files.
+ * - @c i_refcount: Lifetime reference count.
+ * - @c i_sb: Owning superblock.
+ * - @c i_op: Namespace/metadata operations.
+ * - @c i_fop: Default file operations.
+ * - @c i_pages: Page-cache mapping for file data.
+ * - @c i_private: Filesystem-private inode data.
+ * - @c i_hash: Node in inode lookup hash.
+ * - @c i_sb_list: Node in superblock inode list.
+ */
 struct inode {
 	uint64_t i_ino;
 	uint32_t i_mode;
@@ -138,19 +236,28 @@ struct inode {
 	struct super_block *i_sb;
 	const struct inode_operations *i_op;
 	const struct file_operations *i_fop;
-
-	/*
-	 * i_pages owns cached file logical blocks for regular files,
-	 * directories, and symlinks that store data in blocks.  Filesystems set
-	 * ops/backing according to inode type; VFS/page cache code uses this
-	 * field generically and must not know ext2 block-layout details.
-	 */
 	struct page_mapping i_pages;
 	void *i_private;
 	struct list_head i_hash;
 	struct list_head i_sb_list;
 };
 
+/**
+ * @struct dentry
+ * @brief VFS name-cache object binding a path component to an inode.
+ *
+ * @par Fields
+ * - @c d_name: NUL-terminated component name.
+ * - @c d_namelen: Component length excluding NUL.
+ * - @c d_refcount: Lifetime reference count.
+ * - @c d_inode: Resolved inode, or NULL for negative dentry.
+ * - @c d_parent: Parent dentry; root points to itself.
+ * - @c d_sb: Superblock containing this dentry.
+ * - @c d_fsdata: Filesystem-private dentry data.
+ * - @c d_hash: Node in dentry lookup hash.
+ * - @c d_child: Node in parent's child list.
+ * - @c d_subdirs: Head of child dentries.
+ */
 struct dentry {
 	char d_name[VFS_NAME_MAX + 1];
 	uint8_t d_namelen;
@@ -164,6 +271,21 @@ struct dentry {
 	struct list_head d_subdirs;
 };
 
+/**
+ * @struct vfsmount
+ * @brief Mounted tree instance and mount-parent relationship.
+ *
+ * @par Fields
+ * - @c mnt_refcount: Long-lived mount reference count.
+ * - @c mnt_active_refs: Active path-walk/file operation refs.
+ * - @c mnt_list: Node in global mount list.
+ * - @c mnt_parent: Parent mount, or self for root.
+ * - @c mnt_mountpoint: Dentry covered in parent mount.
+ * - @c mnt_root: Root dentry visible through this mount.
+ * - @c mnt_sb: Superblock mounted here.
+ * - @c mnt_dev: Backing device id.
+ * - @c mnt_is_root: True for the root mount.
+ */
 struct vfsmount {
 	refcount_t mnt_refcount;
 	atomic_t mnt_active_refs;
@@ -176,11 +298,34 @@ struct vfsmount {
 	bool mnt_is_root;
 };
 
+/**
+ * @struct path
+ * @brief Pair of mount and dentry that identifies a VFS object.
+ *
+ * @par Fields
+ * - @c mnt: Mount containing @ref dentry.
+ * - @c dentry: Dentry within @ref mnt.
+ */
 struct path {
 	struct vfsmount *mnt;
 	struct dentry *dentry;
 };
 
+/**
+ * @struct file
+ * @brief Open file description stored in a task fdtable.
+ *
+ * @par Fields
+ * - @c f_op: Operations for this open file.
+ * - @c f_path: Path pinned by this open file.
+ * - @c f_inode: Cached inode for fast access.
+ * - @c private_data: File-type-private open state.
+ * - @c f_pos: Current file offset for non-positional I/O.
+ * - @c f_flags: Linux O_* status flags.
+ * - @c f_mode: FMODE_* access mode bits.
+ * - @c refcount: Open-file reference count.
+ * - @c static_file: True for non-freeable built-in file objects.
+ */
 struct file {
 	const struct file_operations *f_op;
 	struct path f_path;
@@ -193,32 +338,115 @@ struct file {
 	bool static_file;
 };
 
+/**
+ * @def VFS_POLL_MAX_WAIT_QUEUES
+ * @brief Maximum wait queues tracked by one poll/ppoll/select scan.
+ */
 #define VFS_POLL_MAX_WAIT_QUEUES (NR_OPEN * 2)
 
+/**
+ * @struct vfs_poll_entry
+ * @brief One wait-queue registration owned by a VFS poll table.
+ *
+ * @par Fields
+ * - @c wq: Queue registered by a file poll hook.
+ * - @c wait: Wait entry inserted into @ref wq.
+ */
 struct vfs_poll_entry {
 	struct wait_queue_head *wq;
 	struct wait_queue_entry wait;
 };
 
+/**
+ * @struct vfs_poll_table
+ * @brief Temporary wait registration set for poll/select-style syscalls.
+ *
+ * @par Fields
+ * - @c entries: Entries.
+ * - @c nr_entries: Number of active entries in @ref entries.
+ */
 struct vfs_poll_table {
 	struct vfs_poll_entry entries[VFS_POLL_MAX_WAIT_QUEUES];
 	size_t nr_entries;
 };
 
+/**
+ * @typedef vfs_poll_scan_t
+ * @brief Callback that scans fds and returns readiness for poll wait loops.
+ */
 typedef int (*vfs_poll_scan_t)(struct vfs_poll_table *table, void *arg);
 
+/**
+ * @brief Open a path relative to the current task cwd.
+ * @param path Kernel string path.
+ * @param flags Linux O_* open flags.
+ * @param mode Creation mode before umask handling.
+ * @return File descriptor, or a negative errno.
+ */
 int __must_check vfs_open(const char *path, uint32_t flags, uint32_t mode);
+
+/**
+ * @brief Open a path relative to an explicit base path.
+ * @param base Base path for relative lookup.
+ * @param path Kernel string path.
+ * @param flags Linux O_* open flags.
+ * @param mode Creation mode before umask handling.
+ * @return File descriptor, or a negative errno.
+ */
 int __must_check vfs_openat_path(const struct path *base, const char *path,
 				 uint32_t flags, uint32_t mode);
+
+/**
+ * @brief Open a path relative to a base dentry.
+ * @param base Base dentry for relative lookup.
+ * @param path Kernel string path.
+ * @param flags Linux O_* open flags.
+ * @param mode Creation mode before umask handling.
+ * @return File descriptor, or a negative errno.
+ */
 int __must_check vfs_openat(struct dentry *base, const char *path,
 			    uint32_t flags, uint32_t mode);
 int __must_check file_get_status_flags(struct file *file);
 int __must_check file_set_status_flags(struct file *file, uint32_t flags);
+
+/**
+ * @brief Read from an open file at and advancing f_pos.
+ * @param file Open file.
+ * @param buf Kernel destination buffer.
+ * @param count Maximum bytes to read.
+ * @return Bytes read, 0 at EOF, or a negative errno.
+ */
 ssize_t __must_check vfs_read(struct file *file, char *buf, size_t count);
+
+/**
+ * @brief Write to an open file at and advancing f_pos.
+ * @param file Open file.
+ * @param buf Kernel source buffer.
+ * @param count Bytes to write.
+ * @return Bytes written, or a negative errno.
+ */
 ssize_t __must_check vfs_write(struct file *file, const char *buf,
 			       size_t count);
+
+/**
+ * @brief Positional read that uses @p pos instead of file->f_pos.
+ * @param file Open file.
+ * @param buf Kernel destination buffer.
+ * @param count Maximum bytes to read.
+ * @param pos File offset pointer updated by the operation.
+ * @return Bytes read, 0 at EOF, or a negative errno.
+ */
 ssize_t __must_check vfs_read_pos(struct file *file, char *buf, size_t count,
 				  loff_t *pos);
+
+/**
+ * @brief Positional write that uses @p pos instead of file->f_pos.
+ * @param file Open file.
+ * @param buf Kernel source buffer.
+ * @param count Bytes to write.
+ * @param pos File offset pointer updated by the operation.
+ * @return Bytes written, or a negative errno.
+ */
 ssize_t __must_check vfs_write_pos(struct file *file, const char *buf,
 				   size_t count, loff_t *pos);
 void vfs_rewind_pos(struct file *file, loff_t count);
@@ -226,7 +454,22 @@ ssize_t __must_check vfs_copy_file_buffered(struct file *out_file,
 					    struct file *in_file,
 					    loff_t *in_pos,
 					    loff_t *out_pos, size_t len);
+/**
+ * @brief Reposition an open file according to Linux SEEK_* semantics.
+ * @param file Open file.
+ * @param offset Offset interpreted by @p whence.
+ * @param whence SEEK_SET, SEEK_CUR, SEEK_END, or supported extension.
+ * @return New file position, or a negative errno.
+ */
 loff_t __must_check vfs_llseek(struct file *file, loff_t offset, int whence);
+
+/**
+ * @brief Iterate directory entries for an open directory file.
+ * @param file Open directory.
+ * @param ctx Caller-owned filldir context.
+ * @param filldir Callback receiving Linux dirent-style fields.
+ * @return 0 on success, or a negative errno.
+ */
 int __must_check vfs_readdir(struct file *file, void *ctx, filldir_t filldir);
 int __must_check vfs_truncate_file(struct file *file, uint64_t size);
 int __must_check vfs_fallocate_file(struct file *file, int mode,
@@ -239,14 +482,50 @@ int __must_check vfs_inode_set_timestamps(struct inode *inode,
 int __must_check vfs_inode_touch(struct inode *inode, bool atime, bool mtime,
 				 bool ctime);
 int __must_check vfs_sync_file(struct file *file);
+/**
+ * @brief Convert an inode into Linux stat ABI fields.
+ * @param inode Inode to snapshot.
+ * @param st Kernel buffer receiving struct stat.
+ * @return 0 on success, or a negative errno.
+ */
 int __must_check vfs_stat_inode(const struct inode *inode, struct stat *st);
+
+/**
+ * @brief Stat an open file through its inode.
+ * @param file Open file.
+ * @param st Kernel buffer receiving struct stat.
+ * @return 0 on success, or a negative errno.
+ */
 int __must_check vfs_stat_file(struct file *file, struct stat *st);
 int __must_check vfs_statfs(struct super_block *sb, struct statfs64 *buf);
 void vfs_poll_table_init(struct vfs_poll_table *table);
 void vfs_poll_table_cleanup(struct vfs_poll_table *table);
+
+/**
+ * @brief Register a wait queue in the active poll table.
+ * @param table Poll table for the current scan, or NULL for readiness-only.
+ * @param wq Wait queue that should wake the sleeping poll operation.
+ */
 void vfs_poll_wait(struct vfs_poll_table *table, struct wait_queue_head *wq);
+
+/**
+ * @brief Repeatedly scan readiness until ready, timeout, or signal.
+ * @param scan Callback that fills @p table and reports ready descriptors.
+ * @param arg Opaque argument passed to @p scan.
+ * @param has_timeout Whether @p deadline is meaningful.
+ * @param deadline Absolute kernel time deadline.
+ * @return Positive readiness count, 0 on timeout, or a negative errno.
+ */
 int __must_check vfs_poll_wait_until(vfs_poll_scan_t scan, void *arg,
 				     bool has_timeout, uint64_t deadline);
+
+/**
+ * @brief Poll one file for Linux POLL* readiness bits.
+ * @param file Open file.
+ * @param events Requested POLL* event mask.
+ * @param table Optional wait registration table.
+ * @return Ready event mask.
+ */
 uint32_t __must_check vfs_poll(struct file *file, uint32_t events,
 			       struct vfs_poll_table *table);
 int __must_check vfs_ioctl(struct file *file, uint64_t cmd, uint64_t arg);

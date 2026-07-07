@@ -1,16 +1,5 @@
 /*
  * kernel/time.c - 时间子系统核心实现
- *
- * 功能：
- *   提供内核内部时间工具函数，包括 mtime tick 与 timespec/timeval
- *   之间的转换。本文件仅包含内部 API；ABI 边界处理（sys_* 函数）
- *   位于 syscall/sys_time.c。
- *
- * 内部函数：
- *   clock_id_supported(clock_id) - 验证 clock_id 是否受支持
- *   mtime_to_timespec(ticks, ts) - mtime tick → struct timespec
- *   timespec_to_mtime_delta(ts, delta) - struct timespec → tick 增量
- *   mtime_deadline_after(now, delta) - 带饱和的截止时间计算
  */
 
 #include <kernel/errno.h>

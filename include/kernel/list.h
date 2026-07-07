@@ -1,43 +1,39 @@
 #ifndef _CUTEOS_KERNEL_LIST_H
 #define _CUTEOS_KERNEL_LIST_H
 
-/*
- * include/kernel/list.h - 双向循环链表与遍历宏
- *
- * 定义 struct list_head 及全套链表操作。节点嵌入在数据结构内部
- * （不单独分配）；container_of 宏从 list_head 指针恢复包含它的对象。
- * 所有操作均为 O(1)。
- *
- * 核心结构体：
- *   struct list_head - { prev, next }
- *
- * 初始化：
- *   LIST_HEAD_INIT(name) - 静态初始化器
- *   LIST_HEAD(name)      - 声明并初始化
- *
- * 操作：
- *   list_add(new, head)          - 在 head 之后插入（前插）
- *   list_add_tail(new, head)     - 在 head 之前插入（后插）
- *   list_del(entry)              - 从链表中移除 entry
- *   list_empty(head)             - 测试链表是否为空
- *
- * 遍历：
- *   list_first_entry(ptr, type, member) - 获取第一个包含它的结构体
- *   list_for_each(pos, head)            - 遍历节点
- *   list_for_each_safe(pos, n, head)    - 安全遍历（可删除）
- *   list_for_each_entry(pos, head, member) - 遍历包含它的结构体
+/**
+ * @file list.h
+ * @brief Intrusive circular doubly linked list helpers.
  */
 
 #include <kernel/types.h>
 #include <kernel/tools.h>
 
+/**
+ * @struct list_head
+ * @brief Link node embedded into objects participating in intrusive lists.
+ *
+ * @par Fields
+ * - @c prev: Previous node, or head for first element.
+ * - @c next: Next node, or head for last element.
+ */
 struct list_head {
 	struct list_head *prev;
 	struct list_head *next;
 };
 
+/**
+ * @def LIST_HEAD_INIT
+ * @brief Static initializer for an empty circular list head.
+ * @param name List head variable being initialized.
+ */
 #define LIST_HEAD_INIT(name) {&(name), &(name)}
 
+/**
+ * @def LIST_HEAD
+ * @brief Define and initialize a list head variable.
+ * @param name Variable name.
+ */
 #define LIST_HEAD(name) struct list_head name = LIST_HEAD_INIT(name)
 
 static __always_inline void INIT_LIST_HEAD(struct list_head *list)
@@ -108,18 +104,52 @@ list_empty(const struct list_head *head)
 	return head->next == head;
 }
 
+/**
+ * @def list_for_each
+ * @brief Iterate raw list_head nodes in forward order.
+ * @param pos Cursor of type `struct list_head *`.
+ * @param head List head.
+ */
 #define list_for_each(pos, head)                                               \
 	for (pos = (head)->next; pos != (head); pos = pos->next)
 
+/**
+ * @def list_for_each_safe
+ * @brief Iterate raw nodes while allowing deletion of the current node.
+ * @param pos Current node cursor.
+ * @param n Temporary cursor storing the next node.
+ * @param head List head.
+ */
 #define list_for_each_safe(pos, n, head)                                       \
 	for (pos = (head)->next, n = pos->next; pos != (head);                 \
 	     pos = n, n = pos->next)
 
+/**
+ * @def list_entry
+ * @brief Recover the containing object from an embedded list node.
+ * @param ptr Pointer to the embedded list_head.
+ * @param type Containing object type.
+ * @param member Name of the list_head member inside @p type.
+ */
 #define list_entry(ptr, type, member) container_of(ptr, type, member)
 
+/**
+ * @def list_first_entry
+ * @brief Return the first object in a non-empty intrusive list.
+ */
 #define list_first_entry(ptr, type, member)                                    \
 	list_entry((ptr)->next, type, member)
 
+/**
+ * @def list_for_each_entry
+ * @brief Iterate containing objects in forward order.
+ * @param pos Cursor pointer to the containing type.
+ * @param head List head.
+ * @param member Embedded list_head member name.
+ *
+ * The macro infers the containing type from `*pos`, then converts each list
+ * node back to its owner with @ref list_entry.
+ */
 #define list_for_each_entry(pos, head, member)                                 \
 	for (pos = list_entry((head)->next, type_of(*pos), member);            \
 	     &pos->member != (head);                                           \

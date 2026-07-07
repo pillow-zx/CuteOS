@@ -1,35 +1,15 @@
 #ifndef _CUTEOS_TEST_KTEST_H
 #define _CUTEOS_TEST_KTEST_H
 
-/* ================================================================
- *  Bitmap 测试
- * ================================================================
- */
-
 void test_bitmap(void);
 void test_bitmap_find_first_zero(void);
 void test_bitmap_odd_bits(void);
 
-/* ================================================================
- *  Hash Table 测试
- * ================================================================
- */
-
 void test_hash_insert_lookup(void);
 void test_hash_collision_delete(void);
 
-/* ================================================================
- *  PID 分配器测试
- * ================================================================
- */
-
 void test_pid_basic(void);
 void test_pid_exhaust(void);
-
-/* ================================================================
- *  Buddy 分配器测试
- * ================================================================
- */
 
 void test_buddy_single_page(void);
 void test_buddy_multi_order(void);
@@ -39,11 +19,6 @@ void test_buddy_split(void);
 void test_buddy_over_order_preserves_free_count(void);
 void test_buddy_multi_order_preserves_free_count(void);
 
-/* ================================================================
- *  SLAB 分配器测试
- * ================================================================
- */
-
 void test_slab_basic(void);
 void test_slab_cross_cache(void);
 void test_slab_stress(void);
@@ -52,21 +27,11 @@ void test_kmalloc_large_alloc_free(void);
 void test_kzalloc_large_zeroes_requested_size(void);
 void test_kmalloc_oversize_preserves_free_count(void);
 
-/* ================================================================
- *  Trap 测试
- * ================================================================
- */
-
 void test_trap_frame_layout(void);
 void test_trap_from_user(void);
 void test_trap_context_layout(void);
 void test_trap_irq_codes(void);
 void test_trap_user_return_task_setup(void);
-
-/* ================================================================
- *  Timer 测试
- * ================================================================
- */
 
 void test_timer_mtime(void);
 void test_timer_mtimecmp(void);
@@ -79,11 +44,6 @@ void test_ktimer_arm_cancel_remaining(void);
 void test_ktimer_timer_run_expired_callback(void);
 void test_ktimer_interval_rearms_after_expiry(void);
 
-/* ================================================================
- *  Sync 原语测试
- * ================================================================
- */
-
 void test_atomic_basic(void);
 void test_spinlock_irqsave(void);
 void test_wait_event_interruptible_ready(void);
@@ -95,22 +55,12 @@ void test_wait_schedule_until_timeout(void);
 void test_wait_schedule_preserves_early_wakeup(void);
 void test_mutex_blocking(void);
 
-/* ================================================================
- *  Cleanup RAII 测试
- * ================================================================
- */
-
 void test_cleanup_free_scope(void);
 void test_cleanup_take_ptr(void);
 void test_cleanup_forget_ptr(void);
 void test_cleanup_guard_scope(void);
 void test_cleanup_with_guard_block(void);
 void test_cleanup_class_helpers(void);
-
-/* ================================================================
- *  MM/VMA 测试
- * ================================================================
- */
 
 void test_mm_vma_merge_adjacent(void);
 void test_mm_vma_munmap_middle_split(void);
@@ -135,11 +85,6 @@ void test_vmalloc_vfree_reuses_range(void);
 void test_vmalloc_free_merges_adjacent_ranges(void);
 void test_vmalloc_mapping_failure_rolls_back(void);
 
-/* ================================================================
- *  Task 管理测试
- * ================================================================
- */
-
 void test_task_alloc_free(void);
 void test_task_layout_contract(void);
 void test_cpu_boot_topology(void);
@@ -150,22 +95,12 @@ void test_task_process_tree(void);
 void test_task_idle(void);
 void test_task_free_null(void);
 
-/* ================================================================
- *  Task 共享资源测试
- * ================================================================
- */
-
 void test_files_struct_copy_and_share(void);
 void test_files_struct_copy_preserves_cloexec(void);
 void test_fs_struct_copy_and_share(void);
 void test_sighand_struct_copy_and_share(void);
 void test_signal_struct_pending(void);
 void test_signal_struct_rlimits_copy(void);
-
-/* ================================================================
- *  Syscall compatibility helper tests
- * ================================================================
- */
 
 void test_rlimit_defaults(void);
 void test_vfs_default_poll_masks(void);
@@ -177,11 +112,6 @@ void test_signal_rt_sigsetsize_validation(void);
 void test_root_statfs_fields(void);
 void test_pipe2_file_alloc_failure_cleanup(void);
 
-/* ================================================================
- *  Sched 调度器测试
- * ================================================================
- */
-
 void test_sched_init(void);
 void test_sched_enqueue_dequeue(void);
 void test_sched_need_resched(void);
@@ -189,33 +119,16 @@ void test_sched_preempt_count_is_cpu_local(void);
 void test_sched_wakeup_refresh(void);
 void test_sched_boost(void);
 
-/* ================================================================
- *  Kernel Thread 测试
- * ================================================================
- */
-
 void test_kernel_thread_basic(void);
 void test_kernel_thread_ctx_setup(void);
 
-/* ================================================================
- *  virtio-blk 驱动测试
- * ================================================================ */
-
 void test_virtio_blk(void);
 void test_virtio_blk_errors(void);
-
-/* ================================================================
- *  Page Cache Metadata 测试
- * ================================================================ */
 
 void test_page_cache_metadata_basic(void);
 void test_page_cache_metadata_errors(void);
 void test_page_cache_block_zero_writeback(void);
 void test_page_cache_metadata_eviction(void);
-
-/* ================================================================
- *  Page Cache 测试
- * ================================================================ */
 
 void test_page_cache_dirty_write_visibility(void);
 void test_page_cache_fsync_inode_scope(void);
@@ -227,10 +140,6 @@ void test_page_cache_clustered_writeback(void);
 void test_page_cache_indirect_reclaim_progress(void);
 void test_page_cache_truncate_extend_zero_fill(void);
 void test_page_cache_large_offset_rejected(void);
-
-/* ================================================================
- *  fs-at 路径/fd 语义测试
- * ================================================================ */
 
 void test_fs_at_path_lookup_basics(void);
 void test_fs_at_empty_path_error(void);
