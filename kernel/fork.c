@@ -4,6 +4,7 @@
 
 #include <kernel/errno.h>
 #include <kernel/fdtable.h>
+#include <kernel/futex.h>
 #include <kernel/fork.h>
 #include <kernel/fs_struct.h>
 #include <kernel/mm.h>

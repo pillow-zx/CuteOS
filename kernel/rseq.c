@@ -17,6 +17,55 @@
 #define RSEQ_SINGLE_NODE_ID 0U
 #define RSEQ_SINGLE_MM_CID  0U
 
+static __always_inline __must_check __pure struct rseq *
+rseq_task_area(const struct task_struct *task)
+{
+	return task ? task->rseq.area : NULL;
+}
+
+static __always_inline __must_check __pure uint32_t
+rseq_task_len(const struct task_struct *task)
+{
+	return task ? task->rseq.len : 0;
+}
+
+static __always_inline __must_check __pure uint32_t
+rseq_task_sig(const struct task_struct *task)
+{
+	return task ? task->rseq.sig : 0;
+}
+
+static __always_inline __must_check __pure uint8_t
+rseq_task_need_update(const struct task_struct *task)
+{
+	return task ? task->rseq.need_update : 0;
+}
+
+static __always_inline void rseq_task_set(struct task_struct *task,
+					  struct rseq *area, uint32_t len,
+					  uint32_t sig)
+{
+	if (!task)
+		return;
+
+	task->rseq.area = area;
+	task->rseq.len = len;
+	task->rseq.sig = sig;
+	task->rseq.need_update = 0;
+}
+
+static __always_inline void rseq_task_clear(struct task_struct *task)
+{
+	rseq_task_set(task, NULL, 0, 0);
+}
+
+static __always_inline void rseq_task_set_need_update(struct task_struct *task,
+						      uint8_t val)
+{
+	if (task)
+		task->rseq.need_update = val;
+}
+
 static __always_inline __must_check __pure bool
 rseq_area_aligned(const struct rseq *area)
 {
@@ -132,15 +181,15 @@ static int __must_check __nonnull(1, 2)
 	if (end < start_ip || end > TASK_SIZE)
 		return -EFAULT;
 	if (ip < start_ip || ip >= end)
-		return rseq_clear_user_cs(task_rseq_area(task));
+		return rseq_clear_user_cs(rseq_task_area(task));
 
 	ret = rseq_read_signature(abort_ip, &sig);
 	if (ret < 0)
 		return ret;
-	if (sig != task_rseq_sig(task))
+	if (sig != rseq_task_sig(task))
 		return -EFAULT;
 
-	ret = rseq_clear_user_cs(task_rseq_area(task));
+	ret = rseq_clear_user_cs(rseq_task_area(task));
 	if (ret < 0)
 		return ret;
 
@@ -152,16 +201,16 @@ static int __must_check __nonnull(1, 2)
 	rseq_update_user(struct task_struct *task, struct trap_frame *tf,
 			 bool force)
 {
-	struct rseq *area = task_rseq_area(task);
+	struct rseq *area = rseq_task_area(task);
 	unsigned long csaddr;
 	int ret;
 
 	if (!area)
 		return 0;
-	if (!force && !task_rseq_need_update(task))
+	if (!force && !rseq_task_need_update(task))
 		return 0;
 
-	task_set_rseq_need_update(task, 0);
+	rseq_task_set_need_update(task, 0);
 
 	ret = rseq_write_current_ids(area);
 	if (ret < 0)
@@ -180,9 +229,9 @@ static int __must_check rseq_reregister(struct rseq *area, uint32_t len,
 {
 	struct task_struct *task = current_task();
 
-	if (task_rseq_area(task) != area || task_rseq_len(task) != len)
+	if (rseq_task_area(task) != area || rseq_task_len(task) != len)
 		return -EINVAL;
-	if (task_rseq_sig(task) != sig)
+	if (rseq_task_sig(task) != sig)
 		return -EPERM;
 
 	return -EBUSY;
@@ -200,14 +249,14 @@ static int __must_check rseq_register(struct rseq *area, uint32_t len,
 		return -EINVAL;
 	if (!access_ok(area, len))
 		return -EFAULT;
-	if (task_rseq_area(task))
+	if (rseq_task_area(task))
 		return rseq_reregister(area, len, sig);
 
 	ret = rseq_write_initial_area(area);
 	if (ret < 0)
 		return ret;
 
-	task_set_rseq(task, area, len, sig);
+	rseq_task_set(task, area, len, sig);
 	return 0;
 }
 
@@ -219,18 +268,18 @@ static int __must_check rseq_unregister(struct rseq *area, uint32_t len,
 
 	if (flags & ~RSEQ_FLAG_UNREGISTER)
 		return -EINVAL;
-	if (task_rseq_area(task) != area || !task_rseq_area(task))
+	if (rseq_task_area(task) != area || !rseq_task_area(task))
 		return -EINVAL;
-	if (task_rseq_len(task) != len)
+	if (rseq_task_len(task) != len)
 		return -EINVAL;
-	if (task_rseq_sig(task) != sig)
+	if (rseq_task_sig(task) != sig)
 		return -EPERM;
 
 	ret = rseq_write_unregistered_area(area);
 	if (ret < 0)
 		return ret;
 
-	task_clear_rseq(task);
+	rseq_task_clear(task);
 	return 0;
 }
 
@@ -246,28 +295,28 @@ ssize_t kernel_rseq(struct rseq *area, uint32_t len, int flags, uint32_t sig)
 
 void rseq_execve(struct task_struct *task)
 {
-	task_clear_rseq(task);
+	rseq_task_clear(task);
 }
 
 void rseq_clone(struct task_struct *child, const struct task_struct *parent,
 		unsigned long flags)
 {
 	if (flags & CLONE_VM) {
-		task_clear_rseq(child);
+		rseq_task_clear(child);
 		return;
 	}
 
-	task_set_rseq(child, task_rseq_area(parent), task_rseq_len(parent),
-		      task_rseq_sig(parent));
-	task_set_rseq_need_update(child, task_rseq_need_update(parent));
+	rseq_task_set(child, rseq_task_area(parent), rseq_task_len(parent),
+		      rseq_task_sig(parent));
+	rseq_task_set_need_update(child, rseq_task_need_update(parent));
 }
 
 void rseq_sched_switch(struct task_struct *prev)
 {
-	if (!prev || !task_rseq_area(prev) || !arch_task_trap_from_user(prev))
+	if (!prev || !rseq_task_area(prev) || !arch_task_trap_from_user(prev))
 		return;
 
-	task_set_rseq_need_update(prev, 1);
+	rseq_task_set_need_update(prev, 1);
 }
 
 int rseq_resume_user(struct trap_frame *tf)

@@ -4,6 +4,7 @@
 
 #include <kernel/buddy.h>
 #include <kernel/errno.h>
+#include <kernel/futex.h>
 #include <kernel/fs.h>
 #include <kernel/fs_struct.h>
 #include <kernel/mm.h>

@@ -7,28 +7,12 @@
  */
 
 #include <kernel/compiler.h>
+#include <kernel/rseq_types.h>
 #include <kernel/types.h>
 
 struct rseq;
 struct task_struct;
 struct trap_frame;
-
-/**
- * @struct task_rseq_context
- * @brief Per-task rseq registration cached in task_struct.
- *
- * @par Fields
- * - @c area: Registered userspace rseq area, or NULL.
- * - @c len: Userspace-provided rseq area length.
- * - @c sig: Signature used to validate unregister requests.
- * - @c need_update: Userspace cpu_id fields need refresh.
- */
-struct task_rseq_context {
-	struct rseq *area;
-	uint32_t len;
-	uint32_t sig;
-	uint8_t need_update;
-};
 
 /**
  * @brief Implement the Linux rseq syscall for the current task.

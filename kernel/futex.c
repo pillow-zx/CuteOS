@@ -3,6 +3,7 @@
 #include <kernel/list.h>
 #include <kernel/mm.h>
 #include <kernel/sched.h>
+#include <kernel/signal.h>
 #include <kernel/sync.h>
 #include <kernel/task.h>
 #include <kernel/timer.h>
@@ -135,7 +136,7 @@ static int futex_wait(int *uaddr, int expected,
 
 	if (waiter.woken)
 		return 0;
-	if (ret == -EINTR || task_signal_pending(current_task()))
+	if (ret == -EINTR || signal_pending(current_task()))
 		return -EINTR;
 	if (ret == -ETIMEDOUT)
 		return -ETIMEDOUT;

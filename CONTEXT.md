@@ -239,7 +239,10 @@ but only entries present in `SYSCALL_TABLE` are installed.
 Task lifecycle belongs to `kernel/task.c`, `kernel/fork.c`, `kernel/exec.c`,
 and `kernel/exit.c`. Scheduling policy belongs to `sched/`. Signal, futex,
 rseq, time, and resource semantics should stay in their owning modules and
-reach task state through narrow APIs.
+reach task state through narrow APIs. Owner-specific per-task helpers belong
+in the owner header (`signal.h`, `futex.h`, `rseq.h`) rather than in
+`task.h`; `task.h` should expose only lifecycle aggregation, identity/resource
+wiring, and broadly shared hot-path accessors.
 
 The scheduler is currently single-core MLFQ. Timer ticks update policy state
 and set `need_resched`; switching must happen through scheduler paths that
@@ -646,7 +649,9 @@ Common entry points:
 
 Read `include/kernel/task.h` before changing fields in `struct task_struct`.
 Some fields are coupled to assembly or trap-return expectations through arch
-accessors and offset checks.
+accessors and offset checks. New per-task state must document its owner,
+lifetime, and accessor boundary; do not add single-subsystem helper batches to
+`task.h`.
 
 ### Signals, Futex, Rseq, And Timers
 
@@ -676,6 +681,11 @@ Common entry points:
 Rseq and signal ordering on user return is intentional and belongs in
 `kernel/user_return.c`. Do not add another user-PC/user-SP rewriting path after
 signal delivery without defining its ordering against both.
+
+Per-task signal helpers live in `include/kernel/signal.h`, robust-list and
+`clear_child_tid` helpers live in `include/kernel/futex.h`, and rseq task-state
+helpers are private to the rseq implementation behind `include/kernel/rseq.h`
+entry points.
 
 ### Block Devices And Page Cache
 

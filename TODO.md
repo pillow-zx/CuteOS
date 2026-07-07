@@ -38,9 +38,9 @@
 
 ### 1.2 收窄 task 聚合根暴露面
 
-- [ ] 制定 `task_struct` 字段归属规则：生命周期聚合可放 task，复杂语义回 owning subsystem。
-- [ ] 审查 `include/kernel/task.h` 的 accessor，标记热路径、跨子系统必需、可下沉三类。
-- [ ] rseq 操作尽量通过 `include/kernel/rseq.h` 暴露，减少外部直接操作 task rseq 字段。
+- [x] 制定 `task_struct` 字段归属规则：生命周期聚合可放 task，复杂语义回 owning subsystem。
+- [x] 审查 `include/kernel/task.h` 的 accessor，标记热路径、跨子系统必需、可下沉三类。
+- [x] rseq 操作尽量通过 `include/kernel/rseq.h` 暴露，减少外部直接操作 task rseq 字段。
 
 验收：
 

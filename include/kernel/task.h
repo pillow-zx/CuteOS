@@ -11,9 +11,8 @@
 #include <kernel/wait.h>
 #include <kernel/compiler.h>
 #include <kernel/cpu.h>
-#include <kernel/rseq.h>
+#include <kernel/rseq_types.h>
 #include <arch/task.h>
-#include <uapi/futex.h>
 #include <uapi/signal.h>
 
 /**
@@ -81,9 +80,8 @@ struct fs_struct;
 struct mm_struct;
 struct sighand_struct;
 struct signal_struct;
+struct robust_list_head;
 struct task_struct;
-
-bool signal_pending(struct task_struct *task);
 
 /**
  * @struct task_identity
@@ -224,9 +222,15 @@ struct task_cputime {
  * @struct task_struct
  * @brief Task lifecycle aggregate and subsystem ownership root.
  *
- * Field groups mirror subsystem ownership. Code outside the owning subsystem
- * should prefer the helpers in this header so future layout changes do not
- * leak across VFS, MM, signal, scheduler, and architecture boundaries.
+ * Field groups mirror subsystem ownership. Task owns lifecycle assembly and
+ * cross-subsystem identity/resource wiring. Complex per-task semantics belong
+ * to the owning subsystem: signal state through signal.h, robust futex and
+ * clear_child_tid state through futex.h, rseq state through rseq.h, scheduling
+ * policy through sched/, and architecture state through arch task accessors.
+ *
+ * Helpers in this header are limited to lifecycle aggregation, simple identity
+ * and resource wiring, and hot cross-subsystem accessors that do not expose a
+ * single subsystem's policy surface.
  *
  * @par Fields
  * - @c arch: RISC-V context, trap frame, stack, satp.
@@ -247,7 +251,7 @@ struct task_struct {
 	struct task_links links;
 	struct task_resources resources;
 	struct task_signal_context sigctx;
-	struct task_rseq_context rseq;
+	struct rseq_task_context rseq;
 	struct task_sched_entity sched;
 	struct task_cputime cputime;
 	struct task_cputime child_cputime;
@@ -374,131 +378,6 @@ static __always_inline void task_set_gid(struct task_struct *task, gid_t gid)
 {
 	BUG_ON(!task);
 	task->resources.gid = gid;
-}
-
-static __always_inline __must_check __pure bool
-task_signal_pending(struct task_struct *task)
-{
-	return signal_pending(task);
-}
-
-static __always_inline __must_check __pure struct signal_struct *
-task_signal_state(struct task_struct *task)
-{
-	return task ? task->resources.signal : NULL;
-}
-
-static __always_inline __must_check __pure struct sighand_struct *
-task_sighand(struct task_struct *task)
-{
-	return task ? task->resources.sighand : NULL;
-}
-
-static __always_inline void task_set_sighand(struct task_struct *task,
-					     struct sighand_struct *sighand)
-{
-	if (task)
-		task->resources.sighand = sighand;
-}
-
-static __always_inline void task_set_signal_state(struct task_struct *task,
-						  struct signal_struct *signal)
-{
-	if (task)
-		task->resources.signal = signal;
-}
-
-static __always_inline __must_check __pure uint64_t
-task_blocked_mask(const struct task_struct *task)
-{
-	return task ? task->sigctx.blocked : 0;
-}
-
-static __always_inline void task_set_blocked_mask(struct task_struct *task,
-						  uint64_t mask)
-{
-	if (task)
-		task->sigctx.blocked = mask;
-}
-
-static __always_inline void task_or_blocked_mask(struct task_struct *task,
-						 uint64_t mask)
-{
-	if (task)
-		task->sigctx.blocked |= mask;
-}
-
-static __always_inline void task_and_blocked_mask(struct task_struct *task,
-						  uint64_t mask)
-{
-	if (task)
-		task->sigctx.blocked &= mask;
-}
-
-static __always_inline __must_check __pure uint64_t
-task_pending_mask(const struct task_struct *task)
-{
-	return task ? task->sigctx.pending : 0;
-}
-
-static __always_inline void task_set_pending_mask(struct task_struct *task,
-						  uint64_t mask)
-{
-	if (task)
-		task->sigctx.pending = mask;
-}
-
-static __always_inline void task_or_pending_mask(struct task_struct *task,
-						 uint64_t mask)
-{
-	if (task)
-		task->sigctx.pending |= mask;
-}
-
-static __always_inline void task_and_pending_mask(struct task_struct *task,
-						  uint64_t mask)
-{
-	if (task)
-		task->sigctx.pending &= mask;
-}
-
-static __always_inline __must_check __pure uint64_t
-task_in_handler_mask(const struct task_struct *task)
-{
-	return task ? task->sigctx.in_handler : 0;
-}
-
-static __always_inline void task_set_in_handler_mask(struct task_struct *task,
-						     uint64_t mask)
-{
-	if (task)
-		task->sigctx.in_handler = mask;
-}
-
-static __always_inline void task_or_in_handler_mask(struct task_struct *task,
-						    uint64_t mask)
-{
-	if (task)
-		task->sigctx.in_handler |= mask;
-}
-
-static __always_inline void task_and_in_handler_mask(struct task_struct *task,
-						     uint64_t mask)
-{
-	if (task)
-		task->sigctx.in_handler &= mask;
-}
-
-static __always_inline __must_check __pure __nonnull(1) __returns_nonnull
-	struct stack_t *task_altstack(struct task_struct *task)
-{
-	return &task->sigctx.sas;
-}
-
-static __always_inline __must_check __pure struct stack_t *
-task_altstack_safe(struct task_struct *task)
-{
-	return task ? task_altstack(task) : NULL;
 }
 
 static __always_inline __must_check __pure __nonnull(1) uint32_t
@@ -647,67 +526,6 @@ static __always_inline void task_unlink_thread(struct task_struct *task)
 	list_del_init(&task->links.thread_node);
 }
 
-static __always_inline __must_check __pure int *
-task_clear_child_tid(struct task_struct *task)
-{
-	return task ? task->sigctx.clear_child_tid : NULL;
-}
-
-static __always_inline void task_set_clear_child_tid(struct task_struct *task,
-						     int *uaddr)
-{
-	if (task)
-		task->sigctx.clear_child_tid = uaddr;
-}
-
-static __always_inline __must_check __pure struct rseq *
-task_rseq_area(const struct task_struct *task)
-{
-	return task ? task->rseq.area : NULL;
-}
-
-static __always_inline __must_check __pure uint32_t
-task_rseq_len(const struct task_struct *task)
-{
-	return task ? task->rseq.len : 0;
-}
-
-static __always_inline __must_check __pure uint32_t
-task_rseq_sig(const struct task_struct *task)
-{
-	return task ? task->rseq.sig : 0;
-}
-
-static __always_inline __must_check __pure uint8_t
-task_rseq_need_update(const struct task_struct *task)
-{
-	return task ? task->rseq.need_update : 0;
-}
-
-static __always_inline void task_set_rseq(struct task_struct *task,
-					  struct rseq *area, uint32_t len,
-					  uint32_t sig)
-{
-	if (!task)
-		return;
-	task->rseq.area = area;
-	task->rseq.len = len;
-	task->rseq.sig = sig;
-	task->rseq.need_update = 0;
-}
-
-static __always_inline void task_clear_rseq(struct task_struct *task)
-{
-	task_set_rseq(task, NULL, 0, 0);
-}
-
-static __always_inline void task_set_rseq_need_update(struct task_struct *task,
-						      uint8_t val)
-{
-	if (task)
-		task->rseq.need_update = val;
-}
-
 static __always_inline __must_check __pure uint64_t
 task_user_ticks(const struct task_struct *task)
 {
@@ -718,28 +536,6 @@ static __always_inline __must_check __pure uint64_t
 task_system_ticks(const struct task_struct *task)
 {
 	return task ? task->cputime.stime_ticks : 0;
-}
-
-static __always_inline __must_check __pure struct robust_list_head *
-task_robust_list(struct task_struct *task)
-{
-	return task ? task->sigctx.robust_list : NULL;
-}
-
-static __always_inline __must_check __pure size_t
-task_robust_list_len(struct task_struct *task)
-{
-	return task ? task->sigctx.robust_list_len : 0;
-}
-
-static __always_inline void task_set_robust_list(struct task_struct *task,
-						 struct robust_list_head *head,
-						 size_t len)
-{
-	if (!task)
-		return;
-	task->sigctx.robust_list = head;
-	task->sigctx.robust_list_len = len;
 }
 
 static __always_inline __must_check __pure int

@@ -1,6 +1,6 @@
 # 任务与内核核心服务
 
-任务子系统负责进程/线程生命周期，并承载信号、futex、rseq、时间计时器、资源限制等与任务绑定的核心服务。`task_struct` 是这些状态的聚合根，但具体语义分散在对应子系统中。
+任务子系统负责进程/线程生命周期，并承载信号、futex、rseq、时间计时器、资源限制等与任务绑定的核心服务。`task_struct` 是这些状态的聚合根，但具体语义分散在对应子系统中。生命周期聚合、身份和通用资源连接可以留在 `task.h`；复杂语义和单一子系统字段访问应回到 owning subsystem 的头文件或实现内。
 
 ## task_struct 分组
 
@@ -38,7 +38,7 @@ struct task_struct {
     struct task_links links;
     struct task_resources resources;
     struct task_signal_context sigctx;
-    struct task_rseq_context rseq;
+    struct rseq_task_context rseq;
     struct task_sched_entity sched;
     struct task_cputime cputime;
     struct task_cputime child_cputime;
@@ -57,7 +57,15 @@ struct task_struct {
 - `sched`：runqueue 节点、等待队列节点、MLFQ 状态。
 - `cputime`：用户态/内核态 tick。
 
-外部代码应使用 `task_*` 访问器，而不是跨模块直接写分组字段。
+字段访问规则：
+
+- `task.h` 只暴露生命周期聚合、`pid/tgid/pgid`、父子/线程组连接、`mm/files/fs` 等跨子系统通用 helper。
+- signal 相关 per-task helper 位于 `include/kernel/signal.h`。
+- robust futex list 和 `clear_child_tid` helper 位于 `include/kernel/futex.h`。
+- rseq 注册状态通过 `include/kernel/rseq.h` 的语义入口管理，字段级 helper 保持在 rseq 实现内部。
+- scheduler 可以在 `sched/` 内直接访问 `task->sched`，task/fork/exit 可以在生命周期装配路径直接访问对应字段；其他模块不应为了方便绕过 owner API。
+
+新增 per-task 状态时，先说明 owner、生命周期和访问边界，再决定是否进入 `task_struct`。
 
 ## 任务状态
 
@@ -416,6 +424,7 @@ void worker_run_periodic(unsigned int interval_sec,
 ## 设计约束
 
 - task 是生命周期聚合根，但子系统语义应留在各自模块。
+- `task.h` 不承载单一子系统的大批字段 helper；signal、futex、rseq 等 owner 头文件负责自己的 per-task helper。
 - clone prepare/commit/abort 的事务边界不能被 syscall 层绕开。
 - exec 成功后旧 `mm` 不再可用，后续代码不能访问旧用户地址。
 - exit 在切换走前当前 task 已可能是 zombie 且无 mm，不要在 `do_exit()` 尾部新增用户访问。
