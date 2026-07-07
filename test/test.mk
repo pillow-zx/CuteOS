@@ -21,6 +21,7 @@ TEST_OBJS = \
 	test/task_test.o \
 	test/timer_test.o \
 	test/trap_test.o \
+	test/user_return_test.o \
 	test/user_trap_test.o \
 	test/user_trap_test_stub.o \
 	test/virtio_blk_test.o

@@ -26,10 +26,10 @@
 
 ### 1.1 建立 user-return-work 边界
 
-- [ ] 新增 generic 用户返回前工作入口，例如 `kernel/user_return.c`。
-- [ ] 定义顺序：rseq resume、signal delivery、未来 syscall restart、其它 pending work。
-- [ ] `arch/riscv/trap.c` 只在用户 trap 返回前调用该入口。
-- [ ] 增加测试覆盖：ecall、page fault、timer interrupt 三条路径都执行同一返回工作。
+- [x] 新增 generic 用户返回前工作入口，例如 `kernel/user_return.c`。
+- [x] 定义顺序：rseq resume、signal delivery、未来 syscall restart、其它 pending work。
+- [x] `arch/riscv/trap.c` 只在用户 trap 返回前调用该入口。
+- [x] 增加测试覆盖：ecall、page fault、timer interrupt 三条路径都执行同一返回工作。
 
 验收：
 

@@ -183,10 +183,13 @@ Trap entry saves a complete `struct trap_frame`. The layout in
 - other traps -> panic during the current development baseline
 
 Before returning to user mode after syscall, page fault, or timer interrupt,
-the trap layer runs:
+the trap layer calls the generic `user_return_work(tf)` boundary. That generic
+entry currently runs:
 
 1. `rseq_resume_user(tf)`
 2. `do_signal(tf)`
+3. reserved ordering point for future syscall restart
+4. reserved ordering point for other pending user-return work
 
 This order is ABI-visible. Signal delivery can also force rseq abort handling
 through `rseq_signal_deliver(tf)`.
@@ -652,6 +655,7 @@ Common entry points:
 - `signals_init(task)`
 - `signals_clone(child, share_sighand, share_signal, disable_altstack)`
 - `signals_release(task)`
+- `user_return_work(tf)`
 - `send_signal(sig, task)`
 - `send_group_signal(sig, leader)`
 - `force_signal(sig, task)`
@@ -669,9 +673,9 @@ Common entry points:
 - `ktimer_cancel(timer)`
 - `ktimer_run_expired(now)`
 
-Rseq and signal ordering on user return is intentional. Do not add another
-user-PC/user-SP rewriting path after signal delivery without defining its
-ordering against both.
+Rseq and signal ordering on user return is intentional and belongs in
+`kernel/user_return.c`. Do not add another user-PC/user-SP rewriting path after
+signal delivery without defining its ordering against both.
 
 ### Block Devices And Page Cache
 

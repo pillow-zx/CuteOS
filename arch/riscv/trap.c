@@ -5,7 +5,6 @@
 #include <asm/csr.h>
 #include <asm/trap.h>
 #include <kernel/trap.h>
-#include <kernel/exit.h>
 #include <kernel/printk.h>
 #include <kernel/types.h>
 #include <kernel/sched.h>
@@ -13,8 +12,7 @@
 #include <kernel/timer.h>
 #include <kernel/syscall.h>
 #include <kernel/mm.h>
-#include <kernel/rseq.h>
-#include <kernel/signal.h>
+#include <kernel/user_return.h>
 
 static trap_test_hook_t trap_test_hook;
 
@@ -37,13 +35,6 @@ static void handle_timer_irq(void)
 	timer_run_expired(now);
 
 	sched_tick();
-}
-
-static void trap_return_user_work(struct trap_frame *tf)
-{
-	if (rseq_resume_user(tf) < 0)
-		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
-	do_signal(tf);
 }
 
 void trap_handler(struct trap_frame *tf)
@@ -69,7 +60,7 @@ void trap_handler(struct trap_frame *tf)
 				schedule();
 			}
 			if (user)
-				trap_return_user_work(tf);
+				user_return_work(tf);
 			return;
 		default:
 			panic("unhandled interrupt: origin=%s scause=0x%lx "
@@ -86,7 +77,7 @@ void trap_handler(struct trap_frame *tf)
 			trap_advance_pc(tf, 4);
 			do_syscall(tf);
 			if (user)
-				trap_return_user_work(tf);
+				user_return_work(tf);
 			return;
 		case EXC_INST_PAGE_FAULT:
 		case EXC_LOAD_PAGE_FAULT:
@@ -94,7 +85,7 @@ void trap_handler(struct trap_frame *tf)
 
 			do_page_fault(tf);
 			if (user)
-				trap_return_user_work(tf);
+				user_return_work(tf);
 			return;
 		default:
 			panic("unhandled exception: origin=%s scause=0x%lx "

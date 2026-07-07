@@ -66,6 +66,9 @@ void kernel_test(void)
 	test_trap_context_layout();
 	test_trap_irq_codes();
 	test_trap_user_return_task_setup();
+	test_user_return_work_ecall_path();
+	test_user_return_work_page_fault_path();
+	test_user_return_work_timer_path();
 
 
 	TEST_SECTION("Timer");
