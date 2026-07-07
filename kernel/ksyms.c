@@ -1,7 +1,7 @@
 #include <kernel/ksyms.h>
 #include <kernel/compiler.h>
 
-#if CONFIG_KSYMS
+#ifdef CONFIG_KSYMS
 const struct ksym ksym_table[1] __weak = {
 	{0, NULL},
 };
@@ -10,7 +10,7 @@ const size_t ksym_count __weak;
 
 const char *ksym_lookup(uintptr_t addr, uintptr_t *offset)
 {
-#if CONFIG_KSYMS
+#ifdef CONFIG_KSYMS
 	size_t lo = 0;
 	size_t hi = ksym_count;
 	const struct ksym *best = NULL;

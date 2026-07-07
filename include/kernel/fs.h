@@ -106,7 +106,8 @@ struct super_operations {
  * - @c rmdir: Remove an empty directory entry.
  * - @c readlink: Copy symlink target bytes into @p buf.
  * - @c truncate: Resize file contents and metadata to @p size.
- * - @c fallocate: Allocate blocks for a file range according to Linux fallocate flags.
+ * - @c fallocate: Allocate blocks for a file range according to Linux fallocate
+ * flags.
  * - @c rename: Move or exchange namespace entries according to renameat2 flags.
  */
 struct inode_operations {
@@ -452,8 +453,8 @@ ssize_t __must_check vfs_write_pos(struct file *file, const char *buf,
 void vfs_rewind_pos(struct file *file, loff_t count);
 ssize_t __must_check vfs_copy_file_buffered(struct file *out_file,
 					    struct file *in_file,
-					    loff_t *in_pos,
-					    loff_t *out_pos, size_t len);
+					    loff_t *in_pos, loff_t *out_pos,
+					    size_t len);
 /**
  * @brief Reposition an open file according to Linux SEEK_* semantics.
  * @param file Open file.

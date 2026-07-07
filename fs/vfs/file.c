@@ -170,26 +170,34 @@ void vfs_poll_wait(struct vfs_poll_table *table, struct wait_queue_head *wq)
 int vfs_poll_wait_until(vfs_poll_scan_t scan, void *arg, bool has_timeout,
 			uint64_t deadline)
 {
+	struct vfs_poll_table *table;
+
 	if (!scan || !current_task())
 		return -EINVAL;
 
+	table = kmalloc(sizeof(*table));
+	if (!table)
+		return -ENOMEM;
+
 	while (true) {
-		struct vfs_poll_table table;
 		int ret;
 		int wait_ret;
 
-		vfs_poll_table_init(&table);
-		ret = scan(&table, arg);
+		vfs_poll_table_init(table);
+		ret = scan(table, arg);
 		if (ret != 0) {
-			vfs_poll_table_cleanup(&table);
+			vfs_poll_table_cleanup(table);
+			kfree(table);
 			return ret;
 		}
 		if (has_timeout && deadline <= arch_timer_now()) {
-			vfs_poll_table_cleanup(&table);
+			vfs_poll_table_cleanup(table);
+			kfree(table);
 			return 0;
 		}
 		if (signal_pending(current_task())) {
-			vfs_poll_table_cleanup(&table);
+			vfs_poll_table_cleanup(table);
+			kfree(table);
 			return -EINTR;
 		}
 
@@ -198,13 +206,18 @@ int vfs_poll_wait_until(vfs_poll_scan_t scan, void *arg, bool has_timeout,
 		ret = scan(NULL, arg);
 		if (ret != 0 || signal_pending(current_task()) ||
 		    (has_timeout && deadline <= arch_timer_now())) {
-			vfs_poll_table_cleanup(&table);
+			vfs_poll_table_cleanup(table);
 			if (task_state(current_task()) & TASK_ANY_SLEEP)
 				task_mark_running(current_task());
-			if (ret != 0)
+			if (ret != 0) {
+				kfree(table);
 				return ret;
-			if (signal_pending(current_task()))
+			}
+			if (signal_pending(current_task())) {
+				kfree(table);
 				return -EINTR;
+			}
+			kfree(table);
 			return 0;
 		}
 
@@ -214,15 +227,19 @@ int vfs_poll_wait_until(vfs_poll_scan_t scan, void *arg, bool has_timeout,
 		else
 			wait_ret = wait_schedule(TASK_INTERRUPTIBLE);
 
-		vfs_poll_table_cleanup(&table);
+		vfs_poll_table_cleanup(table);
 		if (task_state(current_task()) & TASK_ANY_SLEEP)
 			task_mark_running(current_task());
 
-		if (wait_ret == -EINTR || signal_pending(current_task()))
+		if (wait_ret == -EINTR || signal_pending(current_task())) {
+			kfree(table);
 			return -EINTR;
+		}
 		if (wait_ret == -ETIMEDOUT ||
-		    (has_timeout && deadline <= arch_timer_now()))
+		    (has_timeout && deadline <= arch_timer_now())) {
+			kfree(table);
 			return 0;
+		}
 	}
 }
 

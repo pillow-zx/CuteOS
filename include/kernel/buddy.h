@@ -9,6 +9,7 @@
 #include <kernel/types.h>
 #include <kernel/page.h>
 #include <kernel/list.h>
+#include <kernel/cleanup.h>
 #include <kernel/compiler.h>
 
 /**
@@ -52,12 +53,16 @@ void buddy_init(void);
  */
 void *__must_check __malloc get_free_page(uint32_t order);
 
+
 /**
  * @brief Free a block allocated by get_free_page().
  * @param addr Direct-map virtual address of the block.
  * @param order Buddy order used for the allocation.
  */
 void __nonnull(1) free_page(void *addr, uint32_t order);
+
+
+CLEANUP_DEFINE(page0, char *, if (_T) free_page(_T, 0));
 
 size_t __must_check __pure buddy_free_pages(void);
 struct page *__must_check __pure virt_to_page(const void *addr);

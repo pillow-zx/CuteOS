@@ -180,7 +180,6 @@ static inline uint32_t ext2_super_offset(uint32_t block_size)
 }
 
 int ext2_init(void);
-int mount_root(void);
 
 int ext2_read_inode(struct inode *inode);
 int ext2_write_inode(struct inode *inode);

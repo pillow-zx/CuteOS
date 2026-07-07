@@ -9,6 +9,7 @@
 #include <kernel/fs.h>
 #include <kernel/refcount.h>
 #include <kernel/sync.h>
+#include <kernel/cleanup.h>
 
 /**
  * @struct files_struct
@@ -99,4 +100,5 @@ int __must_check init_files(struct task_struct *task);
 int __must_check copy_files(struct task_struct *child, bool share);
 void close_files(struct task_struct *task);
 
+CLEANUP_DEFINE(file, struct file *, if (_T) file_put(_T));
 #endif

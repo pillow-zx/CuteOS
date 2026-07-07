@@ -14,8 +14,6 @@
 #define SYS_FILE_BUF_SIZE 256
 #define SYS_IOV_MAX	  64
 
-CLEANUP_DEFINE(page0, char *, if (_T) free_page(_T, 0));
-CLEANUP_DEFINE(file, struct file *, if (_T) file_put(_T));
 CLEANUP_DEFINE(path, struct path, if (_T.dentry || _T.mnt) path_put(&_T));
 
 struct sys_at_lookup_result {

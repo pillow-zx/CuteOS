@@ -198,16 +198,15 @@ format:
 
 ANALYZE_OUT = $(OUTROOT)/analyze
 ANALYZE_KERNEL_SRCS = $(wildcard $(OBJ_REL:.o=.c))
-ANALYZE_USER_SRCS = user/init/init.c user/init/shell.c
-ANALYZE_USER_SRCS += $(USER_BIN_SRCS) $(USER_LIBC_SRCS)
-
-ANALYZE_WARN_CFLAGS = -Wextra
+ANALYZE_WARN_CFLAGS = -Wall
+ANALYZE_WARN_CFLAGS += -Wextra
 ANALYZE_WARN_CFLAGS += -Wstrict-prototypes
 ANALYZE_WARN_CFLAGS += -Wmissing-prototypes
 ANALYZE_WARN_CFLAGS += -Wmissing-declarations
 ANALYZE_WARN_CFLAGS += -Wold-style-definition
-ANALYZE_WARN_CFLAGS += -Wimplicit-fallthrough=5
+ANALYZE_WARN_CFLAGS += -Wredundant-decls
 ANALYZE_WARN_CFLAGS += -Wswitch-enum
+ANALYZE_WARN_CFLAGS += -Wimplicit-fallthrough=5
 ANALYZE_WARN_CFLAGS += -Wcast-align=strict
 ANALYZE_WARN_CFLAGS += -Wcast-qual
 ANALYZE_WARN_CFLAGS += -Wwrite-strings
@@ -218,40 +217,58 @@ ANALYZE_WARN_CFLAGS += -Wstringop-overread
 ANALYZE_WARN_CFLAGS += -Wnull-dereference
 ANALYZE_WARN_CFLAGS += -Wstrict-overflow=2
 ANALYZE_WARN_CFLAGS += -Wvla
+ANALYZE_WARN_CFLAGS += -Wstack-usage=1024
+ANALYZE_WARN_CFLAGS += -Wframe-larger-than=2048
 ANALYZE_WARN_CFLAGS += -Wshadow=local
 ANALYZE_WARN_CFLAGS += -Wformat=2
+ANALYZE_WARN_CFLAGS += -Wformat-overflow=2
+ANALYZE_WARN_CFLAGS += -Wformat-truncation=2
+ANALYZE_WARN_CFLAGS += -Wundef
+ANALYZE_WARN_CFLAGS += -Waddress
+ANALYZE_WARN_CFLAGS += -Wmissing-field-initializers
 
 ANALYZE_FILTER_OUT = -Werror -MD -flto% -Wno-unknown-attributes
 
 ANALYZE_CFLAGS = $(filter-out $(ANALYZE_FILTER_OUT),$(CFLAGS))
-ANALYZE_CFLAGS += -fanalyzer $(ANALYZE_WARN_CFLAGS)
-ANALYZE_USER_CFLAGS = $(filter-out $(ANALYZE_FILTER_OUT),$(USER_CFLAGS))
-ANALYZE_USER_CFLAGS += -fanalyzer $(ANALYZE_WARN_CFLAGS)
+ANALYZE_CFLAGS += -fanalyzer
+ANALYZE_CFLAGS += -O2
+ANALYZE_CFLAGS += -fdiagnostics-show-option
+ANALYZE_CFLAGS += -fdiagnostics-show-path-depths
+ANALYZE_CFLAGS += -fdiagnostics-path-format=inline-events
+ANALYZE_CFLAGS += -Wanalyzer-double-free
+ANALYZE_CFLAGS += -Wanalyzer-use-after-free
+ANALYZE_CFLAGS += -Wanalyzer-malloc-leak
+ANALYZE_CFLAGS += -Wanalyzer-null-dereference
+ANALYZE_CFLAGS += -Wanalyzer-possible-null-dereference
+ANALYZE_CFLAGS += -Wanalyzer-use-of-uninitialized-value
+ANALYZE_CFLAGS += -Wanalyzer-deref-before-check
+ANALYZE_CFLAGS += -Wanalyzer-write-to-const
+ANALYZE_CFLAGS += -Wanalyzer-shift-count-negative
+ANALYZE_CFLAGS += -Wanalyzer-shift-count-overflow
+ANALYZE_CFLAGS += -Wanalyzer-tainted-array-index
+ANALYZE_CFLAGS += -Wanalyzer-tainted-allocation-size
+ANALYZE_CFLAGS += -Wanalyzer-out-of-bounds
+ANALYZE_CFLAGS += -Wanalyzer-overlapping-buffers
+ANALYZE_CFLAGS += -Wanalyzer-use-of-pointer-in-stale-stack-frame
+ANALYZE_CFLAGS += -Wanalyzer-undefined-behavior-ptrdiff
+ANALYZE_CFLAGS += -Wanalyzer-va-arg-type-mismatch
+ANALYZE_CFLAGS += $(ANALYZE_WARN_CFLAGS)
 
 ANALYZE_WERROR ?= 0
 ifeq ($(ANALYZE_WERROR),1)
 ANALYZE_CFLAGS += -Werror
-ANALYZE_USER_CFLAGS += -Werror
 endif
 
 ANALYZE_KERNEL_TARGETS = $(addprefix $(ANALYZE_OUT)/kernel/, \
 			 $(ANALYZE_KERNEL_SRCS:.c=.analyze))
-ANALYZE_USER_TARGETS = $(addprefix $(ANALYZE_OUT)/user/, \
-		       $(patsubst user/%.c,%.analyze,$(ANALYZE_USER_SRCS)))
 
-analyze: analyze-kernel analyze-user
+analyze: analyze-kernel
 
 analyze-kernel: $(ANALYZE_KERNEL_TARGETS)
-
-analyze-user: $(ANALYZE_USER_TARGETS)
 
 $(ANALYZE_OUT)/kernel/%.analyze: %.c $(AUTOCONF_H) FORCE
 	$(QUIET_ANALYZE)
 	$(Q)$(CC) $(ANALYZE_CFLAGS) -c -o /dev/null $<
-
-$(ANALYZE_OUT)/user/%.analyze: user/%.c $(AUTOCONF_H) FORCE
-	$(QUIET_ANALYZE)
-	$(Q)$(USER_CC) $(ANALYZE_USER_CFLAGS) -c -o /dev/null $<
 
 ifeq ($(V),1)
 QUIET_ASM :=

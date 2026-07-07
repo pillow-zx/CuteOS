@@ -7,7 +7,7 @@
 #include <kernel/types.h>
 #include <uapi/syscall.h>
 
-#if CONFIG_SYSCALL_TRACE
+#ifdef CONFIG_SYSCALL_TRACE
 #define SYSCALL_NAME(nr, name, fn) [nr] = name,
 static const char *const syscall_names[NR_SYSCALL] = {
 	SYSCALL_TABLE(SYSCALL_NAME)};

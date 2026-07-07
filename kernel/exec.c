@@ -528,16 +528,22 @@ static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
 
 void exec_user_path(const char *path)
 {
-	struct exec_args_envp args;
-	memset(&args, 0, sizeof(args));
-
-	args.argc = 1;
-	size_t len = strnlen(path, EXEC_MAX_ARGS - 1);
-	memcpy(args.argv[0], path, len);
-	args.argv[0][len] = '\0';
-
+	struct exec_args_envp *args;
 	struct trap_frame tf_storage;
-	int ret = kernel_execve(path, &args, &tf_storage);
+	size_t len;
+	int ret;
+
+	args = kzalloc(sizeof(*args));
+	if (!args)
+		panic("exec: failed to allocate init args");
+
+	args->argc = 1;
+	len = strnlen(path, EXEC_MAX_ARGS - 1);
+	memcpy(args->argv[0], path, len);
+	args->argv[0][len] = '\0';
+
+	ret = kernel_execve(path, args, &tf_storage);
+	kfree(args);
 	if (ret < 0)
 		panic("exec: %s failed (%d)", path, ret);
 

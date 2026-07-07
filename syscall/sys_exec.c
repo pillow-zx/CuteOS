@@ -9,6 +9,7 @@
 #include <kernel/mm.h>
 #include <kernel/syscall.h>
 #include <kernel/page.h>
+#include <kernel/slab.h>
 #include <kernel/trap.h>
 
 static int copy_user_string(char *dst, const char *user, size_t max_len)
@@ -109,7 +110,8 @@ ssize_t sys_execve(struct trap_frame *tf)
 	const char *upath = (const char *)syscall_arg(tf, 0);
 	const char *const *uargv = (const char *const *)syscall_arg(tf, 1);
 	const char *const *uenvp = (const char *const *)syscall_arg(tf, 2);
-	char *path;
+	struct exec_args_envp *args;
+	char *path __cleanup_with(page0) = NULL;
 	ssize_t path_len;
 	int ret;
 
@@ -118,23 +120,24 @@ ssize_t sys_execve(struct trap_frame *tf)
 		return -ENOMEM;
 
 	path_len = strncpy_from_user(path, upath, VFS_PATH_MAX);
-	if (path_len < 0) {
-		free_page(path, 0);
+	if (path_len < 0)
 		return (int)path_len;
-	}
-	if (path_len == 0) {
-		free_page(path, 0);
-		return -ENOENT;
-	}
 
-	struct exec_args_envp args;
-	ret = copy_exec_args(uargv, uenvp, &args);
+	if (path_len == 0)
+		return -ENOENT;
+
+	args = kmalloc(sizeof(*args));
+	if (!args)
+		return -ENOMEM;
+
+	ret = copy_exec_args(uargv, uenvp, args);
 	if (ret < 0) {
-		free_page(path, 0);
+		kfree(args);
 		return ret;
 	}
 
-	ret = kernel_execve(path, &args, tf);
-	free_page(path, 0);
+	ret = kernel_execve(path, args, tf);
+
+	kfree(args);
 	return ret;
 }
