@@ -10,7 +10,7 @@
 flowchart TB
     Task["task_struct"]
     Arch["arch<br/>context / tf / kstack / satp"]
-    IDs["ids<br/>pid / tgid / pgid"]
+    IDs["ids<br/>pid / tgid / pgid / sid"]
     Life["lifecycle<br/>state / exit_code"]
     Links["links<br/>parent / children / thread group"]
     Res["resources<br/>mm / files / fs / sighand / signal"]
@@ -48,7 +48,7 @@ struct task_struct {
 主要分组：
 
 - `arch`：RISC-V 上下文、trap frame、内核栈、`satp`。
-- `ids`：`pid/tgid/pgid/group_leader`。
+- `ids`：`pid/tgid/pgid/sid/group_leader`。
 - `lifecycle`：任务状态、退出码、退出信号。
 - `links`：父子链表、线程组链表、wait4 等待队列。
 - `resources`：`mm/files/fs/sighand/signal/uid/gid`。
@@ -59,7 +59,7 @@ struct task_struct {
 
 字段访问规则：
 
-- `task.h` 只暴露生命周期聚合、`pid/tgid/pgid`、父子/线程组连接、`mm/files/fs` 等跨子系统通用 helper。
+- `task.h` 只暴露生命周期聚合、`pid/tgid/pgid/sid`、父子/线程组连接、`mm/files/fs` 等跨子系统通用 helper。
 - signal 相关 per-task helper 位于 `include/kernel/signal.h`。
 - robust futex list 和 `clear_child_tid` helper 位于 `include/kernel/futex.h`。
 - rseq 注册状态通过 `include/kernel/rseq.h` 的语义入口管理，字段级 helper 保持在 rseq 实现内部。
@@ -109,7 +109,7 @@ uint32_t nr_cpu_ids;
 3. `alloc_pid()` 分配 PID。
 4. 清零并初始化 task 字段。
 5. `arch_task_init()` 初始化架构状态。
-6. 设置默认 `tgid=pid`、`pgid=pid`、`group_leader=self`。
+6. 设置默认 `tgid=pid`、`pgid=pid`、`sid=pid`、`group_leader=self`。
 7. 初始化调度字段、链表、等待队列。
 8. 清零内核栈，在栈底写入 `CANARY_MAGIC`。
 9. `pid_attach_task(pid, task)` 建立 PID 到 task 映射。

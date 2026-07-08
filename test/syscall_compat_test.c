@@ -215,6 +215,58 @@ cleanup:
 		task_free(task);
 }
 
+void test_tty_console_job_control_policy(void)
+{
+	struct task_struct *saved = current_task();
+	struct task_struct *task = NULL;
+	pid_t pgid = -1;
+	pid_t sid = -1;
+
+	TEST_BEGIN("syscall compat: tty console job control");
+	{
+		TEST_ASSERT_EQ(tty_console_get_foreground_pgid(&pgid),
+			       -ENOTTY);
+
+		task = task_alloc();
+		TEST_ASSERT_NOT_NULL(task);
+		TEST_ASSERT_EQ(task_init_resources(task), 0);
+		set_current_task(task);
+
+		TEST_ASSERT_EQ(tty_console_get_foreground_pgid(NULL), -EINVAL);
+		TEST_ASSERT_EQ(tty_console_get_sid(NULL), -EINVAL);
+		TEST_ASSERT_EQ(tty_console_acquire(0), 0);
+
+		TEST_ASSERT_EQ(tty_console_get_foreground_pgid(&pgid), 0);
+		TEST_ASSERT_EQ(pgid, task_pgid(task));
+		TEST_ASSERT_EQ(tty_console_get_sid(&sid), 0);
+		TEST_ASSERT_EQ(sid, task_sid(task));
+
+		TEST_ASSERT_EQ(tty_console_set_foreground_pgid(-1), -EINVAL);
+		TEST_ASSERT_EQ(tty_console_set_foreground_pgid(task_pid(task) + 1),
+			       -EPERM);
+		TEST_ASSERT_EQ(tty_console_set_foreground_pgid(task_pgid(task)),
+			       0);
+		TEST_ASSERT_EQ(tty_deliver_signal(SIGINT), 0);
+		TEST_ASSERT_EQ(task->resources.signal->shared_pending &
+				       signal_mask(SIGINT),
+			       signal_mask(SIGINT));
+
+		TEST_ASSERT_EQ(tty_console_release(), 0);
+		TEST_ASSERT_EQ(tty_console_get_foreground_pgid(&pgid),
+			       -ENOTTY);
+	}
+	TEST_END("syscall compat: tty console job control");
+	goto cleanup;
+fail:
+	TEST_FAIL("syscall compat: tty console job control", "see above");
+cleanup:
+	if (current_task() == task)
+		(void)tty_console_release();
+	set_current_task(saved);
+	if (task)
+		task_free(task);
+}
+
 void test_signal_rt_sigsetsize_validation(void)
 {
 	struct trap_frame tf = {0};

@@ -7,6 +7,7 @@
 #include <kernel/buddy.h>
 #include <kernel/fs.h>
 #include <kernel/mm.h>
+#include <kernel/pid.h>
 #include <kernel/sched.h>
 #include <kernel/rseq.h>
 #include <kernel/signal.h>
@@ -414,6 +415,35 @@ int send_group_signal(int sig, struct task_struct *leader)
 	}
 
 	return 0;
+}
+
+int send_pgrp_signal(int sig, pid_t pgid)
+{
+	bool found = false;
+	int first_error = 0;
+
+	if (!signal_is_valid(sig))
+		return -EINVAL;
+	if (pgid <= 0)
+		return -ESRCH;
+
+	for (pid_t pid = 1; pid <= PID_MAX; pid++) {
+		struct task_struct *task = pid_task(pid);
+		int ret;
+
+		if (!task || !task_is_group_leader(task) ||
+		    task_pgid(task) != pgid)
+			continue;
+
+		found = true;
+		ret = send_group_signal(sig, task);
+		if (ret < 0 && first_error == 0)
+			first_error = ret;
+	}
+
+	if (!found)
+		return -ESRCH;
+	return first_error;
 }
 
 int force_signal(int sig, struct task_struct *task)

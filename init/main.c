@@ -10,6 +10,7 @@
 #include <kernel/task.h>
 #include <kernel/sched.h>
 #include <kernel/timer.h>
+#include <kernel/tty.h>
 #include <kernel/syscall.h>
 #include <kernel/signal.h>
 #include <kernel/user_map.h>
@@ -88,6 +89,7 @@ void kernel_main(void)
 	init = kernel_thread(init_process, NULL);
 	BUG_ON(!init);
 	set_init_task(init);
+	tty_console_init_session(init);
 
 	writeback = kernel_thread(page_cache_wb_thread, NULL);
 	BUG_ON(!writeback);

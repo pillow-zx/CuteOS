@@ -442,9 +442,19 @@ static inline long getpgid(long pid)
 	return syscall(SYS_getpgid, pid);
 }
 
+static inline long getsid(long pid)
+{
+	return syscall(SYS_getsid, pid);
+}
+
 static inline long setpgid(long pid, long pgid)
 {
 	return syscall(SYS_setpgid, pid, pgid);
+}
+
+static inline long setsid(void)
+{
+	return syscall0(SYS_setsid);
 }
 
 static inline long set_tid_addr(int *tidptr)

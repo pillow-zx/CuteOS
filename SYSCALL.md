@@ -40,7 +40,7 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | 23 | `dup` | A | fd 复制 | 无明显短期缺口 | 压测 fd 上限和 close-on-exec 交互 |
 | 24 | `dup3` | A | 支持 `O_CLOEXEC` | 仅当前 fdtable 范围 | 加 dup3 同 fd errno 回归 |
 | 25 | `fcntl` | B | 支持 `F_DUPFD/F_DUPFD_CLOEXEC/F_GETFD/F_SETFD/F_GETFL/F_SETFL`，`F_SETFL` 可修改 `O_APPEND/O_NONBLOCK`，见 cmd 支持表 | lock、lease、pipe size、owner 系列未实现但 errno 已固定 | 按表逐项替换为真实语义 |
-| 29 | `ioctl` | B | 委托 `vfs_ioctl` | 设备 ioctl 覆盖有限 | 先扩展 tty/console 常用 ioctl |
+| 29 | `ioctl` | B | 委托 `vfs_ioctl`；console 支持 termios、winsize、controlling tty、foreground pgid/session 查询设置 | pty、serial、line discipline 等 ioctl 未实现 | 按真实程序探测继续扩展 |
 | 46 | `ftruncate64` | A | 通过 VFS truncate 文件 | 文件系统大文件边界有限 | 覆盖 sparse/truncate 扩展测试 |
 | 47 | `fallocate` | B | 仅 `mode == 0`，限制最大文件大小 | punch hole/keep size 等 flag 不支持 | 固定 unsupported mode errno |
 | 57 | `close` | A | fd close | 无明显短期缺口 | 加多线程/dup 交互测试 |
@@ -131,8 +131,10 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | 94 | `exit_group` | A | 线程组退出 | 多线程竞态待压测 | 加 clone-thread 测试 |
 | 96 | `set_tid_addr` | A | 设置 clear_child_tid | futex wake 依赖退出路径 | 保持 |
 | 124 | `sched_yield` | A | 主动让出 CPU | 单核 MLFQ 语义 | 保持 |
-| 154 | `setpgid` | B | 基础 process group | session/job control 不完整 | 为 shell job control 建模 |
-| 155 | `getpgid` | B | 查询 pgid | 同 setpgid | 同 setpgid |
+| 154 | `setpgid` | B | 设置同 session 内 process group，拒绝 session leader | exec-time EACCES、orphaned pgrp 规则未实现 | 和 shell job control 继续压测 |
+| 155 | `getpgid` | B | 查询 pgid | 权限模型浅 | 保持并补跨进程测试 |
+| 156 | `getsid` | B | 查询 sid，采用 Linux 不返回跨 session EPERM 的行为 | 权限模型浅 | 保持 |
+| 157 | `setsid` | B | 创建新 session 和 process group | controlling tty 仅 single-console 模型 | 保持最小 job-control 语义 |
 | 172 | `getpid` | A | 返回 tgid | 保持 |
 | 173 | `getppid` | A | 返回 parent pid | orphan/adoption 已依赖 task | 保持 |
 | 178 | `gettid` | A | 返回 task pid | 保持 |

@@ -124,6 +124,7 @@ static void clone_setup_task_links(struct task_struct *child,
 {
 	child->lifecycle.exit_signal = (int)(flags & CLONE_EXIT_SIGNAL_MASK);
 	task_set_pgid(child, task_pgid(current_task()));
+	task_set_sid(child, task_sid(current_task()));
 	if (clone_wants_thread(flags)) {
 		struct task_struct *leader = task_group_leader(current_task());
 

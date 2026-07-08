@@ -189,7 +189,7 @@ sys_read/sys_write
 `task_struct` 是任务生命周期的聚合根，定义在 `include/kernel/task.h`。它按所有权分组保存：
 
 - `arch`：RISC-V 上下文、trap frame、内核栈、`satp`。
-- `ids`：`pid/tgid/pgid/group_leader`。
+- `ids`：`pid/tgid/pgid/sid/group_leader`。
 - `lifecycle`：状态、退出码、退出信号。
 - `links`：父子关系、线程组链表、wait4 等待队列。
 - `resources`：`mm/files/fs/sighand/signal/uid/gid`。

@@ -227,6 +227,86 @@ static int test_setpgid_edges(void)
 	return failed;
 }
 
+static int test_getsid_self_and_fork(void)
+{
+	long parent_sid = getsid(0);
+	int status = 0;
+	long pid;
+	long waited;
+	int failed = 0;
+
+	if (parent_sid < 0)
+		return task_pid_expect_ret("getsid self", parent_sid, 0);
+
+	failed += task_pid_expect_ret("getsid by pid", getsid(getpid()),
+				      parent_sid);
+	failed += task_pid_expect_ret("getsid missing", getsid(9999),
+				      -ESRCH);
+	failed += task_pid_expect_ret("getsid negative", getsid(-1),
+				      -ESRCH);
+
+	pid = fork();
+	if (pid < 0)
+		return task_pid_expect_ret("fork getsid inherit", pid, 0);
+	if (pid == 0)
+		exit(getsid(0) == parent_sid ? 0 : 5);
+
+	failed += task_pid_expect_ret("child getsid", getsid(pid),
+				      parent_sid);
+	waited = wait4(pid, &status, 0, NULL);
+	if (waited != pid) {
+		printf("FAIL: wait4 getsid child expected %ld got %ld\n", pid,
+		       waited);
+		return 1;
+	}
+	if (status != 0) {
+		printf("FAIL: getsid child status got %d\n", status);
+		failed++;
+	}
+
+	return failed;
+}
+
+static int test_setsid_child(void)
+{
+	int status = 0;
+	long pid;
+	long waited;
+
+	pid = fork();
+	if (pid < 0)
+		return task_pid_expect_ret("fork setsid child", pid, 0);
+	if (pid == 0) {
+		long self = getpid();
+		long sid = setsid();
+
+		if (sid != self)
+			exit(5);
+		if (getsid(0) != self)
+			exit(6);
+		if (getpgid(0) != self)
+			exit(7);
+		if (setsid() != -EPERM)
+			exit(8);
+		if (setpgid(0, 0) != -EPERM)
+			exit(9);
+		exit(0);
+	}
+
+	waited = wait4(pid, &status, 0, NULL);
+	if (waited != pid) {
+		printf("FAIL: wait4 setsid child expected %ld got %ld\n", pid,
+		       waited);
+		return 1;
+	}
+	if (status != 0) {
+		printf("FAIL: setsid child status got %d\n", status);
+		return 1;
+	}
+
+	return 0;
+}
+
 static int rusage_unsupported_zero(const struct rusage *usage)
 {
 	return usage->ru_maxrss == 0 && usage->ru_ixrss == 0 &&
@@ -798,6 +878,9 @@ int main(void)
 	report_group("setpgid child leader", test_setpgid_child_leader(),
 		     &failed);
 	report_group("setpgid edges", test_setpgid_edges(), &failed);
+	report_group("getsid self and fork", test_getsid_self_and_fork(),
+		     &failed);
+	report_group("setsid child", test_setsid_child(), &failed);
 	report_group("getrusage self", test_getrusage_self(), &failed);
 	report_group("getrusage children", test_getrusage_children(), &failed);
 	report_group("wait4 bad rusage preserves child",

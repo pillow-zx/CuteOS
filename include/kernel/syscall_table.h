@@ -96,6 +96,8 @@
 	X(SYS_times, "times", sys_times)                                       \
 	X(SYS_setpgid, "setpgid", sys_setpgid)                                 \
 	X(SYS_getpgid, "getpgid", sys_getpgid)                                 \
+	X(SYS_getsid, "getsid", sys_getsid)                                    \
+	X(SYS_setsid, "setsid", sys_setsid)                                    \
 	X(SYS_getgroups, "getgroups", sys_getgroups)                           \
 	X(SYS_setgroups, "setgroups", sys_setgroups)                           \
 	X(SYS_uname, "uname", sys_uname)                                       \

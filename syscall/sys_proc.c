@@ -80,11 +80,64 @@ ssize_t sys_getpgid(struct trap_frame *tf)
 }
 
 /*
+ * SYSCALL_SUPPORT(B): getsid
+ * Current: returns the session id for self or an existing group leader pid.
+ * Unsupported errno: negative or missing pid returns -ESRCH. Linux does not
+ * reject cross-session getsid() with EPERM, and neither does cuteOS.
+ * Future: revisit permission checks when a fuller credential model exists.
+ */
+ssize_t sys_getsid(struct trap_frame *tf)
+{
+	long pid = (long)syscall_arg(tf, 0);
+	struct task_struct *task;
+
+	if (pid < 0)
+		return -ESRCH;
+
+	if (pid == 0)
+		task = current_task();
+	else
+		task = task_find_group_leader((pid_t)pid);
+	if (!task)
+		return -ESRCH;
+
+	return (ssize_t)task_sid(task);
+}
+
+/*
+ * SYSCALL_SUPPORT(B): setsid
+ * Current: creates a new session and process group for the current process
+ * when no process group already uses the caller's process id.
+ * Unsupported errno: process-group leaders return -EPERM.
+ * Future: connect multiple controlling terminals if cuteOS grows more tty
+ * devices.
+ */
+ssize_t sys_setsid(struct trap_frame *tf)
+{
+	struct task_struct *self = task_group_leader(current_task());
+	pid_t sid;
+
+	(void)tf;
+	if (!self)
+		return -ESRCH;
+
+	sid = task_pid(self);
+	if (task_pgid_exists(sid))
+		return -EPERM;
+
+	task_set_sid_all(self, sid);
+	task_set_pgid_all(self, sid);
+	return (ssize_t)sid;
+}
+
+/*
  * SYSCALL_SUPPORT(B): setpgid
- * Current: updates a group leader or direct child into an existing/new pgid.
- * Unsupported errno: negative pid/pgid returns -EINVAL; non-child targets or
- * missing target groups return -EPERM.
- * Future: model sessions and shell job-control rules.
+ * Current: updates self or a direct child into an existing/new pgid within the
+ * same session; session leaders cannot change process group.
+ * Unsupported errno: negative pid/pgid returns -EINVAL; missing target returns
+ * -ESRCH; non-child targets, cross-session moves, missing target groups, and
+ * session leaders return -EPERM.
+ * Future: model exec-time EACCES and orphaned process-group rules.
  */
 ssize_t sys_setpgid(struct trap_frame *tf)
 {
@@ -107,9 +160,14 @@ ssize_t sys_setpgid(struct trap_frame *tf)
 
 	if (target != self && task_parent(target) != self)
 		return -EPERM;
+	if (target != self && task_sid(target) != task_sid(self))
+		return -EPERM;
+	if (task_sid(target) == task_pid(target))
+		return -EPERM;
 
 	new_pgid = pgid == 0 ? task_pid(target) : (pid_t)pgid;
-	if (new_pgid != task_pid(target) && !task_pgid_exists(new_pgid))
+	if (new_pgid != task_pid(target) &&
+	    !task_pgid_in_session(new_pgid, task_sid(target)))
 		return -EPERM;
 
 	task_set_pgid_all(target, new_pgid);

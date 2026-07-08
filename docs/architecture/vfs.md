@@ -362,7 +362,7 @@ const struct file_operations *vfs_chrdev_fops(dev_t dev);
 
 `console_chrdev_init()` 注册 `/dev/console` 使用的 file operations。ext2 中设备特殊文件的 `i_rdev` 通过 VFS 找到对应字符设备 fops。
 
-terminal/tty 行为在 `kernel/tty.c` 和 console driver 中实现，VFS 只负责把 open/read/write/ioctl 路由到 file operations。
+terminal/tty 行为在 `kernel/tty.c` 和 console driver 中实现，VFS 只负责把 open/read/write/ioctl 路由到 file operations。当前 `/dev/console` 是 single-console 模型：console fops 支持 termios、winsize、controlling tty、foreground process group 和 session id 相关 ioctl；完整 pty、serial、后台读写、orphaned process group 和 hangup 语义仍不属于 VFS。
 
 ## poll
 

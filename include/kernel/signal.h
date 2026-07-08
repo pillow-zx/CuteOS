@@ -212,6 +212,7 @@ void signal_leave_handler(struct task_struct *task, int sig);
 void signal_clear_handlers(struct task_struct *task);
 int send_signal(int sig, struct task_struct *task);
 int send_group_signal(int sig, struct task_struct *leader);
+int send_pgrp_signal(int sig, pid_t pgid);
 int send_current_signal(int sig);
 int force_signal(int sig, struct task_struct *task);
 bool signal_pending(struct task_struct *task);

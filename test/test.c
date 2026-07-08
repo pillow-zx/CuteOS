@@ -160,6 +160,7 @@ void kernel_test(void)
 	test_vfs_default_ioctl_enotty();
 	test_console_tty_line_discipline();
 	test_tty_signal_delivery_policy();
+	test_tty_console_job_control_policy();
 	test_signal_rt_sigsetsize_validation();
 	test_root_statfs_fields();
 	test_pipe2_file_alloc_failure_cleanup();

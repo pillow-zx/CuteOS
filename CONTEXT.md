@@ -226,7 +226,7 @@ but only entries present in `SYSCALL_TABLE` are installed.
 `include/kernel/task.h`. Its fields are grouped by owner:
 
 - `arch`: context, trap frame, kernel stack, and `satp`
-- `ids`: `pid`, `tgid`, `pgid`, and group leader
+- `ids`: `pid`, `tgid`, `pgid`, `sid`, and group leader
 - `lifecycle`: task state, exit code, and exit signal
 - `links`: parent/child links, thread-group links, and wait queues
 - `resources`: `mm`, fdtable, fs state, sighand, signal state, uid, and gid

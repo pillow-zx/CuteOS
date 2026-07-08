@@ -397,6 +397,8 @@ static int console_ioctl(struct file *file, uint64_t cmd, uint64_t arg)
 {
 	struct termios termios;
 	struct winsize winsize;
+	pid_t pid;
+	int ret;
 
 	(void)file;
 
@@ -414,6 +416,21 @@ static int console_ioctl(struct file *file, uint64_t cmd, uint64_t arg)
 			return -EFAULT;
 		console_termios = termios;
 		return 0;
+	case TIOCSCTTY:
+		return tty_console_acquire((int)arg);
+	case TIOCNOTTY:
+		return tty_console_release();
+	case TIOCGPGRP:
+		ret = tty_console_get_foreground_pgid(&pid);
+		if (ret < 0)
+			return ret;
+		if (copy_to_user((void *)arg, &pid, sizeof(pid)) != 0)
+			return -EFAULT;
+		return 0;
+	case TIOCSPGRP:
+		if (copy_from_user(&pid, (const void *)arg, sizeof(pid)) != 0)
+			return -EFAULT;
+		return tty_console_set_foreground_pgid(pid);
 	case TIOCGWINSZ:
 		if (copy_to_user((void *)arg, &console_winsize,
 				 sizeof(console_winsize)) != 0)
@@ -424,6 +441,13 @@ static int console_ioctl(struct file *file, uint64_t cmd, uint64_t arg)
 				   sizeof(winsize)) != 0)
 			return -EFAULT;
 		console_winsize = winsize;
+		return 0;
+	case TIOCGSID:
+		ret = tty_console_get_sid(&pid);
+		if (ret < 0)
+			return ret;
+		if (copy_to_user((void *)arg, &pid, sizeof(pid)) != 0)
+			return -EFAULT;
 		return 0;
 	}
 

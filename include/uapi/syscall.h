@@ -87,6 +87,8 @@
 #define SYS_times	      153
 #define SYS_setpgid	      154
 #define SYS_getpgid	      155
+#define SYS_getsid	      156
+#define SYS_setsid	      157
 #define SYS_getgroups	      158
 #define SYS_setgroups	      159
 #define SYS_uname	      160
@@ -139,6 +141,8 @@ _Static_assert(SYS_timer_getoverrun == 109,
 _Static_assert(SYS_timer_settime == 110,
 	       "timer_settime syscall number mismatch");
 _Static_assert(SYS_timer_delete == 111, "timer_delete syscall number mismatch");
+_Static_assert(SYS_getsid == 156, "getsid syscall number mismatch");
+_Static_assert(SYS_setsid == 157, "setsid syscall number mismatch");
 #endif
 
 #endif

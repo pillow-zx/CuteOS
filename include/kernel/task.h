@@ -91,12 +91,14 @@ struct task_struct;
  * - @c pid: Kernel thread id; userspace observes it through gettid.
  * - @c tgid: Thread-group id; userspace observes it through getpid.
  * - @c pgid: Process-group id used by setpgid/getpgid semantics.
+ * - @c sid: Session id used by setsid/getsid and controlling tty policy.
  * - @c group_leader: Leader whose pid equals @ref tgid.
  */
 struct task_identity {
 	pid_t pid;
 	pid_t tgid;
 	pid_t pgid;
+	pid_t sid;
 	struct task_struct *group_leader;
 };
 
@@ -234,7 +236,7 @@ struct task_cputime {
  *
  * @par Fields
  * - @c arch: RISC-V context, trap frame, stack, satp.
- * - @c ids: PID/TGID/PGID and leader identity.
+ * - @c ids: PID/TGID/PGID/SID and leader identity.
  * - @c lifecycle: Runnable, sleep, stopped, exit state.
  * - @c links: Parent/child and thread-group intrusive links.
  * - @c resources: MM, fd, fs, signal, and credential refs.
@@ -358,6 +360,17 @@ static __always_inline __must_check __pure __nonnull(1) pid_t
 }
 
 /**
+ * @brief Return the POSIX session id attached to a task.
+ * @param task Non-NULL task.
+ * @return Session id used by getsid/setsid and controlling tty paths.
+ */
+static __always_inline __must_check __pure __nonnull(1) pid_t
+	task_sid(const struct task_struct *task)
+{
+	return task->ids.sid;
+}
+
+/**
  * @brief Update one task's process-group id.
  * @param task Non-NULL task to update.
  * @param pgid New process-group id.
@@ -366,6 +379,17 @@ static __always_inline __nonnull(1) void task_set_pgid(struct task_struct *task,
 						       pid_t pgid)
 {
 	task->ids.pgid = pgid;
+}
+
+/**
+ * @brief Update one task's session id.
+ * @param task Non-NULL task to update.
+ * @param sid New session id.
+ */
+static __always_inline __nonnull(1) void task_set_sid(struct task_struct *task,
+						      pid_t sid)
+{
+	task->ids.sid = sid;
 }
 
 static __always_inline void task_set_uid(struct task_struct *task, uid_t uid)
@@ -756,10 +780,32 @@ bool __must_check __pure task_in_thread_group(const struct task_struct *task,
 bool __must_check __pure task_pgid_exists(pid_t pgid);
 
 /**
+ * @brief Check whether any task currently belongs to a session.
+ * @param sid Session id.
+ * @return true if at least one task has @p sid.
+ */
+bool __must_check __pure task_sid_exists(pid_t sid);
+
+/**
+ * @brief Check whether a process group has a member in one session.
+ * @param pgid Process-group id.
+ * @param sid Session id.
+ * @return true if at least one task has both @p pgid and @p sid.
+ */
+bool __must_check __pure task_pgid_in_session(pid_t pgid, pid_t sid);
+
+/**
  * @brief Set one thread group's process-group id.
  * @param leader Non-NULL thread-group leader.
  * @param pgid Process-group id applied to all group members.
  */
 void __nonnull(1) task_set_pgid_all(struct task_struct *leader, pid_t pgid);
+
+/**
+ * @brief Set one thread group's session id.
+ * @param leader Non-NULL thread-group leader.
+ * @param sid Session id applied to all group members.
+ */
+void __nonnull(1) task_set_sid_all(struct task_struct *leader, pid_t sid);
 
 #endif

@@ -10,6 +10,7 @@
 #define TEST_F_SETOWN	  8
 #define TEST_F_SETPIPE_SZ 1031
 #define TEST_F_GETPIPE_SZ 1032
+#define TEST_UNKNOWN_IOCTL 0xdeadbeef
 
 static int fd_flags_expect_ret(const char *name, long got, long want)
 {
@@ -721,6 +722,118 @@ static int test_dupfd_error_paths(void)
 	return failed;
 }
 
+static int test_console_ioctl_common(void)
+{
+	struct termios old_termios;
+	struct termios termios;
+	struct winsize old_winsize;
+	struct winsize winsize;
+	long fd;
+	long regular;
+	int pgid;
+	int sid;
+	int bad_pgid = 9999;
+	int failed = 0;
+
+	fd = openat(AT_FDCWD, "/dev/console", O_RDWR, 0);
+	if (fd < 0) {
+		printf("FAIL: open /dev/console: %ld\n", fd);
+		return 1;
+	}
+
+	memset(&old_termios, 0, sizeof(old_termios));
+	failed += dupfd_expect_ret("console TCGETS",
+				   ioctl((int)fd, TCGETS,
+					 (unsigned long)&old_termios),
+				   0);
+	termios = old_termios;
+	termios.c_lflag ^= ECHO;
+	failed += dupfd_expect_ret("console TCSETS",
+				   ioctl((int)fd, TCSETS,
+					 (unsigned long)&termios),
+				   0);
+	memset(&termios, 0, sizeof(termios));
+	failed += dupfd_expect_ret("console TCGETS after set",
+				   ioctl((int)fd, TCGETS,
+					 (unsigned long)&termios),
+				   0);
+	failed += dupfd_expect_ret("console ECHO toggled",
+				   termios.c_lflag & ECHO,
+				   old_termios.c_lflag & ECHO ? 0 : ECHO);
+	failed += dupfd_expect_ret("console TCSETS restore",
+				   ioctl((int)fd, TCSETS,
+					 (unsigned long)&old_termios),
+				   0);
+
+	memset(&old_winsize, 0, sizeof(old_winsize));
+	failed += dupfd_expect_ret("console TIOCGWINSZ",
+				   ioctl((int)fd, TIOCGWINSZ,
+					 (unsigned long)&old_winsize),
+				   0);
+	winsize = old_winsize;
+	winsize.ws_row = 33;
+	winsize.ws_col = 101;
+	failed += dupfd_expect_ret("console TIOCSWINSZ",
+				   ioctl((int)fd, TIOCSWINSZ,
+					 (unsigned long)&winsize),
+				   0);
+	memset(&winsize, 0, sizeof(winsize));
+	failed += dupfd_expect_ret("console TIOCGWINSZ after set",
+				   ioctl((int)fd, TIOCGWINSZ,
+					 (unsigned long)&winsize),
+				   0);
+	failed += dupfd_expect_ret("console winsize row", winsize.ws_row, 33);
+	failed += dupfd_expect_ret("console winsize col", winsize.ws_col, 101);
+	failed += dupfd_expect_ret("console TIOCSWINSZ restore",
+				   ioctl((int)fd, TIOCSWINSZ,
+					 (unsigned long)&old_winsize),
+				   0);
+
+	pgid = -1;
+	failed += dupfd_expect_ret("console TIOCGPGRP",
+				   ioctl((int)fd, TIOCGPGRP,
+					 (unsigned long)&pgid),
+				   0);
+	failed += dupfd_expect_ret("console foreground pgid", pgid,
+				   getpgid(0));
+	failed += dupfd_expect_ret("console TIOCSPGRP same",
+				   ioctl((int)fd, TIOCSPGRP,
+					 (unsigned long)&pgid),
+				   0);
+	failed += dupfd_expect_ret("console TIOCSPGRP missing",
+				   ioctl((int)fd, TIOCSPGRP,
+					 (unsigned long)&bad_pgid),
+				   -EPERM);
+
+	sid = -1;
+	failed += dupfd_expect_ret("console TIOCGSID",
+				   ioctl((int)fd, TIOCGSID,
+					 (unsigned long)&sid),
+				   0);
+	failed += dupfd_expect_ret("console sid", sid, getsid(0));
+	failed += dupfd_expect_ret("console unknown ioctl",
+				   ioctl((int)fd, TEST_UNKNOWN_IOCTL, 0),
+				   -ENOTTY);
+	failed += dupfd_expect_ret("console TCGETS bad pointer",
+				   ioctl((int)fd, TCGETS, 0), -EFAULT);
+
+	close((int)fd);
+
+	regular = openat(AT_FDCWD, "/ioctl_regular",
+			 O_CREAT | O_RDWR | O_TRUNC, 0644);
+	if (regular < 0) {
+		printf("FAIL: open ioctl regular: %ld\n", regular);
+		return failed + 1;
+	}
+	failed += dupfd_expect_ret("regular file tty ioctl",
+				   ioctl((int)regular, TCGETS,
+					 (unsigned long)&termios),
+				   -ENOTTY);
+	close((int)regular);
+	unlinkat(AT_FDCWD, "/ioctl_regular", 0);
+	return failed;
+}
+
 static int check_cloexec_fd(int argc, char **argv)
 {
 	int fd;
@@ -785,6 +898,8 @@ int main(int argc, char **argv)
 	report_group("dupfd status flags shared",
 		     test_dupfd_shares_status_flags(), &failed);
 	report_group("dupfd error paths", test_dupfd_error_paths(), &failed);
+	report_group("console ioctl common", test_console_ioctl_common(),
+		     &failed);
 
 	if (failed)
 		printf("fd_test: %d test group(s) FAILED\n", failed);
