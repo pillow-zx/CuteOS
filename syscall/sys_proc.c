@@ -2,11 +2,9 @@
  * syscall/sys_proc.c - 进程相关系统调用
  */
 
-#include <kernel/printk.h>
 #include <kernel/errno.h>
 #include <kernel/syscall.h>
 #include <kernel/exit.h>
-#include <kernel/sched.h>
 #include <kernel/task.h>
 #include <kernel/trap.h>
 
@@ -130,11 +128,4 @@ ssize_t sys_exit_group(struct trap_frame *tf)
 	int code = (int)syscall_arg(tf, 0);
 	do_exit_group(code);
 	unreachable();
-}
-
-ssize_t sys_sched_yield(struct trap_frame *tf)
-{
-	(void)tf;
-	sched_yield();
-	return 0;
 }

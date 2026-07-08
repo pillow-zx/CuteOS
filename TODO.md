@@ -49,9 +49,9 @@
 
 ### 1.3 清理 syscall 文件职责
 
-- [ ] 把 `sys_rseq()` 移出 `sys_stub.c` 到 `syscall/sys_rseq.c` 或明确归属文件。
-- [ ] 把 affinity syscall 移到 `syscall/sys_sched.c`。
-- [ ] 保留 `sys_stub.c` 只承载真正探测安全或 unsupported 的入口。
+- [x] 把 `sys_rseq()` 移出 `sys_stub.c` 到 `syscall/sys_rseq.c` 或明确归属文件。
+- [x] 把 affinity syscall 移到 `syscall/sys_sched.c`。
+- [x] 保留 `sys_stub.c` 只承载真正探测安全或 unsupported 的入口。
 
 验收：
 

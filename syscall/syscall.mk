@@ -16,5 +16,6 @@ SYSCALL_OBJS = \
 	syscall/sys_log.o        \
 	syscall/sys_membarrier.o \
 	syscall/sys_misc.o       \
-	syscall/sys_stub.o       \
+	syscall/sys_sched.o      \
+	syscall/sys_rseq.o       \
 	syscall/sys_time.o

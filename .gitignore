@@ -46,7 +46,6 @@
 !arch/**/*.c
 !arch/**/*.S
 !block/**/*.c
-!docs/architecture/*
 !drivers/**/*.c
 !fs/**/*.c
 !include/**/*.h
@@ -76,6 +75,8 @@
 !user/Makefile
 !user/start.S
 !user/user.ld
+!docs/architecture/
+!docs/architecture/*
 !.clang-format
 !.clangd
 !.editorconfig

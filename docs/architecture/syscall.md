@@ -150,10 +150,13 @@ syscall_arg(tf, 5);
 | --- | --- |
 | `syscall.c` | 分发表安装和 dispatch |
 | `sys_exec.c` | execve ABI |
-| `sys_task.c` | clone、exit、wait、pid/tid、sched_yield 等 |
+| `sys_proc.c` | pid/tid、process group、uid/gid 查询、exit/exit_group |
+| `sys_task.c` | clone、wait4 |
+| `sys_sched.c` | sched_yield、sched_setaffinity、sched_getaffinity |
 | `sys_signal.c` | kill/tkill/tgkill/sigaction/sigprocmask/sigreturn/sigaltstack |
 | `sys_time.c` | clock、nanosleep、itimer、POSIX timer、gettimeofday、times |
 | `sys_futex.c` | futex、robust list、set_tid_addr |
+| `sys_rseq.c` | rseq |
 | `sys_mm.c` | brk、mmap、munmap、mprotect、mremap、msync、mlock、mincore、madvise |
 | `sys_membarrier.c` | membarrier |
 | `sys_file_io.c` | read/write/readv/writev/pread/pwrite/sendfile/splice |
@@ -163,7 +166,7 @@ syscall_arg(tf, 5);
 | `sys_file_helpers.c` | fd/path/stat helper |
 | `sys_misc.c` | uid/gid/groups/umask/uname/sysinfo/prlimit/getrusage/getrandom |
 | `sys_log.c` | syslog |
-| `sys_stub.c` | 暂不完整或简单兼容入口 |
+| `sys_stub.c` | 真正 probe-safe、unsupported 或 reserved 的占位入口 |
 
 实际行为以 handler 和下层子系统代码为准；文件名只是组织方式。
 
