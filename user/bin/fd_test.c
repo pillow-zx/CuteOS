@@ -5,6 +5,7 @@
 #include <ulib.h>
 
 #define CUTEOS_NR_OPEN	  32
+#define TEST_PIPE_SIZE	  4096
 #define TEST_F_GETLK	  5
 #define TEST_F_SETOWN	  8
 #define TEST_F_SETPIPE_SZ 1031
@@ -416,12 +417,104 @@ static int test_file_status_error_paths(void)
 	failed += file_status_expect_mask("immutable bits not reported",
 					  fcntl((int)fd, F_GETFL, 0),
 					  O_CREAT | O_TRUNC | O_CLOEXEC, 0);
-	failed += file_status_expect_ret("F_SETFL rejects O_NONBLOCK",
+	failed += file_status_expect_ret("F_SETFL sets O_NONBLOCK",
 					 fcntl((int)fd, F_SETFL, O_NONBLOCK),
+					 0);
+	failed += file_status_expect_mask("F_GETFL after set nonblock",
+					  fcntl((int)fd, F_GETFL, 0),
+					  O_NONBLOCK, O_NONBLOCK);
+	failed += file_status_expect_ret("F_SETFL rejects O_DSYNC",
+					 fcntl((int)fd, F_SETFL, O_DSYNC),
 					 -EINVAL);
 
 	close((int)fd);
 	unlinkat(AT_FDCWD, "/fcntl_fl_error", 0);
+	return failed;
+}
+
+static int test_pipe2_nonblock_cloexec(void)
+{
+	static char fill[TEST_PIPE_SIZE];
+	char ch;
+	int fds[2] = {-1, -1};
+	long ret;
+	int failed = 0;
+
+	ret = syscall(SYS_pipe2, (long)fds, O_NONBLOCK | O_CLOEXEC);
+	if (ret != 0) {
+		printf("FAIL: pipe2 nonblock cloexec returned %ld\n", ret);
+		return 1;
+	}
+
+	failed += file_status_expect_ret("pipe2 read cloexec",
+					 fcntl(fds[0], F_GETFD, 0),
+					 FD_CLOEXEC);
+	failed += file_status_expect_ret("pipe2 write cloexec",
+					 fcntl(fds[1], F_GETFD, 0),
+					 FD_CLOEXEC);
+	failed += file_status_expect_mask("pipe2 read nonblock",
+					  fcntl(fds[0], F_GETFL, 0),
+					  O_NONBLOCK, O_NONBLOCK);
+	failed += file_status_expect_mask("pipe2 write nonblock",
+					  fcntl(fds[1], F_GETFL, 0),
+					  O_NONBLOCK, O_NONBLOCK);
+	failed += file_status_expect_mask("pipe2 write access mode",
+					  fcntl(fds[1], F_GETFL, 0),
+					  O_ACCMODE, O_WRONLY);
+	failed += file_status_expect_ret("pipe2 empty nonblock read",
+					 read(fds[0], &ch, 1), -EAGAIN);
+
+	memset(fill, 'x', sizeof(fill));
+	ret = write(fds[1], fill, sizeof(fill));
+	if (ret != (long)sizeof(fill)) {
+		printf("FAIL: pipe2 fill expected %ld got %ld\n",
+		       (long)sizeof(fill), ret);
+		failed++;
+	} else {
+		failed += file_status_expect_ret("pipe2 full nonblock write",
+						 write(fds[1], "y", 1),
+						 -EAGAIN);
+	}
+
+	close(fds[0]);
+	close(fds[1]);
+
+	failed += file_status_expect_ret(
+		"pipe2 rejects unknown flags",
+		syscall(SYS_pipe2, (long)fds, O_NONBLOCK | O_DIRECTORY),
+		-EINVAL);
+	return failed;
+}
+
+static int test_setfl_nonblock_behavior(void)
+{
+	char ch;
+	int fds[2] = {-1, -1};
+	long ret;
+	int failed = 0;
+
+	ret = pipe(fds);
+	if (ret != 0) {
+		printf("FAIL: pipe setfl nonblock returned %ld\n", ret);
+		return 1;
+	}
+
+	failed += file_status_expect_ret("F_SETFL pipe O_NONBLOCK",
+					 fcntl(fds[0], F_SETFL, O_NONBLOCK),
+					 0);
+	failed += file_status_expect_mask("F_GETFL pipe nonblock",
+					  fcntl(fds[0], F_GETFL, 0),
+					  O_NONBLOCK, O_NONBLOCK);
+	failed += file_status_expect_ret("F_SETFL nonblock read EAGAIN",
+					 read(fds[0], &ch, 1), -EAGAIN);
+	failed += file_status_expect_ret("F_SETFL pipe clear nonblock",
+					 fcntl(fds[0], F_SETFL, 0), 0);
+	failed += file_status_expect_mask("F_GETFL pipe nonblock clear",
+					  fcntl(fds[0], F_GETFL, 0),
+					  O_NONBLOCK, 0);
+
+	close(fds[0]);
+	close(fds[1]);
 	return failed;
 }
 
@@ -681,6 +774,10 @@ int main(int argc, char **argv)
 		     &failed);
 	report_group("file status flag error paths",
 		     test_file_status_error_paths(), &failed);
+	report_group("pipe2 nonblock cloexec", test_pipe2_nonblock_cloexec(),
+		     &failed);
+	report_group("setfl nonblock behavior", test_setfl_nonblock_behavior(),
+		     &failed);
 	report_group("dupfd minimum and cloexec reset",
 		     test_dupfd_minimum_and_cloexec(), &failed);
 	report_group("dupfd cloexec closes on exec", test_dupfd_cloexec_exec(),

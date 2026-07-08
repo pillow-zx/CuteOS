@@ -25,41 +25,40 @@
 
 #include "sys_file_internal.h"
 
-#define F_GETLK		      5
-#define F_SETLK		      6
-#define F_SETLKW	      7
-#define F_SETOWN	      8
-#define F_GETOWN	      9
-#define F_SETSIG	      10
-#define F_GETSIG	      11
-#define F_GETLK64	      12
-#define F_SETLK64	      13
-#define F_SETLKW64	      14
-#define F_SETOWN_EX	      15
-#define F_GETOWN_EX	      16
-#define F_GETOWNER_UIDS	      17
-#define F_OFD_GETLK	      36
-#define F_OFD_SETLK	      37
-#define F_OFD_SETLKW	      38
-#define F_LINUX_SPECIFIC_BASE 1024
-#define F_SETLEASE	      (F_LINUX_SPECIFIC_BASE + 0)
-#define F_GETLEASE	      (F_LINUX_SPECIFIC_BASE + 1)
-#define F_NOTIFY	      (F_LINUX_SPECIFIC_BASE + 2)
-#define F_DUPFD_QUERY	      (F_LINUX_SPECIFIC_BASE + 3)
-#define F_CREATED_QUERY	      (F_LINUX_SPECIFIC_BASE + 4)
-#define F_CANCELLK	      (F_LINUX_SPECIFIC_BASE + 5)
-#define F_SETPIPE_SZ	      (F_LINUX_SPECIFIC_BASE + 7)
-#define F_GETPIPE_SZ	      (F_LINUX_SPECIFIC_BASE + 8)
-#define F_ADD_SEALS	      (F_LINUX_SPECIFIC_BASE + 9)
-#define F_GET_SEALS	      (F_LINUX_SPECIFIC_BASE + 10)
-#define F_GET_RW_HINT	      (F_LINUX_SPECIFIC_BASE + 11)
-#define F_SET_RW_HINT	      (F_LINUX_SPECIFIC_BASE + 12)
-#define F_GET_FILE_RW_HINT    (F_LINUX_SPECIFIC_BASE + 13)
-#define F_SET_FILE_RW_HINT    (F_LINUX_SPECIFIC_BASE + 14)
-#define F_GETDELEG	      (F_LINUX_SPECIFIC_BASE + 15)
-#define F_SETDELEG	      (F_LINUX_SPECIFIC_BASE + 16)
-#define SPLICE_F_SUPPORTED_HINTS                                             \
-	(SPLICE_F_MOVE | SPLICE_F_MORE | SPLICE_F_GIFT)
+#define F_GETLK			 5
+#define F_SETLK			 6
+#define F_SETLKW		 7
+#define F_SETOWN		 8
+#define F_GETOWN		 9
+#define F_SETSIG		 10
+#define F_GETSIG		 11
+#define F_GETLK64		 12
+#define F_SETLK64		 13
+#define F_SETLKW64		 14
+#define F_SETOWN_EX		 15
+#define F_GETOWN_EX		 16
+#define F_GETOWNER_UIDS		 17
+#define F_OFD_GETLK		 36
+#define F_OFD_SETLK		 37
+#define F_OFD_SETLKW		 38
+#define F_LINUX_SPECIFIC_BASE	 1024
+#define F_SETLEASE		 (F_LINUX_SPECIFIC_BASE + 0)
+#define F_GETLEASE		 (F_LINUX_SPECIFIC_BASE + 1)
+#define F_NOTIFY		 (F_LINUX_SPECIFIC_BASE + 2)
+#define F_DUPFD_QUERY		 (F_LINUX_SPECIFIC_BASE + 3)
+#define F_CREATED_QUERY		 (F_LINUX_SPECIFIC_BASE + 4)
+#define F_CANCELLK		 (F_LINUX_SPECIFIC_BASE + 5)
+#define F_SETPIPE_SZ		 (F_LINUX_SPECIFIC_BASE + 7)
+#define F_GETPIPE_SZ		 (F_LINUX_SPECIFIC_BASE + 8)
+#define F_ADD_SEALS		 (F_LINUX_SPECIFIC_BASE + 9)
+#define F_GET_SEALS		 (F_LINUX_SPECIFIC_BASE + 10)
+#define F_GET_RW_HINT		 (F_LINUX_SPECIFIC_BASE + 11)
+#define F_SET_RW_HINT		 (F_LINUX_SPECIFIC_BASE + 12)
+#define F_GET_FILE_RW_HINT	 (F_LINUX_SPECIFIC_BASE + 13)
+#define F_SET_FILE_RW_HINT	 (F_LINUX_SPECIFIC_BASE + 14)
+#define F_GETDELEG		 (F_LINUX_SPECIFIC_BASE + 15)
+#define F_SETDELEG		 (F_LINUX_SPECIFIC_BASE + 16)
+#define SPLICE_F_SUPPORTED_HINTS (SPLICE_F_MOVE | SPLICE_F_MORE | SPLICE_F_GIFT)
 
 #define MAX_FILE_SIZE (1ULL << 40)
 
@@ -162,11 +161,10 @@ static ssize_t read_user_buffer_pos(struct file *file, void *buf, size_t len,
 
 		ret = vfs_read_pos(file, kbuf, chunk, pos);
 		if (ret > 0) {
-			size_t left =
-				copy_to_user((char *)buf + done, kbuf, (size_t)ret);
+			size_t left = copy_to_user((char *)buf + done, kbuf,
+						   (size_t)ret);
 
 			if (left != 0) {
-
 				if (pos)
 					*pos -= (loff_t)left;
 				else
@@ -274,12 +272,13 @@ static ssize_t rw_iovec(struct file *file, const struct iovec *uiov,
 			ssize_t ret;
 
 			if (write)
-				ret = write_user_buffer_pos(file,
-							(const void *)chunk_base,
-							chunk_len, NULL);
+				ret = write_user_buffer_pos(
+					file, (const void *)chunk_base,
+					chunk_len, NULL);
 			else
-				ret = read_user_buffer_pos(file, (void *)chunk_base,
-						chunk_len, NULL);
+				ret = read_user_buffer_pos(file,
+							   (void *)chunk_base,
+							   chunk_len, NULL);
 
 			if (ret < 0)
 				return total ? total : ret;
@@ -414,8 +413,7 @@ ssize_t sys_sendfile(struct trap_frame *tf)
 
 	if (!out_file || !in_file)
 		return -EBADF;
-	if (!in_file->f_inode ||
-	    (in_file->f_inode->i_mode & S_IFMT) != S_IFREG)
+	if (!in_file->f_inode || (in_file->f_inode->i_mode & S_IFMT) != S_IFREG)
 		return -EINVAL;
 	if (out_file->f_flags & O_APPEND)
 		return -EINVAL;
@@ -519,7 +517,8 @@ ssize_t sys_close(struct trap_frame *tf)
 
 ssize_t sys_lseek(struct trap_frame *tf)
 {
-	struct file *file __cleanup_with(file) = fd_get((int)syscall_arg(tf, 0));
+	struct file *file __cleanup_with(file) =
+		fd_get((int)syscall_arg(tf, 0));
 	loff_t offset = (loff_t)syscall_arg(tf, 1);
 	int whence = (int)syscall_arg(tf, 2);
 	ssize_t ret;
@@ -637,7 +636,8 @@ ssize_t sys_dup3(struct trap_frame *tf)
 
 ssize_t sys_fsync(struct trap_frame *tf)
 {
-	struct file *file __cleanup_with(file) = fd_get((int)syscall_arg(tf, 0));
+	struct file *file __cleanup_with(file) =
+		fd_get((int)syscall_arg(tf, 0));
 	ssize_t ret;
 
 	if (!file)
@@ -660,7 +660,8 @@ ssize_t sys_fdatasync(struct trap_frame *tf)
 
 ssize_t sys_ftruncate64(struct trap_frame *tf)
 {
-	struct file *file __cleanup_with(file) = fd_get((int)syscall_arg(tf, 0));
+	struct file *file __cleanup_with(file) =
+		fd_get((int)syscall_arg(tf, 0));
 	int64_t length = (int64_t)syscall_arg(tf, 1);
 	ssize_t ret;
 
@@ -686,7 +687,8 @@ ssize_t sys_ftruncate64(struct trap_frame *tf)
  */
 ssize_t sys_fallocate(struct trap_frame *tf)
 {
-	struct file *file __cleanup_with(file) = fd_get((int)syscall_arg(tf, 0));
+	struct file *file __cleanup_with(file) =
+		fd_get((int)syscall_arg(tf, 0));
 	int mode = (int)syscall_arg(tf, 1);
 	int64_t offset = (int64_t)syscall_arg(tf, 2);
 	int64_t len = (int64_t)syscall_arg(tf, 3);
@@ -719,10 +721,10 @@ ssize_t sys_pipe2(struct trap_frame *tf)
 	int fds[2];
 	int ret;
 
+	if (flags & ~(O_CLOEXEC | O_NONBLOCK))
+		return -EINVAL;
 	if (!access_ok(user_fds, sizeof(int[2])))
 		return -EFAULT;
-	if (flags & ~O_CLOEXEC)
-		return -EINVAL;
 
 	ret = do_pipe2(fds, flags);
 	if (ret < 0)

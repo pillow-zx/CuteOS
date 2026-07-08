@@ -39,15 +39,15 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | ---: | --- | --- | --- | --- | --- |
 | 23 | `dup` | A | fd 复制 | 无明显短期缺口 | 压测 fd 上限和 close-on-exec 交互 |
 | 24 | `dup3` | A | 支持 `O_CLOEXEC` | 仅当前 fdtable 范围 | 加 dup3 同 fd errno 回归 |
-| 25 | `fcntl` | B | 支持 `F_DUPFD/F_DUPFD_CLOEXEC/F_GETFD/F_SETFD/F_GETFL/F_SETFL`，见 cmd 支持表 | lock、lease、pipe size、owner 系列未实现但 errno 已固定 | 按表逐项替换为真实语义 |
+| 25 | `fcntl` | B | 支持 `F_DUPFD/F_DUPFD_CLOEXEC/F_GETFD/F_SETFD/F_GETFL/F_SETFL`，`F_SETFL` 可修改 `O_APPEND/O_NONBLOCK`，见 cmd 支持表 | lock、lease、pipe size、owner 系列未实现但 errno 已固定 | 按表逐项替换为真实语义 |
 | 29 | `ioctl` | B | 委托 `vfs_ioctl` | 设备 ioctl 覆盖有限 | 先扩展 tty/console 常用 ioctl |
 | 46 | `ftruncate64` | A | 通过 VFS truncate 文件 | 文件系统大文件边界有限 | 覆盖 sparse/truncate 扩展测试 |
 | 47 | `fallocate` | B | 仅 `mode == 0`，限制最大文件大小 | punch hole/keep size 等 flag 不支持 | 固定 unsupported mode errno |
 | 57 | `close` | A | fd close | 无明显短期缺口 | 加多线程/dup 交互测试 |
-| 59 | `pipe2` | A | pipe 创建，支持 `O_CLOEXEC` | `O_NONBLOCK` 未列为支持 | 决定是否支持 pipe nonblock |
+| 59 | `pipe2` | A | pipe 创建，支持 `O_CLOEXEC/O_NONBLOCK` | pipe size 调整未实现 | 补 `F_GETPIPE_SZ/F_SETPIPE_SZ` |
 | 62 | `lseek` | A | VFS llseek | 特殊文件 seek 语义依赖 fops | 补设备/pipe ESPIPE 测试 |
-| 63 | `read` | A | fd read + uaccess 分块 | 非阻塞语义有限 | 跟随 `O_NONBLOCK` 计划 |
-| 64 | `write` | A | fd write + uaccess 分块 | SIGPIPE/partial write 边界需继续测 | 扩展 pipe 写端测试 |
+| 63 | `read` | A | fd read + uaccess 分块，pipe 读端支持 `O_NONBLOCK` 空读 `-EAGAIN` | 非 pipe 文件的非阻塞语义有限 | 扩展更多文件类型的 nonblock 语义 |
+| 64 | `write` | A | fd write + uaccess 分块，pipe 写端支持 `O_NONBLOCK` 满写 `-EAGAIN` | SIGPIPE/partial write 边界需继续测 | 扩展 pipe 写端测试 |
 | 65 | `readv` | A | iovec 分块读取 | `IOV_MAX`、溢出细节 | 增加大 iov/partial 测试 |
 | 66 | `writev` | A | iovec 分块写入 | 同 readv | 同 readv |
 | 67 | `pread64` | A | offset 读，不动 file pos | 特殊文件 offset 语义 | 补 pipe/socket-like EBADF/ESPIPE |
@@ -69,8 +69,8 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | `F_DUPFD_CLOEXEC` | supported | 同 `F_DUPFD`，并设置 close-on-exec |
 | `F_GETFD` | supported | 返回 `FD_CLOEXEC` 或 0 |
 | `F_SETFD` | supported | 只采用 `FD_CLOEXEC` 位，其它位忽略 |
-| `F_GETFL` | supported | 返回 `O_ACCMODE/O_APPEND/O_DIRECTORY` 子集 |
-| `F_SETFL` | supported | 只允许修改 `O_APPEND`；`O_NONBLOCK/O_DSYNC/FASYNC/O_DIRECT/O_NOATIME/O_SYNC` 返回 `-EINVAL` |
+| `F_GETFL` | supported | 返回 `O_ACCMODE/O_APPEND/O_NONBLOCK/O_DIRECTORY` 子集 |
+| `F_SETFL` | supported | 只允许修改 `O_APPEND/O_NONBLOCK`；`O_DSYNC/FASYNC/O_DIRECT/O_NOATIME/O_SYNC` 返回 `-EINVAL` |
 | `F_GETLK/F_SETLK/F_SETLKW/F_GETLK64/F_SETLK64/F_SETLKW64` | unsupported | `-EINVAL` |
 | `F_OFD_GETLK/F_OFD_SETLK/F_OFD_SETLKW` | unsupported | `-EINVAL` |
 | `F_SETOWN/F_GETOWN/F_SETSIG/F_GETSIG/F_SETOWN_EX/F_GETOWN_EX/F_GETOWNER_UIDS` | unsupported | `-EINVAL` |

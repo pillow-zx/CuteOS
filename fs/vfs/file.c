@@ -15,10 +15,10 @@
 #include <kernel/timer.h>
 #include <kernel/vfs.h>
 
-#define FILE_STATUS_FLAGS	 (O_ACCMODE | O_APPEND | O_DIRECTORY)
-#define FILE_SETFL_MUTABLE_FLAGS O_APPEND
+#define FILE_STATUS_FLAGS	 (O_ACCMODE | O_APPEND | O_NONBLOCK | O_DIRECTORY)
+#define FILE_SETFL_MUTABLE_FLAGS (O_APPEND | O_NONBLOCK)
 #define FILE_SETFL_UNSUPPORTED_FLAGS                                           \
-	(O_NONBLOCK | O_DSYNC | FASYNC | O_DIRECT | O_NOATIME | __O_SYNC)
+	(O_DSYNC | FASYNC | O_DIRECT | O_NOATIME | __O_SYNC)
 
 static ssize_t null_read(struct file *file, char *buf, size_t count);
 static ssize_t null_write(struct file *file, const char *buf, size_t count);

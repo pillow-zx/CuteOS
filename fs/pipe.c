@@ -168,6 +168,8 @@ static ssize_t pipe_read(struct file *file, char *buf, size_t count)
 		if (pipe->used == 0) {
 			if (pipe->writers == 0 || done > 0)
 				break;
+			if (file->f_flags & O_NONBLOCK)
+				return -EAGAIN;
 
 			int ret = wait_event_interruptible(
 				&pipe->readers_wq, pipe_read_ready, pipe);
@@ -208,6 +210,8 @@ static ssize_t pipe_write(struct file *file, const char *buf, size_t count)
 		if (pipe->used == PIPE_SIZE) {
 			if (done > 0)
 				break;
+			if (file->f_flags & O_NONBLOCK)
+				return -EAGAIN;
 
 			int ret = wait_event_interruptible(
 				&pipe->writers_wq, pipe_write_ready, pipe);
@@ -299,6 +303,8 @@ ssize_t pipe_splice_to_file(struct file *pipe_file, struct file *out_file,
 		if (pipe->used == 0) {
 			if (pipe->writers == 0 || done > 0)
 				break;
+			if (pipe_file->f_flags & O_NONBLOCK)
+				return -EAGAIN;
 
 			ret = wait_event_interruptible(&pipe->readers_wq,
 						       pipe_read_ready, pipe);
@@ -331,7 +337,10 @@ ssize_t pipe_splice_to_file(struct file *pipe_file, struct file *out_file,
 
 int do_pipe2(int fds[2], int flags)
 {
-	if (flags & ~O_CLOEXEC)
+	uint32_t status_flags = (uint32_t)flags & O_NONBLOCK;
+	int fd_flags = flags & O_CLOEXEC;
+
+	if (flags & ~(O_CLOEXEC | O_NONBLOCK))
 		return -EINVAL;
 	if (!fds)
 		return -EINVAL;
@@ -346,6 +355,7 @@ int do_pipe2(int fds[2], int flags)
 		pipe_buffer_free(pipe);
 		return -ENOMEM;
 	}
+	read_file->f_flags = status_flags | O_RDONLY;
 
 	struct file *write_file =
 		pipe_file_alloc(&pipe_write_fops, FMODE_WRITE, pipe);
@@ -353,18 +363,19 @@ int do_pipe2(int fds[2], int flags)
 		file_put(read_file);
 		return -ENOMEM;
 	}
+	write_file->f_flags = status_flags | O_WRONLY;
 
 	pipe->readers = 1;
 	pipe->writers = 1;
 
-	fds[0] = fd_alloc_flags(read_file, flags);
+	fds[0] = fd_alloc_flags(read_file, fd_flags);
 	if (fds[0] < 0) {
 		file_put(read_file);
 		file_put(write_file);
 		return fds[0];
 	}
 
-	fds[1] = fd_alloc_flags(write_file, flags);
+	fds[1] = fd_alloc_flags(write_file, fd_flags);
 	if (fds[1] < 0) {
 		fd_close(fds[0]);
 		file_put(write_file);
