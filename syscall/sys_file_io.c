@@ -16,6 +16,7 @@
 #include <kernel/pipe.h>
 #include <kernel/task.h>
 #include <kernel/timer.h>
+#include <kernel/tools.h>
 #include <kernel/vfs.h>
 #include <uapi/uio.h>
 #include <kernel/page.h>
@@ -61,6 +62,58 @@
 	(SPLICE_F_MOVE | SPLICE_F_MORE | SPLICE_F_GIFT)
 
 #define MAX_FILE_SIZE (1ULL << 40)
+
+enum fcntl_cmd_status {
+	FCNTL_CMD_SUPPORTED,
+	FCNTL_CMD_UNSUPPORTED,
+};
+
+struct fcntl_cmd_support {
+	int cmd;
+	enum fcntl_cmd_status status;
+	int unsupported_errno;
+};
+
+static const struct fcntl_cmd_support fcntl_cmds[] = {
+	{F_DUPFD, FCNTL_CMD_SUPPORTED, 0},
+	{F_GETFD, FCNTL_CMD_SUPPORTED, 0},
+	{F_SETFD, FCNTL_CMD_SUPPORTED, 0},
+	{F_GETFL, FCNTL_CMD_SUPPORTED, 0},
+	{F_SETFL, FCNTL_CMD_SUPPORTED, 0},
+	{F_GETLK, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_SETLK, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_SETLKW, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_SETOWN, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_GETOWN, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_SETSIG, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_GETSIG, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_GETLK64, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_SETLK64, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_SETLKW64, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_SETOWN_EX, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_GETOWN_EX, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_GETOWNER_UIDS, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_OFD_GETLK, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_OFD_SETLK, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_OFD_SETLKW, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_SETLEASE, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_GETLEASE, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_NOTIFY, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_DUPFD_QUERY, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_CREATED_QUERY, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_CANCELLK, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_DUPFD_CLOEXEC, FCNTL_CMD_SUPPORTED, 0},
+	{F_SETPIPE_SZ, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_GETPIPE_SZ, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_ADD_SEALS, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_GET_SEALS, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_GET_RW_HINT, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_SET_RW_HINT, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_GET_FILE_RW_HINT, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_SET_FILE_RW_HINT, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_GETDELEG, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+	{F_SETDELEG, FCNTL_CMD_UNSUPPORTED, -EINVAL},
+};
 
 static struct file *fd_get_readable(int fd)
 {
@@ -167,6 +220,16 @@ static ssize_t write_user_buffer_pos(struct file *file, const void *buf,
 	}
 
 	return (ssize_t)done;
+}
+
+static const struct fcntl_cmd_support *fcntl_cmd_lookup(int cmd)
+{
+	for (size_t i = 0; i < ARRLEN(fcntl_cmds); i++) {
+		if (fcntl_cmds[i].cmd == cmd)
+			return &fcntl_cmds[i];
+	}
+
+	return NULL;
 }
 
 static bool splice_regular_file(struct file *file)
@@ -493,16 +556,35 @@ ssize_t sys_ioctl(struct trap_frame *tf)
 /*
  * SYSCALL_SUPPORT(B): fcntl
  * Current: supports dup, close-on-exec, and file status flag get/set commands.
- * Unsupported errno: unknown commands return -EINVAL; bad fds return -EBADF.
- * Future: add a command support table before lock, lease, owner, and pipe-size
- * commands grow more semantics.
+ * Unsupported errno: bad fds return -EBADF first. Known but unsupported lock,
+ * owner, lease, pipe-size, seal, rw-hint, notify, and delegation commands
+ * return -EINVAL. Unknown commands also return -EINVAL for valid fds.
+ * Future: replace individual table entries as each command grows real
+ * subsystem semantics.
  */
 ssize_t sys_fcntl(struct trap_frame *tf)
 {
 	int fd = (int)syscall_arg(tf, 0);
 	int cmd = (int)syscall_arg(tf, 1);
 	unsigned long arg = syscall_arg(tf, 2);
+	const struct fcntl_cmd_support *support;
 	int ret;
+
+	support = fcntl_cmd_lookup(cmd);
+	if (!support) {
+		struct file *file __cleanup_with(file) = fd_get(fd);
+
+		if (!file)
+			return -EBADF;
+		return -EINVAL;
+	}
+	if (support->status == FCNTL_CMD_UNSUPPORTED) {
+		struct file *file __cleanup_with(file) = fd_get(fd);
+
+		if (!file)
+			return -EBADF;
+		return support->unsupported_errno;
+	}
 
 	switch (cmd) {
 	case F_DUPFD:

@@ -4,7 +4,11 @@
 
 #include <ulib.h>
 
-#define CUTEOS_NR_OPEN 32
+#define CUTEOS_NR_OPEN	  32
+#define TEST_F_GETLK	  5
+#define TEST_F_SETOWN	  8
+#define TEST_F_SETPIPE_SZ 1031
+#define TEST_F_GETPIPE_SZ 1032
 
 static int fd_flags_expect_ret(const char *name, long got, long want)
 {
@@ -68,6 +72,21 @@ static int test_fd_flags_error_paths(void)
 
 	failed += fd_flags_expect_ret("unsupported fcntl cmd",
 				      fcntl((int)fd, 999, 0), -EINVAL);
+	failed += fd_flags_expect_ret("unsupported lock fcntl cmd",
+				      fcntl((int)fd, TEST_F_GETLK, 0), -EINVAL);
+	failed +=
+		fd_flags_expect_ret("unsupported owner fcntl cmd",
+				    fcntl((int)fd, TEST_F_SETOWN, 0), -EINVAL);
+	failed += fd_flags_expect_ret("unsupported pipe set size cmd",
+				      fcntl((int)fd, TEST_F_SETPIPE_SZ, 4096),
+				      -EINVAL);
+	failed += fd_flags_expect_ret("unsupported pipe get size cmd",
+				      fcntl((int)fd, TEST_F_GETPIPE_SZ, 0),
+				      -EINVAL);
+	failed += fd_flags_expect_ret("unknown fcntl invalid fd",
+				      fcntl(-1, 999, 0), -EBADF);
+	failed += fd_flags_expect_ret("unsupported fcntl invalid fd",
+				      fcntl(-1, TEST_F_GETLK, 0), -EBADF);
 
 	close((int)fd);
 	unlinkat(AT_FDCWD, "/fcntl_fd_unsupported", 0);

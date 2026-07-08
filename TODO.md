@@ -64,7 +64,7 @@
 
 ### 2.1 fd、fcntl、ioctl、pipe
 
-- [ ] 建立 `fcntl` cmd 支持表，明确 unsupported errno。
+- [x] 建立 `fcntl` cmd 支持表，明确 unsupported errno。
 - [ ] 扩展 `pipe2` 支持 `O_NONBLOCK`，或明确拒绝并测试。
 - [ ] 补 tty/console 常用 ioctl：窗口大小、termios 探测、必要错误码。
 - [ ] 给 `fdatasync == fsync` 的简化加文档和测试。

@@ -39,7 +39,7 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | ---: | --- | --- | --- | --- | --- |
 | 23 | `dup` | A | fd 复制 | 无明显短期缺口 | 压测 fd 上限和 close-on-exec 交互 |
 | 24 | `dup3` | A | 支持 `O_CLOEXEC` | 仅当前 fdtable 范围 | 加 dup3 同 fd errno 回归 |
-| 25 | `fcntl` | B | 支持 `F_DUPFD/F_DUPFD_CLOEXEC/F_GETFD/F_SETFD/F_GETFL/F_SETFL` | lock、lease、pipe size、owner 系列未实现 | 建立 fcntl cmd 支持表 |
+| 25 | `fcntl` | B | 支持 `F_DUPFD/F_DUPFD_CLOEXEC/F_GETFD/F_SETFD/F_GETFL/F_SETFL`，见 cmd 支持表 | lock、lease、pipe size、owner 系列未实现但 errno 已固定 | 按表逐项替换为真实语义 |
 | 29 | `ioctl` | B | 委托 `vfs_ioctl` | 设备 ioctl 覆盖有限 | 先扩展 tty/console 常用 ioctl |
 | 46 | `ftruncate64` | A | 通过 VFS truncate 文件 | 文件系统大文件边界有限 | 覆盖 sparse/truncate 扩展测试 |
 | 47 | `fallocate` | B | 仅 `mode == 0`，限制最大文件大小 | punch hole/keep size 等 flag 不支持 | 固定 unsupported mode errno |
@@ -56,6 +56,31 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | 76 | `splice` | B | pipe/file 单边 splice，支持 hint flags | file-file、pipe-pipe、更多 flag 缺失 | 做 pipe/file 语义表 |
 | 82 | `fsync` | A | VFS sync file | 元数据完整性取决于 FS | 加崩溃一致性非目标说明 |
 | 83 | `fdatasync` | B | 当前等同 `fsync` | data-only 区分未实现 | 文档标注 intentional simplification |
+
+### `fcntl` cmd 支持表
+
+`fcntl` 对 cuteOS 识别的 cmd 先检查 fd；fd 无效时返回 `-EBADF`。fd
+有效但 cmd 不支持时返回表中的 unsupported errno。未识别 cmd 对有效 fd
+返回 `-EINVAL`。
+
+| cmd | 状态 | errno / 语义 |
+| --- | --- | --- |
+| `F_DUPFD` | supported | 复制到不小于 `arg` 的最低空闲 fd，清除 close-on-exec |
+| `F_DUPFD_CLOEXEC` | supported | 同 `F_DUPFD`，并设置 close-on-exec |
+| `F_GETFD` | supported | 返回 `FD_CLOEXEC` 或 0 |
+| `F_SETFD` | supported | 只采用 `FD_CLOEXEC` 位，其它位忽略 |
+| `F_GETFL` | supported | 返回 `O_ACCMODE/O_APPEND/O_DIRECTORY` 子集 |
+| `F_SETFL` | supported | 只允许修改 `O_APPEND`；`O_NONBLOCK/O_DSYNC/FASYNC/O_DIRECT/O_NOATIME/O_SYNC` 返回 `-EINVAL` |
+| `F_GETLK/F_SETLK/F_SETLKW/F_GETLK64/F_SETLK64/F_SETLKW64` | unsupported | `-EINVAL` |
+| `F_OFD_GETLK/F_OFD_SETLK/F_OFD_SETLKW` | unsupported | `-EINVAL` |
+| `F_SETOWN/F_GETOWN/F_SETSIG/F_GETSIG/F_SETOWN_EX/F_GETOWN_EX/F_GETOWNER_UIDS` | unsupported | `-EINVAL` |
+| `F_SETLEASE/F_GETLEASE` | unsupported | `-EINVAL` |
+| `F_NOTIFY` | unsupported | `-EINVAL` |
+| `F_DUPFD_QUERY/F_CREATED_QUERY/F_CANCELLK` | unsupported | `-EINVAL` |
+| `F_SETPIPE_SZ/F_GETPIPE_SZ` | unsupported | `-EINVAL` |
+| `F_ADD_SEALS/F_GET_SEALS` | unsupported | `-EINVAL` |
+| `F_GET_RW_HINT/F_SET_RW_HINT/F_GET_FILE_RW_HINT/F_SET_FILE_RW_HINT` | unsupported | `-EINVAL` |
+| `F_GETDELEG/F_SETDELEG` | unsupported | `-EINVAL` |
 
 ## 路径、目录、挂载
 
