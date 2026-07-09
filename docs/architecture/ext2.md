@@ -168,6 +168,12 @@ flowchart LR
 
 写入不是每次都同步数据页；dirty page 由 fsync、truncate、msync 或后台 writeback 写回。
 
+`fdatasync` 通过 VFS 同步 inode 数据页，再调用 ext2 的 `datasync_inode`
+hook。ext2 当前在分配数据块、分配/更新间接块、更新 `i_size/i_blocks`、目录项
+变更和位图计数变更时同步相关元数据，所以 hook 不额外刷新纯 inode 元数据。
+`fsync` 仍会在数据页写回后强制写 inode metadata，用于 atime/mtime/ctime 等
+纯元数据变化。
+
 ## page_mapping ops
 
 ext2 inode mapping 操作：

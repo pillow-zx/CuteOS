@@ -80,6 +80,8 @@ typedef int (*filldir_t)(void *ctx, const char *name, size_t namelen,
  * @par Fields
  * - @c read_inode: Populate an inode from persistent filesystem metadata.
  * - @c write_inode: Write dirty inode metadata back to persistent storage.
+ * - @c datasync_inode: Write metadata required to retrieve file data after
+ * `fdatasync`; when omitted, VFS falls back to @c write_inode.
  * - @c evict_inode: Release filesystem-private inode state at final eviction.
  * - @c sync_fs: Flush filesystem-wide dirty state.
  * - @c statfs: Fill Linux statfs64-compatible filesystem statistics.
@@ -87,6 +89,7 @@ typedef int (*filldir_t)(void *ctx, const char *name, size_t namelen,
 struct super_operations {
 	int (*read_inode)(struct inode *inode);
 	int (*write_inode)(struct inode *inode);
+	int (*datasync_inode)(struct inode *inode);
 	void (*evict_inode)(struct inode *inode);
 	int (*sync_fs)(struct super_block *sb);
 	int (*statfs)(struct super_block *sb, struct statfs64 *buf);
@@ -477,11 +480,13 @@ int __must_check vfs_fallocate_file(struct file *file, int mode,
 				    uint64_t offset, uint64_t len);
 int __must_check vfs_inode_truncate(struct inode *inode, uint64_t size);
 int __must_check vfs_inode_writeback(struct inode *inode);
+int __must_check vfs_inode_datasync(struct inode *inode);
 int __must_check vfs_inode_set_timestamps(struct inode *inode,
 					  int64_t atime_sec, int64_t mtime_sec,
 					  bool set_atime, bool set_mtime);
 int __must_check vfs_inode_touch(struct inode *inode, bool atime, bool mtime,
 				 bool ctime);
+int __must_check vfs_datasync_file(struct file *file);
 int __must_check vfs_sync_file(struct file *file);
 /**
  * @brief Convert an inode into Linux stat ABI fields.

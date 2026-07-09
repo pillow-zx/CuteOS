@@ -48,7 +48,8 @@ static int ext2_map_block(struct page_mapping *mapping, uint64_t index,
 			  bool create, uint32_t *block)
 {
 	struct inode *inode = mapping ? mapping->host : NULL;
-	uint32_t pblock;
+	uint32_t pblock = 0;
+	int ret = 0;
 
 	if (!inode || !ext2_file_index_valid(index))
 		return !inode ? -EINVAL : -EFBIG;
@@ -56,10 +57,12 @@ static int ext2_map_block(struct page_mapping *mapping, uint64_t index,
 		return -EINVAL;
 
 	if (create)
-		pblock = ext2_bmap(inode, (uint32_t)index, true);
+		ret = ext2_bmap(inode, (uint32_t)index, true, &pblock);
 	else
 		pblock = ext2_bmap_readonly(inode, (uint32_t)index);
 
+	if (create && ret < 0)
+		return ret;
 	if (!pblock)
 		return create ? -ENOSPC : -EIO;
 
@@ -143,6 +146,7 @@ ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count,
 {
 	size_t done = 0;
 	uint64_t writable;
+	int ret;
 
 	if (!inode || !buf)
 		return -EINVAL;
@@ -163,8 +167,6 @@ ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count,
 		uint32_t offset = (uint32_t)(file_pos % BLOCK_SIZE);
 		size_t chunk = BLOCK_SIZE - offset;
 		uint32_t pblock;
-		int ret;
-
 		if (chunk > count - done)
 			chunk = count - done;
 
@@ -218,7 +220,9 @@ ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count,
 
 	if ((uint64_t)pos + done > inode->i_size) {
 		inode->i_size = (uint64_t)pos + done;
-		ext2_write_inode(inode);
+		ret = ext2_write_inode(inode);
+		if (ret < 0)
+			return ret;
 	}
 
 	return (ssize_t)done;

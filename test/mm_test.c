@@ -38,12 +38,15 @@ static int mm_test_read_raw_file_page(struct file *file, uint32_t index,
 				      uint8_t *buf)
 {
 	struct block_device *bdev;
-	uint32_t pblock;
+	uint32_t pblock = 0;
+	int ret;
 
 	if (!file || !file->f_inode || !buf)
 		return -EINVAL;
 
-	pblock = ext2_bmap(file->f_inode, index, false);
+	ret = ext2_bmap(file->f_inode, index, false, &pblock);
+	if (ret < 0)
+		return ret;
 	if (!pblock)
 		return -ENOENT;
 

@@ -18,6 +18,7 @@ static int ext2_statfs(struct super_block *sb, struct statfs64 *buf);
 static const struct super_operations ext2_sops = {
 	.read_inode = ext2_read_inode,
 	.write_inode = ext2_write_inode,
+	.datasync_inode = ext2_datasync_inode,
 	.evict_inode = ext2_evict_inode,
 	.statfs = ext2_statfs,
 };

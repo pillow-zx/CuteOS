@@ -583,6 +583,8 @@ Common entry points:
 - `vfs_stat_file(file, st)`
 - `vfs_stat_dentry(dentry, st)`
 - `vfs_statfs(sb, buf)`
+- `vfs_inode_datasync(inode)`
+- `vfs_datasync_file(file)`
 - `vfs_sync_file(file)`
 - `vfs_poll(file, events, table)`
 - `vfs_ioctl(file, cmd, arg)`

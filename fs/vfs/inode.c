@@ -116,6 +116,16 @@ int vfs_inode_writeback(struct inode *inode)
 	return inode->i_sb->s_op->write_inode(inode);
 }
 
+int vfs_inode_datasync(struct inode *inode)
+{
+	if (!inode || !inode->i_sb || !inode->i_sb->s_op)
+		return -EINVAL;
+	if (inode->i_sb->s_op->datasync_inode)
+		return inode->i_sb->s_op->datasync_inode(inode);
+
+	return vfs_inode_writeback(inode);
+}
+
 static int64_t vfs_current_time_sec(void)
 {
 	struct timespec ts;

@@ -55,7 +55,7 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | 71 | `sendfile` | B | regular input 到 writable output，buffered copy | socket/pipe 等 Linux 场景缺失 | 明确只支持 file-to-file |
 | 76 | `splice` | B | pipe/file 单边 splice，支持 hint flags | file-file、pipe-pipe、更多 flag 缺失 | 做 pipe/file 语义表 |
 | 82 | `fsync` | A | VFS sync file | 元数据完整性取决于 FS | 加崩溃一致性非目标说明 |
-| 83 | `fdatasync` | B | 当前等同 `fsync` | data-only 区分未实现 | 文档标注 intentional simplification |
+| 83 | `fdatasync` | B | VFS 同步文件数据页，并调用 FS datasync hook 同步取回数据所需元数据；无 hook 时退化为完整 inode writeback | 崩溃写入顺序仍是 best-effort；各 FS 需要准确声明 datasync 元数据边界 | 按文件系统补强 ordering 语义 |
 
 ### `fcntl` cmd 支持表
 

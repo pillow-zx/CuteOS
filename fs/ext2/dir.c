@@ -121,6 +121,8 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 	uint16_t need = EXT2_DIR_REC_LEN(namelen);
 	uint32_t blocks =
 		(uint32_t)((dir->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
+	uint32_t new_block;
+	int ret;
 
 	if (ext2_find_entry(dir, name, namelen, &found_page)) {
 		page_cache_put_page(found_page);
@@ -188,7 +190,9 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 		page_cache_put_page(page);
 	}
 
-	uint32_t new_block = ext2_bmap(dir, blocks, true);
+	ret = ext2_bmap(dir, blocks, true, &new_block);
+	if (ret < 0)
+		return ret;
 	if (!new_block)
 		return -ENOSPC;
 
@@ -208,8 +212,7 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 	page_cache_put_page(page);
 
 	dir->i_size += BLOCK_SIZE;
-	ext2_write_inode(dir);
-	return 0;
+	return ext2_write_inode(dir);
 }
 
 static int ext2_delete_entry(struct inode *dir, struct dentry *dentry)
@@ -351,7 +354,11 @@ static int ext2_create(struct inode *dir, struct dentry *dentry, uint32_t mode)
 	inode->i_blocks = 0;
 	inode->i_rdev = 0;
 	ext2_init_inode_ops(inode);
-	ext2_write_inode(inode);
+	ret = ext2_write_inode(inode);
+	if (ret < 0) {
+		ext2_rollback_new_inode(inode);
+		return ret;
+	}
 
 	ret = ext2_add_entry(dir, dentry->d_name, dentry->d_namelen, ino,
 			     ext2_file_type((uint16_t)inode->i_mode));
@@ -406,9 +413,14 @@ static int ext2_symlink(struct inode *dir, struct dentry *dentry,
 	if (len <= sizeof(ei->raw_inode.i_block)) {
 		memcpy(ei->raw_inode.i_block, target, len);
 	} else {
-		uint32_t block = ext2_bmap(inode, 0, true);
+		uint32_t block;
 		struct page_cache *target_page;
 
+		ret = ext2_bmap(inode, 0, true, &block);
+		if (ret < 0) {
+			ext2_rollback_new_inode(inode);
+			return ret;
+		}
 		if (!block) {
 			ext2_rollback_new_inode(inode);
 			return -ENOSPC;
@@ -428,7 +440,11 @@ static int ext2_symlink(struct inode *dir, struct dentry *dentry,
 		}
 		page_cache_put_page(target_page);
 	}
-	ext2_write_inode(inode);
+	ret = ext2_write_inode(inode);
+	if (ret < 0) {
+		ext2_rollback_new_inode(inode);
+		return ret;
+	}
 
 	ret = ext2_add_entry(dir, dentry->d_name, dentry->d_namelen, ino,
 			     EXT2_FT_SYMLINK);
@@ -452,6 +468,7 @@ static int ext2_link(struct dentry *old_dentry, struct inode *dir,
 		     struct dentry *new_dentry)
 {
 	struct inode *inode;
+	int err;
 	int ret;
 
 	if (!old_dentry || !old_dentry->d_inode || !new_dentry)
@@ -472,17 +489,23 @@ static int ext2_link(struct dentry *old_dentry, struct inode *dir,
 	inode->i_nlink++;
 	ret = vfs_inode_touch(inode, false, false, true);
 	if (ret < 0) {
+		err = ret;
 		ext2_delete_entry(dir, new_dentry);
 		inode->i_nlink--;
-		ext2_write_inode(inode);
-		return ret;
+		ret = ext2_write_inode(inode);
+		if (ret < 0)
+			return ret;
+		return err;
 	}
 	ret = vfs_inode_touch(dir, false, true, true);
 	if (ret < 0) {
+		err = ret;
 		ext2_delete_entry(dir, new_dentry);
 		inode->i_nlink--;
-		ext2_write_inode(inode);
-		return ret;
+		ret = ext2_write_inode(inode);
+		if (ret < 0)
+			return ret;
+		return err;
 	}
 
 	igrab(inode);
@@ -493,11 +516,15 @@ static int ext2_link(struct dentry *old_dentry, struct inode *dir,
 
 static int ext2_make_empty_dir(struct inode *inode, struct inode *parent)
 {
-	uint32_t block = ext2_bmap(inode, 0, true);
+	uint32_t block;
 	struct page_cache *page;
 	struct ext2_dir_entry_2 *de;
 	uint8_t *data;
+	int ret;
 
+	ret = ext2_bmap(inode, 0, true, &block);
+	if (ret < 0)
+		return ret;
 	if (!block)
 		return -ENOSPC;
 
@@ -523,8 +550,7 @@ static int ext2_make_empty_dir(struct inode *inode, struct inode *parent)
 	}
 	page_cache_put_page(page);
 	inode->i_size = BLOCK_SIZE;
-	ext2_write_inode(inode);
-	return 0;
+	return ext2_write_inode(inode);
 }
 
 static int ext2_mkdir(struct inode *dir, struct dentry *dentry, uint32_t mode)
@@ -557,7 +583,11 @@ static int ext2_mkdir(struct inode *dir, struct dentry *dentry, uint32_t mode)
 	inode->i_size = 0;
 	inode->i_blocks = 0;
 	ext2_init_inode_ops(inode);
-	ext2_write_inode(inode);
+	ret = ext2_write_inode(inode);
+	if (ret < 0) {
+		ext2_rollback_new_inode(inode);
+		return ret;
+	}
 
 	ret = ext2_make_empty_dir(inode, dir);
 	if (ret < 0) {
@@ -573,7 +603,9 @@ static int ext2_mkdir(struct inode *dir, struct dentry *dentry, uint32_t mode)
 	}
 
 	dir->i_nlink++;
-	ext2_write_inode(dir);
+	ret = ext2_write_inode(dir);
+	if (ret < 0)
+		return ret;
 	dentry->d_inode = inode;
 	dentry->d_sb = dir->i_sb;
 	return 0;
@@ -635,10 +667,10 @@ static int ext2_unlink(struct inode *dir, struct dentry *dentry)
 
 	if (inode->i_nlink > 0)
 		inode->i_nlink--;
-	ext2_write_inode(inode);
+	ret = ext2_write_inode(inode);
 	dentry->d_inode = NULL;
 	iput(inode);
-	return 0;
+	return ret;
 }
 
 static int ext2_rmdir(struct inode *dir, struct dentry *dentry)
@@ -660,11 +692,12 @@ static int ext2_rmdir(struct inode *dir, struct dentry *dentry)
 	if (dir->i_nlink > 0)
 		dir->i_nlink--;
 	inode->i_nlink = 0;
-	ext2_write_inode(inode);
-	ext2_write_inode(dir);
+	ret = ext2_write_inode(inode);
+	if (ret == 0)
+		ret = ext2_write_inode(dir);
 	dentry->d_inode = NULL;
 	iput(inode);
-	return 0;
+	return ret;
 }
 
 static int ext2_readdir(struct file *file, void *ctx, filldir_t filldir)
@@ -827,12 +860,16 @@ static int ext2_rename(struct inode *old_dir, struct dentry *old_dentry,
 			new_inode->i_nlink = 0;
 			if (new_dir->i_nlink > 0)
 				new_dir->i_nlink--;
-			ext2_write_inode(new_dir);
+			ret = ext2_write_inode(new_dir);
+			if (ret < 0)
+				return ret;
 		} else {
 			if (new_inode->i_nlink > 0)
 				new_inode->i_nlink--;
 		}
-		ext2_write_inode(new_inode);
+		ret = ext2_write_inode(new_inode);
+		if (ret < 0)
+			return ret;
 		new_dentry->d_inode = NULL;
 		iput(new_inode);
 	}
@@ -841,8 +878,12 @@ static int ext2_rename(struct inode *old_dir, struct dentry *old_dentry,
 		if (old_dir->i_nlink > 0)
 			old_dir->i_nlink--;
 		new_dir->i_nlink++;
-		ext2_write_inode(old_dir);
-		ext2_write_inode(new_dir);
+		ret = ext2_write_inode(old_dir);
+		if (ret < 0)
+			return ret;
+		ret = ext2_write_inode(new_dir);
+		if (ret < 0)
+			return ret;
 	}
 
 	return 0;

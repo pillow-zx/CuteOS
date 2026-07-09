@@ -44,15 +44,44 @@ static void unlink_test_path(const char *path)
 	(void)vfs_unlink_at_path(NULL, path, 0);
 }
 
+static int datasync_test_writebacks;
+static int datasync_test_hooks;
+
+static int datasync_test_write_inode(struct inode *inode)
+{
+	(void)inode;
+	datasync_test_writebacks++;
+	return 0;
+}
+
+static int datasync_test_datasync_inode(struct inode *inode)
+{
+	(void)inode;
+	datasync_test_hooks++;
+	return 0;
+}
+
+static const struct super_operations datasync_fallback_sops = {
+	.write_inode = datasync_test_write_inode,
+};
+
+static const struct super_operations datasync_hook_sops = {
+	.write_inode = datasync_test_write_inode,
+	.datasync_inode = datasync_test_datasync_inode,
+};
+
 static int read_raw_file_page(struct file *file, uint32_t index, uint8_t *buf)
 {
 	struct block_device *bdev;
-	uint32_t pblock;
+	uint32_t pblock = 0;
+	int ret;
 
 	if (!file || !file->f_inode || !buf)
 		return -EINVAL;
 
-	pblock = ext2_bmap(file->f_inode, index, false);
+	ret = ext2_bmap(file->f_inode, index, false, &pblock);
+	if (ret < 0)
+		return ret;
 	if (!pblock)
 		return -ENOENT;
 
@@ -64,15 +93,64 @@ static int read_raw_file_page(struct file *file, uint32_t index, uint8_t *buf)
 					  BLOCK_SECTORS);
 }
 
+static int read_raw_inode(struct inode *inode, struct ext2_inode *raw)
+{
+	static uint8_t block_buf[BLOCK_SIZE];
+	struct ext2_sb_info *sbi;
+	struct block_device *bdev;
+	uint32_t ino;
+	uint32_t group;
+	uint32_t index;
+	uint32_t byte_offset;
+	uint32_t block;
+	uint32_t offset;
+	int ret;
+
+	if (!inode || !inode->i_sb || !raw)
+		return -EINVAL;
+
+	sbi = EXT2_SB(inode->i_sb);
+	ino = (uint32_t)inode->i_ino;
+	if (!sbi || ino == 0)
+		return -EINVAL;
+
+	group = (ino - 1) / sbi->s_inodes_per_group;
+	index = (ino - 1) % sbi->s_inodes_per_group;
+	if (group >= sbi->s_groups_count)
+		return -EINVAL;
+
+	byte_offset = index * sbi->s_inode_size;
+	block = sbi->s_group_desc[group].bg_inode_table +
+		byte_offset / BLOCK_SIZE;
+	offset = byte_offset % BLOCK_SIZE;
+	if (offset + sizeof(*raw) > BLOCK_SIZE)
+		return -EIO;
+
+	bdev = lookup_block_device(inode->i_sb->s_dev);
+	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->read_sectors)
+		return -ENXIO;
+
+	ret = bdev->bd_ops->read_sectors(bdev, block_buf, block * BLOCK_SECTORS,
+					 BLOCK_SECTORS);
+	if (ret < 0)
+		return ret;
+
+	memcpy(raw, block_buf + offset, sizeof(*raw));
+	return 0;
+}
+
 static int read_block_alias(struct file *file, uint32_t index, uint8_t *buf)
 {
 	struct page_cache *page;
-	uint32_t pblock;
+	uint32_t pblock = 0;
+	int ret;
 
 	if (!file || !file->f_inode || !buf)
 		return -EINVAL;
 
-	pblock = ext2_bmap(file->f_inode, index, false);
+	ret = ext2_bmap(file->f_inode, index, false, &pblock);
+	if (ret < 0)
+		return ret;
 	if (!pblock)
 		return -ENOENT;
 
@@ -90,12 +168,15 @@ static int write_raw_file_page(struct file *file, uint32_t index,
 			       const uint8_t *buf)
 {
 	struct block_device *bdev;
-	uint32_t pblock;
+	uint32_t pblock = 0;
+	int ret;
 
 	if (!file || !file->f_inode || !buf)
 		return -EINVAL;
 
-	pblock = ext2_bmap(file->f_inode, index, false);
+	ret = ext2_bmap(file->f_inode, index, false, &pblock);
+	if (ret < 0)
+		return ret;
 	if (!pblock)
 		return -ENOENT;
 
@@ -214,6 +295,95 @@ cleanup:
 	unlink_test_path("/pcache-fsync-b");
 }
 
+void test_vfs_datasync_metadata_policy(void)
+{
+	struct super_block sb = {0};
+	struct inode inode = {0};
+	struct file file = {0};
+
+	TEST_BEGIN("vfs: fdatasync metadata hook policy");
+	{
+		inode.i_sb = &sb;
+		file.f_inode = &inode;
+		page_mapping_init(&inode.i_pages, &inode, NULL, NULL);
+
+		sb.s_op = &datasync_fallback_sops;
+		datasync_test_writebacks = 0;
+		datasync_test_hooks = 0;
+		TEST_ASSERT_EQ(vfs_datasync_file(&file), 0);
+		TEST_ASSERT_EQ(datasync_test_writebacks, 1);
+		TEST_ASSERT_EQ(datasync_test_hooks, 0);
+
+		sb.s_op = &datasync_hook_sops;
+		datasync_test_writebacks = 0;
+		datasync_test_hooks = 0;
+		TEST_ASSERT_EQ(vfs_datasync_file(&file), 0);
+		TEST_ASSERT_EQ(datasync_test_writebacks, 0);
+		TEST_ASSERT_EQ(datasync_test_hooks, 1);
+	}
+	TEST_END("vfs: fdatasync metadata hook policy");
+	return;
+fail:
+	TEST_FAIL("vfs: fdatasync metadata hook policy", "see above");
+}
+
+void test_page_cache_datasync_skips_pure_inode_metadata(void)
+{
+	static uint8_t wbuf[BLOCK_SIZE];
+	static uint8_t raw[BLOCK_SIZE];
+	struct ext2_inode before;
+	struct ext2_inode after_datasync;
+	struct ext2_inode after_fsync;
+	struct file *file = NULL;
+	uint32_t changed_atime;
+	int fd = -1;
+
+	TEST_BEGIN("page cache: fdatasync skips pure inode metadata");
+	{
+		unlink_test_path("/pcache-datasync-data-only");
+		fill_pattern(wbuf, sizeof(wbuf), 0xb5);
+		memset(raw, 0, sizeof(raw));
+		memset(&before, 0, sizeof(before));
+		memset(&after_datasync, 0, sizeof(after_datasync));
+		memset(&after_fsync, 0, sizeof(after_fsync));
+
+		fd = open_test_file("/pcache-datasync-data-only",
+				    O_CREAT | O_TRUNC | O_RDWR, &file);
+		TEST_ASSERT(fd >= 0);
+		TEST_ASSERT_EQ(
+			vfs_write(file, (const char *)wbuf, sizeof(wbuf)),
+			(ssize_t)sizeof(wbuf));
+		TEST_ASSERT_EQ(read_raw_file_page(file, 0, raw), 0);
+		TEST_ASSERT_NE(memcmp(raw, wbuf, sizeof(wbuf)), 0);
+		TEST_ASSERT_EQ(read_raw_inode(file->f_inode, &before), 0);
+
+		changed_atime = before.i_atime + 1;
+		if (before.i_atime == UINT32_MAX)
+			changed_atime = before.i_atime - 1;
+		file->f_inode->i_atime_sec = changed_atime;
+
+		TEST_ASSERT_EQ(vfs_datasync_file(file), 0);
+		memset(raw, 0, sizeof(raw));
+		TEST_ASSERT_EQ(read_raw_file_page(file, 0, raw), 0);
+		TEST_ASSERT_EQ(memcmp(raw, wbuf, sizeof(wbuf)), 0);
+		TEST_ASSERT_EQ(read_raw_inode(file->f_inode, &after_datasync),
+			       0);
+		TEST_ASSERT_EQ(after_datasync.i_atime, before.i_atime);
+
+		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
+		TEST_ASSERT_EQ(read_raw_inode(file->f_inode, &after_fsync), 0);
+		TEST_ASSERT_EQ(after_fsync.i_atime, changed_atime);
+	}
+	TEST_END("page cache: fdatasync skips pure inode metadata");
+	goto cleanup;
+fail:
+	TEST_FAIL("page cache: fdatasync skips pure inode metadata",
+		  "see above");
+cleanup:
+	close_test_file(fd, file);
+	unlink_test_path("/pcache-datasync-data-only");
+}
+
 void test_page_cache_raw_alias_fsync(void)
 {
 	static uint8_t wbuf[BLOCK_SIZE];
@@ -259,7 +429,7 @@ void test_page_cache_directory_alias_refresh(void)
 	struct path dir_path = {0};
 	struct path file_path = {0};
 	struct page_cache *raw_page = NULL;
-	uint32_t pblock;
+	uint32_t pblock = 0;
 	int ret;
 
 	TEST_BEGIN("page cache: directory alias refresh after create");
@@ -276,7 +446,8 @@ void test_page_cache_directory_alias_refresh(void)
 		TEST_ASSERT_NOT_NULL(dir_path.dentry);
 		TEST_ASSERT_NOT_NULL(dir_path.dentry->d_inode);
 
-		pblock = ext2_bmap(dir_path.dentry->d_inode, 0, false);
+		ret = ext2_bmap(dir_path.dentry->d_inode, 0, false, &pblock);
+		TEST_ASSERT(ret >= 0);
 		TEST_ASSERT_NE(pblock, 0u);
 		raw_page = page_cache_get_block(
 			dir_path.dentry->d_inode->i_sb->s_dev, pblock);
@@ -415,6 +586,7 @@ void test_page_cache_clustered_writeback(void)
 	bool contiguous = true;
 	struct file *file = NULL;
 	int fd = -1;
+	int ret;
 
 	TEST_BEGIN("page cache: clustered writeback");
 	{
@@ -431,7 +603,8 @@ void test_page_cache_clustered_writeback(void)
 				       (ssize_t)sizeof(page_buf));
 		}
 		for (uint32_t i = 0; i < 3; i++) {
-			pblocks[i] = ext2_bmap(file->f_inode, i, false);
+			ret = ext2_bmap(file->f_inode, i, false, &pblocks[i]);
+			TEST_ASSERT(ret >= 0);
 			TEST_ASSERT_NE(pblocks[i], 0u);
 			if (i > 0 && pblocks[i] != pblocks[i - 1] + 1)
 				contiguous = false;

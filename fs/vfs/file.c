@@ -88,6 +88,20 @@ int vfs_sync_file(struct file *file)
 	return vfs_inode_writeback(file->f_inode);
 }
 
+int vfs_datasync_file(struct file *file)
+{
+	int ret;
+
+	if (!file || !file->f_inode)
+		return -EINVAL;
+
+	ret = page_cache_sync_inode(file->f_inode);
+	if (ret < 0)
+		return ret;
+
+	return vfs_inode_datasync(file->f_inode);
+}
+
 int vfs_truncate_file(struct file *file, uint64_t size)
 {
 	if (!file || !file->f_inode)

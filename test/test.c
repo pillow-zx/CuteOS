@@ -207,6 +207,8 @@ void kernel_test(void)
 	TEST_SECTION("Page Cache");
 	test_page_cache_dirty_write_visibility();
 	test_page_cache_fsync_inode_scope();
+	test_vfs_datasync_metadata_policy();
+	test_page_cache_datasync_skips_pure_inode_metadata();
 	test_page_cache_raw_alias_fsync();
 	test_page_cache_directory_alias_refresh();
 	test_page_cache_raw_alias_drop();

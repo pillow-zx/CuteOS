@@ -137,6 +137,8 @@ void test_page_cache_metadata_eviction(void);
 
 void test_page_cache_dirty_write_visibility(void);
 void test_page_cache_fsync_inode_scope(void);
+void test_vfs_datasync_metadata_policy(void);
+void test_page_cache_datasync_skips_pure_inode_metadata(void);
 void test_page_cache_raw_alias_fsync(void);
 void test_page_cache_directory_alias_refresh(void);
 void test_page_cache_raw_alias_drop(void);

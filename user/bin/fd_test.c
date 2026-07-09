@@ -95,6 +95,36 @@ static int test_fd_flags_error_paths(void)
 	return failed;
 }
 
+static int test_fsync_fdatasync_basic(void)
+{
+	long fd;
+	int failed = 0;
+	char data[] = "sync-data";
+
+	failed += fd_flags_expect_ret("fsync invalid fd", fsync(-1), -EBADF);
+	failed += fd_flags_expect_ret("fdatasync invalid fd", fdatasync(-1),
+				      -EBADF);
+
+	fd = openat(AT_FDCWD, "/fdatasync_basic",
+		    O_CREAT | O_RDWR | O_TRUNC, 0644);
+	if (fd < 0) {
+		printf("FAIL: open fdatasync basic: %ld\n", fd);
+		return failed + 1;
+	}
+
+	if (write((int)fd, data, sizeof(data)) != (long)sizeof(data)) {
+		printf("FAIL: write fdatasync basic\n");
+		failed++;
+	}
+	failed += fd_flags_expect_ret("fdatasync regular file",
+				      fdatasync((int)fd), 0);
+	failed += fd_flags_expect_ret("fsync regular file", fsync((int)fd), 0);
+
+	close((int)fd);
+	unlinkat(AT_FDCWD, "/fdatasync_basic", 0);
+	return failed;
+}
+
 static int test_reused_fd_clears_cloexec(void)
 {
 	long fd;
@@ -872,6 +902,8 @@ int main(int argc, char **argv)
 
 	report_group("get/set fd flags", test_get_set_fd_flags(), &failed);
 	report_group("fd flag error paths", test_fd_flags_error_paths(),
+		     &failed);
+	report_group("fsync fdatasync basic", test_fsync_fdatasync_basic(),
 		     &failed);
 	report_group("fd reuse clears cloexec", test_reused_fd_clears_cloexec(),
 		     &failed);

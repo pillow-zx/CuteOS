@@ -67,7 +67,7 @@
 - [x] 建立 `fcntl` cmd 支持表，明确 unsupported errno。
 - [x] 扩展 `pipe2` 支持 `O_NONBLOCK`，或明确拒绝并测试。
 - [x] 补 tty/console 常用 ioctl：窗口大小、termios 探测、必要错误码。
-- [ ] 给 `fdatasync == fsync` 的简化加文档和测试。
+- [x] 将 `fdatasync` 从 `fsync` 别名拆出，增加 FS datasync hook 与 fallback，覆盖数据写回且跳过纯 inode 元数据的测试。
 
 验收：
 
