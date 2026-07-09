@@ -179,14 +179,67 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | ---: | --- | --- | --- | --- | --- |
 | 214 | `brk` | A | 堆增长/查询，不缩小 | Linux shrink 行为不同 | 保持或明确兼容差异 |
 | 215 | `munmap` | A | VMA 拆分和页释放 | 并发不相关 | 保持 |
-| 216 | `mremap` | B | 基础 remap | 复杂移动/固定地址语义需确认 | 建立 mremap flag 表 |
-| 222 | `mmap` | B | 匿名和 file-backed mmap 入口 | shared/writeback、权限细节 | 优先加深 file mmap |
-| 226 | `mprotect` | B | VMA 拆分和 PTE 权限更新 | W^X/exec cache 细节 | 补跨 VMA 测试 |
-| 227 | `msync` | B | 验证并委托 MM | shared file mapping 深度有限 | 与 mmap writeback 一起推进 |
+| 216 | `mremap` | B | 支持 shrink/grow、`MREMAP_MAYMOVE`、`MREMAP_FIXED`，见 flag 支持表 | `MREMAP_DONTUNMAP` 不支持 | 需要源区保留契约后再扩展 |
+| 222 | `mmap` | B | 匿名和 regular file-backed `MAP_PRIVATE/MAP_SHARED`，支持 `MAP_SHARED_VALIDATE`、`MAP_FIXED_NOREPLACE`、`MAP_POPULATE`，见 flag 支持表 | 无 huge page、locked/pinned 语义；越过文件大小的 Linux `SIGBUS` 语义未实现 | 按真实程序需求补 pin/更深 file fault |
+| 226 | `mprotect` | B | VMA 拆分和 resident PTE 权限更新，覆盖跨 VMA 范围 | W^X/exec cache 细节 | 保持跨 VMA/slot 压测 |
+| 227 | `msync` | B | 验证映射范围；resident shared file 页标脏；`MS_SYNC` 通过 VFS/page cache 写回 | `MS_INVALIDATE` 仅 no-op；非 range-limited inode writeback | page cache 有范围写回后收窄同步范围 |
 | 228 | `mlock` | C | 当前更偏验证/占位语义 | 无完整 resident pin/limit | 不宣传完整支持 |
 | 229 | `munlock` | C | 同 mlock | 同 mlock | 同 mlock |
-| 232 | `mincore` | B | 查询 resident bit | file cache residency 语义有限 | 补 file-backed 测试 |
-| 233 | `madvise` | B | DONTNEED 释放匿名 resident，其他 advice 验证 | WILLNEED/FREE 等浅语义 | 建立 advice 支持表 |
+| 232 | `mincore` | B | 查询匿名和 file-backed 映射的 resident PTE bit | 不报告仅存在于 page cache 的文件页 | 保持为 resident 用户映射查询 |
+| 233 | `madvise` | B | 建立 advice 表；`DONTNEED` 释放匿名、private file、shared file resident 页 | `FREE/WILLNEED` 等仍是 no-op hint；`REMOVE` 不支持 | 有 backing-store 语义后再扩展 destructive advice |
+
+### `mmap` flag 支持表
+
+`mmap` 先按 Linux `MAP_TYPE` 解析映射类型。`MAP_SHARED_VALIDATE` 的普通
+映射语义与 `MAP_SHARED` 相同；携带 cuteOS 不支持的扩展 flag 时返回
+`-EOPNOTSUPP`。
+
+| flag / type | 状态 | errno / 语义 |
+| --- | --- | --- |
+| `MAP_PRIVATE` | supported | 匿名映射分配私有零页；file-backed 映射按需从 page cache 拷贝私有页，修改不写回 |
+| `MAP_SHARED` | supported | regular file 页直接映射 page cache；resident writable 页在 `msync`/`munmap` 时标脏并可写回 |
+| `MAP_FIXED` | supported | 使用精确地址，先 unmap 目标范围 |
+| `MAP_FIXED_NOREPLACE` | supported | 使用精确地址但不覆盖已有 VMA；冲突返回 `-EEXIST` |
+| `MAP_ANONYMOUS` | supported | 不使用 fd；仍要求 `MAP_PRIVATE` 或 `MAP_SHARED` 类型 |
+| `MAP_DENYWRITE/MAP_EXECUTABLE/MAP_NORESERVE/MAP_STACK` | supported no-op | 兼容真实程序常见 hint，不改变布局或分配策略 |
+| `MAP_SHARED_VALIDATE` | supported | 按 shared mapping 创建；不支持的 validate 扩展 flag 返回 `-EOPNOTSUPP` |
+| `MAP_POPULATE` | supported | 建立 VMA 后尽力 fault-in 普通匿名/file-backed 页；prefault 失败不撤销成功映射 |
+| `MAP_GROWSDOWN/MAP_LOCKED/MAP_NONBLOCK/MAP_HUGETLB/MAP_SYNC` | unsupported | 普通 mapping 返回 `-EINVAL`；`MAP_SHARED_VALIDATE` 下返回 `-EOPNOTSUPP` |
+| unknown flag bits | unsupported | 普通 mapping 返回 `-EINVAL`；`MAP_SHARED_VALIDATE` 下返回 `-EOPNOTSUPP` |
+
+### `msync` flag 支持表
+
+`msync` 要求地址页对齐，范围必须已映射；未映射页返回 `-ENOMEM`。
+
+| flag | 状态 | errno / 语义 |
+| --- | --- | --- |
+| `0` / `MS_ASYNC` | supported | 验证范围；对 resident shared file 页记录 dirty 状态但不等待写回 |
+| `MS_SYNC` | supported | 记录 dirty 状态并通过 VFS/page cache 同步对应 file |
+| `MS_INVALIDATE` | supported no-op | 接受但不主动丢弃其它映射或 page cache |
+| `MS_ASYNC | MS_SYNC` | unsupported | `-EINVAL` |
+| unknown flag bits | unsupported | `-EINVAL` |
+
+### `madvise` advice 支持表
+
+| advice | 状态 | errno / 语义 |
+| --- | --- | --- |
+| `MADV_NORMAL/MADV_RANDOM/MADV_SEQUENTIAL` | supported no-op | 验证范围后返回成功 |
+| `MADV_WILLNEED` | supported no-op | 不 prefault，只固定 probe-safe 成功行为 |
+| `MADV_FREE` | supported no-op | 不建立 lazy-free 状态 |
+| `MADV_DONTNEED` | supported | 丢弃 resident 页；匿名重新 fault 得零页，private file 重新从文件读取，shared file 保留 page-cache 数据并丢弃 PTE |
+| `MADV_REMOVE` | unsupported | `-EINVAL` |
+| unknown advice | unsupported | `-EINVAL` |
+
+### `mremap` flag 支持表
+
+| flag / 组合 | 状态 | errno / 语义 |
+| --- | --- | --- |
+| `0` | supported | 原地 shrink/grow；无法原地 grow 时返回 `-ENOMEM` |
+| `MREMAP_MAYMOVE` | supported | 原地失败时移动到内核选择的新地址 |
+| `MREMAP_MAYMOVE | MREMAP_FIXED` | supported | 移动到页对齐的指定地址，替换目标范围 |
+| `MREMAP_FIXED` without `MREMAP_MAYMOVE` | unsupported | `-EINVAL` |
+| `MREMAP_DONTUNMAP` | unsupported | `-EINVAL` |
+| unknown flag bits | unsupported | `-EINVAL` |
 
 ## futex/rseq/membarrier
 

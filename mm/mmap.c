@@ -22,6 +22,13 @@
 static int __must_check mm_unmap_range_locked(struct mm_struct *mm,
 					      uintptr_t addr, uintptr_t end);
 
+#define MM_MMAP_COMPAT_FLAGS                                                   \
+	(MAP_DENYWRITE | MAP_EXECUTABLE | MAP_NORESERVE | MAP_STACK)
+#define MM_MMAP_PLACEMENT_FLAGS (MAP_FIXED | MAP_FIXED_NOREPLACE)
+#define MM_MMAP_SUPPORTED_FLAGS                                                \
+	(MAP_SHARED | MAP_PRIVATE | MAP_ANONYMOUS | MM_MMAP_COMPAT_FLAGS |     \
+	 MM_MMAP_PLACEMENT_FLAGS | MAP_POPULATE)
+
 static uintptr_t find_unmapped_area(struct mm_struct *mm, size_t length)
 {
 	uintptr_t len;
@@ -55,6 +62,78 @@ static uintptr_t find_unmapped_area(struct mm_struct *mm, size_t length)
 static bool mm_owns_page_frame(paddr_t pa)
 {
 	return pa >= DRAM_BASE && pa < DRAM_BASE + DRAM_SIZE;
+}
+
+static int mmap_parse_flags(int flags, bool *shared, bool *private, bool *fixed,
+			    bool *noreplace, bool *populate)
+{
+	int type = flags & MAP_TYPE;
+	bool validate = type == MAP_SHARED_VALIDATE;
+
+	if ((flags & ~MM_MMAP_SUPPORTED_FLAGS) != 0)
+		return validate ? -EOPNOTSUPP : -EINVAL;
+
+	*shared = false;
+	*private = false;
+	switch (type) {
+	case MAP_SHARED:
+	case MAP_SHARED_VALIDATE:
+		*shared = true;
+		break;
+	case MAP_PRIVATE:
+		*private = true;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	*noreplace = (flags & MAP_FIXED_NOREPLACE) != 0;
+	*fixed = (flags & MM_MMAP_PLACEMENT_FLAGS) != 0;
+	*populate = (flags & MAP_POPULATE) != 0;
+	return 0;
+}
+
+static int mmap_populate_access(const struct vm_area_struct *vma)
+{
+	if (vma->vm_flags & VM_READ)
+		return USER_FAULT_READ;
+	if (vma->vm_flags & VM_EXEC)
+		return USER_FAULT_EXEC;
+	return -EINVAL;
+}
+
+static void mmap_populate_range(struct mm_struct *mm, uintptr_t start,
+				uintptr_t end)
+{
+	uintptr_t cursor = start;
+
+	while (cursor < end) {
+		struct vm_area_struct *vma;
+		uintptr_t segment_end;
+		int access;
+		int ret;
+
+		mm_lock(mm);
+		vma = find_vma(mm, cursor);
+		if (!vma) {
+			mm_unlock(mm);
+			return;
+		}
+
+		segment_end = MIN(vma->vm_end, end);
+		access = mmap_populate_access(vma);
+		mm_unlock(mm);
+
+		if (segment_end <= cursor)
+			return;
+		if (access >= 0) {
+			ret = fault_in_user_range(mm, cursor,
+						  segment_end - cursor, access);
+			if (ret < 0)
+				return;
+		}
+		cursor = segment_end;
+	}
 }
 
 static int install_vma_locked(struct mm_struct *mm, uintptr_t start,
@@ -140,15 +219,17 @@ void mm_unmap_user_pages_locked(struct mm_struct *mm,
 }
 
 static int __must_check __nonnull(1)
-mm_map_user_pte_like(pte_t *root, uintptr_t va, paddr_t pa, pte_t old_entry)
+	mm_map_user_pte_like(pte_t *root, uintptr_t va, paddr_t pa,
+			     pte_t old_entry)
 {
 	pgprot_t perm = pte_leaf_prot(old_entry);
 	int ret;
 	pte_t *pte;
 
-	ret = map_page(root, va, pa, pte_is_present(old_entry) ? perm :
-						    pgprot_user(true, false,
-								 false));
+	ret = map_page(root, va, pa,
+		       pte_is_present(old_entry)
+			       ? perm
+			       : pgprot_user(true, false, false));
 	if (ret < 0)
 		return ret;
 
@@ -196,8 +277,7 @@ int mm_move_user_pages_locked(struct mm_struct *mm, uintptr_t old_start,
 
 		old_entry = *old_pte;
 		ret = mm_map_user_pte_like(mm->pgd, new_va,
-					   pte_phys_addr(old_entry),
-					   old_entry);
+					   pte_phys_addr(old_entry), old_entry);
 		if (ret < 0) {
 			for (uintptr_t va = new_start; va < mapped_end;
 			     va += PAGE_SIZE) {
@@ -395,17 +475,14 @@ pte_t *mm_create_user_pgd(void)
 	pte_t *kern_root;
 	int ret;
 
-
 	user_pgd = (pte_t *)get_free_page(0);
 	if (!user_pgd)
 		return NULL;
 	memset(user_pgd, 0, PAGE_SIZE);
 
-
 	kern_root = current_pt();
 	for (int i = 256; i < 512; i++)
 		user_pgd[i] = kern_root[i];
-
 
 	ret = user_map_apply(user_pgd);
 	if (ret < 0) {
@@ -512,24 +589,27 @@ ssize_t mm_mmap_file(struct mm_struct *mm, uintptr_t addr, size_t length,
 	bool anonymous;
 	bool shared;
 	bool private;
+	bool fixed;
+	bool noreplace;
+	bool populate;
 	ssize_t ret;
 
 	if (!mm)
 		return -ENOMEM;
 
-	if (flags & ~(MAP_SHARED | MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS))
-		return -EINVAL;
-
 	if (!mm_prot_is_valid(prot))
 		return -EINVAL;
 
+	ret = mmap_parse_flags(flags, &shared, &private, &fixed, &noreplace,
+			       &populate);
+	if (ret < 0)
+		return ret;
+
 	anonymous = (flags & MAP_ANONYMOUS) != 0;
-	shared = (flags & MAP_SHARED) != 0;
-	private = (flags & MAP_PRIVATE) != 0;
 	if (shared == private)
 		return -EINVAL;
 
-	if (flags & MAP_FIXED) {
+	if (fixed) {
 		if (addr == 0 || (addr & (PAGE_SIZE - 1)))
 			return -EINVAL;
 	}
@@ -563,7 +643,7 @@ ssize_t mm_mmap_file(struct mm_struct *mm, uintptr_t addr, size_t length,
 
 	mm_lock(mm);
 
-	if (flags & MAP_FIXED) {
+	if (fixed) {
 		start = addr;
 	} else if (addr != 0) {
 		start = mm_page_align_up(addr);
@@ -589,10 +669,16 @@ ssize_t mm_mmap_file(struct mm_struct *mm, uintptr_t addr, size_t length,
 		goto out;
 	}
 
-	if (flags & MAP_FIXED) {
-		ret = mm_unmap_range_locked(mm, start, end);
-		if (ret < 0)
+	if (fixed) {
+		if (noreplace && vma_range_overlaps(mm, start, end)) {
+			ret = -EEXIST;
 			goto out;
+		}
+		if (!noreplace) {
+			ret = mm_unmap_range_locked(mm, start, end);
+			if (ret < 0)
+				goto out;
+		}
 	} else if (vma_range_overlaps(mm, start, end)) {
 		ret = -EINVAL;
 		goto out;
@@ -608,6 +694,8 @@ ssize_t mm_mmap_file(struct mm_struct *mm, uintptr_t addr, size_t length,
 
 out:
 	mm_unlock(mm);
+	if (ret >= 0 && populate)
+		mmap_populate_range(mm, (uintptr_t)ret, end);
 put_file:
 	file_put(file);
 	return ret;
@@ -670,21 +758,27 @@ int mm_munmap(struct mm_struct *mm, uintptr_t addr, size_t length)
 	return ret;
 }
 
-static void madvise_dontneed_range(struct mm_struct *mm, uintptr_t start,
-				   uintptr_t end)
+static int madvise_dontneed_range(struct mm_struct *mm, uintptr_t start,
+				  uintptr_t end)
 {
-	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-		pte_t *pte = pagetable_lookup(mm->pgd, va);
+	uintptr_t cursor = start;
 
-		if (!pte || !pte_is_user_page(*pte))
-			continue;
+	while (cursor < end) {
+		struct vm_area_struct *vma = find_vma(mm, cursor);
+		uintptr_t segment_end;
 
-		paddr_t pa = pte_phys_addr(*pte);
-		if (mm_owns_page_frame(pa))
-			free_page(__va(pa), 0);
-		*pte = 0;
-		flush_tlb_page(va);
+		if (!vma)
+			return -ENOMEM;
+
+		segment_end = MIN(vma->vm_end, end);
+		if (segment_end <= cursor)
+			return -ENOMEM;
+
+		mm_unmap_user_pages_locked(mm, vma, cursor, segment_end);
+		cursor = segment_end;
 	}
+
+	return 0;
 }
 
 int mm_madvise(struct mm_struct *mm, uintptr_t addr, size_t len, int advice)
@@ -727,14 +821,10 @@ int mm_madvise(struct mm_struct *mm, uintptr_t addr, size_t len, int advice)
 			ret = -ENOMEM;
 			goto out;
 		}
-		if (drop_resident && !vma_is_anonymous(vma)) {
-			ret = -EINVAL;
-			goto out;
-		}
 	}
 
 	if (drop_resident)
-		madvise_dontneed_range(mm, addr, end);
+		ret = madvise_dontneed_range(mm, addr, end);
 
 out:
 	mm_unlock(mm);
@@ -742,7 +832,8 @@ out:
 }
 
 static int __must_check __nonnull(3, 4)
-mm_mlock_range(uintptr_t addr, size_t len, uintptr_t *start, uintptr_t *end)
+	mm_mlock_range(uintptr_t addr, size_t len, uintptr_t *start,
+		       uintptr_t *end)
 {
 	uintptr_t raw_end;
 	uintptr_t aligned_end;
@@ -769,7 +860,8 @@ mm_mlock_range(uintptr_t addr, size_t len, uintptr_t *start, uintptr_t *end)
 }
 
 static int __must_check __nonnull(1)
-mm_mlock_validate_range(struct mm_struct *mm, uintptr_t start, uintptr_t end)
+	mm_mlock_validate_range(struct mm_struct *mm, uintptr_t start,
+				uintptr_t end)
 {
 	int ret = 0;
 
@@ -847,9 +939,11 @@ int mm_munlock(struct mm_struct *mm, uintptr_t addr, size_t len)
 }
 
 static ssize_t __must_check __nonnull(1, 2)
-mremap_move_locked(struct mm_struct *mm, const struct vm_area_struct *old_vma,
-		   uintptr_t old_addr, uintptr_t old_end, size_t old_len,
-		   size_t new_len, uintptr_t fixed_addr, bool fixed)
+	mremap_move_locked(struct mm_struct *mm,
+			   const struct vm_area_struct *old_vma,
+			   uintptr_t old_addr, uintptr_t old_end,
+			   size_t old_len, size_t new_len, uintptr_t fixed_addr,
+			   bool fixed)
 {
 	struct vm_area_struct new_template;
 	struct vm_area_struct *new_vma;
@@ -907,7 +1001,6 @@ mremap_move_locked(struct mm_struct *mm, const struct vm_area_struct *old_vma,
 
 	ret = mm_unmap_range_locked(mm, old_addr, old_end);
 	if (ret < 0) {
-
 		return ret;
 	}
 
@@ -1103,7 +1196,7 @@ int mm_map_page(struct mm_struct *mm, uintptr_t va, void *page, int prot)
 }
 
 int mm_map_segment(struct mm_struct *mm, uintptr_t start, uintptr_t end,
-			int prot)
+		   int prot)
 {
 	int ret = 0;
 
@@ -1130,8 +1223,8 @@ out:
 }
 
 int mm_map_file_segment(struct mm_struct *mm, struct file *file,
-			     uintptr_t start, uintptr_t end, int prot,
-			     uint64_t file_offset)
+			uintptr_t start, uintptr_t end, int prot,
+			uint64_t file_offset)
 {
 	uint64_t page_delta;
 	int ret = 0;
@@ -1203,8 +1296,7 @@ out:
 	return ret;
 }
 
-int mm_finalize(struct mm_struct *mm, uintptr_t first_vaddr,
-		     uintptr_t last_end)
+int mm_finalize(struct mm_struct *mm, uintptr_t first_vaddr, uintptr_t last_end)
 {
 	if (!mm || first_vaddr >= last_end || last_end > USER_STACK_BASE)
 		return -EINVAL;
@@ -1269,7 +1361,6 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 		goto out;
 
 	vma_update_flags_range(mm, addr, end, new_vm_flags);
-
 
 	for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {
 		pte_t *pte = pagetable_lookup(mm->pgd, va);

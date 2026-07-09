@@ -76,10 +76,10 @@
 
 ### 2.2 mmap/mprotect/msync/madvise
 
-- [ ] 明确 file-backed mmap 的 MAP_PRIVATE/MAP_SHARED 支持等级。
-- [ ] 加强 `msync` 与 page cache/writeback 的连接。
-- [ ] 为 `madvise` 建立 advice 支持表。
-- [ ] 覆盖跨 VMA `mprotect`、partial `munmap`、`mremap` flag 组合。
+- [x] 明确 file-backed mmap 的 MAP_PRIVATE/MAP_SHARED 支持等级。
+- [x] 加强 `msync` 与 page cache/writeback 的连接。
+- [x] 为 `madvise` 建立 advice 支持表。
+- [x] 覆盖跨 VMA `mprotect`、partial `munmap`、`mremap` flag 组合。
 
 验收：
 

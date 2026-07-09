@@ -7,11 +7,13 @@
 #include <uapi/mman.h>
 #include <uapi/signal.h>
 
-#define PAGE_SIZE 4096UL
+#define PAGE_SIZE	      4096UL
 #define USER_STACK_GUARD_BASE 0x7FFFE000UL
-#define USER_STACK_BASE 0x7FFFF000UL
+#define USER_STACK_BASE	      0x7FFFF000UL
 
 #define MMAP_TEST_FILE "/mmap_file_test"
+
+STATIC_ASSERT(EOPNOTSUPP == 95, "EOPNOTSUPP ABI value mismatch");
 
 static char mmap_file_data[PAGE_SIZE];
 static char mmap_file_readback[PAGE_SIZE];
@@ -50,8 +52,7 @@ static int create_mmap_test_file(const char *data, size_t len)
 	int fd;
 
 	unlinkat(AT_FDCWD, MMAP_TEST_FILE, 0);
-	fd = openat(AT_FDCWD, MMAP_TEST_FILE, O_CREAT | O_RDWR | O_TRUNC,
-		    0644);
+	fd = openat(AT_FDCWD, MMAP_TEST_FILE, O_CREAT | O_RDWR | O_TRUNC, 0644);
 	if (fd < 0) {
 		printf("FAIL: open mmap test file: %d\n", fd);
 		return -1;
@@ -76,14 +77,12 @@ static int test_brk_growth(void)
 		return 1;
 	}
 
-
 	new_brk = brk(old_brk + (long)PAGE_SIZE);
 	if (new_brk != old_brk + (long)PAGE_SIZE) {
 		printf("FAIL: brk grow: expected %ld got %ld\n",
 		       old_brk + (long)PAGE_SIZE, new_brk);
 		return 1;
 	}
-
 
 	p = (char *)old_brk;
 	for (size_t i = 0; i < PAGE_SIZE; i++) {
@@ -94,7 +93,6 @@ static int test_brk_growth(void)
 		}
 	}
 
-
 	for (size_t i = 0; i < PAGE_SIZE; i++)
 		p[i] = (char)(i & 0xff);
 	for (size_t i = 0; i < PAGE_SIZE; i++) {
@@ -104,7 +102,6 @@ static int test_brk_growth(void)
 			return 1;
 		}
 	}
-
 
 	brk(old_brk);
 	return 0;
@@ -122,7 +119,6 @@ static int test_mmap_anon(void)
 		return 1;
 	}
 
-
 	for (size_t i = 0; i < len; i++) {
 		if (m[i] != 0) {
 			printf("FAIL: mmap not zero at %zu\n", i);
@@ -130,7 +126,6 @@ static int test_mmap_anon(void)
 			return 1;
 		}
 	}
-
 
 	for (size_t i = 0; i < len; i++)
 		m[i] = (char)(i * 7 & 0xff);
@@ -158,10 +153,8 @@ static int test_munmap_split(void)
 		return 1;
 	}
 
-
 	m[0] = 0xAA;
 	m[len - 1] = 0xBB;
-
 
 	long rc = munmap(m + PAGE_SIZE, 2 * PAGE_SIZE);
 
@@ -170,7 +163,6 @@ static int test_munmap_split(void)
 		munmap(m, len);
 		return 1;
 	}
-
 
 	if ((unsigned char)m[0] != 0xAA) {
 		printf("FAIL: head sentinel lost after split munmap\n");
@@ -184,7 +176,6 @@ static int test_munmap_split(void)
 		munmap(m + 3 * PAGE_SIZE, PAGE_SIZE);
 		return 1;
 	}
-
 
 	munmap(m, PAGE_SIZE);
 	munmap(m + 3 * PAGE_SIZE, PAGE_SIZE);
@@ -208,7 +199,6 @@ static int test_mmap_independent(void)
 		}
 		maps[i][0] = (char)i;
 	}
-
 
 	for (int i = 0; i < N_MAPS; i++) {
 		if (maps[i][0] != (char)i) {
@@ -238,10 +228,8 @@ static int test_ro_rw(void)
 		return 1;
 	}
 
-
 	m[0] = 0xab;
 	m[PAGE_SIZE] = 0xcd;
-
 
 	ret = mprotect(m, PAGE_SIZE, PROT_READ);
 	if (ret != 0) {
@@ -249,7 +237,6 @@ static int test_ro_rw(void)
 		munmap(m, 2 * PAGE_SIZE);
 		return 1;
 	}
-
 
 	p = (volatile char *)m;
 	pid = fork();
@@ -273,7 +260,6 @@ static int test_ro_rw(void)
 		return 1;
 	}
 
-
 	ret = mprotect(m, PAGE_SIZE, PROT_READ | PROT_WRITE);
 	if (ret != 0) {
 		printf("FAIL: mprotect restore RW: %ld\n", ret);
@@ -281,14 +267,12 @@ static int test_ro_rw(void)
 		return 1;
 	}
 
-
 	m[0] = 0x42;
 	if (m[0] != 0x42) {
 		printf("FAIL: write after restore failed\n");
 		munmap(m, 2 * PAGE_SIZE);
 		return 1;
 	}
-
 
 	m[PAGE_SIZE] = 0x77;
 	if (m[PAGE_SIZE] != 0x77) {
@@ -353,11 +337,9 @@ static int test_partial_range(void)
 		return 1;
 	}
 
-
 	m[0] = 1;
 	m[PAGE_SIZE] = 2;
 	m[2 * PAGE_SIZE] = 3;
-
 
 	ret = mprotect(m + PAGE_SIZE, PAGE_SIZE, PROT_READ);
 	if (ret != 0) {
@@ -365,7 +347,6 @@ static int test_partial_range(void)
 		munmap(m, 3 * PAGE_SIZE);
 		return 1;
 	}
-
 
 	m[0] = 0x11;
 	m[2 * PAGE_SIZE] = 0x33;
@@ -375,7 +356,6 @@ static int test_partial_range(void)
 		return 1;
 	}
 
-
 	ret = mprotect(m + PAGE_SIZE, PAGE_SIZE, PROT_READ | PROT_WRITE);
 	if (ret != 0) {
 		printf("FAIL: mprotect restore middle: %ld\n", ret);
@@ -384,6 +364,63 @@ static int test_partial_range(void)
 	}
 
 	munmap(m, 3 * PAGE_SIZE);
+	return 0;
+}
+
+static int test_mprotect_cross_vma(void)
+{
+	char *first;
+	char *second;
+	void *base = (void *)0x45000000UL;
+	long ret;
+
+	first = mmap(base, PAGE_SIZE, PROT_READ | PROT_WRITE,
+		     MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+	if ((long)first < 0) {
+		printf("FAIL: first cross-VMA mmap: %ld\n", (long)first);
+		return 1;
+	}
+
+	second = mmap(first + PAGE_SIZE, PAGE_SIZE, PROT_READ,
+		      MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+	if ((long)second < 0 || second != first + PAGE_SIZE) {
+		printf("FAIL: second cross-VMA mmap: %ld\n", (long)second);
+		if ((long)second >= 0)
+			munmap(second, PAGE_SIZE);
+		munmap(first, PAGE_SIZE);
+		return 1;
+	}
+
+	ret = mprotect(first, 2 * PAGE_SIZE, PROT_READ | PROT_WRITE);
+	if (ret != 0) {
+		printf("FAIL: cross-VMA mprotect RW: %ld\n", ret);
+		munmap(first, 2 * PAGE_SIZE);
+		return 1;
+	}
+
+	first[0] = 0x11;
+	second[0] = 0x22;
+	if (first[0] != 0x11 || second[0] != 0x22) {
+		printf("FAIL: cross-VMA write after mprotect\n");
+		munmap(first, 2 * PAGE_SIZE);
+		return 1;
+	}
+
+	ret = mprotect(first, 2 * PAGE_SIZE, PROT_READ);
+	if (ret != 0) {
+		printf("FAIL: cross-VMA mprotect R: %ld\n", ret);
+		munmap(first, 2 * PAGE_SIZE);
+		return 1;
+	}
+
+	ret = mprotect(first, 2 * PAGE_SIZE, PROT_READ | PROT_WRITE);
+	if (ret != 0) {
+		printf("FAIL: cross-VMA restore RW: %ld\n", ret);
+		munmap(first, 2 * PAGE_SIZE);
+		return 1;
+	}
+
+	munmap(first, 2 * PAGE_SIZE);
 	return 0;
 }
 
@@ -439,7 +476,6 @@ static int test_madvise_valid(void)
 		return 1;
 	}
 
-
 	m[0] = 1;
 	m[PAGE_SIZE] = 2;
 
@@ -491,6 +527,141 @@ static int test_madvise_valid(void)
 	}
 
 	munmap(m, 2 * PAGE_SIZE);
+	return 0;
+}
+
+static int test_madvise_private_file_dontneed(void)
+{
+	char *m;
+	unsigned char vec[1];
+	int fd;
+	long ret;
+
+	for (size_t i = 0; i < PAGE_SIZE; i++)
+		mmap_file_data[i] = (char)(0x51 + (i % 31));
+
+	if (create_mmap_test_file(mmap_file_data, sizeof(mmap_file_data)) < 0)
+		return 1;
+
+	fd = openat(AT_FDCWD, MMAP_TEST_FILE, O_RDONLY, 0);
+	if (fd < 0) {
+		printf("FAIL: open private DONTNEED file: %d\n", fd);
+		return 1;
+	}
+
+	m = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+	close(fd);
+	if ((long)m < 0) {
+		printf("FAIL: private DONTNEED mmap: %ld\n", (long)m);
+		return 1;
+	}
+
+	if (m[3] != mmap_file_data[3]) {
+		printf("FAIL: private DONTNEED initial read\n");
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+	m[3] = 0x5a;
+
+	vec[0] = 0;
+	ret = mincore(m, PAGE_SIZE, vec);
+	if (ret != 0 || !(vec[0] & 1)) {
+		printf("FAIL: private DONTNEED resident ret=%ld vec=%u\n", ret,
+		       vec[0]);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	ret = madvise(m, PAGE_SIZE, MADV_DONTNEED);
+	if (ret != 0) {
+		printf("FAIL: private file MADV_DONTNEED: %ld\n", ret);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	vec[0] = 1;
+	ret = mincore(m, PAGE_SIZE, vec);
+	if (ret != 0 || (vec[0] & 1)) {
+		printf("FAIL: private DONTNEED dropped ret=%ld vec=%u\n", ret,
+		       vec[0]);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	if (m[3] != mmap_file_data[3]) {
+		printf("FAIL: private DONTNEED did not reload file data\n");
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	munmap(m, PAGE_SIZE);
+	return 0;
+}
+
+static int test_madvise_shared_file_dontneed(void)
+{
+	char *m;
+	int fd;
+	long ret;
+
+	for (size_t i = 0; i < PAGE_SIZE; i++)
+		mmap_file_data[i] = (char)(0x61 + (i % 29));
+
+	if (create_mmap_test_file(mmap_file_data, sizeof(mmap_file_data)) < 0)
+		return 1;
+
+	fd = openat(AT_FDCWD, MMAP_TEST_FILE, O_RDWR, 0);
+	if (fd < 0) {
+		printf("FAIL: open shared DONTNEED file: %d\n", fd);
+		return 1;
+	}
+
+	m = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	close(fd);
+	if ((long)m < 0) {
+		printf("FAIL: shared DONTNEED mmap: %ld\n", (long)m);
+		return 1;
+	}
+
+	m[5] = 0x6d;
+	ret = madvise(m, PAGE_SIZE, MADV_DONTNEED);
+	if (ret != 0) {
+		printf("FAIL: shared file MADV_DONTNEED: %ld\n", ret);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	if (m[5] != 0x6d) {
+		printf("FAIL: shared DONTNEED lost dirty cache data\n");
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	ret = msync(m, PAGE_SIZE, MS_SYNC);
+	if (ret != 0) {
+		printf("FAIL: shared DONTNEED msync: %ld\n", ret);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+	munmap(m, PAGE_SIZE);
+
+	fd = openat(AT_FDCWD, MMAP_TEST_FILE, O_RDONLY, 0);
+	if (fd < 0) {
+		printf("FAIL: reopen shared DONTNEED file: %d\n", fd);
+		return 1;
+	}
+	if (read_full(fd, mmap_file_readback, PAGE_SIZE)) {
+		printf("FAIL: read shared DONTNEED file\n");
+		close(fd);
+		return 1;
+	}
+	close(fd);
+
+	if (mmap_file_readback[5] != 0x6d) {
+		printf("FAIL: shared DONTNEED data not persisted\n");
+		return 1;
+	}
+
 	return 0;
 }
 
@@ -553,9 +724,7 @@ static int test_mincore_basic(void)
 		return 1;
 	}
 
-
 	m[0] = 42;
-
 
 	vec[0] = 0;
 	vec[1] = 0;
@@ -580,6 +749,60 @@ static int test_mincore_basic(void)
 	}
 
 	munmap(m, 2 * PAGE_SIZE);
+	return 0;
+}
+
+static int test_mincore_file_backed(void)
+{
+	char *m;
+	unsigned char vec[1];
+	int fd;
+	long ret;
+
+	for (size_t i = 0; i < PAGE_SIZE; i++)
+		mmap_file_data[i] = (char)(0x41 + (i % 17));
+
+	if (create_mmap_test_file(mmap_file_data, sizeof(mmap_file_data)) < 0)
+		return 1;
+
+	fd = openat(AT_FDCWD, MMAP_TEST_FILE, O_RDONLY, 0);
+	if (fd < 0) {
+		printf("FAIL: open mincore file: %d\n", fd);
+		return 1;
+	}
+
+	m = mmap(NULL, PAGE_SIZE, PROT_READ, MAP_PRIVATE, fd, 0);
+	close(fd);
+	if ((long)m < 0) {
+		printf("FAIL: mincore file mmap: %ld\n", (long)m);
+		return 1;
+	}
+
+	vec[0] = 1;
+	ret = mincore(m, PAGE_SIZE, vec);
+	if (ret != 0 || (vec[0] & 1)) {
+		printf("FAIL: mincore file before fault ret=%ld vec=%u\n", ret,
+		       vec[0]);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	if (m[0] != mmap_file_data[0]) {
+		printf("FAIL: mincore file fault read mismatch\n");
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	vec[0] = 0;
+	ret = mincore(m, PAGE_SIZE, vec);
+	if (ret != 0 || !(vec[0] & 1)) {
+		printf("FAIL: mincore file after fault ret=%ld vec=%u\n", ret,
+		       vec[0]);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	munmap(m, PAGE_SIZE);
 	return 0;
 }
 
@@ -850,8 +1073,8 @@ static int test_mremap_fixed_move_replaces_target(void)
 	m[PAGE_SIZE] = 0x72;
 	target[0] = 0x33;
 
-	remapped = mremap(m, len, len, MREMAP_MAYMOVE | MREMAP_FIXED,
-			  target_base);
+	remapped =
+		mremap(m, len, len, MREMAP_MAYMOVE | MREMAP_FIXED, target_base);
 	if ((long)remapped < 0) {
 		printf("FAIL: mremap fixed move: %ld\n", (long)remapped);
 		munmap(target, len);
@@ -918,8 +1141,8 @@ static int test_mremap_file_subrange_keeps_offset(void)
 		return 1;
 	}
 
-	remapped = mremap(m + PAGE_SIZE, old_len, new_len, MREMAP_MAYMOVE,
-			  NULL);
+	remapped =
+		mremap(m + PAGE_SIZE, old_len, new_len, MREMAP_MAYMOVE, NULL);
 	if ((long)remapped < 0) {
 		printf("FAIL: file subrange mremap: %ld\n", (long)remapped);
 		munmap(blocker, PAGE_SIZE);
@@ -950,6 +1173,53 @@ static int test_mremap_file_subrange_keeps_offset(void)
 
 	munmap(remapped, new_len);
 	munmap(blocker, PAGE_SIZE);
+	munmap(m, PAGE_SIZE);
+	return 0;
+}
+
+static int test_mremap_invalid_flags(void)
+{
+	char *m;
+	void *target = (void *)0x47000000UL;
+	long ret;
+
+	m = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
+		 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)m < 0) {
+		printf("FAIL: mmap for invalid mremap: %ld\n", (long)m);
+		return 1;
+	}
+
+	ret = (long)mremap(m, PAGE_SIZE, 2 * PAGE_SIZE, MREMAP_FIXED, target);
+	if (ret != -EINVAL) {
+		printf("FAIL: MREMAP_FIXED without MAYMOVE got %ld\n", ret);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	ret = (long)mremap(m, PAGE_SIZE, PAGE_SIZE,
+			   MREMAP_MAYMOVE | MREMAP_FIXED,
+			   (void *)((unsigned long)target + 1));
+	if (ret != -EINVAL) {
+		printf("FAIL: MREMAP_FIXED unaligned target got %ld\n", ret);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	ret = (long)mremap(m, PAGE_SIZE, PAGE_SIZE, MREMAP_DONTUNMAP, NULL);
+	if (ret != -EINVAL) {
+		printf("FAIL: MREMAP_DONTUNMAP got %ld\n", ret);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	ret = (long)mremap(m, PAGE_SIZE, PAGE_SIZE, 0x100, NULL);
+	if (ret != -EINVAL) {
+		printf("FAIL: unknown mremap flag got %ld\n", ret);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
 	munmap(m, PAGE_SIZE);
 	return 0;
 }
@@ -1152,6 +1422,51 @@ static int test_mmap_private_file_no_writeback(void)
 	return 0;
 }
 
+static int test_mmap_populate_file_resident(void)
+{
+	char *m;
+	unsigned char vec[1];
+	int fd;
+	long ret;
+
+	for (size_t i = 0; i < PAGE_SIZE; i++)
+		mmap_file_data[i] = (char)(0x51 + (i % 19));
+
+	if (create_mmap_test_file(mmap_file_data, sizeof(mmap_file_data)) < 0)
+		return 1;
+
+	fd = openat(AT_FDCWD, MMAP_TEST_FILE, O_RDONLY, 0);
+	if (fd < 0) {
+		printf("FAIL: open populate mmap file: %d\n", fd);
+		return 1;
+	}
+
+	m = mmap(NULL, PAGE_SIZE, PROT_READ, MAP_PRIVATE | MAP_POPULATE, fd, 0);
+	close(fd);
+	if ((long)m < 0) {
+		printf("FAIL: populate file mmap: %ld\n", (long)m);
+		return 1;
+	}
+
+	vec[0] = 0;
+	ret = mincore(m, PAGE_SIZE, vec);
+	if (ret != 0 || !(vec[0] & 1)) {
+		printf("FAIL: populate file not resident ret=%ld vec=%u\n", ret,
+		       vec[0]);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	if (m[17] != mmap_file_data[17]) {
+		printf("FAIL: populate file data mismatch\n");
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	munmap(m, PAGE_SIZE);
+	return 0;
+}
+
 static int test_mmap_fixed_replaces_mapping(void)
 {
 	char *anon;
@@ -1195,12 +1510,161 @@ static int test_mmap_fixed_replaces_mapping(void)
 
 	if (fixed[0] != mmap_file_data[0] ||
 	    fixed[PAGE_SIZE - 1] != mmap_file_data[PAGE_SIZE - 1]) {
-		printf("FAIL: MAP_FIXED replacement did not expose file data\n");
+		printf("FAIL: MAP_FIXED replacement did not expose file "
+		       "data\n");
 		munmap(fixed, PAGE_SIZE);
 		return 1;
 	}
 
 	munmap(fixed, PAGE_SIZE);
+	return 0;
+}
+
+static int test_mmap_flag_policy(void)
+{
+	char *m;
+	char *noreplace;
+	char *hint;
+	char *populate;
+	char *validate;
+	unsigned char vec[1];
+	void *base = (void *)0x46000000UL;
+	long ret;
+
+	m = mmap(base, PAGE_SIZE, PROT_READ | PROT_WRITE,
+		 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+	if ((long)m < 0) {
+		printf("FAIL: mmap flag base: %ld\n", (long)m);
+		return 1;
+	}
+
+	ret = (long)mmap(base, PAGE_SIZE, PROT_READ | PROT_WRITE,
+			 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1,
+			 0);
+	if (ret != -EEXIST) {
+		printf("FAIL: MAP_FIXED_NOREPLACE overlap got %ld\n", ret);
+		if (ret >= 0)
+			munmap((void *)ret, PAGE_SIZE);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	noreplace =
+		mmap(m + PAGE_SIZE, PAGE_SIZE, PROT_READ | PROT_WRITE,
+		     MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+	if ((long)noreplace < 0 || noreplace != m + PAGE_SIZE) {
+		printf("FAIL: MAP_FIXED_NOREPLACE free got %ld\n",
+		       (long)noreplace);
+		if ((long)noreplace >= 0)
+			munmap(noreplace, PAGE_SIZE);
+		munmap(m, PAGE_SIZE);
+		return 1;
+	}
+
+	hint = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
+		    MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK | MAP_NORESERVE, -1,
+		    0);
+	if ((long)hint < 0) {
+		printf("FAIL: mmap hint flags: %ld\n", (long)hint);
+		munmap(m, 2 * PAGE_SIZE);
+		return 1;
+	}
+
+	validate = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
+			MAP_SHARED_VALIDATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)validate < 0) {
+		printf("FAIL: MAP_SHARED_VALIDATE got %ld\n", (long)validate);
+		munmap(hint, PAGE_SIZE);
+		munmap(m, 2 * PAGE_SIZE);
+		return 1;
+	}
+	validate[0] = 0x5a;
+	if (validate[0] != 0x5a) {
+		printf("FAIL: MAP_SHARED_VALIDATE write/read\n");
+		munmap(validate, PAGE_SIZE);
+		munmap(hint, PAGE_SIZE);
+		munmap(m, 2 * PAGE_SIZE);
+		return 1;
+	}
+
+	ret = (long)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
+			 MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+	if (ret != -EINVAL) {
+		printf("FAIL: MAP_HUGETLB expected -EINVAL got %ld\n", ret);
+		if (ret >= 0)
+			munmap((void *)ret, PAGE_SIZE);
+		munmap(validate, PAGE_SIZE);
+		munmap(hint, PAGE_SIZE);
+		munmap(m, 2 * PAGE_SIZE);
+		return 1;
+	}
+
+	ret = (long)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
+			 MAP_PRIVATE | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
+	if (ret != -EINVAL) {
+		printf("FAIL: MAP_LOCKED expected -EINVAL got %ld\n", ret);
+		if (ret >= 0)
+			munmap((void *)ret, PAGE_SIZE);
+		munmap(validate, PAGE_SIZE);
+		munmap(hint, PAGE_SIZE);
+		munmap(m, 2 * PAGE_SIZE);
+		return 1;
+	}
+
+	ret = (long)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
+			 MAP_PRIVATE | MAP_ANONYMOUS | MAP_NONBLOCK, -1, 0);
+	if (ret != -EINVAL) {
+		printf("FAIL: MAP_NONBLOCK expected -EINVAL got %ld\n", ret);
+		if (ret >= 0)
+			munmap((void *)ret, PAGE_SIZE);
+		munmap(validate, PAGE_SIZE);
+		munmap(hint, PAGE_SIZE);
+		munmap(m, 2 * PAGE_SIZE);
+		return 1;
+	}
+
+	ret = (long)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
+			 MAP_SHARED_VALIDATE | MAP_ANONYMOUS | MAP_SYNC, -1, 0);
+	if (ret != -EOPNOTSUPP) {
+		printf("FAIL: MAP_SHARED_VALIDATE unsupported expected %d got "
+		       "%ld\n",
+		       -EOPNOTSUPP, ret);
+		if (ret >= 0)
+			munmap((void *)ret, PAGE_SIZE);
+		munmap(validate, PAGE_SIZE);
+		munmap(hint, PAGE_SIZE);
+		munmap(m, 2 * PAGE_SIZE);
+		return 1;
+	}
+
+	populate = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
+			MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
+	if ((long)populate < 0) {
+		printf("FAIL: MAP_POPULATE anonymous got %ld\n",
+		       (long)populate);
+		munmap(validate, PAGE_SIZE);
+		munmap(hint, PAGE_SIZE);
+		munmap(m, 2 * PAGE_SIZE);
+		return 1;
+	}
+
+	vec[0] = 0;
+	ret = mincore(populate, PAGE_SIZE, vec);
+	if (ret != 0 || !(vec[0] & 1)) {
+		printf("FAIL: MAP_POPULATE anonymous not resident ret=%ld "
+		       "vec=%u\n",
+		       ret, vec[0]);
+		munmap(populate, PAGE_SIZE);
+		munmap(validate, PAGE_SIZE);
+		munmap(hint, PAGE_SIZE);
+		munmap(m, 2 * PAGE_SIZE);
+		return 1;
+	}
+
+	munmap(populate, PAGE_SIZE);
+	munmap(validate, PAGE_SIZE);
+	munmap(hint, PAGE_SIZE);
+	munmap(m, 2 * PAGE_SIZE);
 	return 0;
 }
 
@@ -1246,7 +1710,8 @@ static int test_mlock_munlock_compat(void)
 
 	ret = mincore(m, PAGE_SIZE, vec);
 	if (ret != 0 || vec[0] != 1) {
-		printf("FAIL: mlock did not make page resident ret=%ld vec=%u\n",
+		printf("FAIL: mlock did not make page resident ret=%ld "
+		       "vec=%u\n",
 		       ret, vec[0]);
 		failed++;
 	}
@@ -1335,13 +1800,21 @@ int main(void)
 		     &failed);
 	report_group("mprotect read-only and restore", test_ro_rw(), &failed);
 	report_group("mprotect partial range", test_partial_range(), &failed);
+	report_group("mprotect across VMAs", test_mprotect_cross_vma(),
+		     &failed);
 	report_group("mprotect unaligned", test_unaligned(), &failed);
 	report_group("mprotect unmapped", test_unmapped(), &failed);
 	report_group("madvise valid advice", test_madvise_valid(), &failed);
+	report_group("madvise private file DONTNEED",
+		     test_madvise_private_file_dontneed(), &failed);
+	report_group("madvise shared file DONTNEED",
+		     test_madvise_shared_file_dontneed(), &failed);
 	report_group("madvise unaligned", test_madvise_unaligned(), &failed);
 	report_group("madvise unknown advice", test_madvise_unknown_advice(),
 		     &failed);
 	report_group("mincore basic", test_mincore_basic(), &failed);
+	report_group("mincore file-backed", test_mincore_file_backed(),
+		     &failed);
 	report_group("mincore unaligned", test_mincore_unaligned(), &failed);
 	report_group("mincore zero length", test_mincore_zero_len(), &failed);
 	report_group("mincore PROT_NONE resident",
@@ -1356,6 +1829,8 @@ int main(void)
 		     test_mremap_fixed_move_replaces_target(), &failed);
 	report_group("mremap file subrange keeps offset",
 		     test_mremap_file_subrange_keeps_offset(), &failed);
+	report_group("mremap invalid flags", test_mremap_invalid_flags(),
+		     &failed);
 	report_group("msync anonymous", test_msync_anon(), &failed);
 	report_group("mmap shared file read", test_mmap_shared_file_read(),
 		     &failed);
@@ -1363,14 +1838,17 @@ int main(void)
 		     test_msync_shared_file_writeback(), &failed);
 	report_group("mmap private file no writeback",
 		     test_mmap_private_file_no_writeback(), &failed);
+	report_group("mmap populate file resident",
+		     test_mmap_populate_file_resident(), &failed);
 	report_group("mmap fixed replaces mapping",
 		     test_mmap_fixed_replaces_mapping(), &failed);
+	report_group("mmap flag policy", test_mmap_flag_policy(), &failed);
 	report_group("mmap rejects stack guard",
 		     test_mmap_rejects_stack_guard(), &failed);
-	report_group("mlock munlock compatibility",
-		     test_mlock_munlock_compat(), &failed);
-	report_group("stack underflow SIGSEGV",
-		     test_stack_underflow_sigsegv(), &failed);
+	report_group("mlock munlock compatibility", test_mlock_munlock_compat(),
+		     &failed);
+	report_group("stack underflow SIGSEGV", test_stack_underflow_sigsegv(),
+		     &failed);
 
 	if (failed)
 		printf("mm_test: %d test group(s) FAILED\n", failed);

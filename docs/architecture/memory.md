@@ -225,11 +225,34 @@ int mm_munlock(struct mm_struct *mm, uintptr_t addr, size_t len);
 
 - `MAP_SHARED/MAP_PRIVATE` 必须二选一。
 - `MAP_FIXED` 地址必须非零且页对齐。
+- `MAP_FIXED_NOREPLACE` 使用精确地址但不替换已有 VMA；冲突返回
+  `-EEXIST`。
+- `MAP_DENYWRITE`、`MAP_EXECUTABLE`、`MAP_NORESERVE`、`MAP_STACK` 作为
+  Linux 兼容 hint 接受为 no-op。
+- `MAP_SHARED_VALIDATE` 按 shared mapping 创建；携带 cuteOS 不支持的扩展
+  flag 时返回 `-EOPNOTSUPP`。
+- `MAP_POPULATE` 在 VMA 安装后尽力 fault-in 普通匿名/file-backed 页；失败不
+  撤销成功映射。
+- `MAP_LOCKED`、huge page、`MAP_SYNC` 等缺少对应语义的 flag 返回
+  `-EINVAL`，在 `MAP_SHARED_VALIDATE` 下返回 `-EOPNOTSUPP`。
 - file-backed offset 必须页对齐。
 - shared writable mapping 要求文件可写。
 - 映射范围不能跨越用户栈基址，也不能与 `user_map` 保留区重叠。
 
 `MAP_FIXED` 会先 unmap 目标范围；非 fixed 映射会从用户栈下方向低地址寻找空洞。
+
+`msync()` 验证范围内每一页都有 VMA。对 resident shared file 页，MM 会把对应
+page-cache 页标记为 dirty；`MS_SYNC` 再通过 VFS/page cache 同步文件。匿名
+映射和 private file 映射上的 `msync()` 是验证型 no-op。
+
+`madvise()` 当前采用 advice 支持表策略：访问模式 hint 和 `MADV_FREE` 是
+no-op；`MADV_DONTNEED` 丢弃 resident PTE 但保留 VMA。匿名页重新 fault 得到
+零页，private file 页重新从文件读取，shared file 页丢弃 PTE 引用但保留
+page-cache 数据和 dirty 状态。
+
+`mincore()` 报告用户页表里的 resident PTE bit；file-backed 映射只有在该地址
+已经 fault 到用户页表后才报告 resident，不把单纯存在于 page cache 的文件页
+视作 resident 用户页。
 
 ## 缺页处理
 

@@ -19,11 +19,16 @@ ssize_t sys_brk(struct trap_frame *tf)
 
 /*
  * SYSCALL_SUPPORT(B): mmap
- * Current: maps anonymous or regular file-backed MAP_PRIVATE/MAP_SHARED VMAs.
- * Unsupported errno: unknown MAP flags, invalid prot/flag combinations, or
- * bad alignment return -EINVAL; bad fd returns -EBADF; permission mismatch
- * returns -EACCES.
- * Future: deepen file-backed MAP_SHARED writeback and permission semantics.
+ * Current: maps anonymous or regular file-backed MAP_PRIVATE/MAP_SHARED VMAs;
+ * supports MAP_SHARED_VALIDATE, MAP_FIXED_NOREPLACE, and best-effort
+ * MAP_POPULATE; accepts DENYWRITE/EXECUTABLE/NORESERVE/STACK as no-op
+ * compatibility flags.
+ * Unsupported errno: unknown/unsupported MAP flags return -EINVAL, except
+ * unsupported MAP_SHARED_VALIDATE extension flags return -EOPNOTSUPP; invalid
+ * prot/type combinations or bad alignment return -EINVAL; overlap with
+ * MAP_FIXED_NOREPLACE returns -EEXIST; bad fd returns -EBADF; permission
+ * mismatch returns -EACCES.
+ * Future: add MAP_LOCKED only when real resident pinning semantics exist.
  */
 ssize_t sys_mmap(struct trap_frame *tf)
 {
@@ -67,7 +72,7 @@ ssize_t sys_mprotect(struct trap_frame *tf)
  * Current: supports basic resize and MAYMOVE/FIXED movement of mmap VMAs.
  * Unsupported errno: MREMAP_DONTUNMAP, invalid flag combinations, or bad
  * alignment return -EINVAL; no-move growth failure returns -ENOMEM.
- * Future: build an explicit mremap flag behavior table.
+ * Future: add DONTUNMAP only with a precise source-retention contract.
  */
 ssize_t sys_mremap(struct trap_frame *tf)
 {
@@ -83,10 +88,12 @@ ssize_t sys_mremap(struct trap_frame *tf)
 
 /*
  * SYSCALL_SUPPORT(B): msync
- * Current: validates mapped ranges and syncs shared file mappings for MS_SYNC.
+ * Current: validates mapped ranges, marks resident shared file pages dirty,
+ * and syncs through VFS/page cache for MS_SYNC; MS_ASYNC records dirty state
+ * without waiting and MS_INVALIDATE is accepted as a no-op.
  * Unsupported errno: unknown or conflicting flags return -EINVAL; unmapped
  * ranges return -ENOMEM.
- * Future: deepen shared file mapping and writeback semantics.
+ * Future: add range-limited writeback/invalidation if page cache grows it.
  */
 ssize_t sys_msync(struct trap_frame *tf)
 {
@@ -137,10 +144,12 @@ ssize_t sys_munlock(struct trap_frame *tf)
 
 /*
  * SYSCALL_SUPPORT(B): madvise
- * Current: accepts common hints; DONTNEED drops anonymous resident pages.
- * Unsupported errno: unknown advice returns -EINVAL; DONTNEED on non-anonymous
- * ranges returns -EINVAL; unmapped ranges return -ENOMEM.
- * Future: build an advice support table.
+ * Current: NORMAL/RANDOM/SEQUENTIAL/WILLNEED/FREE are accepted as no-op hints;
+ * DONTNEED drops resident anonymous, MAP_PRIVATE file, and MAP_SHARED file
+ * pages while keeping VMAs intact.
+ * Unsupported errno: unknown advice, including REMOVE, returns -EINVAL;
+ * unmapped ranges return -ENOMEM.
+ * Future: add REMOVE/POPULATE-like advice only with backing-store semantics.
  */
 ssize_t sys_madvise(struct trap_frame *tf)
 {
@@ -165,10 +174,12 @@ ssize_t sys_madvise(struct trap_frame *tf)
 
 /*
  * SYSCALL_SUPPORT(B): mincore
- * Current: reports resident PTE state for mapped user pages.
+ * Current: reports resident PTE state for mapped anonymous and file-backed
+ * user pages.
  * Unsupported errno: unaligned or overflowing ranges return -EINVAL; NULL vec
- * returns -EFAULT; file-cache residency semantics are shallow.
- * Future: add file-backed residency coverage.
+ * returns -EFAULT; file-cache-only residency is not reported.
+ * Future: keep this tied to real resident user mappings unless page-cache
+ * residency becomes observable by design.
  */
 ssize_t sys_mincore(struct trap_frame *tf)
 {
