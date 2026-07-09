@@ -9,5 +9,6 @@ struct dentry *__must_check vfs_lookup_one(struct dentry *parent,
 					   const char *name, size_t len);
 struct dentry *__must_check vfs_lookup_one_any(struct dentry *parent,
 					       const char *name, size_t len);
+void vfs_set_root_dentry(struct dentry *dentry);
 
 #endif

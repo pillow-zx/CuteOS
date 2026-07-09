@@ -61,14 +61,13 @@ int __must_check vfs_mknod_at_path(const struct path *base, const char *path,
 				   uint32_t mode, dev_t dev);
 int __must_check vfs_stat_dentry(struct dentry *dentry, struct stat *st);
 int __must_check vfs_chdir_path(const struct path *path);
-void vfs_set_root_dentry(struct dentry *dentry);
 void mntget(struct vfsmount *mnt);
 void mntput(struct vfsmount *mnt);
 void path_get(const struct path *path);
 void path_put(struct path *path);
 int __must_check vfs_root_path(struct path *path);
 int __must_check vfs_path_from_dentry(struct dentry *dentry, struct path *path);
-int __must_check vfs_mount_root(struct dentry *root);
+int __must_check vfs_mount_root(dev_t dev);
 int __must_check vfs_mount(const char *source, const char *target,
 			   const char *type, unsigned long flags,
 			   const void *data);
@@ -81,9 +80,17 @@ const struct file_operations *__must_check vfs_chrdev_fops(dev_t dev);
 
 int __must_check register_filesystem(struct file_system_type *fs_type);
 struct file_system_type *__must_check get_filesystem_type(const char *name);
+struct file_system_type *__must_check
+get_next_filesystem_type(struct file_system_type *prev);
 struct super_block *__must_check super_alloc(struct file_system_type *fs_type,
 					     dev_t dev);
 void vfs_init(void);
-int __must_check mount_root(void);
+int __must_check filesystems_init(void);
+
+#ifdef CONFIG_KERNEL_TEST
+int __must_check unregister_filesystem(struct file_system_type *fs_type);
+int __must_check vfs_test_select_rootfs(dev_t dev,
+					struct file_system_type **out_fs);
+#endif
 
 #endif

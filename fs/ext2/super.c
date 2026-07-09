@@ -9,9 +9,13 @@
 #include <kernel/vmalloc.h>
 #include <kernel/vfs.h>
 
-#define EXT2_ROOT_DEV MKDEV(8, 0)
-static struct super_block *ext2_mount(struct file_system_type *fs_type,
-				      dev_t dev, const void *data);
+#define EXT2_FEATURE_COMPAT_SUPPORTED	   0
+#define EXT2_FEATURE_INCOMPAT_SUPPORTED	   EXT2_FEATURE_INCOMPAT_FILETYPE
+#define EXT2_FEATURE_RO_COMPAT_SUPPORTED   EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER
+
+static int ext2_probe(dev_t dev);
+static int ext2_mount(struct file_system_type *fs_type, dev_t dev,
+		      const void *data, struct super_block **out_sb);
 static void ext2_evict_inode(struct inode *inode);
 static int ext2_statfs(struct super_block *sb, struct statfs64 *buf);
 
@@ -25,6 +29,7 @@ static const struct super_operations ext2_sops = {
 
 static struct file_system_type ext2_fs_type = {
 	.name = "ext2",
+	.probe = ext2_probe,
 	.mount = ext2_mount,
 };
 
@@ -47,10 +52,8 @@ static void ext2_free_sbi(struct ext2_sb_info *sbi)
 	if (!sbi)
 		return;
 
-	if (!sbi->s_group_desc)
-		return;
-
-	vfree(sbi->s_group_desc);
+	if (sbi->s_group_desc)
+		vfree(sbi->s_group_desc);
 	kfree(sbi);
 }
 
@@ -101,6 +104,58 @@ static uint32_t div_round_up_u32(uint32_t value, uint32_t divisor)
 	return (value + divisor - 1) / divisor;
 }
 
+static int ext2_read_super_block(dev_t dev, struct ext2_super_block *es)
+{
+	struct page_cache *page;
+	uint32_t super_block;
+	uint32_t super_off;
+
+	if (!es)
+		return -EINVAL;
+	if (!lookup_block_device(dev))
+		return -ENXIO;
+
+	super_block = ext2_super_blocknr(BLOCK_SIZE);
+	super_off = ext2_super_offset(BLOCK_SIZE);
+	page = page_cache_get_block(dev, super_block);
+	if (!page)
+		return -EIO;
+
+	memcpy(es, page_cache_data(page) + super_off, sizeof(*es));
+	page_cache_put_page(page);
+	return 0;
+}
+
+static int ext2_check_super_block(const struct ext2_super_block *es)
+{
+	uint32_t inode_size;
+
+	if (!es)
+		return -EINVAL;
+	if (es->s_magic != EXT2_SUPER_MAGIC)
+		return -ENODEV;
+	if (es->s_feature_compat & ~EXT2_FEATURE_COMPAT_SUPPORTED)
+		return -EINVAL;
+	if ((es->s_feature_incompat & ~EXT2_FEATURE_INCOMPAT_SUPPORTED) ||
+	    !(es->s_feature_incompat & EXT2_FEATURE_INCOMPAT_FILETYPE))
+		return -EINVAL;
+	if (es->s_feature_ro_compat & ~EXT2_FEATURE_RO_COMPAT_SUPPORTED)
+		return -EINVAL;
+	if (es->s_log_block_size != 2)
+		return -EINVAL;
+
+	inode_size = es->s_rev_level == EXT2_GOOD_OLD_REV
+			     ? EXT2_GOOD_OLD_INODE_SIZE
+			     : es->s_inode_size;
+	if (inode_size < sizeof(struct ext2_inode) || inode_size > BLOCK_SIZE)
+		return -EINVAL;
+	if (!es->s_blocks_per_group || !es->s_inodes_per_group ||
+	    es->s_blocks_count <= es->s_first_data_block)
+		return -EINVAL;
+
+	return 0;
+}
+
 static int ext2_read_bgdt(struct super_block *sb)
 {
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
@@ -139,55 +194,38 @@ static int ext2_read_bgdt(struct super_block *sb)
 static int ext2_read_super(struct super_block *sb)
 {
 	struct ext2_sb_info *sbi;
-	struct page_cache *page;
-	uint32_t super_block;
-	uint32_t super_off;
-	uint32_t block_size;
+	struct ext2_super_block *es;
 	int ret;
+
+	if (!sb)
+		return -EINVAL;
+
+	es = kmalloc(sizeof(*es));
+	if (!es)
+		return -ENOMEM;
+
+	ret = ext2_read_super_block(sb->s_dev, es);
+	if (ret < 0)
+		return ret;
+	ret = ext2_check_super_block(es);
+	if (ret == -ENODEV)
+		return -EINVAL;
+	if (ret < 0)
+		return ret;
 
 	sbi = kmalloc(sizeof(*sbi));
 	if (!sbi)
 		return -ENOMEM;
 	memset(sbi, 0, sizeof(*sbi));
-
-	super_block = ext2_super_blocknr(BLOCK_SIZE);
-	super_off = ext2_super_offset(BLOCK_SIZE);
-	page = page_cache_get_block(sb->s_dev, super_block);
-	if (!page) {
-		kfree(sbi);
-		return -EIO;
-	}
-
-	memcpy(&sbi->s_es, page_cache_data(page) + super_off,
-	       sizeof(sbi->s_es));
-	page_cache_put_page(page);
-
-	if (sbi->s_es.s_magic != EXT2_SUPER_MAGIC) {
-		kfree(sbi);
-		return -EINVAL;
-	}
-
-	block_size = 1024u << sbi->s_es.s_log_block_size;
-	if (block_size != BLOCK_SIZE) {
-		kfree(sbi);
-		return -EINVAL;
-	}
+	sbi->s_es = *es;
 
 	sbi->s_inode_size = sbi->s_es.s_rev_level == EXT2_GOOD_OLD_REV
 				    ? EXT2_GOOD_OLD_INODE_SIZE
 				    : sbi->s_es.s_inode_size;
-	if (sbi->s_inode_size < sizeof(struct ext2_inode)) {
-		kfree(sbi);
-		return -EINVAL;
-	}
 
 	sbi->s_blocks_per_group = sbi->s_es.s_blocks_per_group;
 	sbi->s_inodes_per_group = sbi->s_es.s_inodes_per_group;
 	sbi->s_first_data_block = sbi->s_es.s_first_data_block;
-	if (!sbi->s_blocks_per_group || !sbi->s_inodes_per_group) {
-		kfree(sbi);
-		return -EINVAL;
-	}
 
 	sbi->s_groups_count = div_round_up_u32(sbi->s_es.s_blocks_count -
 						       sbi->s_first_data_block,
@@ -207,8 +245,29 @@ static int ext2_read_super(struct super_block *sb)
 	return 0;
 }
 
-static struct super_block *ext2_mount(struct file_system_type *fs_type,
-				      dev_t dev, const void *data)
+static int ext2_probe(dev_t dev)
+{
+	struct ext2_super_block *es;
+	int ret;
+
+	es = kmalloc(sizeof(*es));
+	if (!es)
+		return -ENOMEM;
+
+	ret = ext2_read_super_block(dev, es);
+	if (ret < 0)
+		return ret;
+	ret = ext2_check_super_block(es);
+	if (ret == -ENODEV)
+		return 0;
+	if (ret < 0)
+		return ret;
+	kfree(es);
+	return 1;
+}
+
+static int ext2_mount(struct file_system_type *fs_type, dev_t dev,
+		      const void *data, struct super_block **out_sb)
 {
 	struct super_block *sb;
 	struct inode *root_inode;
@@ -216,28 +275,31 @@ static struct super_block *ext2_mount(struct file_system_type *fs_type,
 	int ret;
 
 	(void)data;
+	if (!out_sb)
+		return -EINVAL;
+	*out_sb = NULL;
 
 	sb = super_alloc(fs_type, dev);
 	if (!sb)
-		return NULL;
+		return -ENOMEM;
 
 	ret = ext2_read_super(sb);
 	if (ret < 0) {
 		ext2_free_super(sb);
-		return NULL;
+		return ret;
 	}
 
 	root = dentry_alloc(NULL, "/", 1);
 	if (!root) {
 		ext2_free_super(sb);
-		return NULL;
+		return -ENOMEM;
 	}
 
 	root_inode = iget(sb, EXT2_ROOT_INO);
 	if (!root_inode) {
 		kfree(root);
 		ext2_free_super(sb);
-		return NULL;
+		return -EIO;
 	}
 
 	root->d_inode = root_inode;
@@ -245,39 +307,11 @@ static struct super_block *ext2_mount(struct file_system_type *fs_type,
 	root->d_parent = root;
 	sb->s_root = root;
 
-	return sb;
+	*out_sb = sb;
+	return 0;
 }
 
 int ext2_init(void)
 {
 	return register_filesystem(&ext2_fs_type);
-}
-
-int mount_root(void)
-{
-	struct file_system_type *fs_type;
-	struct super_block *sb;
-	int ret;
-
-	fs_type = get_filesystem_type("ext2");
-	if (!fs_type) {
-		ret = ext2_init();
-		if (ret < 0)
-			return ret;
-		fs_type = get_filesystem_type("ext2");
-	}
-
-	if (!fs_type || !fs_type->mount)
-		return -EINVAL;
-
-	sb = fs_type->mount(fs_type, EXT2_ROOT_DEV, NULL);
-	if (!sb)
-		return -EINVAL;
-
-	vfs_set_root_dentry(sb->s_root);
-	ret = vfs_mount_root(sb->s_root);
-	if (ret < 0)
-		return ret;
-	pr_info("VFS: mounted root (ext2)\n");
-	return 0;
 }

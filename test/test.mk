@@ -24,5 +24,6 @@ TEST_OBJS = \
 	test/user_return_test.o \
 	test/user_trap_test.o \
 	test/user_trap_test_stub.o \
+	test/vfs_mount_test.o \
 	test/virtio_blk_test.o
 	

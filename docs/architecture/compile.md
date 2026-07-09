@@ -222,7 +222,9 @@ QEMU 启动时使用：
 -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
 ```
 
-内核侧 `virtio_blk_init()` 将该设备注册为 major 8 minor 0，`mount_root()` 再按 ext2 挂载根。
+内核侧 `virtio_blk_init()` 将该设备注册为 major 8 minor 0。启动路径调用
+`vfs_mount_root(ROOT_DEV)` 对该块设备探测已注册文件系统类型；当前构建脚本
+生成的镜像为 ext2，因此会命中 ext2 Adapter 并挂载为 `/`。
 
 ## QEMU 启动参数
 

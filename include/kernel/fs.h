@@ -164,13 +164,17 @@ struct file_operations {
  *
  * @par Fields
  * - @c name: Filesystem type name, for example "ext2".
- * - @c mount: Mount hook.
+ * - @c probe: Optional root-autodetect hook. Returns positive for a match,
+ *   zero for no match, or a negative errno for hard probe failure.
+ * - @c mount: Mount hook. Returns 0 and fills @c out_sb on success, or a
+ *   negative errno on failure.
  * - @c next: Intrusive node in the global fs list.
  */
 struct file_system_type {
 	const char *name;
-	struct super_block *(*mount)(struct file_system_type *fs_type,
-				     dev_t dev, const void *data);
+	int (*probe)(dev_t dev);
+	int (*mount)(struct file_system_type *fs_type, dev_t dev,
+		     const void *data, struct super_block **out_sb);
 	struct file_system_type *next;
 };
 

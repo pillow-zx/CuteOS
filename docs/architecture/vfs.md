@@ -189,13 +189,26 @@ inode metadata，优先保证正确性而不是 data-only 优化。
 ```c
 struct file_system_type {
     const char *name;
-    struct super_block *(*mount)(struct file_system_type *fs_type,
-                                 dev_t dev, const void *data);
+    int (*probe)(dev_t dev);
+    int (*mount)(struct file_system_type *fs_type,
+                 dev_t dev, const void *data,
+                 struct super_block **out_sb);
     struct file_system_type *next;
 };
 ```
 
-`register_filesystem()` 将类型注册到固定数组 `fs_types[8]`。`get_filesystem_type(name)` 按名称查找。
+`register_filesystem()` 将类型注册到固定数组 `fs_types[8]`。
+`get_filesystem_type(name)` 按名称查找，普通 `mount(2)` 语义必须显式指定
+filesystem type。
+
+`probe(dev)` 是可选能力，只用于启动根文件系统自动探测：
+
+- 返回正数表示该块设备匹配此文件系统类型。
+- 返回 0 表示明确不匹配。
+- 返回负 errno 表示 I/O、格式损坏或已识别但不支持的 hard error。
+
+`mount()` 在选定文件系统类型后创建 `super_block` 和 root dentry。成功返回
+0 并填充 `out_sb`；失败返回负 errno，不把不同失败压扁成 NULL。
 
 `vfs_init()` 初始化：
 
@@ -203,12 +216,17 @@ struct file_system_type {
 - dentry cache
 - 文件系统类型数组
 
-`mount_root()` 当前由 ext2 实现触发：
+`filesystems_init()` 在 VFS 初始化后注册编译进内核的 filesystem type。
+`vfs_mount_root(dev)` 由启动路径调用，负责：
 
-1. 注册或查找 `"ext2"`。
-2. 调用 ext2 mount major 8 minor 0。
-3. `vfs_set_root_dentry(sb->s_root)`。
-4. `vfs_mount_root(sb->s_root)`。
+1. 确认 root block device 已注册。
+2. 遍历带 `probe` hook 的 filesystem type。
+3. 要求恰好一个类型匹配；无匹配返回 `-ENODEV`，多重匹配返回 `-EINVAL`。
+4. 调用匹配类型的 `mount()`。
+5. 把返回的 superblock root dentry 安装成 VFS root mount。
+
+启动期 root mount 失败是 fatal。非 root 的 `vfs_mount(source, target, type,
+...)` 不做自动探测，仍按显式 `type` 查找 filesystem type。
 
 ## 路径解析
 

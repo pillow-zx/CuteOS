@@ -71,13 +71,14 @@ flowchart TD
     Sched["sched_init()"]
     Syscall["syscall_init()"]
     VFS["vfs_init()"]
+    FS["filesystems_init()"]
     Block["virtio_blk_init()"]
-    Root["mount_root()<br/>ext2"]
+    Root["vfs_mount_root(ROOT_DEV)<br/>probe rootfs"]
     Threads["PID 1 + page cache writeback"]
     Idle["idle loop<br/>schedule() + wfi"]
 
     Console --> PT --> Alloc --> UserMap --> Trap --> Task --> Timer
-    Timer --> Sched --> Syscall --> VFS --> Block --> Root --> Threads --> Idle
+    Timer --> Sched --> Syscall --> VFS --> FS --> Block --> Root --> Threads --> Idle
 ```
 
 实际顺序如下：
@@ -99,13 +100,15 @@ flowchart TD
 15. `sched_init()`：初始化 MLFQ runqueue。
 16. `syscall_init()`：安装 syscall 表，并初始化 futex 桶。
 17. `vfs_init()`：初始化 inode cache、dentry cache 和文件系统注册表。
-18. `virtio_blk_init()`：初始化 QEMU virtio-blk MMIO 设备并注册块设备。
-19. `mount_root()`：挂载 major 8 minor 0 上的 ext2 根文件系统。
-20. 可选 `kernel_test()`：在测试配置下运行内核自测。
-21. `kernel_thread(init_process, NULL)`：创建 PID 1 内核线程。
-22. `set_init_task(init)`：记录 PID 1，供 exit/reparent 路径使用。
-23. `kernel_thread(page_cache_wb_thread, NULL)`：创建页缓存后台写回线程。
-24. idle 循环反复调用 `schedule()` 和 `wait_for_interrupt()`。
+18. `filesystems_init()`：注册编译进内核的文件系统类型。
+19. `virtio_blk_init()`：初始化 QEMU virtio-blk MMIO 设备并注册块设备。
+20. `vfs_mount_root(ROOT_DEV)`：对 root block device 探测已注册文件系统类型，
+    挂载唯一匹配的根文件系统。
+21. 可选 `kernel_test()`：在测试配置下运行内核自测。
+22. `kernel_thread(init_process, NULL)`：创建 PID 1 内核线程。
+23. `set_init_task(init)`：记录 PID 1，供 exit/reparent 路径使用。
+24. `kernel_thread(page_cache_wb_thread, NULL)`：创建页缓存后台写回线程。
+25. idle 循环反复调用 `schedule()` 和 `wait_for_interrupt()`。
 
 这个顺序体现了几个关键依赖：
 
@@ -113,7 +116,10 @@ flowchart TD
 - slab 必须晚于 buddy，因为小对象缓存从 buddy 取页。
 - task 必须晚于 trap，因为任务首次切入依赖 `__trapret` 和 trap frame 布局。
 - syscall 必须晚于 sched/task，因为 syscall 处理会访问当前任务、地址空间和等待队列。
-- ext2 根挂载必须晚于 virtio-blk 注册，因为 ext2 通过 block device/page cache 发起 I/O。
+- 文件系统注册必须晚于 VFS 初始化。
+- rootfs 挂载必须晚于 virtio-blk 注册，因为文件系统 probe 和 mount 都通过
+  block device/page cache 发起 I/O。根挂载失败会立即 panic，因为 PID 1 依赖
+  `/bin/init` 可从根文件系统访问。
 
 ## 正式内核地址空间
 
@@ -172,7 +178,7 @@ idle task 使用启动栈，不走普通 `task_alloc()` 的内核栈分配路径
 OpenSBI
   -> boot.S 临时地址空间
   -> kernel_main 子系统初始化
-  -> virtio-blk + ext2 root
+  -> virtio-blk + VFS rootfs probe/mount
   -> PID 1 exec /bin/init
   -> trap/syscall/sched 驱动用户态运行
 ```

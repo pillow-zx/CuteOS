@@ -6,8 +6,8 @@ Linux riscv64 用户态 ABI。
 
 当前代码的目标不是做一个只会打印日志的 boot demo，而是用小而清晰的内核结
 构承载真实静态 riscv64 ELF 程序所需的关键 Linux ABI 行为。项目已经打通从
-OpenSBI、内核初始化、virtio-blk/ext2 根文件系统，到 PID 1 `/bin/init` 和
-交互式 `/bin/sh` 的主链路。
+OpenSBI、内核初始化、virtio-blk 根块设备、VFS 自动探测并挂载根文件系统，
+到 PID 1 `/bin/init` 和交互式 `/bin/sh` 的主链路。
 
 ## 项目定位
 
@@ -19,7 +19,8 @@ Linux 语义覆盖面。
 - CPU：当前只启动 hart 0，`NR_CPUS` 和 CPU-local 结构为未来多核保留。
 - 地址空间：高半区内核，用户页表复制内核高半区映射。
 - 用户态：静态 ELF64 RISC-V 程序，Linux riscv64 syscall ABI。
-- 根文件系统：构建时生成 ext2 镜像，通过 virtio-blk 挂载为 `/`。
+- 根文件系统：构建时生成 ext2 镜像，启动时通过 VFS 探测 virtio-blk 根块设
+  备并挂载为 `/`。
 - 调度：单核 4 级 MLFQ，内核非抢占，用户态在 timer trap 返回点抢占。
 - I/O：UART 和 virtio-blk 以轮询为主。
 - 错误约定：内核内部和 syscall 返回统一使用 Linux 数值的负 errno。
@@ -207,8 +208,8 @@ TOOLPREFIX=riscv64-linux-gnu- make qemu
 - `/dev/console`
 - `/dev/null`
 
-内核启动后通过 virtio-blk 读取该镜像，挂载为根文件系统，再从 VFS 加载用户
-ELF。
+内核启动后通过 virtio-blk 读取该镜像，由 VFS 自动探测文件系统类型并挂载为
+根文件系统，再从 VFS 加载用户 ELF。
 
 ## 构建系统结构
 

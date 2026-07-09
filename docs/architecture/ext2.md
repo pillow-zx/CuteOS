@@ -1,6 +1,8 @@
 # ext2 文件系统架构
 
-ext2 是 cuteOS 当前根文件系统实现。它把磁盘格式、inode/block 分配、目录项和文件数据块映射封装在 `fs/ext2/` 内部，并通过 VFS 操作向量对外暴露。
+ext2 是 cuteOS 当前根文件系统镜像格式。它把磁盘格式、inode/block 分配、目
+录项和文件数据块映射封装在 `fs/ext2/` 内部，并通过 VFS filesystem type
+Adapter、inode operations、file operations 和 super operations 对外暴露。
 
 ## 代码边界
 
@@ -62,41 +64,54 @@ block group descriptor table 通过 `vmalloc()` 分配并读入内存。metadata
 page_cache_get_block(sb->s_dev, block)
 ```
 
-## mount 流程
+## probe 和 mount 流程
 
-`mount_root()` 当前挂载：
+ext2 不拥有启动根挂载策略。启动路径通过 `filesystems_init()` 注册 ext2
+filesystem type；VFS 对 root block device 调用 ext2 `probe(dev)`，命中后再
+调用 ext2 `mount(fs_type, dev, data, &sb)`。
 
 ```mermaid
 flowchart TD
-    Root["mount_root()"]
-    Type["get/register filesystem type 'ext2'"]
-    Mount["ext2_mount(dev 8:0)"]
+    Init["filesystems_init()"]
+    Register["register ext2 filesystem type"]
+    Probe["ext2_probe(dev)<br/>read and check superblock"]
+    Mount["ext2_mount(fs_type, dev, data, &sb)"]
     SB["super_alloc() + ext2_read_super()"]
     BGDT["read block group descriptors"]
     Inode["iget(root inode 2)"]
     Dentry["create root dentry"]
-    VFS["vfs_set_root_dentry()<br/>vfs_mount_root()"]
+    VFS["return superblock to VFS"]
 
-    Root --> Type --> Mount --> SB --> BGDT --> Inode --> Dentry --> VFS
+    Init --> Register
+    Register --> Probe --> Mount --> SB --> BGDT --> Inode --> Dentry --> VFS
 ```
 
-```c
-#define EXT2_ROOT_DEV MKDEV(8, 0)
-```
+识别流程：
 
-流程：
+1. `ext2_probe(dev)` 读取固定位置的 ext2 superblock。
+2. magic 不匹配返回 0，表示不是 ext2。
+3. magic 匹配后，block size、inode size、group 参数或 feature bits 不支持时
+   返回负 errno。
+4. 支持的 ext2 superblock 返回正数。
 
-1. 查找或注册 `"ext2"` 文件系统类型。
-2. 调用 `ext2_mount(fs_type, EXT2_ROOT_DEV, NULL)`。
-3. `super_alloc()` 分配 VFS super block。
-4. `ext2_read_super()` 读取并校验 ext2 super block。
-5. `ext2_read_bgdt()` 读取 block group descriptor table。
-6. 分配 root dentry。
-7. `iget(sb, EXT2_ROOT_INO)` 读取 root inode。
-8. 设置 `sb->s_root`。
-9. `vfs_set_root_dentry()` 和 `vfs_mount_root()`。
+挂载流程：
+
+1. `super_alloc()` 分配 VFS super block。
+2. `ext2_read_super()` 读取并校验 ext2 super block。
+3. `ext2_read_bgdt()` 读取 block group descriptor table。
+4. 分配 root dentry。
+5. `iget(sb, EXT2_ROOT_INO)` 读取 root inode。
+6. 设置 `sb->s_root` 并把 `super_block` 返回给 VFS。
 
 挂载成功后，VFS root 指向 ext2 根目录。
+
+当前写挂载只支持项目镜像使用的 feature 画像：
+
+- `s_feature_compat == 0`
+- `s_feature_incompat` 必须且只能包含 `EXT2_FEATURE_INCOMPAT_FILETYPE`
+- `s_feature_ro_compat` 只能包含 `EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER`
+
+不支持的 feature bit 在 magic 匹配后视为 hard error，而不是 probe no-match。
 
 ## inode 读写
 

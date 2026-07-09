@@ -158,4 +158,11 @@ void test_fs_at_openat_regular_file(void);
 void test_fs_mount_ext2_on_directory(void);
 void test_ext2_bgdt_uses_vmalloc_for_large_tables(void);
 
+void test_vfs_root_autodetect_missing_device(void);
+void test_vfs_root_autodetect_no_match(void);
+void test_vfs_root_autodetect_single_match(void);
+void test_vfs_root_autodetect_ambiguous_match(void);
+void test_vfs_root_autodetect_probe_error(void);
+void test_vfs_root_autodetect_skips_no_probe(void);
+
 #endif

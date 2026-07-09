@@ -17,6 +17,9 @@
 #define EXT2_GOOD_OLD_INODE_SIZE 128
 #define EXT2_NAME_LEN		 255
 
+#define EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER 0x0001
+#define EXT2_FEATURE_INCOMPAT_FILETYPE      0x0002
+
 #define EXT2_SUPER_OFFSET		  1024u
 #define EXT2_BGDT_BLOCK(first_data_block) ((first_data_block) + 1u)
 

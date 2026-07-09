@@ -445,8 +445,8 @@ static __always_inline void task_mark_stopped(struct task_struct *task)
 	task_set_state(task, TASK_STOPPED);
 }
 
-static __always_inline __must_check __pure __nonnull(
-	1) struct task_struct *task_group_leader(struct task_struct *task)
+static __always_inline __must_check __pure __nonnull(1)
+struct task_struct *task_group_leader(struct task_struct *task)
 {
 	return task->ids.group_leader;
 }

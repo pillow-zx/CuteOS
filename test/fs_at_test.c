@@ -94,7 +94,9 @@ static void fat_large_bgdt_init_image(void)
 	es->s_frags_per_group = 1;
 	es->s_inodes_per_group = 8;
 	es->s_magic = EXT2_SUPER_MAGIC;
-	es->s_rev_level = EXT2_GOOD_OLD_REV;
+	es->s_rev_level = EXT2_DYNAMIC_REV;
+	es->s_inode_size = EXT2_GOOD_OLD_INODE_SIZE;
+	es->s_feature_incompat = EXT2_FEATURE_INCOMPAT_FILETYPE;
 
 	gd = (struct ext2_group_desc *)(uintptr_t)fat_large_bgdt_blocks[1];
 	for (uint32_t i = 0; i < FAT_LARGE_BGDT_GROUPS; i++) {

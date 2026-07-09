@@ -31,6 +31,7 @@ void kernel_main(void)
 {
 	struct task_struct *init;
 	struct task_struct *writeback;
+	int ret;
 
 	console_init_sbi();
 
@@ -78,9 +79,15 @@ void kernel_main(void)
 	vfs_init();
 	pr_info("vfs: init successfully\n");
 
+	ret = filesystems_init();
+	if (ret < 0)
+		panic("filesystems: init failed (%d)", ret);
+	pr_info("filesystems: init successfully\n");
+
 	virtio_blk_init();
-	if (mount_root() < 0)
-		pr_warn("VFS: root mount skipped\n");
+	ret = vfs_mount_root(ROOT_DEV);
+	if (ret < 0)
+		panic("VFS: root mount failed (%d)", ret);
 
 #ifdef CONFIG_KERNEL_TEST
 	kernel_test();

@@ -177,6 +177,14 @@ void kernel_test(void)
 	test_fs_mount_ext2_on_directory();
 	test_ext2_bgdt_uses_vmalloc_for_large_tables();
 
+	TEST_SECTION("VFS Root Mount");
+	test_vfs_root_autodetect_missing_device();
+	test_vfs_root_autodetect_no_match();
+	test_vfs_root_autodetect_single_match();
+	test_vfs_root_autodetect_ambiguous_match();
+	test_vfs_root_autodetect_probe_error();
+	test_vfs_root_autodetect_skips_no_probe();
+
 
 	TEST_SECTION("Sched");
 	test_sched_init();

@@ -26,6 +26,7 @@ FS_EXT2_OBJS =
 endif
 
 FS_OBJS = \
+	fs/filesystems.o       \
 	fs/pipe.o               \
 	$(VFS_OBJS)             \
 	$(FS_EXT2_OBJS)

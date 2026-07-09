@@ -13,7 +13,7 @@ static struct file_system_type *fs_types[NR_FILESYSTEMS];
 
 int register_filesystem(struct file_system_type *fs_type)
 {
-	if (!fs_type || !fs_type->name)
+	if (!fs_type || !fs_type->name || !fs_type->mount)
 		return -EINVAL;
 
 	for (uint32_t i = 0; i < NR_FILESYSTEMS; i++) {
@@ -45,6 +45,40 @@ struct file_system_type *get_filesystem_type(const char *name)
 
 	return NULL;
 }
+
+struct file_system_type *get_next_filesystem_type(struct file_system_type *prev)
+{
+	bool found = prev == NULL;
+
+	for (uint32_t i = 0; i < NR_FILESYSTEMS; i++) {
+		if (!fs_types[i])
+			continue;
+		if (found)
+			return fs_types[i];
+		if (fs_types[i] == prev)
+			found = true;
+	}
+
+	return NULL;
+}
+
+#ifdef CONFIG_KERNEL_TEST
+int unregister_filesystem(struct file_system_type *fs_type)
+{
+	if (!fs_type)
+		return -EINVAL;
+
+	for (uint32_t i = 0; i < NR_FILESYSTEMS; i++) {
+		if (fs_types[i] != fs_type)
+			continue;
+		fs_types[i] = NULL;
+		fs_type->next = NULL;
+		return 0;
+	}
+
+	return -ENOENT;
+}
+#endif
 
 struct super_block *super_alloc(struct file_system_type *fs_type, dev_t dev)
 {

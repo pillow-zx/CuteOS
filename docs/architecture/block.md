@@ -326,15 +326,18 @@ write_sectors(bdev, buf, sector, nsec)
 
 ```text
 vfs_init()
+filesystems_init()
 virtio_blk_init()
-mount_root()
+vfs_mount_root(ROOT_DEV)
 ```
 
 顺序要求：
 
 - VFS 先准备文件系统注册和 cache。
+- 内建文件系统注册为 filesystem type Adapter。
 - virtio-blk 注册 major 8 block device。
-- ext2 `mount_root()` 通过 `lookup_block_device()` 和 page cache 读取 super block。
+- VFS rootfs probe 和选中文件系统的 mount 通过 `lookup_block_device()` 和
+  page cache 读取 super block。
 
 ## 设计约束
 

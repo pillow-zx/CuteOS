@@ -8,7 +8,10 @@
 #include <kernel/slab.h>
 #include <kernel/stat.h>
 #include <kernel/sync.h>
+#include <kernel/printk.h>
 #include <kernel/vfs.h>
+
+#include "namei_internal.h"
 
 static LIST_HEAD(mount_list);
 static DEFINE_MUTEX(mount_lock);
@@ -191,7 +194,8 @@ static int mount_add(const struct path *mountpoint, struct dentry *root,
 	dget(root);
 
 	mutex_lock(&mount_lock);
-	if (mount_find_by_mountpoint(mountpoint)) {
+	if ((is_root && root_mount) ||
+	    (!is_root && mount_find_by_mountpoint(mountpoint))) {
 		mutex_unlock(&mount_lock);
 		mount_free(mnt);
 		return -EBUSY;
@@ -204,16 +208,100 @@ static int mount_add(const struct path *mountpoint, struct dentry *root,
 	return 0;
 }
 
-int vfs_mount_root(struct dentry *root)
+static int mount_attach(const struct path *mountpoint,
+			struct file_system_type *fs_type, dev_t dev,
+			bool is_root, const void *data)
 {
-	struct path root_path;
+	struct super_block *sb = NULL;
+	struct path attach_point;
+	int ret;
 
-	if (!root || !root->d_sb)
+	if (!mountpoint || !fs_type || !fs_type->mount)
 		return -EINVAL;
 
-	root_path.mnt = NULL;
-	root_path.dentry = root;
-	return mount_add(&root_path, root, root->d_sb, root->d_sb->s_dev, true);
+	ret = fs_type->mount(fs_type, dev, data, &sb);
+	if (ret < 0)
+		return ret;
+	if (!sb || !sb->s_root)
+		return -EINVAL;
+
+	attach_point = *mountpoint;
+	if (is_root && !attach_point.dentry)
+		attach_point.dentry = sb->s_root;
+
+	ret = mount_add(&attach_point, sb->s_root, sb, dev, is_root);
+	if (ret < 0)
+		return ret;
+	if (is_root)
+		vfs_set_root_dentry(sb->s_root);
+	return 0;
+}
+
+static int vfs_select_rootfs(dev_t dev, struct file_system_type **out_fs)
+{
+	struct file_system_type *fs_type;
+	struct file_system_type *match = NULL;
+	int ret;
+
+	if (!out_fs)
+		return -EINVAL;
+	*out_fs = NULL;
+
+	if (!lookup_block_device(dev))
+		return -ENXIO;
+
+	for (fs_type = get_next_filesystem_type(NULL); fs_type;
+	     fs_type = get_next_filesystem_type(fs_type)) {
+		if (!fs_type->probe)
+			continue;
+
+		ret = fs_type->probe(dev);
+		if (ret < 0) {
+			pr_err("VFS: %s root probe failed (%d)\n",
+			       fs_type->name, ret);
+			return ret;
+		}
+		if (ret == 0)
+			continue;
+
+		if (match) {
+			pr_err("VFS: ambiguous root filesystem match: %s, %s\n",
+			       match->name, fs_type->name);
+			return -EINVAL;
+		}
+		match = fs_type;
+	}
+
+	if (!match)
+		return -ENODEV;
+
+	*out_fs = match;
+	return 0;
+}
+
+int vfs_mount_root(dev_t dev)
+{
+	struct file_system_type *fs_type = NULL;
+	struct path root_path = {0};
+	int ret;
+
+	ret = vfs_select_rootfs(dev, &fs_type);
+	if (ret < 0) {
+		pr_err("VFS: no root filesystem for dev %u:%u (%d)\n",
+		       MAJOR(dev), MINOR(dev), ret);
+		return ret;
+	}
+
+	root_path.dentry = NULL;
+	ret = mount_attach(&root_path, fs_type, dev, true, NULL);
+	if (ret < 0) {
+		pr_err("VFS: failed to mount root as %s on dev %u:%u (%d)\n",
+		       fs_type->name, MAJOR(dev), MINOR(dev), ret);
+		return ret;
+	}
+
+	pr_info("VFS: mounted root (%s)\n", fs_type->name);
+	return 0;
 }
 
 int vfs_follow_mount(struct path *path)
@@ -268,7 +356,6 @@ int vfs_mount(const char *source, const char *target, const char *type,
 	struct path source_path = {0};
 	struct path target_path = {0};
 	struct file_system_type *fs_type;
-	struct super_block *sb;
 	struct inode *source_inode;
 	dev_t dev;
 	int ret;
@@ -313,16 +400,17 @@ int vfs_mount(const char *source, const char *target, const char *type,
 	}
 	mutex_unlock(&mount_lock);
 
-	sb = fs_type->mount(fs_type, dev, data);
-	if (!sb) {
-		path_put(&target_path);
-		return -EINVAL;
-	}
-
-	ret = mount_add(&target_path, sb->s_root, sb, dev, false);
+	ret = mount_attach(&target_path, fs_type, dev, false, data);
 	path_put(&target_path);
 	return ret;
 }
+
+#ifdef CONFIG_KERNEL_TEST
+int vfs_test_select_rootfs(dev_t dev, struct file_system_type **out_fs)
+{
+	return vfs_select_rootfs(dev, out_fs);
+}
+#endif
 
 static bool mount_busy(struct vfsmount *mnt)
 {
