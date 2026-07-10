@@ -720,6 +720,54 @@ static int test_create_join(void)
 	return 0;
 }
 
+static volatile int exit_group_waiter_ready;
+
+static void *thread_wait_during_exit_group(void *arg)
+{
+	struct timespec timeout = {0, 50000000};
+
+	(void)arg;
+	__atomic_store_n((int *)&exit_group_waiter_ready, 1, __ATOMIC_RELEASE);
+	pselect6(0, NULL, NULL, NULL, &timeout, NULL);
+	return NULL;
+}
+
+static int test_exit_group_cancels_sibling_wait(void)
+{
+	struct timespec settle = {0, 100000000};
+	int status = 0;
+	long child;
+	long waited;
+
+	child = fork();
+	if (child < 0)
+		return 1;
+	if (child == 0) {
+		pthread_t thread;
+
+		exit_group_waiter_ready = 0;
+		if (pthread_create(&thread, NULL,
+				   thread_wait_during_exit_group, NULL) != 0)
+			exit(2);
+		while (__atomic_load_n((int *)&exit_group_waiter_ready,
+					 __ATOMIC_ACQUIRE) == 0)
+			yield();
+		for (int i = 0; i < 8; i++)
+			yield();
+		syscall(SYS_exit_group, 0);
+		exit(3);
+	}
+
+	waited = wait4(child, &status, 0, NULL);
+	if (waited != child || status != 0) {
+		printf("FAIL: exit_group wait child=%ld waited=%ld status=%d\n",
+		       child, waited, status);
+		return 1;
+	}
+	nanosleep(&settle, NULL);
+	return 0;
+}
+
 #define N_THREADS 4
 #define N_ITERS	  500
 
@@ -1258,6 +1306,8 @@ int main(void)
 	report_group("clone musl pthread flags", test_clone_musl_pthread_flags(),
 		     &failed);
 	report_group("pthread create/join", test_create_join(), &failed);
+	report_group("exit_group cancels sibling wait",
+		     test_exit_group_cancels_sibling_wait(), &failed);
 	report_group("pthread mutex counter", test_mutex_counter(), &failed);
 	report_group("pthread mutex error paths", test_mutex_errors(), &failed);
 	report_group("pthread self consistency", test_self_consistency(),

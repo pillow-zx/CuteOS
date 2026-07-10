@@ -51,14 +51,6 @@ void arch_timer_set(uint64_t value);
 void timer_run_expired(uint64_t now);
 
 /**
- * @brief Sleep current task until an absolute mtime deadline.
- * @param expires Absolute mtime tick value.
- * @param interruptible Whether pending signals may interrupt the sleep.
- * @return 0 on timeout, or a negative errno when interrupted.
- */
-int timer_sleep_until(uint64_t expires, bool interruptible);
-
-/**
  * @brief Initialize architecture timer hardware.
  */
 void arch_timer_init(void);

@@ -14,6 +14,9 @@ static volatile int handler_ran;
 static volatile int handler_on_altstack;
 static volatile int handler_saw_onstack;
 static volatile int handler_change_denied;
+static volatile int flag_handler_count;
+static volatile int flag_handler_depth;
+static volatile int flag_handler_max_depth;
 
 struct test_trap_frame {
 	unsigned long sepc;
@@ -272,6 +275,123 @@ sigreturn_truncated_pc_exit(void)
 			 "1: j 1b\n");
 }
 
+static __attribute__((naked, noreturn, used)) void sigreturn_bad_sp_fault(void)
+{
+	__asm__ volatile("sd zero, 0(sp)\n"
+			 "li a0, 78\n"
+			 "li a7, 93\n"
+			 "ecall\n"
+			 "1: j 1b\n");
+}
+
+static __attribute__((naked, noreturn, used)) void
+sigreturn_check_unblockable_mask(void)
+{
+	__asm__ volatile("addi sp, sp, -16\n"
+			 "li a0, 0\n"
+			 "li a1, 0\n"
+			 "mv a2, sp\n"
+			 "li a3, 8\n"
+			 "li a7, 135\n"
+			 "ecall\n"
+			 "ld t0, 0(sp)\n"
+			 "li t1, 0x40100\n"
+			 "and t0, t0, t1\n"
+			 "snez a0, t0\n"
+			 "li a7, 93\n"
+			 "ecall\n"
+			 "1: j 1b\n");
+}
+
+static int signal_expect_child_status(const char *name, long child,
+				      int want)
+{
+	long waited;
+	int status = 0;
+
+	if (child < 0) {
+		printf("FAIL: %s fork=%ld\n", name, child);
+		return 1;
+	}
+	waited = wait4(child, &status, 0, NULL);
+	if (waited != child || status != want) {
+		printf("FAIL: %s waited=%ld status=0x%x want=0x%x\n", name,
+		       waited, status, want);
+		return 1;
+	}
+
+	return 0;
+}
+
+static int test_sigreturn_inaccessible_frame(void)
+{
+	long child = fork();
+
+	if (child == 0)
+		sigreturn_from_frame((struct test_signal_frame *)0x80000000UL);
+
+	return signal_expect_child_status(
+		"sigreturn inaccessible frame", child,
+		SIGNAL_EXIT_CODE(SIGSEGV) << 8);
+}
+
+static int test_sigreturn_bad_stack_faults_safely(void)
+{
+	struct test_signal_frame frame;
+	long child = fork();
+
+	if (child == 0) {
+		memset(&frame, 0, sizeof(frame));
+		frame.tf.sepc = (unsigned long)sigreturn_bad_sp_fault;
+		frame.tf.sp = 0x80000000UL;
+		frame.sig = SIGUSR1;
+		sigreturn_from_frame(&frame);
+	}
+
+	return signal_expect_child_status("sigreturn bad stack", child,
+					  SIGNAL_EXIT_CODE(SIGSEGV) << 8);
+}
+
+static int test_sigreturn_rejects_privileged_status(void)
+{
+	struct test_signal_frame frame;
+	unsigned long sp;
+	long child = fork();
+
+	if (child == 0) {
+		memset(&frame, 0, sizeof(frame));
+		__asm__ volatile("mv %0, sp" : "=r"(sp));
+		frame.tf.sepc = (unsigned long)sigreturn_truncated_pc_exit;
+		frame.tf.sp = sp;
+		frame.tf.sstatus = 1UL << 8;
+		frame.sig = SIGUSR1;
+		sigreturn_from_frame(&frame);
+	}
+
+	return signal_expect_child_status("sigreturn privileged status", child,
+					  SIGNAL_EXIT_CODE(SIGSEGV) << 8);
+}
+
+static int test_sigreturn_unblocks_kill_and_stop(void)
+{
+	struct test_signal_frame frame;
+	unsigned long sp;
+	long child = fork();
+
+	if (child == 0) {
+		memset(&frame, 0, sizeof(frame));
+		__asm__ volatile("mv %0, sp" : "=r"(sp));
+		frame.tf.sepc = (unsigned long)sigreturn_check_unblockable_mask;
+		frame.tf.sp = sp;
+		frame.blocked = ~0UL;
+		frame.sig = SIGUSR1;
+		sigreturn_from_frame(&frame);
+	}
+
+	return signal_expect_child_status("sigreturn unblockable mask", child,
+					  0);
+}
+
 static int test_sigreturn_preserves_invalid_64bit_pc(void)
 {
 	struct test_signal_frame frame;
@@ -324,6 +444,150 @@ static int signal_expect_ret(const char *name, long got, long want)
 {
 	if (got != want) {
 		printf("FAIL: %s expected %ld got %ld\n", name, want, got);
+		return 1;
+	}
+
+	return 0;
+}
+
+static void nodefer_handler(int sig)
+{
+	(void)sig;
+
+	flag_handler_depth++;
+	if (flag_handler_depth > flag_handler_max_depth)
+		flag_handler_max_depth = flag_handler_depth;
+	flag_handler_count++;
+	if (flag_handler_count == 1)
+		raise(SIGUSR1);
+	flag_handler_depth--;
+}
+
+static void reset_hand_handler(int sig)
+{
+	(void)sig;
+	flag_handler_count++;
+}
+
+static int test_sigaction_flag_policy(void)
+{
+	struct sigaction sa;
+	struct sigaction old;
+	int failed = 0;
+
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = usr1_handler;
+	sa.sa_flags = SA_ONSTACK | SA_NODEFER | SA_RESETHAND | SA_RESTART;
+	failed += signal_expect_ret("supported action flags",
+				    sigaction(SIGUSR1, &sa, NULL), 0);
+	memset(&old, 0, sizeof(old));
+	failed += signal_expect_ret("query supported action flags",
+				    sigaction(SIGUSR1, NULL, &old), 0);
+	failed += signal_expect_ret("supported action flags preserved",
+				    old.sa_flags, sa.sa_flags);
+
+	sa.sa_flags = SA_SIGINFO;
+	failed += signal_expect_ret("reject SA_SIGINFO",
+				    sigaction(SIGUSR1, &sa, NULL), -EINVAL);
+	sa.sa_flags = SA_NOCLDSTOP;
+	failed += signal_expect_ret("reject SA_NOCLDSTOP",
+				    sigaction(SIGUSR1, &sa, NULL), -EINVAL);
+	sa.sa_flags = SA_NOCLDWAIT;
+	failed += signal_expect_ret("reject SA_NOCLDWAIT",
+				    sigaction(SIGUSR1, &sa, NULL), -EINVAL);
+	sa.sa_flags = 1UL << 20;
+	failed += signal_expect_ret("reject unknown action flag",
+				    sigaction(SIGUSR1, &sa, NULL), -EINVAL);
+
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = SIG_IGN;
+	sa.sa_flags = SA_RESTART;
+	failed += signal_expect_ret("ignored action preserves supported flags",
+				    sigaction(SIGUSR1, &sa, &old), 0);
+	failed += signal_expect_ret("ignored action query",
+				    sigaction(SIGUSR1, NULL, &old), 0);
+	failed += signal_expect_ret("ignored action flag preserved",
+				    old.sa_flags, SA_RESTART);
+
+	return failed;
+}
+
+static int test_sa_nodefer(void)
+{
+	struct sigaction sa;
+
+	flag_handler_count = 0;
+	flag_handler_depth = 0;
+	flag_handler_max_depth = 0;
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = nodefer_handler;
+	sa.sa_flags = SA_NODEFER;
+	if (sigaction(SIGUSR1, &sa, NULL) != 0)
+		return 1;
+	raise(SIGUSR1);
+
+	if (flag_handler_count != 2 || flag_handler_max_depth != 2) {
+		printf("FAIL: SA_NODEFER count=%d max_depth=%d\n",
+		       flag_handler_count, flag_handler_max_depth);
+		return 1;
+	}
+
+	return 0;
+}
+
+static int test_sa_nodefer_respects_mask(void)
+{
+	struct sigaction sa;
+
+	flag_handler_count = 0;
+	flag_handler_depth = 0;
+	flag_handler_max_depth = 0;
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = nodefer_handler;
+	sa.sa_flags = SA_NODEFER;
+	sa.sa_mask = 1UL << (SIGUSR1 - 1);
+	if (sigaction(SIGUSR1, &sa, NULL) != 0)
+		return 1;
+	raise(SIGUSR1);
+
+	if (flag_handler_count != 2 || flag_handler_max_depth != 1) {
+		printf("FAIL: SA_NODEFER mask count=%d max_depth=%d\n",
+		       flag_handler_count, flag_handler_max_depth);
+		return 1;
+	}
+
+	return 0;
+}
+
+static int test_sa_resethand(void)
+{
+	struct sigaction sa;
+	long pid;
+	long waited;
+	int status = 0;
+
+	pid = fork();
+	if (pid == 0) {
+		flag_handler_count = 0;
+		memset(&sa, 0, sizeof(sa));
+		sa.sa_handler = reset_hand_handler;
+		sa.sa_flags = SA_RESETHAND;
+		if (sigaction(SIGUSR1, &sa, NULL) != 0)
+			exit(1);
+		raise(SIGUSR1);
+		if (flag_handler_count != 1)
+			exit(2);
+		raise(SIGUSR1);
+		exit(3);
+	}
+	if (pid < 0)
+		return 1;
+
+	waited = wait4(pid, &status, 0, NULL);
+	if (waited != pid ||
+	    status != (SIGNAL_EXIT_CODE(SIGUSR1) << 8)) {
+		printf("FAIL: SA_RESETHAND waited=%ld status=%d\n", waited,
+		       status);
 		return 1;
 	}
 
@@ -397,8 +661,22 @@ int main(void)
 	report_group("invalid altstack flags", test_invalid_flags(), &failed);
 	report_group("tkill self signal", test_tkill_self_signal(), &failed);
 	report_group("tkill error paths", test_tkill_errors(), &failed);
+	report_group("sigaction flag policy", test_sigaction_flag_policy(),
+		     &failed);
+	report_group("SA_NODEFER", test_sa_nodefer(), &failed);
+	report_group("SA_NODEFER respects mask",
+		     test_sa_nodefer_respects_mask(), &failed);
+	report_group("SA_RESETHAND", test_sa_resethand(), &failed);
 	report_group("sigreturn invalid pc",
 		     test_sigreturn_preserves_invalid_64bit_pc(), &failed);
+	report_group("sigreturn inaccessible frame",
+		     test_sigreturn_inaccessible_frame(), &failed);
+	report_group("sigreturn bad stack",
+		     test_sigreturn_bad_stack_faults_safely(), &failed);
+	report_group("sigreturn privileged status",
+		     test_sigreturn_rejects_privileged_status(), &failed);
+	report_group("sigreturn unblockable mask",
+		     test_sigreturn_unblocks_kill_and_stop(), &failed);
 
 	if (failed)
 		printf("signal_test: %d test group(s) FAILED\n", failed);

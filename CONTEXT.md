@@ -251,7 +251,7 @@ but only entries present in `SYSCALL_TABLE` are installed.
 - `sigctx`: per-thread signal mask/pending state, altstack, robust futex, and
   `clear_child_tid`
 - `rseq`: restartable sequence registration state
-- `sched`: runqueue node, wait entry, MLFQ state, and `need_resched`
+- `sched`: runqueue node, MLFQ state, and `need_resched`
 - `cputime`: user/kernel tick accounting and child cputime
 
 Task lifecycle belongs to `kernel/task.c`, `kernel/fork.c`, `kernel/exec.c`,
@@ -265,6 +265,11 @@ wiring, and broadly shared hot-path accessors.
 The scheduler is currently single-core MLFQ. Timer ticks update policy state
 and set `need_resched`; switching must happen through scheduler paths that
 respect the current trap/task state.
+
+**Wait Completion** is the kernel-semantic outcome of one conditional wait.
+It identifies whether the wait completed because its event became available,
+an interrupting signal became pending, or its deadline expired; it is distinct
+from the syscall errno or success value chosen by the caller's adapter.
 
 ### VFS Layer
 
@@ -672,6 +677,8 @@ Common entry points:
 - `sched_enqueue(task)`
 - `sched_wake_task(task)`
 - `sched_yield()`
+- `wait_complete(source, flags, deadline, completion)`
+- `wait_register(registrar, wait_queue)`
 - `do_exit(code)`
 - `do_exit_group(code)`
 - `kernel_wait4(...)`

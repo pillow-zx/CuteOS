@@ -163,6 +163,8 @@ struct task_resources {
  * - @c blocked: Linux signal mask; bit n represents signal n+1.
  * - @c pending: Per-thread pending signal mask.
  * - @c in_handler: Signals currently executing a handler.
+ * - @c restore_mask: Signal mask restored after a temporary wait mask.
+ * - @c restore_mask_pending: Whether restore_mask must be consumed.
  * - @c sas: sigaltstack state copied to/from userspace ABI.
  * - @c clear_child_tid: User futex word cleared by set_tid_addr exit.
  * - @c robust_list: User robust futex list head.
@@ -172,6 +174,8 @@ struct task_signal_context {
 	uint64_t blocked;
 	uint64_t pending;
 	uint64_t in_handler;
+	uint64_t restore_mask;
+	bool restore_mask_pending;
 	struct stack_t sas;
 	int *clear_child_tid;
 	struct robust_list_head *robust_list;
@@ -180,11 +184,10 @@ struct task_signal_context {
 
 /**
  * @struct task_sched_entity
- * @brief Scheduler-private runnable/waiting metadata embedded in a task.
+ * @brief Scheduler-private runnable metadata embedded in a task.
  *
  * @par Fields
  * - @c run_list: Node in the selected run queue.
- * - @c wait_entry: Reusable wait-queue entry.
  * - @c need_resched: User-return path should call schedule.
  * - @c sched_level: Current MLFQ priority level.
  * - @c time_slice: Remaining ticks in the current queue level.
@@ -193,7 +196,6 @@ struct task_signal_context {
  */
 struct task_sched_entity {
 	struct list_head run_list;
-	struct wait_queue_entry wait_entry;
 	volatile uint8_t need_resched;
 	uint8_t sched_level;
 	uint8_t time_slice;
@@ -239,6 +241,7 @@ struct task_cputime {
  * - @c sched: Scheduler queueing and tick state.
  * - @c cputime: CPU time charged to this task.
  * - @c child_cputime: Reaped child CPU time totals.
+ * - @c active_wait: Opaque Wait Completion context cancelled during exit.
  */
 struct task_struct {
 	struct task_arch_state arch;
@@ -251,6 +254,7 @@ struct task_struct {
 	struct task_sched_entity sched;
 	struct task_cputime cputime;
 	struct task_cputime child_cputime;
+	struct wait_context *active_wait;
 };
 
 extern struct task_struct idle_task;
@@ -586,12 +590,6 @@ static __always_inline __must_check __pure struct list_head *
 task_run_list(struct task_struct *task)
 {
 	return task ? &task->sched.run_list : NULL;
-}
-
-static __always_inline __must_check __pure struct wait_queue_entry *
-task_wait_entry(struct task_struct *task)
-{
-	return task ? &task->sched.wait_entry : NULL;
 }
 
 static __always_inline __must_check __pure bool

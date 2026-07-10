@@ -15,6 +15,7 @@
 #include <kernel/timer.h>
 #include <kernel/types.h>
 #include <kernel/trap.h>
+#include <kernel/wait.h>
 
 /*
  * SYSCALL_SUPPORT(B): times
@@ -118,9 +119,9 @@ ssize_t sys_nanosleep(struct trap_frame *tf)
 {
 	const struct timespec *ureq = (const struct timespec *)syscall_arg(tf, 0);
 	struct timespec *urem = (struct timespec *)syscall_arg(tf, 1);
+	struct wait_deadline deadline;
 	struct timespec req;
-	uint64_t deadline;
-	bool has_timeout;
+	wait_completion_t completion;
 	int ret;
 
 	if (!ureq)
@@ -128,22 +129,30 @@ ssize_t sys_nanosleep(struct trap_frame *tf)
 	if (copy_from_user(&req, ureq, sizeof(req)) != 0)
 		return -EFAULT;
 
-	ret = mtime_deadline_from_timespec(&req, &has_timeout, &deadline);
+	ret = mtime_deadline_from_timespec(&req, &deadline);
 	if (ret < 0)
 		return ret;
 
-	ret = timer_sleep_until(deadline, true);
-	if (ret == -EINTR && urem) {
+	ret = wait_complete(NULL, WAIT_F_INTERRUPTIBLE, &deadline,
+			    &completion);
+	if (ret < 0)
+		return ret;
+	if (completion == WAIT_COMPLETION_TIMEOUT)
+		return 0;
+	if (completion != WAIT_COMPLETION_SIGNAL)
+		return -EINVAL;
+
+	if (urem) {
 		struct timespec rem = {0};
 		uint64_t after = arch_timer_now();
 
-		if (deadline > after)
-			mtime_to_timespec(deadline - after, &rem);
+		if (deadline.expires > after)
+			mtime_to_timespec(deadline.expires - after, &rem);
 		if (copy_to_user(urem, &rem, sizeof(rem)) != 0)
 			return -EFAULT;
 	}
 
-	return ret;
+	return -EINTR;
 }
 
 /*
@@ -159,10 +168,10 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 	int flags = (int)syscall_arg(tf, 1);
 	const struct timespec *ureq = (const struct timespec *)syscall_arg(tf, 2);
 	struct timespec *urem = (struct timespec *)syscall_arg(tf, 3);
+	struct wait_deadline deadline;
 	struct timespec req;
-	uint64_t deadline;
 	uint64_t delta;
-	bool has_timeout;
+	wait_completion_t completion;
 	int ret;
 
 	if (!clock_id_supported(clock_id))
@@ -177,27 +186,34 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 		return ret;
 
 	if (flags == TIMER_ABSTIME)
-		deadline = delta;
+		deadline = wait_deadline_at(delta);
 	else if (flags == 0) {
-		ret = mtime_deadline_from_timespec(&req, &has_timeout,
-						   &deadline);
+		ret = mtime_deadline_from_timespec(&req, &deadline);
 		if (ret < 0)
 			return ret;
 	} else
 		return -EINVAL;
 
-	ret = timer_sleep_until(deadline, true);
-	if (ret == -EINTR && flags == 0 && urem) {
+	ret = wait_complete(NULL, WAIT_F_INTERRUPTIBLE, &deadline,
+			    &completion);
+	if (ret < 0)
+		return ret;
+	if (completion == WAIT_COMPLETION_TIMEOUT)
+		return 0;
+	if (completion != WAIT_COMPLETION_SIGNAL)
+		return -EINVAL;
+
+	if (flags == 0 && urem) {
 		struct timespec rem = {0};
 		uint64_t after = arch_timer_now();
 
-		if (deadline > after)
-			mtime_to_timespec(deadline - after, &rem);
+		if (deadline.expires > after)
+			mtime_to_timespec(deadline.expires - after, &rem);
 		if (copy_to_user(urem, &rem, sizeof(rem)) != 0)
 			return -EFAULT;
 	}
 
-	return ret;
+	return -EINTR;
 }
 
 /*

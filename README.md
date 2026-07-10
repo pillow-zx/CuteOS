@@ -80,7 +80,7 @@ unsupported errno 和后续计划。
 | VFS 与 fd | fdtable、cwd/root/umask、`openat`、`close`、`read`、`write`、`readv`、`writev`、`pread64`、`pwrite64`、`lseek`、`dup`、`dup3`、`fcntl` 子集 |
 | 路径与目录 | `getcwd`、`chdir`、`mkdirat`、`mknodat`、`unlinkat`、`symlinkat`、`linkat`、`readlinkat`、`renameat2` 的 `RENAME_NOREPLACE` 子集 |
 | stat / fs 信息 | `newfstatat`、`fstat`、`statfs64`、`fstatfs64`、`statx` 基础字段、ext2 `statfs` |
-| poll / epoll | VFS poll table、`ppoll`、`pselect6`、`epoll_create1`、`epoll_ctl`、`epoll_pwait` 的兼容语义 |
+| poll / epoll | VFS poll wait queue、`ppoll`、`pselect6`、`epoll_create1`、`epoll_ctl`、`epoll_pwait` 的兼容语义 |
 | ext2 | 4 KiB block size、direct/single/double indirect 文件映射、目录项、symlink、link/unlink、rename、truncate、fallocate mode 0 |
 | 块层与 page cache | 块设备注册、virtio-blk modern MMIO 轮询驱动、统一 4 KiB page cache、dirty list、fsync/msync/writeback、raw block alias 一致性 |
 | 时间与资源 | `nanosleep`、`clock_gettime`、`clock_getres`、`clock_nanosleep`、`gettimeofday`、`times`、`getrusage`、`prlimit64`、`sysinfo`、POSIX timer 子集 |

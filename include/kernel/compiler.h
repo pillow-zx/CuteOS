@@ -21,5 +21,7 @@
 #define static_assert(cond, msg) _Static_assert(cond, msg)
 /** @def same_type Test compile-time type compatibility. */
 #define same_type(a, b)		 types_compatible(a, b)
+/** @def returns the alignment of a type or variable in bytes. */
+#define alignof(x) __alignof__(x)
 
 #endif

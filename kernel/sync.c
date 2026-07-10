@@ -2,6 +2,24 @@
 #include <kernel/sched.h>
 #include <kernel/task.h>
 
+static int mutex_lock_probe(struct wait_registrar *registrar, void *arg)
+{
+	mutex_t *mutex = arg;
+	irq_flags_t flags;
+	int ret;
+
+	spin_lock_irqsave(&mutex->lock, &flags);
+	if (!mutex->owner) {
+		mutex->owner = current_task();
+		spin_unlock_irqrestore(&mutex->lock, flags);
+		return 1;
+	}
+
+	ret = wait_register(registrar, &mutex->wait);
+	spin_unlock_irqrestore(&mutex->lock, flags);
+	return ret;
+}
+
 void mutex_init(mutex_t *mutex)
 {
 	BUG_ON(!mutex);
@@ -30,27 +48,24 @@ bool mutex_trylock(mutex_t *mutex)
 
 void mutex_lock(mutex_t *mutex)
 {
-	irq_flags_t flags;
+	const struct wait_deadline deadline = {
+		.active = false,
+	};
+	struct wait_source source = {
+		.probe = mutex_lock_probe,
+		.arg = mutex,
+		.registration_limit = 1,
+	};
+	wait_completion_t completion;
+	int ret;
 
 	BUG_ON(!mutex);
+	if (mutex_trylock(mutex))
+		return;
 
-	while (true) {
-		spin_lock_irqsave(&mutex->lock, &flags);
-		if (!mutex->owner) {
-			mutex->owner = current_task();
-			spin_unlock_irqrestore(&mutex->lock, flags);
-			return;
-		}
-
-		prepare_to_wait_uninterruptible(&mutex->wait);
-		spin_unlock_irqrestore(&mutex->lock, flags);
-
-		wait_schedule(TASK_UNINTERRUPTIBLE);
-
-		spin_lock_irqsave(&mutex->lock, &flags);
-		finish_wait(&mutex->wait);
-		spin_unlock_irqrestore(&mutex->lock, flags);
-	}
+	ret = wait_complete(&source, 0, &deadline, &completion);
+	BUG_ON(ret < 0);
+	BUG_ON(completion != WAIT_COMPLETION_EVENT);
 }
 
 void mutex_unlock(mutex_t *mutex)

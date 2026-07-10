@@ -2,11 +2,8 @@
 #include <kernel/errno.h>
 #include <kernel/list.h>
 #include <kernel/mm.h>
-#include <kernel/sched.h>
-#include <kernel/signal.h>
 #include <kernel/sync.h>
 #include <kernel/task.h>
-#include <kernel/timer.h>
 #include <kernel/wait.h>
 #include <kernel/processor.h>
 #include <kernel/uaccess_arch.h>
@@ -30,6 +27,13 @@ struct futex_waiter {
 struct futex_bucket {
 	spinlock_t lock;
 	struct list_head waiters;
+};
+
+struct futex_wait_ctx {
+	struct futex_bucket *bucket;
+	struct futex_waiter *waiter;
+	int *uaddr;
+	int expected;
 };
 
 static struct futex_bucket futex_buckets[FUTEX_BUCKETS];
@@ -80,17 +84,52 @@ static int futex_read_user_value_checked(int *uaddr, int *value)
 	return 0;
 }
 
+static int futex_wait_probe(struct wait_registrar *registrar, void *arg)
+{
+	struct futex_wait_ctx *ctx = arg;
+	struct futex_waiter *waiter = ctx->waiter;
+	irq_flags_t flags;
+	int ret;
+	int value;
+	bool newly_queued = false;
+
+	spin_lock_irqsave(&ctx->bucket->lock, &flags);
+	if (waiter->woken) {
+		ret = 1;
+		goto out;
+	}
+
+	if (list_empty(&waiter->node)) {
+		ret = futex_read_user_value_checked(ctx->uaddr, &value);
+		if (ret < 0)
+			goto out;
+		if (value != ctx->expected) {
+			ret = -EAGAIN;
+			goto out;
+		}
+		list_add_tail(&waiter->node, &ctx->bucket->waiters);
+		newly_queued = true;
+	}
+
+	ret = wait_register(registrar, &waiter->wait);
+	if (ret < 0 && newly_queued)
+		list_del_init(&waiter->node);
+out:
+	spin_unlock_irqrestore(&ctx->bucket->lock, flags);
+	return ret;
+}
+
 static int futex_wait(int *uaddr, int expected, uint32_t bitset,
-		      const struct futex_deadline *deadline)
+		      const struct wait_deadline *deadline)
 {
 	struct futex_key key;
 	struct futex_bucket *bucket;
 	struct futex_waiter waiter;
+	struct futex_wait_ctx wait_ctx;
+	struct wait_source source;
+	wait_completion_t completion;
 	irq_flags_t flags;
 	int ret;
-	int value;
-	bool has_timeout;
-	uint64_t expires;
 
 	if (bitset == 0)
 		return -EINVAL;
@@ -100,8 +139,6 @@ static int futex_wait(int *uaddr, int expected, uint32_t bitset,
 		return ret;
 	if (user_range_probe(uaddr, sizeof(*uaddr), false) < 0)
 		return -EFAULT;
-	has_timeout = deadline && deadline->active;
-	expires = has_timeout ? deadline->expires : 0;
 
 	bucket = futex_bucket_for(&key);
 	memset(&waiter, 0, sizeof(waiter));
@@ -109,44 +146,31 @@ static int futex_wait(int *uaddr, int expected, uint32_t bitset,
 	waiter.bitset = bitset;
 	init_waitqueue_head(&waiter.wait);
 	INIT_LIST_HEAD(&waiter.node);
+	wait_ctx.bucket = bucket;
+	wait_ctx.waiter = &waiter;
+	wait_ctx.uaddr = uaddr;
+	wait_ctx.expected = expected;
+	source.probe = futex_wait_probe;
+	source.arg = &wait_ctx;
+	source.registration_limit = 1;
+
+	ret = wait_complete(&source, WAIT_F_INTERRUPTIBLE, deadline,
+			    &completion);
 
 	spin_lock_irqsave(&bucket->lock, &flags);
-	ret = futex_read_user_value_checked(uaddr, &value);
-	if (ret < 0) {
-		spin_unlock_irqrestore(&bucket->lock, flags);
-		return ret;
-	}
-	if (value != expected) {
-		spin_unlock_irqrestore(&bucket->lock, flags);
-		return -EAGAIN;
-	}
-	if (has_timeout && expires <= arch_timer_now()) {
-		spin_unlock_irqrestore(&bucket->lock, flags);
-		return -ETIMEDOUT;
-	}
-	list_add_tail(&waiter.node, &bucket->waiters);
-	prepare_to_wait_interruptible(&waiter.wait);
-	spin_unlock_irqrestore(&bucket->lock, flags);
-
-	if (has_timeout)
-		ret = wait_schedule_until(TASK_INTERRUPTIBLE, expires);
-	else
-		ret = wait_schedule(TASK_INTERRUPTIBLE);
-
-	spin_lock_irqsave(&bucket->lock, &flags);
-	finish_wait(&waiter.wait);
 	if (!list_empty(&waiter.node))
 		list_del_init(&waiter.node);
 	spin_unlock_irqrestore(&bucket->lock, flags);
 
-	if (waiter.woken)
+	if (ret < 0)
+		return ret;
+	if (completion == WAIT_COMPLETION_EVENT)
 		return 0;
-	if (ret == -EINTR || signal_pending(current_task()))
+	if (completion == WAIT_COMPLETION_SIGNAL)
 		return -EINTR;
-	if (ret == -ETIMEDOUT)
+	if (completion == WAIT_COMPLETION_TIMEOUT)
 		return -ETIMEDOUT;
-
-	return 0;
+	return -EINVAL;
 }
 
 static int futex_wake_mm_bitset(struct mm_struct *mm, int *uaddr, int nr,
@@ -179,9 +203,10 @@ static int futex_wake_mm_bitset(struct mm_struct *mm, int *uaddr, int nr,
 			continue;
 		if ((waiter->bitset & bitset) == 0)
 			continue;
-		if (!wake_up_one(&waiter->wait))
+		if (waiter->woken)
 			continue;
 		waiter->woken = true;
+		(void)wake_up_one(&waiter->wait);
 		woken++;
 		if (woken >= nr)
 			break;

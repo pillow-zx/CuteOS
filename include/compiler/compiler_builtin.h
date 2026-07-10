@@ -5,35 +5,170 @@
  * include/compiler/compiler_builtin.h - compiler builtin 宏
  */
 
-#define likely(x)		  __builtin_expect(!!(x), 1)
-#define unlikely(x)		  __builtin_expect(!!(x), 0)
-#define unreachable()		  __builtin_unreachable()
-#define offsetof(t, d)		  __builtin_offsetof(t, d)
+#ifndef __has_builtin
+#define __has_builtin(x) 0
+#endif
+
+#if __has_builtin(__builtin_expect)
+#define likely(x)   __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#else
+#define likely(x)   (x)
+#define unlikely(x) (x)
+#endif
+
+#if __has_builtin(__builtin_unreachable)
+#define unreachable() __builtin_unreachable()
+#else
+#define unreachable() ((void)0)
+#endif
+
+#if __has_builtin(__builtin_trap)
+#define trap() __builtin_trap()
+#else
+#define trap() do {} while (0)
+#endif
+
+#if __has_builtin(__builtin_offsetof)
+#define offsetof(type, member) __builtin_offsetof(type, member)
+#else
+#define offsetof(type, member) ((unsigned long)&(((type *)0)->member))
+#endif
+
+#if __has_builtin(__builtin_prefetch)
 #define prefetch(x, rw, locality) __builtin_prefetch(x, rw, locality)
-#define __return_address()	  __builtin_return_address(0)
-#define __frame_address()	  __builtin_frame_address(0)
-#define ffs(x)			  __builtin_ffs(x)
-#define ffsl(x)			  __builtin_ffsl(x)
-#define ffsll(x)		  __builtin_ffsll(x)
-#define clz(x)			  __builtin_clz(x)
-#define clzl(x)			  __builtin_clzl(x)
-#define clzll(x)		  __builtin_clzll(x)
-#define ctz(x)			  __builtin_ctz(x)
-#define ctzl(x)			  __builtin_ctzl(x)
-#define ctzll(x)		  __builtin_ctzll(x)
-#define popcount(x)		  __builtin_popcount(x)
-#define popcountl(x)		  __builtin_popcountl(x)
-#define popcountll(x)		  __builtin_popcountll(x)
+#else
+#define prefetch(x, rw, locality)
+#endif
 
-#define alignof(x) __alignof__(x)
+#if __has_builtin(__builtin_return_address)
+#define __return_address() __builtin_return_address(0)
+#else
+#define __return_address()
+#endif
 
+#if __has_builtin(__builtin_frame_address)
+#define __frame_address() __builtin_frame_address(0)
+#else
+#define __frame_address()
+#endif
+
+#if __has_builtin(__builtin_ffs)
+#define ffs(x) __builtin_ffs(x)
+#else
+#define ffs(x)
+#endif
+
+#if __has_builtin(__builtin_ffsl)
+#define ffsl(x) __builtin_ffsl(x)
+#else
+#define ffsl(x)
+#endif
+
+#if __has_builtin(__builtin_ffsll)
+#define ffsll(x) __builtin_ffsll(x)
+#else
+#define ffsl(x)
+#endif
+
+#if __has_builtin(__builtin_clz)
+#define clz(x) __builtin_clz(x)
+#else
+#define clz(x)
+#endif
+
+#if __has_builtin(__builtin_clzl)
+#define clzl(x) __builtin_clzl(x)
+#else
+#define clzl(x)
+#endif
+
+#if __has_builtin(__builtin_clzll)
+#define clzll(x) __builtin_clzll(x)
+#else
+#define clzll(x)
+#endif
+
+#if __has_builtin(__builtin_ctz)
+#define ctz(x) __builtin_ctz(x)
+#else
+#define ctz(x)
+#endif
+
+#if __has_builtin(__builtin_ctzl)
+#define ctzl(x) __builtin_ctzl(x)
+#else
+#define ctzl(x)
+#endif
+
+#if __has_builtin(__builtin_ctzll)
+#define ctzll(x) __builtin_ctzll(x)
+#else
+#define ctzll(x)
+#endif
+
+#if __has_builtin(__builtin_popcount)
+#define popcount(x) __builtin_popcount(x)
+#else
+#define popcount(x)
+#endif
+
+#if __has_builtin(__builtin_popcountl)
+#define popcountl(x) __builtin_popcountl(x)
+#else
+#define popcountl(x)
+#endif
+
+#if __has_builtin(__builtin_popcountll)
+#define popcountll(x) __builtin_popcountll(x)
+#else
+#define popcountll(x)
+#endif
+
+#if __has_builtin(__builtin_constant_p)
 #define constant_p(exp) __builtin_constant_p(exp)
+#else
+#define constant_p(exp)
+#endif
 
+#if __has_builtin(__builtin_choose_expr)
 #define compiletime_choose(cond, true_expr, false_expr)                        \
 	__builtin_choose_expr((cond), (true_expr), (false_expr))
+#else
+#define compiletime_choose(cond, true_expr, false_expr)
+#endif
 
+#if __has_builtin(__builtin_types_compatible_p)
 #define types_compatible(a, b)                                                 \
 	__builtin_types_compatible_p(__typeof__(a), __typeof__(b))
+#else
+#define types_compatible(a, b)
+#endif
+
+#if __has_builtin(__builtin_mul_overflow)
+#define check_mul_overflow(n, size, bytes)                                     \
+	__builtin_mul_overflow(n, size, bytes)
+#else
+#define check_mul_overflow(n, size, bytes)
+#endif
+
+#if __has_builtin(__builtin_add_overflow)
+#define check_add_overflow(a, b, res) __builtin_add_overflow(a, b, res)
+#else
+#define check_add_overflow(a, b, res)
+#endif
+
+#if __has_builtin(__builtin_sub_overflow)
+#define check_sub_overflow(a, b, res) __builtin_sub_overflow(a, b, res)
+#else
+#define check_sub_overflow(a, b, res)
+#endif
+
+#if __has_builtin(__builtin_object_size)
+#define object_size(ptr, type) __builtin_object_size(ptr, type)
+#else
+#define object_size(res)
+#endif
 
 #define ATOMIC_RELAXED __ATOMIC_RELAXED
 #define ATOMIC_CONSUME __ATOMIC_CONSUME
@@ -42,14 +177,34 @@
 #define ATOMIC_ACQ_REL __ATOMIC_ACQ_REL
 #define ATOMIC_SEQ_CST __ATOMIC_SEQ_CST
 
-#define atomic_load_n(ptr, memorder)	   __atomic_load_n(ptr, memorder)
+#if __has_builtin(__atomic_load_n)
+#define atomic_load_n(ptr, memorder) __atomic_load_n(ptr, memorder)
+#else
+#define atomic_load_n(ptr, memorder)
+#endif
+
+#if __has_builtin(__atomic_store_n)
 #define atomic_store_n(ptr, val, memorder) __atomic_store_n(ptr, val, memorder)
+#else
+#define atomic_store_n(ptr, val, memorder)
+#endif
+
+#if __has_builtin(__atomic_add_fetch)
 #define atomic_add_fetch(ptr, val, memorder)                                   \
 	__atomic_add_fetch(ptr, val, memorder)
+#else
+#define atomic_add_fetch(ptr, val, memorder)
+#endif
+
+#if __has_builtin(__atomic_compare_exchange_n)
 #define atomic_compare_exchange_n(ptr, expected, desired, weak, succ_mo,       \
 				  fail_mo)                                     \
 	__atomic_compare_exchange_n(ptr, expected, desired, weak, succ_mo,     \
 				    fail_mo)
+#else
+#define atomic_compare_exchange_n(ptr, expected, desired, weak, succ_mo,       \
+				  fail_mo)
+#endif
 
 #if __has_builtin(__builtin_memcpy)
 #define memcpy(dst, src, n) __builtin_memcpy((dst), (src), (n))
@@ -66,7 +221,7 @@ extern void *memset(void *dst, int c, unsigned long n);
 #define memset(dst, c, n) memset((dst), (c), (n))
 #endif
 
-#if __has_builtin(__builtin_memcpy)
+#if __has_builtin(__builtin_memcmp)
 #define memcmp(lhs, rhs, n) __builtin_memcmp((lhs), (rhs), (n))
 #else
 extern int memcmp(const void *lsh, const void *rhs, unsigned long n);

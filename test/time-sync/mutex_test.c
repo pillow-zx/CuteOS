@@ -53,3 +53,25 @@ fail:
 
 	return __test_ret;
 }
+
+int test_mutex_uncontended_preserves_sleep_state(void)
+{
+	mutex_t mutex;
+
+	TEST_BEGIN("sync: mutex uncontended preserves sleep state");
+	{
+		mutex_init(&mutex);
+		task_mark_interruptible_sleep(current_task());
+		mutex_lock(&mutex);
+		TEST_ASSERT_EQ(task_state(current_task()),
+			       (uint32_t)TASK_INTERRUPTIBLE);
+		mutex_unlock(&mutex);
+		task_mark_running(current_task());
+	}
+	TEST_END("sync: mutex uncontended preserves sleep state");
+	return __test_ret;
+fail:
+	task_mark_running(current_task());
+	TEST_FAIL("sync: mutex uncontended preserves sleep state", "see above");
+	return __test_ret;
+}

@@ -16,6 +16,7 @@
 struct ktimer;
 struct signal_struct;
 struct task_struct;
+struct wait_deadline;
 
 /**
  * @typedef ktimer_fn_t
@@ -197,14 +198,12 @@ int __must_check __access_no_size(read_only, 1)
  */
 uint64_t __must_check __const mtime_deadline_after(uint64_t now,
 						  uint64_t delta);
-int __must_check __nonnull(2, 3) __access_no_size(write_only, 2)
-	__access_no_size(write_only, 3)
+int __must_check __nonnull(2) __access_no_size(write_only, 2)
 	mtime_deadline_from_timespec(const struct timespec *ts,
-				     bool *has_timeout, uint64_t *deadline);
-int __must_check __nonnull(2, 3) __access_no_size(write_only, 2)
-	__access_no_size(write_only, 3)
-	mtime_deadline_from_ms(long timeout_ms, bool *has_timeout,
-			       uint64_t *deadline);
+				     struct wait_deadline *deadline);
+int __must_check __nonnull(2) __access_no_size(write_only, 2)
+	mtime_deadline_from_ms(long timeout_ms,
+			       struct wait_deadline *deadline);
 
 /**
  * @brief Initialize a kernel timer object.

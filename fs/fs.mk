@@ -10,6 +10,7 @@ VFS_OBJS = \
 	fs/vfs/fs_struct.o      \
 	fs/vfs/fdtable.o        \
 	fs/vfs/file.o           \
+	fs/vfs/eventpoll.o      \
 	fs/vfs/read_write.o
 
 EXT2_OBJS = \

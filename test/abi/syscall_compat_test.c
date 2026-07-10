@@ -23,6 +23,17 @@ ssize_t console_tty_write_for_test(const struct termios *termios,
 				   const char *input, size_t input_len,
 				   char *out, size_t out_size);
 
+static struct wait_registrar *poll_test_registrar;
+
+static int poll_test_error(struct file *file, uint32_t events,
+			   struct wait_registrar *registrar)
+{
+	(void)file;
+	(void)events;
+	poll_test_registrar = registrar;
+	return -ENOMEM;
+}
+
 int test_rlimit_defaults(void)
 {
 	struct rlimit64 limits[RLIM_NLIMITS];
@@ -69,38 +80,26 @@ fail:
 	return __test_ret;
 }
 
-int test_vfs_poll_table_registers_multiple_queues(void)
+int test_vfs_poll_propagates_registrar_errors(void)
 {
-	struct wait_queue_head readers;
-	struct wait_queue_head writers;
-	struct vfs_poll_table table;
+	static const struct file_operations fops = {
+		.poll = poll_test_error,
+	};
+	struct wait_registrar *registrar = (struct wait_registrar *)1;
+	struct file file = {
+		.f_op = &fops,
+	};
 
-	TEST_BEGIN("syscall compat: poll table multiple queues");
+	TEST_BEGIN("syscall compat: poll registrar propagation");
 	{
-		init_waitqueue_head(&readers);
-		init_waitqueue_head(&writers);
-		vfs_poll_table_init(&table);
-
-		vfs_poll_wait(&table, &readers);
-		vfs_poll_wait(&table, &writers);
-		vfs_poll_wait(&table, &readers);
-
-		TEST_ASSERT_EQ(table.nr_entries, (size_t)2);
-		TEST_ASSERT(!list_empty(&readers.task_list));
-		TEST_ASSERT(!list_empty(&writers.task_list));
-		TEST_ASSERT_EQ(table.entries[0].wait.task, current_task());
-		TEST_ASSERT_EQ(table.entries[1].wait.task, current_task());
-
-		vfs_poll_table_cleanup(&table);
-		TEST_ASSERT_EQ(table.nr_entries, (size_t)0);
-		TEST_ASSERT(list_empty(&readers.task_list));
-		TEST_ASSERT(list_empty(&writers.task_list));
+		poll_test_registrar = NULL;
+		TEST_ASSERT_EQ(vfs_poll(&file, POLLIN, registrar), -ENOMEM);
+		TEST_ASSERT_EQ(poll_test_registrar, registrar);
 	}
-	TEST_END("syscall compat: poll table multiple queues");
+	TEST_END("syscall compat: poll registrar propagation");
 	return __test_ret;
 fail:
-	vfs_poll_table_cleanup(&table);
-	TEST_FAIL("syscall compat: poll table multiple queues", "see above");
+	TEST_FAIL("syscall compat: poll registrar propagation", "see above");
 
 	return __test_ret;
 }

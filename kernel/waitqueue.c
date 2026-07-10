@@ -5,21 +5,42 @@
 #include <kernel/errno.h>
 #include <kernel/sched.h>
 #include <kernel/signal.h>
+#include <kernel/slab.h>
 #include <kernel/task.h>
 #include <kernel/time.h>
 #include <kernel/timer.h>
 #include <kernel/tools.h>
 #include <kernel/wait.h>
 #include <kernel/irq.h>
-#ifdef KERNEL_SELFTEST
-#include <kernel/test_wait.h>
-#endif
 #include <kernel/processor.h>
 
 struct wait_timeout {
 	struct ktimer timer;
 	struct task_struct *task;
-	bool fired;
+};
+
+struct wait_queue_entry {
+	struct list_head node;
+	struct task_struct *task;
+	struct wait_queue_head *wq;
+};
+
+struct wait_registration {
+	struct wait_queue_entry entry;
+	struct wait_queue_head *wait_queue;
+};
+
+struct wait_registrar {
+	struct task_struct *task;
+	struct wait_registration *entries;
+	uint32_t capacity;
+	struct wait_registration inline_entry;
+};
+
+struct wait_context {
+	struct wait_registrar *registrar;
+	struct wait_timeout *timeout;
+	bool *timeout_active;
 };
 
 static void wait_finish_current_state(void)
@@ -42,7 +63,6 @@ static void wait_timeout_fire(struct ktimer *timer, void *arg)
 		container_of(timer, struct wait_timeout, timer);
 
 	(void)arg;
-	timeout->fired = true;
 	if (wait_task_is_sleeping(timeout->task))
 		sched_wake_task(timeout->task);
 }
@@ -54,7 +74,6 @@ static void wait_timeout_init(struct wait_timeout *timeout,
 
 	ktimer_init(&timeout->timer, wait_timeout_fire, NULL);
 	timeout->task = task;
-	timeout->fired = false;
 }
 
 static int wait_timeout_start(struct wait_timeout *timeout, uint64_t expires)
@@ -62,56 +81,264 @@ static int wait_timeout_start(struct wait_timeout *timeout, uint64_t expires)
 	BUG_ON(!timeout);
 	BUG_ON(!timeout->task);
 
-	timeout->fired = false;
 	return ktimer_arm(&timeout->timer, expires, 0);
 }
 
-static bool wait_timeout_cancel(struct wait_timeout *timeout)
+static void wait_timeout_cancel(struct wait_timeout *timeout)
 {
 	bool cancelled;
-	bool not_fired;
 
 	if (!timeout)
-		return false;
+		return;
 
-	not_fired = !timeout->fired;
 	cancelled = ktimer_cancel(&timeout->timer);
 	(void)cancelled;
-	return not_fired;
 }
 
-static bool wait_timeout_fired(const struct wait_timeout *timeout)
+static void init_waitqueue_entry(struct wait_queue_entry *entry,
+				 struct task_struct *task);
+static void prepare_wait_entry(struct wait_queue_head *wq,
+			       struct wait_queue_entry *entry);
+static void finish_wait_entry(struct wait_queue_entry *entry);
+
+static void wait_registration_init(struct wait_registration *registration,
+				   struct task_struct *task)
 {
-	return timeout && timeout->fired;
+	init_waitqueue_entry(&registration->entry, task);
+	registration->wait_queue = NULL;
 }
 
-#ifdef KERNEL_SELFTEST
-static struct wait_timeout wait_timeout_test;
-
-void wait_timeout_test_start(struct task_struct *task, uint64_t expires)
+static int wait_registrar_init(struct wait_registrar *registrar,
+			       struct task_struct *task, uint32_t capacity)
 {
-	if (ktimer_active(&wait_timeout_test.timer))
-		(void)wait_timeout_cancel(&wait_timeout_test);
+	uint32_t index;
 
-	wait_timeout_init(&wait_timeout_test, task);
-	BUG_ON(wait_timeout_start(&wait_timeout_test, expires) != 0);
+	registrar->task = task;
+	registrar->capacity = capacity;
+	registrar->entries = &registrar->inline_entry;
+	if (capacity > 1) {
+		registrar->entries =
+			kmalloc(sizeof(*registrar->entries) * capacity);
+		if (!registrar->entries)
+			return -ENOMEM;
+	}
+
+	for (index = 0; index < capacity; index++)
+		wait_registration_init(&registrar->entries[index], task);
+	return 0;
 }
 
-bool wait_timeout_test_cancel(void)
+static void wait_registrar_cleanup(struct wait_registrar *registrar)
 {
-	return wait_timeout_cancel(&wait_timeout_test);
+	uint32_t index;
+
+	for (index = 0; index < registrar->capacity; index++)
+		finish_wait_entry(&registrar->entries[index].entry);
+	if (registrar->entries != &registrar->inline_entry)
+		kfree(registrar->entries);
+	registrar->entries = NULL;
 }
 
-bool wait_timeout_test_fired(void)
+static void wait_context_attach(struct wait_context *context,
+				struct wait_registrar *registrar,
+				struct wait_timeout *timeout,
+				bool *timeout_active)
 {
-	return wait_timeout_fired(&wait_timeout_test);
+	struct task_struct *task = current_task();
+
+	BUG_ON(!task);
+	BUG_ON(task->active_wait);
+	context->registrar = registrar;
+	context->timeout = timeout;
+	context->timeout_active = timeout_active;
+	task->active_wait = context;
 }
 
-bool wait_timeout_test_active(void)
+static void wait_context_detach(struct wait_context *context)
 {
-	return ktimer_active(&wait_timeout_test.timer);
+	struct task_struct *task = current_task();
+
+	if (task && task->active_wait == context)
+		task->active_wait = NULL;
 }
-#endif
+
+void wait_cancel_task(struct task_struct *task)
+{
+	struct wait_context *context;
+
+	if (!task)
+		return;
+	context = task->active_wait;
+	if (!context)
+		return;
+
+	task->active_wait = NULL;
+	if (*context->timeout_active) {
+		wait_timeout_cancel(context->timeout);
+		*context->timeout_active = false;
+	}
+	wait_registrar_cleanup(context->registrar);
+}
+
+int wait_register(struct wait_registrar *registrar,
+		  struct wait_queue_head *wait_queue)
+{
+	struct wait_registration *free_registration = NULL;
+	struct wait_registration *registration;
+	uint32_t index;
+
+	if (!registrar || !wait_queue)
+		return -EINVAL;
+
+	for (index = 0; index < registrar->capacity; index++) {
+		registration = &registrar->entries[index];
+		if (registration->wait_queue == wait_queue) {
+			if (!registration->entry.wq)
+				prepare_wait_entry(wait_queue,
+						   &registration->entry);
+			return 0;
+		}
+		if (!registration->wait_queue && !free_registration)
+			free_registration = registration;
+	}
+
+	if (!free_registration)
+		return -E2BIG;
+	free_registration->wait_queue = wait_queue;
+	prepare_wait_entry(wait_queue, &free_registration->entry);
+	return 0;
+}
+
+static int wait_probe(const struct wait_source *source,
+		      struct wait_registrar *registrar)
+{
+	if (!source)
+		return 0;
+	return source->probe(registrar, source->arg);
+}
+
+static wait_completion_t
+wait_arbitrate(int probe_result, wait_flags_t flags,
+	       const struct wait_deadline *deadline)
+{
+	if (probe_result > 0)
+		return WAIT_COMPLETION_EVENT;
+	if ((flags & WAIT_F_INTERRUPTIBLE) && signal_pending(current_task()))
+		return WAIT_COMPLETION_SIGNAL;
+	if (deadline->active && arch_timer_now() >= deadline->expires)
+		return WAIT_COMPLETION_TIMEOUT;
+	return 0;
+}
+
+static void wait_block_current(uint32_t sleep_state)
+{
+	bool enabled_irq_for_sleep = false;
+
+	if (task_state(current_task()) != sleep_state)
+		return;
+	if (sched_has_runnable()) {
+		schedule();
+		return;
+	}
+
+	if (irqs_disabled()) {
+		local_irq_enable();
+		enabled_irq_for_sleep = true;
+	}
+	wait_for_interrupt();
+	if (enabled_irq_for_sleep)
+		local_irq_disable();
+}
+
+int wait_complete(const struct wait_source *source, wait_flags_t flags,
+		  const struct wait_deadline *deadline,
+		  wait_completion_t *completion)
+{
+	struct wait_registrar registrar;
+	struct wait_timeout timeout;
+	struct wait_context context;
+	wait_completion_t result;
+	uint32_t sleep_state;
+	uint32_t capacity;
+	bool timeout_active = false;
+	int probe_result;
+	int ret;
+
+	if (!completion)
+		return -EINVAL;
+	*completion = 0;
+	if (!deadline || !current_task())
+		return -EINVAL;
+	if (task_state(current_task()) != TASK_RUNNING) {
+		wait_finish_current_state();
+		return -EINVAL;
+	}
+	if (flags & ~WAIT_F_MASK)
+		return -EINVAL;
+	if (source &&
+	    (!source->probe || source->registration_limit == 0 ||
+	     source->registration_limit > WAIT_REGISTRAR_MAX_ENTRIES))
+		return -EINVAL;
+	if (!source && !deadline->active && !(flags & WAIT_F_INTERRUPTIBLE))
+		return -EINVAL;
+
+	capacity = source ? source->registration_limit : 1;
+	ret = wait_registrar_init(&registrar, current_task(), capacity);
+	if (ret < 0)
+		return ret;
+	wait_timeout_init(&timeout, current_task());
+	wait_context_attach(&context, &registrar, &timeout, &timeout_active);
+
+	for (;;) {
+		probe_result = wait_probe(source, &registrar);
+		if (probe_result < 0) {
+			ret = probe_result;
+			break;
+		}
+		result = wait_arbitrate(probe_result, flags, deadline);
+		if (result) {
+			*completion = result;
+			ret = 0;
+			break;
+		}
+
+		if (deadline->active && !timeout_active) {
+			ret = wait_timeout_start(&timeout, deadline->expires);
+			if (ret < 0)
+				break;
+			timeout_active = true;
+		}
+
+		sleep_state = (flags & WAIT_F_INTERRUPTIBLE) ?
+				      TASK_INTERRUPTIBLE :
+				      TASK_UNINTERRUPTIBLE;
+		task_set_state(current_task(), sleep_state);
+
+		probe_result = wait_probe(source, &registrar);
+		if (probe_result < 0) {
+			ret = probe_result;
+			break;
+		}
+		result = wait_arbitrate(probe_result, flags, deadline);
+		if (result) {
+			*completion = result;
+			ret = 0;
+			break;
+		}
+
+		wait_block_current(sleep_state);
+		wait_finish_current_state();
+	}
+
+	wait_context_detach(&context);
+	wait_finish_current_state();
+	if (timeout_active)
+		wait_timeout_cancel(&timeout);
+	wait_registrar_cleanup(&registrar);
+	if (ret < 0)
+		*completion = 0;
+	return ret;
+}
 
 void init_waitqueue_head(struct wait_queue_head *wq)
 {
@@ -121,8 +348,8 @@ void init_waitqueue_head(struct wait_queue_head *wq)
 	INIT_LIST_HEAD(&wq->task_list);
 }
 
-void init_waitqueue_entry(struct wait_queue_entry *entry,
-			  struct task_struct *task)
+static void init_waitqueue_entry(struct wait_queue_entry *entry,
+				 struct task_struct *task)
 {
 	BUG_ON(!entry);
 
@@ -131,8 +358,8 @@ void init_waitqueue_entry(struct wait_queue_entry *entry,
 	entry->wq = NULL;
 }
 
-void prepare_wait_entry(struct wait_queue_head *wq,
-			struct wait_queue_entry *entry)
+static void prepare_wait_entry(struct wait_queue_head *wq,
+			       struct wait_queue_entry *entry)
 {
 	irq_flags_t flags;
 
@@ -147,7 +374,7 @@ void prepare_wait_entry(struct wait_queue_head *wq,
 	spin_unlock_irqrestore(&wq->lock, flags);
 }
 
-void finish_wait_entry(struct wait_queue_entry *entry)
+static void finish_wait_entry(struct wait_queue_entry *entry)
 {
 	struct wait_queue_head *wq;
 	irq_flags_t flags;
@@ -165,148 +392,6 @@ void finish_wait_entry(struct wait_queue_entry *entry)
 		entry->wq = NULL;
 	}
 	spin_unlock_irqrestore(&wq->lock, flags);
-}
-
-static void prepare_to_wait(struct wait_queue_head *wq, uint32_t state)
-{
-	if (!wq || !current_task())
-		return;
-
-	prepare_wait_entry(wq, task_wait_entry(current_task()));
-	task_set_state(current_task(), state);
-}
-
-void prepare_to_wait_uninterruptible(struct wait_queue_head *wq)
-{
-	prepare_to_wait(wq, TASK_UNINTERRUPTIBLE);
-}
-
-void prepare_to_wait_interruptible(struct wait_queue_head *wq)
-{
-	prepare_to_wait(wq, TASK_INTERRUPTIBLE);
-}
-
-void finish_wait(struct wait_queue_head *wq)
-{
-	(void)wq;
-
-	if (!current_task())
-		return;
-
-	finish_wait_entry(task_wait_entry(current_task()));
-	wait_finish_current_state();
-}
-
-int wait_schedule(uint32_t state)
-{
-	if (!current_task())
-		return -EINVAL;
-
-	if (task_state(current_task()) != state)
-		return 0;
-	if (!wait_task_is_sleeping(current_task()))
-		task_set_state(current_task(), state);
-	schedule();
-	wait_finish_current_state();
-	return 0;
-}
-
-int wait_schedule_until(uint32_t state, uint64_t deadline)
-{
-	struct wait_timeout timeout;
-	bool enabled_irq_for_sleep = false;
-
-	if (!current_task())
-		return -EINVAL;
-	if (deadline <= arch_timer_now()) {
-		wait_finish_current_state();
-		return -ETIMEDOUT;
-	}
-
-	wait_timeout_init(&timeout, current_task());
-	BUG_ON(wait_timeout_start(&timeout, deadline) != 0);
-	if (task_state(current_task()) != state) {
-		wait_timeout_cancel(&timeout);
-		wait_finish_current_state();
-		return 0;
-	}
-	if (!wait_task_is_sleeping(current_task()))
-		task_set_state(current_task(), state);
-
-	while (!wait_timeout_fired(&timeout)) {
-		if (task_state(current_task()) != state)
-			break;
-		if ((state == TASK_INTERRUPTIBLE) &&
-		    signal_pending(current_task()))
-			break;
-		if (deadline <= arch_timer_now())
-			break;
-
-		if (sched_has_runnable()) {
-			schedule();
-			continue;
-		}
-
-		if (irqs_disabled()) {
-			local_irq_enable();
-			enabled_irq_for_sleep = true;
-		}
-		wait_for_interrupt();
-	}
-
-	if (enabled_irq_for_sleep)
-		local_irq_disable();
-
-	wait_timeout_cancel(&timeout);
-	wait_finish_current_state();
-
-	if (state == TASK_INTERRUPTIBLE && signal_pending(current_task()))
-		return -EINTR;
-	if (wait_timeout_fired(&timeout) || deadline <= arch_timer_now())
-		return -ETIMEDOUT;
-	return 0;
-}
-
-int wait_event(struct wait_queue_head *wq, wait_condition_t condition,
-	       void *arg)
-{
-	if (!wq || !condition || !current_task())
-		return -EINVAL;
-
-	while (!condition(arg)) {
-		prepare_to_wait_uninterruptible(wq);
-		if (condition(arg)) {
-			finish_wait(wq);
-			break;
-		}
-		schedule();
-		finish_wait(wq);
-	}
-
-	return 0;
-}
-
-int wait_event_interruptible(struct wait_queue_head *wq,
-			     wait_condition_t condition, void *arg)
-{
-	if (!wq || !condition || !current_task())
-		return -EINVAL;
-
-	while (!condition(arg)) {
-		prepare_to_wait_interruptible(wq);
-		if (condition(arg)) {
-			finish_wait(wq);
-			break;
-		}
-		if (signal_pending(current_task())) {
-			finish_wait(wq);
-			return -EINTR;
-		}
-		schedule();
-		finish_wait(wq);
-	}
-
-	return 0;
 }
 
 struct task_struct *wake_up_one(struct wait_queue_head *wq)

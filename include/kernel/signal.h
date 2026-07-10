@@ -210,6 +210,12 @@ void signal_clear_pending(struct task_struct *task, uint64_t mask);
 void signal_enter_handler(struct task_struct *task, int sig);
 void signal_leave_handler(struct task_struct *task, int sig);
 void signal_clear_handlers(struct task_struct *task);
+/**
+ * @brief Restore a temporary wait mask after the next user signal delivery.
+ * @param task Task returning from an interruptible masked wait.
+ * @param mask Signal mask active before the temporary wait mask.
+ */
+void signal_defer_mask_restore(struct task_struct *task, uint64_t mask);
 int send_signal(int sig, struct task_struct *task);
 int send_group_signal(int sig, struct task_struct *leader);
 int send_pgrp_signal(int sig, pid_t pgid);

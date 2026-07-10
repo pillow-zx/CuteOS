@@ -83,7 +83,6 @@ struct task_struct *task_alloc(void)
 	INIT_LIST_HEAD(&task->links.thread_group);
 	INIT_LIST_HEAD(&task->links.thread_node);
 	INIT_LIST_HEAD(&task->sched.run_list);
-	init_waitqueue_entry(&task->sched.wait_entry, task);
 	init_waitqueue_head(&task->links.wait_child_queue);
 
 	memset(kstack, 0, KSTACK_SIZE);
@@ -133,6 +132,7 @@ void task_free(struct task_struct *task)
 {
 	if (!task)
 		return;
+	BUG_ON(task->active_wait);
 
 	pid_detach_task(task->ids.pid, task);
 	free_pid(task->ids.pid);
@@ -171,7 +171,6 @@ void task_init(void)
 	INIT_LIST_HEAD(&idle_task.links.thread_group);
 	INIT_LIST_HEAD(&idle_task.links.thread_node);
 	INIT_LIST_HEAD(&idle_task.sched.run_list);
-	init_waitqueue_entry(&idle_task.sched.wait_entry, &idle_task);
 	init_waitqueue_head(&idle_task.links.wait_child_queue);
 	BUG_ON(task_init_resources(&idle_task) < 0);
 	pid_attach_task(idle_task.ids.pid, &idle_task);

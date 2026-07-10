@@ -12,6 +12,7 @@
 #include <kernel/time.h>
 #include <kernel/timer.h>
 #include <kernel/types.h>
+#include <kernel/wait.h>
 
 #define USEC_PER_SEC 1000000UL
 
@@ -315,14 +316,13 @@ uint64_t mtime_deadline_after(uint64_t now, uint64_t delta)
 	return now + delta;
 }
 
-int mtime_deadline_from_timespec(const struct timespec *ts, bool *has_timeout,
-				 uint64_t *deadline)
+int mtime_deadline_from_timespec(const struct timespec *ts,
+				 struct wait_deadline *deadline)
 {
 	uint64_t delta;
 	int ret;
 
-	*has_timeout = false;
-	*deadline = 0;
+	*deadline = wait_deadline_none();
 	if (!ts)
 		return 0;
 
@@ -330,25 +330,22 @@ int mtime_deadline_from_timespec(const struct timespec *ts, bool *has_timeout,
 	if (ret < 0)
 		return ret;
 
-	*has_timeout = true;
-	*deadline = mtime_deadline_after(arch_timer_now(), delta);
+	*deadline = wait_deadline_at(
+		mtime_deadline_after(arch_timer_now(), delta));
 	return 0;
 }
 
-int mtime_deadline_from_ms(long timeout_ms, bool *has_timeout,
-			   uint64_t *deadline)
+int mtime_deadline_from_ms(long timeout_ms, struct wait_deadline *deadline)
 {
 	uint64_t delta;
 	uint64_t ms;
 
-	*has_timeout = false;
-	*deadline = 0;
+	*deadline = wait_deadline_none();
 	if (timeout_ms < 0)
 		return 0;
 
-	*has_timeout = true;
 	if (timeout_ms == 0) {
-		*deadline = arch_timer_now();
+		*deadline = wait_deadline_at(arch_timer_now());
 		return 0;
 	}
 
@@ -358,7 +355,8 @@ int mtime_deadline_from_ms(long timeout_ms, bool *has_timeout,
 	else
 		delta = (ms * MTIME_FREQ + 999ULL) / 1000ULL;
 
-	*deadline = mtime_deadline_after(arch_timer_now(), delta);
+	*deadline = wait_deadline_at(
+		mtime_deadline_after(arch_timer_now(), delta));
 	return 0;
 }
 

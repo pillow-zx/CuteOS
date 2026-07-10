@@ -6,13 +6,10 @@
 #include <kernel/slab.h>
 #include <kernel/page_cache.h>
 #include <kernel/printk.h>
-#include <kernel/sched.h>
-#include <kernel/signal.h>
 #include <kernel/stat.h>
 #include <kernel/statfs.h>
 #include <kernel/blkdev.h>
 #include <kernel/errno.h>
-#include <kernel/timer.h>
 #include <kernel/vfs.h>
 
 #define FILE_STATUS_FLAGS	 (O_ACCMODE | O_APPEND | O_NONBLOCK | O_DIRECTORY)
@@ -22,8 +19,8 @@
 
 static ssize_t null_read(struct file *file, char *buf, size_t count);
 static ssize_t null_write(struct file *file, const char *buf, size_t count);
-static uint32_t null_poll(struct file *file, uint32_t events,
-			  struct vfs_poll_table *table);
+static int null_poll(struct file *file, uint32_t events,
+		     struct wait_registrar *registrar);
 
 #define VFS_CHRDEV_MAX 8
 
@@ -143,129 +140,15 @@ int vfs_statfs(struct super_block *sb, struct statfs64 *buf)
 	return sb->s_op->statfs(sb, buf);
 }
 
-void vfs_poll_table_init(struct vfs_poll_table *table)
-{
-	if (!table)
-		return;
-
-	memset(table, 0, sizeof(*table));
-}
-
-void vfs_poll_table_cleanup(struct vfs_poll_table *table)
-{
-	if (!table)
-		return;
-
-	for (size_t i = 0; i < table->nr_entries; i++)
-		finish_wait_entry(&table->entries[i].wait);
-	table->nr_entries = 0;
-}
-
-void vfs_poll_wait(struct vfs_poll_table *table, struct wait_queue_head *wq)
-{
-	struct vfs_poll_entry *entry;
-
-	if (!table || !wq || !current_task())
-		return;
-
-	for (size_t i = 0; i < table->nr_entries; i++) {
-		if (table->entries[i].wq == wq)
-			return;
-	}
-	if (table->nr_entries >= VFS_POLL_MAX_WAIT_QUEUES)
-		return;
-
-	entry = &table->entries[table->nr_entries++];
-	entry->wq = wq;
-	init_waitqueue_entry(&entry->wait, current_task());
-	prepare_wait_entry(wq, &entry->wait);
-}
-
-int vfs_poll_wait_until(vfs_poll_scan_t scan, void *arg, bool has_timeout,
-			uint64_t deadline)
-{
-	struct vfs_poll_table *table;
-
-	if (!scan || !current_task())
-		return -EINVAL;
-
-	table = kmalloc(sizeof(*table));
-	if (!table)
-		return -ENOMEM;
-
-	while (true) {
-		int ret;
-		int wait_ret;
-
-		vfs_poll_table_init(table);
-		ret = scan(table, arg);
-		if (ret != 0) {
-			vfs_poll_table_cleanup(table);
-			kfree(table);
-			return ret;
-		}
-		if (has_timeout && deadline <= arch_timer_now()) {
-			vfs_poll_table_cleanup(table);
-			kfree(table);
-			return 0;
-		}
-		if (signal_pending(current_task())) {
-			vfs_poll_table_cleanup(table);
-			kfree(table);
-			return -EINTR;
-		}
-
-		task_mark_interruptible_sleep(current_task());
-
-		ret = scan(NULL, arg);
-		if (ret != 0 || signal_pending(current_task()) ||
-		    (has_timeout && deadline <= arch_timer_now())) {
-			vfs_poll_table_cleanup(table);
-			if (task_state(current_task()) & TASK_ANY_SLEEP)
-				task_mark_running(current_task());
-			if (ret != 0) {
-				kfree(table);
-				return ret;
-			}
-			if (signal_pending(current_task())) {
-				kfree(table);
-				return -EINTR;
-			}
-			kfree(table);
-			return 0;
-		}
-
-		if (has_timeout)
-			wait_ret = wait_schedule_until(TASK_INTERRUPTIBLE,
-						       deadline);
-		else
-			wait_ret = wait_schedule(TASK_INTERRUPTIBLE);
-
-		vfs_poll_table_cleanup(table);
-		if (task_state(current_task()) & TASK_ANY_SLEEP)
-			task_mark_running(current_task());
-
-		if (wait_ret == -EINTR || signal_pending(current_task())) {
-			kfree(table);
-			return -EINTR;
-		}
-		if (wait_ret == -ETIMEDOUT ||
-		    (has_timeout && deadline <= arch_timer_now())) {
-			kfree(table);
-			return 0;
-		}
-	}
-}
-
-uint32_t vfs_poll(struct file *file, uint32_t events,
-		  struct vfs_poll_table *table)
+int vfs_poll(struct file *file, uint32_t events,
+	     struct wait_registrar *registrar)
 {
 	uint32_t mask = 0;
 
 	if (!file)
 		return POLLNVAL;
 	if (file->f_op && file->f_op->poll)
-		return file->f_op->poll(file, events, table);
+		return file->f_op->poll(file, events, registrar);
 
 	if ((events & POLLIN) && (file->f_mode & FMODE_READ))
 		mask |= POLLIN;
@@ -507,12 +390,12 @@ static ssize_t null_write(struct file *file, const char *buf, size_t count)
 	return (ssize_t)count;
 }
 
-static uint32_t null_poll(struct file *file, uint32_t events,
-			  struct vfs_poll_table *table)
+static int null_poll(struct file *file, uint32_t events,
+		     struct wait_registrar *registrar)
 {
 	uint32_t mask = 0;
 
-	(void)table;
+	(void)registrar;
 
 	if ((events & POLLIN) && (file->f_mode & FMODE_READ))
 		mask |= POLLIN;

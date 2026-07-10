@@ -10,18 +10,7 @@
 #include <kernel/task.h>
 #include <uapi/futex.h>
 
-/**
- * @struct futex_deadline
- * @brief Optional absolute mtime deadline for futex waits.
- *
- * @par Fields
- * - @c active: Whether @ref expires is meaningful.
- * - @c expires: Absolute mtime deadline.
- */
-struct futex_deadline {
-	bool active;
-	uint64_t expires;
-};
+struct wait_deadline;
 
 /**
  * @struct kernel_futex_args
@@ -39,7 +28,7 @@ struct kernel_futex_args {
 	int *uaddr;
 	int op;
 	int val;
-	const struct futex_deadline *deadline;
+	const struct wait_deadline *deadline;
 	int *uaddr2;
 	int val3;
 };

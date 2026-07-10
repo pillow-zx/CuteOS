@@ -1,321 +1,376 @@
 #include <kernel/errno.h>
-#include <kernel/sched.h>
 #include <kernel/signal.h>
 #include <kernel/task.h>
 #include <kernel/test.h>
-#include <kernel/test_wait.h>
 #include <kernel/timer.h>
 #include <kernel/wait.h>
 
 #include "../ktest.h"
 
-static bool wait_test_ready(void *arg)
-{
-	bool *ready = arg;
+struct wait_test_source {
+	struct wait_queue_head *first;
+	struct wait_queue_head *second;
+	struct wait_deadline *deadline;
+	uint32_t probes;
+	uint32_t ready_probe;
+	uint32_t wake_probe;
+	uint32_t timeout_probe;
+	bool duplicate_first;
+};
 
-	return *ready;
+static int wait_test_probe(struct wait_registrar *registrar, void *arg)
+{
+	struct wait_test_source *source = arg;
+	int ret;
+
+	source->probes++;
+	if (source->first) {
+		ret = wait_register(registrar, source->first);
+		if (ret < 0)
+			return ret;
+		if (source->duplicate_first) {
+			ret = wait_register(registrar, source->first);
+			if (ret < 0)
+				return ret;
+		}
+	}
+	if (source->second) {
+		ret = wait_register(registrar, source->second);
+		if (ret < 0)
+			return ret;
+	}
+	if (source->wake_probe == source->probes)
+		wake_up(source->first);
+	if (source->timeout_probe == source->probes)
+		source->deadline->expires = arch_timer_now();
+	return source->ready_probe == source->probes;
 }
 
-int test_waitqueue_timeout_expiry_wakes_task(void)
+static int wait_test_error_probe(struct wait_registrar *registrar, void *arg)
 {
-	struct task_struct *task = NULL;
+	struct wait_queue_head **queues = arg;
+	int ret;
 
-	TEST_BEGIN("waitqueue: timeout expiry wakes task");
-	{
-		task = task_alloc();
-		TEST_ASSERT_NOT_NULL(task);
-		task->lifecycle.state = TASK_UNINTERRUPTIBLE;
-
-		wait_timeout_test_start(task, 100);
-		timer_run_expired(99);
-		TEST_ASSERT_EQ(task->lifecycle.state, (uint32_t)TASK_UNINTERRUPTIBLE);
-		TEST_ASSERT(!wait_timeout_test_fired());
-		TEST_ASSERT(wait_timeout_test_active());
-
-		timer_run_expired(100);
-		TEST_ASSERT_EQ(task->lifecycle.state, (uint32_t)TASK_RUNNING);
-		TEST_ASSERT(wait_timeout_test_fired());
-		TEST_ASSERT(!wait_timeout_test_active());
-		TEST_ASSERT(!wait_timeout_test_cancel());
-		TEST_ASSERT(!list_empty(&task->sched.run_list));
-	}
-	TEST_END("waitqueue: timeout expiry wakes task");
-	goto cleanup;
-fail:
-	TEST_FAIL("waitqueue: timeout expiry wakes task", "see above");
-cleanup:
-	if (task) {
-		if (!list_empty(&task->sched.run_list))
-			sched_dequeue(task);
-		task_free(task);
-	}
-
-	return __test_ret;
+	ret = wait_register(registrar, queues[0]);
+	if (ret < 0)
+		return ret;
+	return wait_register(registrar, queues[1]);
 }
 
-int test_waitqueue_timeout_cancel_prevents_wake(void)
+int test_wait_complete_timeout(void)
 {
-	struct task_struct *task = NULL;
+	struct wait_deadline deadline = wait_deadline_at(arch_timer_now());
+	wait_completion_t completion = 99;
 
-	TEST_BEGIN("waitqueue: timeout cancel prevents wake");
+	TEST_BEGIN("wait completion: timeout");
 	{
-		task = task_alloc();
-		TEST_ASSERT_NOT_NULL(task);
-		task->lifecycle.state = TASK_UNINTERRUPTIBLE;
-
-		wait_timeout_test_start(task, 200);
-		TEST_ASSERT(wait_timeout_test_active());
-		TEST_ASSERT(wait_timeout_test_cancel());
-		TEST_ASSERT(!wait_timeout_test_active());
-		timer_run_expired(200);
-		TEST_ASSERT_EQ(task->lifecycle.state, (uint32_t)TASK_UNINTERRUPTIBLE);
-		TEST_ASSERT(!wait_timeout_test_fired());
-		TEST_ASSERT(list_empty(&task->sched.run_list));
-	}
-	TEST_END("waitqueue: timeout cancel prevents wake");
-	goto cleanup;
-fail:
-	TEST_FAIL("waitqueue: timeout cancel prevents wake", "see above");
-cleanup:
-	if (task) {
-		if (!list_empty(&task->sched.run_list))
-			sched_dequeue(task);
-		task_free(task);
-	}
-
-	return __test_ret;
-}
-
-int test_wait_event_interruptible_ready(void)
-{
-	struct wait_queue_head wq;
-	bool ready = true;
-
-	TEST_BEGIN("sync: wait_event_interruptible ready");
-	{
-		init_waitqueue_head(&wq);
-		TEST_ASSERT_EQ(
-			wait_event_interruptible(&wq, wait_test_ready, &ready),
-			0);
-		TEST_ASSERT(
-			list_empty(&current_task()->sched.wait_entry.node));
+		TEST_ASSERT_EQ(wait_complete(NULL, 0, &deadline, &completion), 0);
+		TEST_ASSERT_EQ(completion,
+			       (wait_completion_t)WAIT_COMPLETION_TIMEOUT);
 		TEST_ASSERT_EQ(task_state(current_task()),
 			       (uint32_t)TASK_RUNNING);
 	}
-	TEST_END("sync: wait_event_interruptible ready");
+	TEST_END("wait completion: timeout");
 	return __test_ret;
 fail:
-	TEST_FAIL("sync: wait_event_interruptible ready", "see above");
-
+	TEST_FAIL("wait completion: timeout", "see above");
 	return __test_ret;
 }
 
-int test_wait_event_interruptible_signal(void)
+int test_wait_complete_event(void)
 {
-	struct wait_queue_head wq;
+	struct wait_queue_head wait_queue;
+	struct wait_deadline deadline = wait_deadline_none();
+	struct wait_test_source test_source = { 0 };
+	struct wait_source source;
+	wait_completion_t completion = 0;
+
+	TEST_BEGIN("wait completion: event");
+	{
+		init_waitqueue_head(&wait_queue);
+		test_source.first = &wait_queue;
+		test_source.ready_probe = 1;
+		source = (struct wait_source){
+			.probe = wait_test_probe,
+			.arg = &test_source,
+			.registration_limit = 1,
+		};
+		TEST_ASSERT_EQ(wait_complete(&source, 0, &deadline, &completion),
+			       0);
+		TEST_ASSERT_EQ(completion,
+			       (wait_completion_t)WAIT_COMPLETION_EVENT);
+		TEST_ASSERT(list_empty(&wait_queue.task_list));
+		TEST_ASSERT_EQ(task_state(current_task()),
+			       (uint32_t)TASK_RUNNING);
+	}
+	TEST_END("wait completion: event");
+	return __test_ret;
+fail:
+	TEST_FAIL("wait completion: event", "see above");
+	return __test_ret;
+}
+
+int test_wait_complete_spurious_retry(void)
+{
+	struct wait_queue_head wait_queue;
+	struct wait_deadline deadline = wait_deadline_at(UINT64_MAX);
+	struct wait_test_source test_source = { 0 };
+	struct wait_source source;
+	wait_completion_t completion = 0;
+
+	TEST_BEGIN("wait completion: spurious retry");
+	{
+		init_waitqueue_head(&wait_queue);
+		test_source.first = &wait_queue;
+		test_source.deadline = &deadline;
+		test_source.wake_probe = 2;
+		test_source.timeout_probe = 3;
+		source = (struct wait_source){
+			.probe = wait_test_probe,
+			.arg = &test_source,
+			.registration_limit = 1,
+		};
+		TEST_ASSERT_EQ(wait_complete(&source, 0, &deadline, &completion),
+			       0);
+		TEST_ASSERT_EQ(completion,
+			       (wait_completion_t)WAIT_COMPLETION_TIMEOUT);
+		TEST_ASSERT_EQ(test_source.probes, (uint32_t)3);
+		TEST_ASSERT(list_empty(&wait_queue.task_list));
+		TEST_ASSERT_EQ(task_state(current_task()),
+			       (uint32_t)TASK_RUNNING);
+	}
+	TEST_END("wait completion: spurious retry");
+	return __test_ret;
+fail:
+	TEST_FAIL("wait completion: spurious retry", "see above");
+	return __test_ret;
+}
+
+int test_wait_complete_priority(void)
+{
+	struct wait_queue_head wait_queue;
+	struct wait_deadline deadline = wait_deadline_at(arch_timer_now());
+	struct wait_test_source test_source = { 0 };
+	struct wait_source source;
 	uint64_t saved_pending = current_task()->sigctx.pending;
 	uint64_t saved_blocked = current_task()->sigctx.blocked;
-	bool ready = false;
+	wait_completion_t completion = 0;
 
-	TEST_BEGIN("sync: wait_event_interruptible signal");
+	TEST_BEGIN("wait completion: priority");
 	{
-		init_waitqueue_head(&wq);
+		init_waitqueue_head(&wait_queue);
 		current_task()->sigctx.blocked &= ~signal_mask(SIGUSR1);
 		TEST_ASSERT_EQ(send_current_signal(SIGUSR1), 0);
-		TEST_ASSERT_EQ(
-			wait_event_interruptible(&wq, wait_test_ready, &ready),
-			-EINTR);
-		TEST_ASSERT(
-			list_empty(&current_task()->sched.wait_entry.node));
-		TEST_ASSERT_EQ(task_state(current_task()),
-			       (uint32_t)TASK_RUNNING);
+		test_source.first = &wait_queue;
+		test_source.ready_probe = 1;
+		source = (struct wait_source){
+			.probe = wait_test_probe,
+			.arg = &test_source,
+			.registration_limit = 1,
+		};
+		TEST_ASSERT_EQ(wait_complete(&source, WAIT_F_INTERRUPTIBLE,
+					     &deadline, &completion),
+			       0);
+		TEST_ASSERT_EQ(completion,
+			       (wait_completion_t)WAIT_COMPLETION_EVENT);
+
+		test_source.ready_probe = 0;
+		test_source.probes = 0;
+		completion = 0;
+		TEST_ASSERT_EQ(wait_complete(&source, WAIT_F_INTERRUPTIBLE,
+					     &deadline, &completion),
+			       0);
+		TEST_ASSERT_EQ(completion,
+			       (wait_completion_t)WAIT_COMPLETION_SIGNAL);
+		TEST_ASSERT(list_empty(&wait_queue.task_list));
 	}
-	TEST_END("sync: wait_event_interruptible signal");
+	TEST_END("wait completion: priority");
 	goto cleanup;
 fail:
-	TEST_FAIL("sync: wait_event_interruptible signal", "see above");
+	TEST_FAIL("wait completion: priority", "see above");
 cleanup:
 	current_task()->sigctx.pending = saved_pending;
 	current_task()->sigctx.blocked = saved_blocked;
-
 	return __test_ret;
 }
 
-int test_waitqueue_prepare_finish(void)
+int test_wait_complete_wake_before_block(void)
 {
-	struct wait_queue_head wq;
-	struct wait_queue_entry entry;
+	struct wait_queue_head wait_queue;
+	struct wait_deadline deadline = wait_deadline_none();
+	struct wait_test_source test_source = { 0 };
+	struct wait_source source;
+	wait_completion_t completion = 0;
 
-	TEST_BEGIN("sync: waitqueue prepare finish");
+	TEST_BEGIN("wait completion: wake before block");
 	{
-		init_waitqueue_head(&wq);
-		init_waitqueue_entry(&entry, current_task());
-
-		prepare_wait_entry(&wq, &entry);
-		prepare_wait_entry(&wq, &entry);
-		TEST_ASSERT(!list_empty(&wq.task_list));
-		TEST_ASSERT(entry.wq == &wq);
-		TEST_ASSERT(wq.task_list.next == &entry.node);
-		TEST_ASSERT(wq.task_list.prev == &entry.node);
-
-		finish_wait_entry(&entry);
-		TEST_ASSERT(list_empty(&wq.task_list));
-		TEST_ASSERT(list_empty(&entry.node));
-		TEST_ASSERT(entry.wq == NULL);
+		init_waitqueue_head(&wait_queue);
+		test_source.first = &wait_queue;
+		test_source.wake_probe = 2;
+		test_source.ready_probe = 3;
+		source = (struct wait_source){
+			.probe = wait_test_probe,
+			.arg = &test_source,
+			.registration_limit = 1,
+		};
+		TEST_ASSERT_EQ(wait_complete(&source, 0, &deadline, &completion),
+			       0);
+		TEST_ASSERT_EQ(completion,
+			       (wait_completion_t)WAIT_COMPLETION_EVENT);
+		TEST_ASSERT_EQ(test_source.probes, (uint32_t)3);
+		TEST_ASSERT(list_empty(&wait_queue.task_list));
 	}
-	TEST_END("sync: waitqueue prepare finish");
+	TEST_END("wait completion: wake before block");
 	return __test_ret;
 fail:
-	TEST_FAIL("sync: waitqueue prepare finish", "see above");
-
+	TEST_FAIL("wait completion: wake before block", "see above");
 	return __test_ret;
 }
 
-int test_waitqueue_wake_one_fifo(void)
+int test_wait_complete_registration(void)
 {
-	struct wait_queue_head wq;
-	struct task_struct *first = NULL;
-	struct task_struct *second = NULL;
+	struct wait_queue_head first;
+	struct wait_queue_head second;
+	struct wait_deadline deadline = wait_deadline_none();
+	struct wait_test_source test_source = { 0 };
+	struct wait_source source;
+	wait_completion_t completion = 0;
 
-	TEST_BEGIN("sync: waitqueue wake one fifo");
+	TEST_BEGIN("wait completion: registration");
 	{
-		first = task_alloc();
-		second = task_alloc();
-		TEST_ASSERT_NOT_NULL(first);
-		TEST_ASSERT_NOT_NULL(second);
-
-		init_waitqueue_head(&wq);
-		prepare_wait_entry(&wq, &first->sched.wait_entry);
-		prepare_wait_entry(&wq, &second->sched.wait_entry);
-		task_mark_uninterruptible_sleep(first);
-		task_mark_uninterruptible_sleep(second);
-
-		TEST_ASSERT_EQ(wake_up_one(&wq), first);
-		TEST_ASSERT_EQ(task_state(first), (uint32_t)TASK_RUNNING);
-		TEST_ASSERT_EQ(task_state(second),
-			       (uint32_t)TASK_UNINTERRUPTIBLE);
-		TEST_ASSERT(list_empty(&first->sched.wait_entry.node));
-		TEST_ASSERT(!list_empty(&second->sched.wait_entry.node));
-
-		TEST_ASSERT_EQ(wake_up_one(&wq), second);
-		TEST_ASSERT_EQ(task_state(second), (uint32_t)TASK_RUNNING);
-		TEST_ASSERT(list_empty(&wq.task_list));
+		init_waitqueue_head(&first);
+		init_waitqueue_head(&second);
+		test_source.first = &first;
+		test_source.second = &second;
+		test_source.duplicate_first = true;
+		test_source.ready_probe = 1;
+		source = (struct wait_source){
+			.probe = wait_test_probe,
+			.arg = &test_source,
+			.registration_limit = 2,
+		};
+		TEST_ASSERT_EQ(wait_complete(&source, 0, &deadline, &completion),
+			       0);
+		TEST_ASSERT_EQ(completion,
+			       (wait_completion_t)WAIT_COMPLETION_EVENT);
+		TEST_ASSERT(list_empty(&first.task_list));
+		TEST_ASSERT(list_empty(&second.task_list));
 	}
-	TEST_END("sync: waitqueue wake one fifo");
+	TEST_END("wait completion: registration");
+	return __test_ret;
+fail:
+	TEST_FAIL("wait completion: registration", "see above");
+	return __test_ret;
+}
+
+int test_wait_complete_partial_error_cleanup(void)
+{
+	struct wait_queue_head first;
+	struct wait_queue_head second;
+	struct wait_queue_head *queues[2];
+	struct wait_deadline deadline = wait_deadline_none();
+	struct wait_source source;
+	wait_completion_t completion = 99;
+
+	TEST_BEGIN("wait completion: partial error cleanup");
+	{
+		init_waitqueue_head(&first);
+		init_waitqueue_head(&second);
+		queues[0] = &first;
+		queues[1] = &second;
+		source = (struct wait_source){
+			.probe = wait_test_error_probe,
+			.arg = queues,
+			.registration_limit = 1,
+		};
+		TEST_ASSERT_EQ(wait_complete(&source, 0, &deadline, &completion),
+			       -E2BIG);
+		TEST_ASSERT_EQ(completion, (wait_completion_t)0);
+		TEST_ASSERT(list_empty(&first.task_list));
+		TEST_ASSERT(list_empty(&second.task_list));
+		TEST_ASSERT_EQ(task_state(current_task()),
+			       (uint32_t)TASK_RUNNING);
+	}
+	TEST_END("wait completion: partial error cleanup");
+	return __test_ret;
+fail:
+	TEST_FAIL("wait completion: partial error cleanup", "see above");
+	return __test_ret;
+}
+
+int test_wait_complete_signal_only(void)
+{
+	struct wait_deadline deadline = wait_deadline_none();
+	uint64_t saved_pending = current_task()->sigctx.pending;
+	uint64_t saved_blocked = current_task()->sigctx.blocked;
+	wait_completion_t completion = 0;
+
+	TEST_BEGIN("wait completion: signal only");
+	{
+		current_task()->sigctx.blocked &= ~signal_mask(SIGUSR1);
+		TEST_ASSERT_EQ(send_current_signal(SIGUSR1), 0);
+		TEST_ASSERT_EQ(wait_complete(NULL, WAIT_F_INTERRUPTIBLE,
+					     &deadline, &completion),
+			       0);
+		TEST_ASSERT_EQ(completion,
+			       (wait_completion_t)WAIT_COMPLETION_SIGNAL);
+	}
+	TEST_END("wait completion: signal only");
 	goto cleanup;
 fail:
-	TEST_FAIL("sync: waitqueue wake one fifo", "see above");
+	TEST_FAIL("wait completion: signal only", "see above");
 cleanup:
-	if (first) {
-		if (!list_empty(&first->sched.run_list))
-			sched_dequeue(first);
-		finish_wait_entry(&first->sched.wait_entry);
-		task_free(first);
-	}
-	if (second) {
-		if (!list_empty(&second->sched.run_list))
-			sched_dequeue(second);
-		finish_wait_entry(&second->sched.wait_entry);
-		task_free(second);
-	}
-
+	current_task()->sigctx.pending = saved_pending;
+	current_task()->sigctx.blocked = saved_blocked;
 	return __test_ret;
 }
 
-int test_waitqueue_wake_all(void)
+int test_wait_complete_validation(void)
 {
-	struct wait_queue_head wq;
-	struct task_struct *first = NULL;
-	struct task_struct *second = NULL;
+	struct wait_deadline no_deadline = wait_deadline_none();
+	struct wait_deadline deadline = wait_deadline_at(arch_timer_now());
+	struct wait_source source = { 0 };
+	wait_completion_t completion = 99;
 
-	TEST_BEGIN("sync: waitqueue wake all");
+	TEST_BEGIN("wait completion: validation");
 	{
-		first = task_alloc();
-		second = task_alloc();
-		TEST_ASSERT_NOT_NULL(first);
-		TEST_ASSERT_NOT_NULL(second);
-
-		init_waitqueue_head(&wq);
-		prepare_wait_entry(&wq, &first->sched.wait_entry);
-		prepare_wait_entry(&wq, &second->sched.wait_entry);
-		task_mark_interruptible_sleep(first);
-		task_mark_uninterruptible_sleep(second);
-
-		wake_up_all(&wq);
-		TEST_ASSERT_EQ(task_state(first), (uint32_t)TASK_RUNNING);
-		TEST_ASSERT_EQ(task_state(second), (uint32_t)TASK_RUNNING);
-		TEST_ASSERT(list_empty(&wq.task_list));
-		TEST_ASSERT(list_empty(&first->sched.wait_entry.node));
-		TEST_ASSERT(list_empty(&second->sched.wait_entry.node));
-	}
-	TEST_END("sync: waitqueue wake all");
-	goto cleanup;
-fail:
-	TEST_FAIL("sync: waitqueue wake all", "see above");
-cleanup:
-	if (first) {
-		if (!list_empty(&first->sched.run_list))
-			sched_dequeue(first);
-		finish_wait_entry(&first->sched.wait_entry);
-		task_free(first);
-	}
-	if (second) {
-		if (!list_empty(&second->sched.run_list))
-			sched_dequeue(second);
-		finish_wait_entry(&second->sched.wait_entry);
-		task_free(second);
-	}
-
-	return __test_ret;
-}
-
-int test_wait_schedule_until_timeout(void)
-{
-	TEST_BEGIN("sync: wait_schedule_until timeout");
-	{
+		completion = 99;
+		TEST_ASSERT_EQ(wait_complete(NULL, 0, NULL, &completion),
+			       -EINVAL);
+		TEST_ASSERT_EQ(completion, (wait_completion_t)0);
+		TEST_ASSERT_EQ(wait_complete(NULL, 0, &deadline, NULL),
+			       -EINVAL);
+		TEST_ASSERT_EQ(wait_complete(NULL, WAIT_F_MASK << 1, &deadline,
+					     &completion),
+			       -EINVAL);
+		TEST_ASSERT_EQ(completion, (wait_completion_t)0);
+		completion = 99;
+		TEST_ASSERT_EQ(wait_complete(NULL, 0, &no_deadline,
+					     &completion),
+			       -EINVAL);
+		TEST_ASSERT_EQ(completion, (wait_completion_t)0);
+		source.registration_limit = 1;
+		completion = 99;
+		TEST_ASSERT_EQ(wait_complete(&source, 0, &deadline, &completion),
+			       -EINVAL);
+		TEST_ASSERT_EQ(completion, (wait_completion_t)0);
+		source.probe = wait_test_probe;
+		source.registration_limit = WAIT_REGISTRAR_MAX_ENTRIES + 1;
+		completion = 99;
+		TEST_ASSERT_EQ(wait_complete(&source, 0, &deadline, &completion),
+			       -EINVAL);
+		TEST_ASSERT_EQ(completion, (wait_completion_t)0);
 		task_mark_interruptible_sleep(current_task());
-		TEST_ASSERT_EQ(wait_schedule_until(TASK_INTERRUPTIBLE,
-						   arch_timer_now()),
-			       -ETIMEDOUT);
+		completion = 99;
+		TEST_ASSERT_EQ(wait_complete(NULL, 0, &deadline, &completion),
+			       -EINVAL);
+		TEST_ASSERT_EQ(completion, (wait_completion_t)0);
 		TEST_ASSERT_EQ(task_state(current_task()),
 			       (uint32_t)TASK_RUNNING);
-		TEST_ASSERT(
-			list_empty(&current_task()->sched.wait_entry.node));
 	}
-	TEST_END("sync: wait_schedule_until timeout");
+	TEST_END("wait completion: validation");
 	return __test_ret;
 fail:
-	TEST_FAIL("sync: wait_schedule_until timeout", "see above");
-
-	return __test_ret;
-}
-
-int test_wait_schedule_preserves_early_wakeup(void)
-{
-	struct wait_queue_head wq;
-
-	TEST_BEGIN("sync: wait_schedule preserves early wakeup");
-	{
-		init_waitqueue_head(&wq);
-		prepare_to_wait_interruptible(&wq);
-		TEST_ASSERT_EQ(task_state(current_task()),
-			       (uint32_t)TASK_INTERRUPTIBLE);
-		TEST_ASSERT_EQ(wake_up_one(&wq), current_task());
-		TEST_ASSERT_EQ(task_state(current_task()),
-			       (uint32_t)TASK_RUNNING);
-
-		TEST_ASSERT_EQ(wait_schedule(TASK_INTERRUPTIBLE), 0);
-		TEST_ASSERT_EQ(task_state(current_task()),
-			       (uint32_t)TASK_RUNNING);
-		TEST_ASSERT(list_empty(&wq.task_list));
-		TEST_ASSERT(
-			list_empty(&current_task()->sched.wait_entry.node));
-	}
-	TEST_END("sync: wait_schedule preserves early wakeup");
-	return __test_ret;
-fail:
-	finish_wait(&wq);
-	TEST_FAIL("sync: wait_schedule preserves early wakeup", "see above");
-
+	TEST_FAIL("wait completion: validation", "see above");
 	return __test_ret;
 }

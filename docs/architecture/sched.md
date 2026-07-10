@@ -214,7 +214,7 @@ schedule();
 
 等待队列定义在 `include/kernel/wait.h`，实现位于 `kernel/waitqueue.c`。
 
-基本对象：
+基本对象和 interface：
 
 ```c
 struct wait_queue_head {
@@ -222,40 +222,52 @@ struct wait_queue_head {
     struct list_head task_list;
 };
 
-struct wait_queue_entry {
-    struct list_head node;
-    struct task_struct *task;
-    struct wait_queue_head *wq;
+struct wait_source {
+    wait_probe_t probe;
+    void *arg;
+    uint32_t registration_limit;
 };
 ```
 
-典型等待流程：
+`wait_complete()` 是唯一通用阻塞入口。source probe 在拥有 event state 的
+module 内检查或领取 event，并通过 opaque registrar 调用
+`wait_register()`。probe 必须在 source lock 下完成检查/领取与登记，锁顺序为
+source lock 后 wait-queue lock。
 
-1. `prepare_to_wait_interruptible()` 或 `prepare_to_wait_uninterruptible()`。
-2. 设置当前 task 状态。
-3. 调用 `schedule()` 或 `wait_schedule_until()`。
-4. 唤醒后 `finish_wait()`，移除 wait entry，并恢复 running。
+等待流程由 wait module 统一拥有：
+
+1. probe 并登记一个或多个 wait queue。
+2. 设置 current task 为 interruptible 或 uninterruptible sleep。
+3. 再次 probe，关闭登记到真正阻塞之间的 lost-wakeup 窗口。
+4. 按 `EVENT > SIGNAL > TIMEOUT` 选择 Wait Completion。
+5. 无 completion 时调度或执行 WFI；无 event 的 wake 作为 spurious wake 内部重试。
+6. 所有返回路径恢复 `TASK_RUNNING`，取消 timeout，并清理全部登记。
+
+活动等待上下文仍由 `wait_complete()` 的调用栈拥有，但 current task 暂存一个
+opaque 指针，使 task exit 能在释放 sibling 内核栈前调用 `wait_cancel_task()`，
+同步撤销 wait-queue registrations 和栈上 deadline timer。该指针不暴露 probe、
+registrar 或 timer 实现，也不把等待策略移入 task module。
 
 对外 API 包括：
 
 ```c
 void init_waitqueue_head(struct wait_queue_head *wq);
-void init_waitqueue_entry(struct wait_queue_entry *entry,
-                          struct task_struct *task);
-void prepare_to_wait_uninterruptible(struct wait_queue_head *wq);
-void prepare_to_wait_interruptible(struct wait_queue_head *wq);
-void finish_wait(struct wait_queue_head *wq);
-int wait_schedule(uint32_t state);
-int wait_schedule_until(uint32_t state, uint64_t deadline);
-int wait_event(struct wait_queue_head *wq,
-               wait_condition_t condition, void *arg);
-int wait_event_interruptible(struct wait_queue_head *wq,
-                             wait_condition_t condition, void *arg);
-int wake_up(struct wait_queue_head *wq);
-int wake_up_one(struct wait_queue_head *wq);
+int wait_register(struct wait_registrar *registrar,
+                  struct wait_queue_head *wq);
+int wait_complete(const struct wait_source *source,
+                  wait_flags_t flags,
+                  const struct wait_deadline *deadline,
+                  wait_completion_t *completion);
+void wait_cancel_task(struct task_struct *task);
+struct task_struct *wake_up_one(struct wait_queue_head *wq);
+void wake_up(struct wait_queue_head *wq);
+void wake_up_all(struct wait_queue_head *wq);
 ```
 
-timeout 等待通过 ktimer 实现。若 runqueue 为空且中断关闭，`wait_schedule_until()` 会临时打开中断并执行 `wfi`，等待 timer 或其他中断推进状态。
+Wait Completion 是内核语义结果，不是 errno。sleep、futex、pipe 和 poll
+adapter 分别把 EVENT、SIGNAL、TIMEOUT 映射为所属 ABI 的返回值。timeout
+implementation 使用 ktimer；若 runqueue 为空且中断关闭，wait module 会临时
+打开中断并执行 WFI，返回前恢复原 IRQ 状态。
 
 ## mutex
 
@@ -280,6 +292,8 @@ mutex 内部有：
 
 - 调度策略不拥有 task 生命周期资源释放，exit 路径只通过状态和队列与调度器协作。
 - 运行中 task 不应同时留在 runqueue。
-- 等待队列 entry 使用 task 内嵌 `wait_entry`，同一 task 同时等待多个队列需要额外设计。
+- wait registration 属于一次 `wait_complete()` invocation，不是 task 长期状态；
+  task 仅暂存用于 exit cancellation 的 opaque 活动上下文。
+- source、probe context、所有登记 wait queue 及其 owner 必须存活到等待返回。
 - tick 只设置重调度标志；不要在任意内核上下文引入异步抢占。
 - 多核支持不能只增加 `-smp`，还需要重新设计 runqueue、锁、current task 和 TLB shootdown。

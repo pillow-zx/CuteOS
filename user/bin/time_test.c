@@ -53,6 +53,34 @@ static void time_timespec_add_nsec(struct timespec *value, long nsec)
 	}
 }
 
+static int time_expect_relative_remainder(const char *name,
+					  const struct timespec *request,
+					  const struct timespec *remaining)
+{
+	long request_nsec = time_timespec_nsec(request);
+	long remaining_nsec = time_timespec_nsec(remaining);
+
+	if (remaining_nsec <= 0 || remaining_nsec > request_nsec) {
+		printf("FAIL: %s remainder=%ld request=%ld\n", name,
+		       remaining_nsec, request_nsec);
+		return 1;
+	}
+
+	return 0;
+}
+
+static int time_arm_sigalrm(long usec)
+{
+	struct itimerval timer = {
+		.it_value = {
+			.tv_sec = usec / 1000000L,
+			.tv_usec = usec % 1000000L,
+		},
+	};
+
+	return syscall(SYS_setitimer, ITIMER_REAL, (long)&timer, (long)NULL);
+}
+
 static int time_check_getitimer_zero(int which, const char *name)
 {
 	struct itimerval value = {
@@ -140,7 +168,7 @@ static int test_setitimer_real_old_value_disarm(void)
 					  (long)&timer, (long)NULL),
 				  0);
 	failed += time_expect_ret("short nanosleep before disarm",
-				  nanosleep(&wait, NULL), -ETIMEDOUT);
+				  nanosleep(&wait, NULL), 0);
 	failed += time_expect_ret("setitimer real disarm old",
 				  syscall(SYS_setitimer, ITIMER_REAL,
 					  (long)&zero, (long)&old),
@@ -332,6 +360,74 @@ static int test_setitimer_real_oneshot_signal(void)
 				  nanosleep(&wait, NULL), -EINTR);
 	if (time_sigalrm_count != 1) {
 		printf("FAIL: sigalrm count expected 1 got %d\n",
+		       time_sigalrm_count);
+		failed++;
+	}
+
+	return failed;
+}
+
+static int test_sleep_signal_interruption(void)
+{
+	struct sigaction sa = {
+		.sa_handler = time_sigalrm_handler,
+		.sa_flags = SA_RESTART,
+	};
+	struct timespec request = {
+		.tv_sec = 0,
+		.tv_nsec = 200000000,
+	};
+	struct timespec remaining;
+	struct timespec absolute;
+	struct timespec sentinel = {
+		.tv_sec = 123,
+		.tv_nsec = 456,
+	};
+	int failed = 0;
+
+	time_sigalrm_count = 0;
+	failed += time_expect_ret("sigaction SA_RESTART sleep",
+				  sigaction(SIGALRM, &sa, NULL), 0);
+
+	remaining.tv_sec = -1;
+	remaining.tv_nsec = -1;
+	failed += time_expect_ret("arm nanosleep signal",
+				  time_arm_sigalrm(20000), 0);
+	failed += time_expect_ret("nanosleep SA_RESTART interruption",
+				  nanosleep(&request, &remaining), -EINTR);
+	failed += time_expect_relative_remainder("nanosleep", &request,
+						 &remaining);
+
+	remaining.tv_sec = -1;
+	remaining.tv_nsec = -1;
+	failed += time_expect_ret("arm relative clock sleep signal",
+				  time_arm_sigalrm(20000), 0);
+	failed += time_expect_ret("relative clock_nanosleep interruption",
+				  clock_nanosleep(CLOCK_MONOTONIC, 0,
+						  &request, &remaining),
+				  -EINTR);
+	failed += time_expect_relative_remainder("relative clock_nanosleep",
+						 &request, &remaining);
+
+	failed += time_expect_ret("clock_gettime absolute sleep",
+				  clock_gettime(CLOCK_MONOTONIC, &absolute), 0);
+	time_timespec_add_nsec(&absolute, time_timespec_nsec(&request));
+	remaining = sentinel;
+	failed += time_expect_ret("arm absolute clock sleep signal",
+				  time_arm_sigalrm(20000), 0);
+	failed += time_expect_ret("absolute clock_nanosleep interruption",
+				  clock_nanosleep(CLOCK_MONOTONIC,
+						  TIMER_ABSTIME, &absolute,
+						  &remaining),
+				  -EINTR);
+	if (remaining.tv_sec != sentinel.tv_sec ||
+	    remaining.tv_nsec != sentinel.tv_nsec) {
+		printf("FAIL: absolute clock_nanosleep modified remainder\n");
+		failed++;
+	}
+
+	if (time_sigalrm_count != 3) {
+		printf("FAIL: sleep interruption signal count expected 3 got %d\n",
 		       time_sigalrm_count);
 		failed++;
 	}
@@ -646,7 +742,7 @@ static int test_timer_interval_overrun(void)
 					  (long)&armed, (long)NULL),
 				  0);
 	failed += time_expect_ret("blocked timer wait",
-				  nanosleep(&wait, NULL), -ETIMEDOUT);
+				  nanosleep(&wait, NULL), 0);
 	overrun = syscall(SYS_timer_getoverrun, timerid);
 
 	if (!failed && overrun <= 0) {
@@ -800,6 +896,8 @@ int main(int argc, char **argv)
 		     &failed);
 	report_group("setitimer real oneshot signal",
 		     test_setitimer_real_oneshot_signal(), &failed);
+	report_group("sleep signal interruption",
+		     test_sleep_signal_interruption(), &failed);
 	report_group("setitimer real old value disarm",
 		     test_setitimer_real_old_value_disarm(), &failed);
 	report_group("setitimer real repeating signal",

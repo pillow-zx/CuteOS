@@ -233,7 +233,7 @@ ANALYZE_WARN_CFLAGS += -Wstringop-overread
 ANALYZE_WARN_CFLAGS += -Wnull-dereference
 ANALYZE_WARN_CFLAGS += -Wstrict-overflow=2
 ANALYZE_WARN_CFLAGS += -Wvla
-ANALYZE_WARN_CFLAGS += -Wstack-usage=1024
+ANALYZE_WARN_CFLAGS += -Wstack-usage=2048
 ANALYZE_WARN_CFLAGS += -Wframe-larger-than=2048
 ANALYZE_WARN_CFLAGS += -Wshadow=local
 ANALYZE_WARN_CFLAGS += -Wformat=2

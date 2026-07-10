@@ -4,10 +4,9 @@
 
 #include <kernel/fdtable.h>
 #include <kernel/cleanup.h>
-#include <kernel/tools.h>
+#include <kernel/eventpoll.h>
 #include <kernel/fs.h>
 #include <kernel/mm.h>
-#include <kernel/slab.h>
 #include <kernel/signal.h>
 #include <kernel/types.h>
 #include <kernel/errno.h>
@@ -18,13 +17,17 @@
 #include <kernel/page.h>
 #include <kernel/trap.h>
 #include <kernel/time.h>
+#include <kernel/tools.h>
+#include <kernel/wait.h>
 #include <uapi/eventpoll.h>
 #include <uapi/poll.h>
 #include <uapi/select.h>
 
 struct ppoll_scan_ctx {
 	struct pollfd *fds;
+	struct file **files;
 	size_t nfds;
+	int ready;
 };
 
 struct pselect_scan_ctx {
@@ -34,14 +37,9 @@ struct pselect_scan_ctx {
 	fd_set *out_readfds;
 	fd_set *out_writefds;
 	fd_set *out_exceptfds;
+	struct file **files;
 	size_t nfds;
-};
-
-struct epoll_scan_ctx {
-	struct eventpoll *ep;
-	struct epoll_event *events;
-	size_t maxevents;
-	size_t nr_ready;
+	int ready;
 };
 
 struct poll_sigmask_guard {
@@ -50,26 +48,8 @@ struct poll_sigmask_guard {
 	bool active;
 };
 
-struct epitem {
-	struct list_head node;
-	struct file *file;
-	struct epoll_event event;
-	int fd;
-};
-
-struct eventpoll {
-	struct list_head items;
-	struct wait_queue_head waitq;
-};
-
 CLEANUP_DEFINE(poll_sigmask_restore, struct poll_sigmask_guard,
-	       if (_T.active) task_set_blocked_mask(_T.task, _T.old_blocked);)
-CLEANUP_DEFINE(
-	epitem, struct epitem *, if (_T) {
-		file_put(_T->file);
-		kfree(_T);
-	});
-CLEANUP_DEFINE(eventpoll, struct eventpoll *, if (_T) kfree(_T));
+	       if (_T.active) signal_set_blocked_mask(_T.task, _T.old_blocked);)
 
 static_assert(NR_OPEN <= __FD_SETSIZE, "NR_OPEN exceeds fd_set ABI limit");
 static_assert(EPOLL_CLOEXEC == O_CLOEXEC, "epoll cloexec flag ABI mismatch");
@@ -78,21 +58,6 @@ static_assert(sizeof(struct epoll_event) == 16,
 	      "epoll_event ABI layout mismatch");
 static_assert(offsetof(struct epoll_event, data) == 8,
 	      "epoll_event data ABI offset mismatch");
-
-static int eventpoll_release(struct file *file);
-static uint32_t eventpoll_poll(struct file *file, uint32_t events,
-			       struct vfs_poll_table *table);
-
-static const struct file_operations eventpoll_fops = {
-	.poll = eventpoll_poll,
-	.release = eventpoll_release,
-};
-
-static __always_inline __must_check __pure bool
-eventpoll_file(struct file *file)
-{
-	return file && file->f_op == &eventpoll_fops;
-}
 
 static __always_inline __must_check __pure size_t sys_fdset_nwords(size_t nfds)
 {
@@ -117,17 +82,6 @@ static __always_inline __must_check __pure bool sys_epoll_op_valid(int op)
 {
 	return op == EPOLL_CTL_ADD || op == EPOLL_CTL_MOD ||
 	       op == EPOLL_CTL_DEL;
-}
-
-static __always_inline __must_check __pure bool
-sys_epoll_events_ok(uint32_t events)
-{
-	const uint32_t supported = EPOLLIN | EPOLLOUT | EPOLLPRI | EPOLLERR |
-				   EPOLLHUP | EPOLLRDNORM | EPOLLRDBAND |
-				   EPOLLWRNORM | EPOLLWRBAND | EPOLLMSG |
-				   EPOLLRDHUP | EPOLLONESHOT | EPOLLET;
-
-	return (events & ~supported) == 0;
 }
 
 static __always_inline __must_check __pure bool
@@ -187,23 +141,6 @@ static __always_inline __must_check __pure uint32_t poll_res(uint32_t mask,
 	return res;
 }
 
-static __always_inline __must_check __pure uint32_t
-epoll_res(uint32_t events, uint32_t requested)
-{
-	uint32_t res = events;
-
-	if ((requested & EPOLLRDNORM) && (events & EPOLLIN))
-		res |= EPOLLRDNORM;
-	if ((requested & EPOLLRDBAND) && (events & EPOLLIN))
-		res |= EPOLLRDBAND;
-	if ((requested & EPOLLWRNORM) && (events & EPOLLOUT))
-		res |= EPOLLWRNORM;
-	if ((requested & EPOLLWRBAND) && (events & EPOLLOUT))
-		res |= EPOLLWRBAND;
-
-	return res;
-}
-
 static int poll_apply_sigmask(const unsigned long *usigmask, size_t sigsetsize,
 			      struct poll_sigmask_guard *guard)
 {
@@ -226,10 +163,19 @@ static int poll_apply_sigmask(const unsigned long *usigmask, size_t sigsetsize,
 	if (copy_from_user(&new_mask, usigmask, sizeof(new_mask)) != 0)
 		return -EFAULT;
 
-	guard->old_blocked = task_blocked_mask(current_task());
-	task_set_blocked_mask(current_task(), new_mask);
+	guard->old_blocked = signal_blocked_mask(current_task());
+	signal_set_blocked_mask(current_task(), new_mask);
 	guard->active = true;
 	return 0;
+}
+
+static void poll_defer_sigmask_restore(struct poll_sigmask_guard *guard)
+{
+	if (!guard || !guard->active)
+		return;
+
+	signal_defer_mask_restore(guard->task, guard->old_blocked);
+	guard->active = false;
 }
 
 static int pselect_copy_sigmask_args(const struct pselect6_sigmask *upack,
@@ -272,20 +218,50 @@ static int pselect_copy_result_fdset(fd_set *udst, const fd_set *src,
 	return 0;
 }
 
-static int ppoll_scan(struct vfs_poll_table *table, void *arg)
+static void poll_file_snapshot_put(struct file **files, size_t nr_files)
+{
+	if (!files)
+		return;
+
+	for (size_t i = 0; i < nr_files; i++) {
+		if (files[i])
+			file_put(files[i]);
+	}
+}
+
+static int poll_wait(struct wait_source *source,
+		     const struct wait_deadline *deadline, int *ready)
+{
+	wait_completion_t completion;
+	int ret;
+
+	ret = wait_complete(source, WAIT_F_INTERRUPTIBLE, deadline,
+			    &completion);
+	if (ret < 0)
+		return ret;
+	if (completion == WAIT_COMPLETION_SIGNAL)
+		return -EINTR;
+	if (completion == WAIT_COMPLETION_TIMEOUT)
+		return 0;
+	if (completion != WAIT_COMPLETION_EVENT)
+		return -EINVAL;
+
+	return ready ? *ready : 1;
+}
+
+static int ppoll_scan(struct wait_registrar *registrar, void *arg)
 {
 	struct ppoll_scan_ctx *ctx = arg;
 	int ready = 0;
 
 	for (size_t i = 0; i < ctx->nfds; i++) {
-		struct file *file;
-		uint32_t mask;
+		struct file *file = ctx->files[i];
+		int mask;
 
 		ctx->fds[i].revents = 0;
 		if (ctx->fds[i].fd < 0)
 			continue;
 
-		file = fd_get(ctx->fds[i].fd);
 		if (!file) {
 			ctx->fds[i].revents = POLLNVAL;
 			ready++;
@@ -293,9 +269,11 @@ static int ppoll_scan(struct vfs_poll_table *table, void *arg)
 		}
 
 		mask = vfs_poll(file, poll_req((uint32_t)ctx->fds[i].events),
-				table);
-		mask = poll_res(mask, (uint32_t)ctx->fds[i].events);
-		file_put(file);
+				registrar);
+		if (mask < 0)
+			return mask;
+		mask = (int)poll_res((uint32_t)mask,
+				     (uint32_t)ctx->fds[i].events);
 		ctx->fds[i].revents =
 			(int16_t)(mask & (ctx->fds[i].events | POLLERR |
 					  POLLHUP | POLLNVAL));
@@ -303,10 +281,11 @@ static int ppoll_scan(struct vfs_poll_table *table, void *arg)
 			ready++;
 	}
 
+	ctx->ready = ready;
 	return ready;
 }
 
-static int pselect_scan(struct vfs_poll_table *table, void *arg)
+static int pselect_scan(struct wait_registrar *registrar, void *arg)
 {
 	struct pselect_scan_ctx *ctx = arg;
 	int ready = 0;
@@ -314,7 +293,7 @@ static int pselect_scan(struct vfs_poll_table *table, void *arg)
 	for (size_t fd = 0; fd < ctx->nfds; fd++) {
 		struct file *file;
 		uint32_t events = 0;
-		uint32_t mask;
+		int mask;
 		bool read_ready;
 		bool write_ready;
 		bool except_ready;
@@ -328,12 +307,13 @@ static int pselect_scan(struct vfs_poll_table *table, void *arg)
 		if (!events)
 			continue;
 
-		file = fd_get((int)fd);
+		file = ctx->files[fd];
 		if (!file)
 			return -EBADF;
 
-		mask = vfs_poll(file, events, table);
-		file_put(file);
+		mask = vfs_poll(file, events, registrar);
+		if (mask < 0)
+			return mask;
 
 		read_ready = (mask & (POLLIN | POLLERR | POLLHUP)) != 0;
 		write_ready = (mask & (POLLOUT | POLLERR)) != 0;
@@ -348,152 +328,8 @@ static int pselect_scan(struct vfs_poll_table *table, void *arg)
 		ready += except_ready;
 	}
 
+	ctx->ready = ready;
 	return ready;
-}
-
-static struct epitem *eventpoll_find(struct eventpoll *ep, int fd,
-				     struct file *file)
-{
-	struct epitem *item;
-
-	if (!ep || !file)
-		return NULL;
-
-	list_for_each_entry (item, &ep->items, node) {
-		if (item->fd == fd && item->file == file)
-			return item;
-	}
-
-	return NULL;
-}
-
-static __always_inline __must_check __pure bool
-epitem_trigger_supported(const struct epitem *item)
-{
-	return item && (item->event.events & (EPOLLET | EPOLLONESHOT)) == 0;
-}
-
-static __always_inline __must_check __pure uint32_t
-epitem_poll_events(const struct epitem *item)
-{
-	uint32_t events = 0;
-
-	if (!item || !item->file)
-		return 0;
-	if (item->file->f_mode & FMODE_READ)
-		events |= POLLIN;
-	if (item->file->f_mode & FMODE_WRITE)
-		events |= POLLOUT;
-	if (item->event.events & EPOLLPRI)
-		events |= POLLPRI;
-
-	if (item->event.events & (EPOLLRDNORM | EPOLLRDBAND | EPOLLRDHUP))
-		events |= POLLIN;
-	if (item->event.events & (EPOLLWRNORM | EPOLLWRBAND))
-		events |= POLLOUT;
-
-	return events;
-}
-
-static __always_inline __must_check __pure uint32_t
-epoll_result_events(const struct epitem *item, uint32_t mask)
-{
-	uint32_t events = 0;
-	uint32_t wanted;
-
-	if (!item)
-		return 0;
-	if (mask & POLLIN)
-		events |= EPOLLIN;
-	if (mask & POLLOUT)
-		events |= EPOLLOUT;
-	if (mask & POLLPRI)
-		events |= EPOLLPRI;
-	if (mask & POLLERR)
-		events |= EPOLLERR;
-	if (mask & POLLHUP)
-		events |= EPOLLHUP;
-	if (mask & POLLNVAL)
-		events |= EPOLLNVAL;
-
-	events = epoll_res(events, item->event.events);
-	wanted = item->event.events &
-		 (EPOLLIN | EPOLLOUT | EPOLLPRI | EPOLLRDNORM | EPOLLRDBAND |
-		  EPOLLWRNORM | EPOLLWRBAND);
-	return events & (wanted | EPOLLERR | EPOLLHUP | EPOLLNVAL);
-}
-
-static int epoll_scan(struct vfs_poll_table *table, void *arg)
-{
-	struct epoll_scan_ctx *ctx = arg;
-	struct epitem *item;
-
-	if (!ctx || !ctx->ep)
-		return -EINVAL;
-
-	ctx->nr_ready = 0;
-	if (table)
-		vfs_poll_wait(table, &ctx->ep->waitq);
-
-	list_for_each_entry (item, &ctx->ep->items, node) {
-		uint32_t mask;
-		uint32_t events;
-
-		if (!epitem_trigger_supported(item))
-			return -EINVAL;
-
-		mask = vfs_poll(item->file, epitem_poll_events(item), table);
-		events = epoll_result_events(item, mask);
-		if (!events)
-			continue;
-		if (ctx->nr_ready >= ctx->maxevents)
-			continue;
-
-		ctx->events[ctx->nr_ready].events = events;
-		ctx->events[ctx->nr_ready].data = item->event.data;
-		ctx->nr_ready++;
-	}
-
-	return (int)ctx->nr_ready;
-}
-
-static uint32_t eventpoll_poll(struct file *file, uint32_t events,
-			       struct vfs_poll_table *table)
-{
-	struct eventpoll *ep = file ? file->private_data : NULL;
-
-	if (!ep)
-		return POLLERR;
-
-	if (events & (POLLIN | POLLOUT))
-		vfs_poll_wait(table, &ep->waitq);
-
-	return 0;
-}
-
-static int eventpoll_release(struct file *file)
-{
-	struct eventpoll *ep;
-	struct list_head *pos;
-	struct list_head *next;
-
-	if (!file)
-		return 0;
-
-	ep = file->private_data;
-	file->private_data = NULL;
-	if (!ep)
-		return 0;
-
-	list_for_each_safe (pos, next, &ep->items) {
-		struct epitem *item = list_entry(pos, struct epitem, node);
-
-		list_del_init(&item->node);
-		file_put(item->file);
-		kfree(item);
-	}
-	kfree(ep);
-	return 0;
 }
 
 /*
@@ -505,21 +341,13 @@ static int eventpoll_release(struct file *file)
 ssize_t sys_epoll_create1(struct trap_frame *tf)
 {
 	int flags = (int)syscall_arg(tf, 0);
-	struct eventpoll *ep __cleanup_with(eventpoll) = NULL;
 	struct file *file __cleanup_with(file) = NULL;
 	int fd;
 
 	if (!sys_epoll_create1_flags_ok(flags))
 		return -EINVAL;
 
-	ep = kmalloc(sizeof(*ep));
-	if (!ep)
-		return -ENOMEM;
-
-	INIT_LIST_HEAD(&ep->items);
-	init_waitqueue_head(&ep->waitq);
-
-	file = file_alloc(&eventpoll_fops, FMODE_READ | FMODE_WRITE, ep);
+	file = eventpoll_file_alloc();
 	if (!file)
 		return -ENOMEM;
 
@@ -528,16 +356,15 @@ ssize_t sys_epoll_create1(struct trap_frame *tf)
 		return fd;
 
 	cleanup_forget_ptr(file);
-	cleanup_forget_ptr(ep);
 	return fd;
 }
 
 /*
  * SYSCALL_SUPPORT(B): epoll_ctl
  * Current: supports ADD, MOD, and DEL for poll-capable non-epoll fds.
- * Unsupported errno: invalid ops, targets, or event bits return -EINVAL;
- * non-pollable fds return -EPERM.
- * Future: choose whether EPOLLET and EPOLLONESHOT are rejected or implemented.
+ * Unsupported errno: invalid ops, targets, event bits, EPOLLET, and
+ * EPOLLONESHOT return -EINVAL; non-pollable fds return -EPERM.
+ * Future: implement edge/oneshot trigger strategies when needed.
  */
 ssize_t sys_epoll_ctl(struct trap_frame *tf)
 {
@@ -547,10 +374,8 @@ ssize_t sys_epoll_ctl(struct trap_frame *tf)
 	const struct epoll_event *uevent = (const struct epoll_event *)syscall_arg(tf, 3);
 	struct file *epfile __cleanup_with(file) = NULL;
 	struct file *file __cleanup_with(file) = NULL;
-	struct epitem *item __cleanup_with(epitem) = NULL;
-	struct epitem *found;
 	struct epoll_event event;
-	struct eventpoll *ep;
+	const struct epoll_event *eventp = NULL;
 
 	if (!sys_epoll_op_valid(op))
 		return -EINVAL;
@@ -571,72 +396,27 @@ ssize_t sys_epoll_ctl(struct trap_frame *tf)
 	if (!file->f_op || !file->f_op->poll)
 		return -EPERM;
 
-	ep = epfile->private_data;
-	if (!ep)
-		return -EINVAL;
-
 	switch (op) {
 	case EPOLL_CTL_ADD:
-		if (!uevent)
-			return -EFAULT;
-		if (copy_from_user(&event, uevent, sizeof(event)) != 0)
-			return -EFAULT;
-		if (!sys_epoll_events_ok(event.events))
-			return -EINVAL;
-		if (eventpoll_find(ep, fd, file))
-			return -EEXIST;
-
-		item = kmalloc(sizeof(*item));
-		if (!item)
-			return -ENOMEM;
-
-		INIT_LIST_HEAD(&item->node);
-		item->file = file;
-		item->event = event;
-		item->fd = fd;
-		list_add_tail(&item->node, &ep->items);
-		wake_up_all(&ep->waitq);
-
-		cleanup_forget_ptr(file);
-		cleanup_forget_ptr(item);
-		return 0;
-
 	case EPOLL_CTL_MOD:
 		if (!uevent)
 			return -EFAULT;
 		if (copy_from_user(&event, uevent, sizeof(event)) != 0)
 			return -EFAULT;
-		if (!sys_epoll_events_ok(event.events))
-			return -EINVAL;
-
-		found = eventpoll_find(ep, fd, file);
-		if (!found)
-			return -ENOENT;
-		found->event = event;
-		wake_up_all(&ep->waitq);
-		return 0;
-
+		eventp = &event;
+		break;
 	case EPOLL_CTL_DEL:
-		found = eventpoll_find(ep, fd, file);
-		if (!found)
-			return -ENOENT;
-
-		list_del_init(&found->node);
-		file_put(found->file);
-		kfree(found);
-		wake_up_all(&ep->waitq);
-		return 0;
+		break;
 	}
 
-	return -EINVAL;
+	return eventpoll_ctl(epfile, op, fd, file, eventp);
 }
 
 /*
  * SYSCALL_SUPPORT(B): epoll_pwait
  * Current: waits on registered level-triggered items with optional sigmask.
- * Unsupported errno: bad sigset size or maxevents returns -EINVAL; registered
- * EPOLLET/EPOLLONESHOT items currently make scanning return -EINVAL.
- * Future: fix edge/oneshot policy and signal interruption details.
+ * Unsupported errno: bad sigset size or maxevents returns -EINVAL.
+ * Future: add nested, close, and epoll-fd readiness coverage.
  */
 ssize_t sys_epoll_pwait(struct trap_frame *tf)
 {
@@ -654,10 +434,7 @@ ssize_t sys_epoll_pwait(struct trap_frame *tf)
 		.old_blocked = 0,
 		.active = false,
 	};
-	struct epoll_scan_ctx scan_ctx;
-	struct eventpoll *ep;
-	bool has_timeout;
-	uint64_t deadline;
+	struct wait_deadline deadline;
 	size_t scan_limit;
 	int ret;
 
@@ -674,7 +451,7 @@ ssize_t sys_epoll_pwait(struct trap_frame *tf)
 	if (!eventpoll_file(epfile))
 		return -EINVAL;
 
-	ret = mtime_deadline_from_ms(timeout, &has_timeout, &deadline);
+	ret = mtime_deadline_from_ms(timeout, &deadline);
 	if (ret < 0)
 		return ret;
 
@@ -682,20 +459,13 @@ ssize_t sys_epoll_pwait(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	ep = epfile->private_data;
-	if (!ep)
-		return -EINVAL;
-
 	scan_limit = (size_t)maxevents;
 	if (scan_limit > ARRLEN(kevents))
 		scan_limit = ARRLEN(kevents);
 
-	scan_ctx.ep = ep;
-	scan_ctx.events = kevents;
-	scan_ctx.maxevents = scan_limit;
-	scan_ctx.nr_ready = 0;
-
-	ret = vfs_poll_wait_until(epoll_scan, &scan_ctx, has_timeout, deadline);
+	ret = eventpoll_wait(epfile, kevents, (int)scan_limit, &deadline);
+	if (ret == -EINTR)
+		poll_defer_sigmask_restore(&sigmask_guard);
 	if (ret > 0 && copy_to_user(uevents, kevents,
 				    (size_t)ret * sizeof(kevents[0])) != 0)
 		return -EFAULT;
@@ -718,16 +488,17 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 	const unsigned long *usigmask = (const unsigned long *)syscall_arg(tf, 3);
 	size_t sigsetsize = (size_t)syscall_arg(tf, 4);
 	struct pollfd fds[NR_OPEN];
+	struct file *files[NR_OPEN] = {0};
 	struct timespec timeout;
 	struct ppoll_scan_ctx scan_ctx;
+	struct wait_source source;
 	struct poll_sigmask_guard sigmask_guard __cleanup_with(
 		poll_sigmask_restore) = {
 		.task = current_task(),
 		.old_blocked = 0,
 		.active = false,
 	};
-	bool has_timeout;
-	uint64_t deadline;
+	struct wait_deadline deadline;
 	int ret;
 
 	if (nfds > NR_OPEN)
@@ -742,27 +513,39 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 	if (utimeout) {
 		if (copy_from_user(&timeout, utimeout, sizeof(timeout)) != 0)
 			return -EFAULT;
-		ret = mtime_deadline_from_timespec(&timeout, &has_timeout,
-						   &deadline);
+		ret = mtime_deadline_from_timespec(&timeout, &deadline);
 		if (ret < 0)
 			return ret;
 	} else {
-		ret = mtime_deadline_from_timespec(NULL, &has_timeout,
-						   &deadline);
+		ret = mtime_deadline_from_timespec(NULL, &deadline);
 		if (ret < 0)
 			return ret;
 	}
 
 	if (nfds > 0 && copy_from_user(fds, ufds, nfds * sizeof(fds[0])) != 0)
 		return -EFAULT;
+	for (size_t i = 0; i < nfds; i++) {
+		if (fds[i].fd >= 0)
+			files[i] = fd_get(fds[i].fd);
+	}
 
 	ret = poll_apply_sigmask(usigmask, sigsetsize, &sigmask_guard);
-	if (ret < 0)
+	if (ret < 0) {
+		poll_file_snapshot_put(files, nfds);
 		return ret;
+	}
 
 	scan_ctx.fds = fds;
+	scan_ctx.files = files;
 	scan_ctx.nfds = nfds;
-	ret = vfs_poll_wait_until(ppoll_scan, &scan_ctx, has_timeout, deadline);
+	scan_ctx.ready = 0;
+	source.probe = ppoll_scan;
+	source.arg = &scan_ctx;
+	source.registration_limit = WAIT_REGISTRAR_MAX_ENTRIES;
+	ret = poll_wait(&source, &deadline, &scan_ctx.ready);
+	poll_file_snapshot_put(files, nfds);
+	if (ret == -EINTR)
+		poll_defer_sigmask_restore(&sigmask_guard);
 
 	if (ret >= 0 && nfds > 0 &&
 	    copy_to_user(ufds, fds, nfds * sizeof(fds[0])) != 0)
@@ -794,16 +577,17 @@ ssize_t sys_pselect6(struct trap_frame *tf)
 	fd_set out_readfds;
 	fd_set out_writefds;
 	fd_set out_exceptfds;
+	struct file *files[NR_OPEN] = {0};
 	struct timespec timeout;
 	struct pselect_scan_ctx scan_ctx;
-	struct poll_sigmask_guard sigmask_guard __cleanup_with(
-		poll_sigmask_restore) = {
+	struct wait_source source;
+	struct poll_sigmask_guard sigmask_guard
+		__cleanup_with(poll_sigmask_restore) = {
 		.task = current_task(),
 		.old_blocked = 0,
 		.active = false,
 	};
-	bool has_timeout;
-	uint64_t deadline;
+	struct wait_deadline deadline;
 	size_t sigsetsize;
 	size_t fdset_bytes;
 	int ready;
@@ -815,13 +599,11 @@ ssize_t sys_pselect6(struct trap_frame *tf)
 	if (utimeout) {
 		if (copy_from_user(&timeout, utimeout, sizeof(timeout)) != 0)
 			return -EFAULT;
-		ret = mtime_deadline_from_timespec(&timeout, &has_timeout,
-						   &deadline);
+		ret = mtime_deadline_from_timespec(&timeout, &deadline);
 		if (ret < 0)
 			return ret;
 	} else {
-		ret = mtime_deadline_from_timespec(NULL, &has_timeout,
-						   &deadline);
+		ret = mtime_deadline_from_timespec(NULL, &deadline);
 		if (ret < 0)
 			return ret;
 	}
@@ -840,13 +622,28 @@ ssize_t sys_pselect6(struct trap_frame *tf)
 	memset(&out_readfds, 0, sizeof(out_readfds));
 	memset(&out_writefds, 0, sizeof(out_writefds));
 	memset(&out_exceptfds, 0, sizeof(out_exceptfds));
+	for (size_t fd = 0; fd < (size_t)nfds; fd++) {
+		if (sys_fdset_test(&in_readfds, (int)fd) ||
+		    sys_fdset_test(&in_writefds, (int)fd) ||
+		    sys_fdset_test(&in_exceptfds, (int)fd)) {
+			files[fd] = fd_get((int)fd);
+			if (!files[fd]) {
+				poll_file_snapshot_put(files, (size_t)nfds);
+				return -EBADF;
+			}
+		}
+	}
 
 	ret = pselect_copy_sigmask_args(usigpack, &usigmask, &sigsetsize);
-	if (ret < 0)
+	if (ret < 0) {
+		poll_file_snapshot_put(files, (size_t)nfds);
 		return ret;
+	}
 	ret = poll_apply_sigmask(usigmask, sigsetsize, &sigmask_guard);
-	if (ret < 0)
+	if (ret < 0) {
+		poll_file_snapshot_put(files, (size_t)nfds);
 		return ret;
+	}
 
 	scan_ctx.in_readfds = ureadfds ? &in_readfds : NULL;
 	scan_ctx.in_writefds = uwritefds ? &in_writefds : NULL;
@@ -854,10 +651,16 @@ ssize_t sys_pselect6(struct trap_frame *tf)
 	scan_ctx.out_readfds = ureadfds ? &out_readfds : NULL;
 	scan_ctx.out_writefds = uwritefds ? &out_writefds : NULL;
 	scan_ctx.out_exceptfds = uexceptfds ? &out_exceptfds : NULL;
+	scan_ctx.files = files;
 	scan_ctx.nfds = (size_t)nfds;
-
-	ready = vfs_poll_wait_until(pselect_scan, &scan_ctx, has_timeout,
-				    deadline);
+	scan_ctx.ready = 0;
+	source.probe = pselect_scan;
+	source.arg = &scan_ctx;
+	source.registration_limit = WAIT_REGISTRAR_MAX_ENTRIES;
+	ready = poll_wait(&source, &deadline, &scan_ctx.ready);
+	poll_file_snapshot_put(files, (size_t)nfds);
+	if (ready == -EINTR)
+		poll_defer_sigmask_restore(&sigmask_guard);
 	if (ready < 0)
 		return ready;
 

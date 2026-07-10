@@ -9,9 +9,10 @@
 #include <kernel/task.h>
 #include <kernel/time.h>
 #include <kernel/trap.h>
+#include <kernel/wait.h>
 
 static int futex_copy_timeout(const struct timespec *utimeout,
-			      struct futex_deadline *deadline)
+			      struct wait_deadline *deadline)
 {
 	struct timespec timeout;
 	int ret;
@@ -27,13 +28,12 @@ static int futex_copy_timeout(const struct timespec *utimeout,
 	if (copy_from_user(&timeout, utimeout, sizeof(timeout)) != 0)
 		return -EFAULT;
 
-	ret = mtime_deadline_from_timespec(&timeout, &deadline->active,
-					   &deadline->expires);
+	ret = mtime_deadline_from_timespec(&timeout, deadline);
 	return ret;
 }
 
 static int futex_copy_absolute_timeout(const struct timespec *utimeout,
-				       struct futex_deadline *deadline)
+				       struct wait_deadline *deadline)
 {
 	struct timespec timeout;
 	uint64_t expires;
@@ -76,7 +76,7 @@ ssize_t sys_futex(struct trap_frame *tf)
 		(const struct timespec *)syscall_arg(tf, 3);
 	int *uaddr2 = (int *)syscall_arg(tf, 4);
 	int val3 = (int)syscall_arg(tf, 5);
-	struct futex_deadline deadline;
+	struct wait_deadline deadline;
 	struct kernel_futex_args args;
 	int cmd = op & FUTEX_CMD_MASK;
 	int ret;

@@ -4,6 +4,14 @@
 
 #include <ulib.h>
 
+static volatile int poll_signal_count;
+
+static void poll_signal_handler(int sig)
+{
+	if (sig == SIGUSR1)
+		poll_signal_count++;
+}
+
 static int expect_ret(const char *name, long got, long want)
 {
 	if (got != want) {
@@ -56,6 +64,298 @@ static long epoll_pwait_raw(int epfd, struct epoll_event *events,
 {
 	return syscall(SYS_epoll_pwait, epfd, (long)events, maxevents, timeout,
 		       (long)sigmask, sigsetsize);
+}
+
+static long spawn_signal_sender(long target_pid, long target_tid, int sig)
+{
+	long pid = fork();
+
+	if (pid == 0) {
+		struct timespec delay = {0, 20000000};
+
+		nanosleep(&delay, NULL);
+		tgkill(target_pid, target_tid, sig);
+		exit(0);
+	}
+
+	return pid;
+}
+
+static int wait_signal_sender(long pid, const char *name)
+{
+	int status = 0;
+	long waited = wait4(pid, &status, 0, NULL);
+
+	if (waited != pid || status != 0) {
+		printf("FAIL: %s sender waited=%ld status=%d\n", name, waited,
+		       status);
+		return 1;
+	}
+
+	return 0;
+}
+
+static int install_poll_signal_handler(void)
+{
+	struct sigaction sa = {
+		.sa_handler = poll_signal_handler,
+		.sa_flags = SA_RESTART,
+	};
+
+	poll_signal_count = 0;
+	return sigaction(SIGUSR1, &sa, NULL);
+}
+
+static int test_ppoll_signal_interruption(void)
+{
+	const unsigned long signal_mask = 1UL << (SIGUSR1 - 1);
+	const unsigned long wait_mask = 0;
+	struct timespec timeout = {1, 0};
+	struct pollfd pfd;
+	unsigned long observed = 0;
+	int fds[2];
+	long sender;
+	int failed = 0;
+
+	if (pipe(fds) != 0 || install_poll_signal_handler() != 0)
+		return 1;
+	if (sigprocmask(SIG_BLOCK, &signal_mask, NULL) != 0)
+		return 1;
+
+	sender = spawn_signal_sender(getpid(), gettid(), SIGUSR1);
+	if (sender < 0)
+		return 1;
+
+	pfd.fd = fds[0];
+	pfd.events = POLLIN;
+	pfd.revents = (short)0x55aa;
+	failed += expect_ret("ppoll signal interruption",
+			     ppoll(&pfd, 1, &timeout, &wait_mask), -EINTR);
+	failed += expect_ret("ppoll interrupted revents unchanged", pfd.revents,
+			     (short)0x55aa);
+	failed += expect_ret("ppoll restored signal mask",
+			     sigprocmask(0, NULL, &observed), 0);
+	failed += expect_ret("ppoll restored blocked signal",
+			     observed & signal_mask, signal_mask);
+	failed += expect_ret("ppoll delivered temporary unblocked signal",
+			     poll_signal_count, 1);
+	failed += wait_signal_sender(sender, "ppoll signal");
+	failed += expect_ret("ppoll unblock signal",
+			     sigprocmask(SIG_UNBLOCK, &signal_mask, NULL), 0);
+	failed += expect_ret("ppoll did not redeliver signal", poll_signal_count,
+			     1);
+
+	close(fds[0]);
+	close(fds[1]);
+	return failed;
+}
+
+static int test_pselect_signal_interruption(void)
+{
+	const unsigned long signal_mask = 1UL << (SIGUSR1 - 1);
+	const unsigned long wait_mask = 0;
+	struct timespec timeout = {1, 0};
+	fd_set readfds;
+	unsigned long observed = 0;
+	int fds[2];
+	long sender;
+	int failed = 0;
+
+	if (pipe(fds) != 0 || install_poll_signal_handler() != 0)
+		return 1;
+	if (sigprocmask(SIG_BLOCK, &signal_mask, NULL) != 0)
+		return 1;
+
+	sender = spawn_signal_sender(getpid(), gettid(), SIGUSR1);
+	if (sender < 0)
+		return 1;
+
+	FD_ZERO(&readfds);
+	FD_SET(fds[0], &readfds);
+	failed += expect_ret("pselect signal interruption",
+			     pselect6(fds[0] + 1, &readfds, NULL, NULL,
+				      &timeout, &wait_mask),
+			     -EINTR);
+	failed += expect_fd_ready("pselect interrupted fdset unchanged",
+				  &readfds, fds[0], 1);
+	failed += expect_ret("pselect restored signal mask",
+			     sigprocmask(0, NULL, &observed), 0);
+	failed += expect_ret("pselect restored blocked signal",
+			     observed & signal_mask, signal_mask);
+	failed += expect_ret("pselect delivered temporary unblocked signal",
+			     poll_signal_count, 1);
+	failed += wait_signal_sender(sender, "pselect signal");
+	failed += expect_ret("pselect unblock signal",
+			     sigprocmask(SIG_UNBLOCK, &signal_mask, NULL), 0);
+
+	close(fds[0]);
+	close(fds[1]);
+	return failed;
+}
+
+static int test_epoll_signal_interruption(void)
+{
+	const unsigned long signal_mask = 1UL << (SIGUSR1 - 1);
+	const unsigned long wait_mask = 0;
+	struct epoll_event event;
+	struct epoll_event out = {
+		.events = 0x55aa,
+		.data = 0x12345678,
+	};
+	unsigned long observed = 0;
+	int fds[2];
+	long epfd;
+	long sender;
+	int failed = 0;
+
+	if (pipe(fds) != 0 || install_poll_signal_handler() != 0)
+		return 1;
+	epfd = epoll_create1(0);
+	if (epfd < 0)
+		return 1;
+	event.events = EPOLLIN;
+	event.data = 1;
+	if (epoll_ctl((int)epfd, EPOLL_CTL_ADD, fds[0], &event) != 0)
+		return 1;
+	if (sigprocmask(SIG_BLOCK, &signal_mask, NULL) != 0)
+		return 1;
+
+	sender = spawn_signal_sender(getpid(), gettid(), SIGUSR1);
+	if (sender < 0)
+		return 1;
+
+	failed += expect_ret("epoll_pwait signal interruption",
+			     epoll_pwait((int)epfd, &out, 1, 1000,
+					 &wait_mask),
+			     -EINTR);
+	failed += expect_ret("epoll interrupted events unchanged", out.events,
+			     0x55aa);
+	failed += expect_ret("epoll interrupted data unchanged", (long)out.data,
+			     0x12345678);
+	failed += expect_ret("epoll restored signal mask",
+			     sigprocmask(0, NULL, &observed), 0);
+	failed += expect_ret("epoll restored blocked signal",
+			     observed & signal_mask, signal_mask);
+	failed += expect_ret("epoll delivered temporary unblocked signal",
+			     poll_signal_count, 1);
+	failed += wait_signal_sender(sender, "epoll signal");
+	failed += expect_ret("epoll unblock signal",
+			     sigprocmask(SIG_UNBLOCK, &signal_mask, NULL), 0);
+
+	close((int)epfd);
+	close(fds[0]);
+	close(fds[1]);
+	return failed;
+}
+
+static int test_ppoll_masked_signal_waits_for_ready(void)
+{
+	const unsigned long signal_mask = (1UL << (SIGUSR1 - 1)) |
+					  (1UL << (SIGCHLD - 1));
+	struct timespec timeout = {1, 0};
+	struct pollfd pfd;
+	int fds[2];
+	long pid;
+	int failed = 0;
+
+	if (pipe(fds) != 0 || install_poll_signal_handler() != 0)
+		return 1;
+
+	pid = fork();
+	if (pid == 0) {
+		struct timespec signal_delay = {0, 20000000};
+		struct timespec ready_delay = {0, 20000000};
+
+		nanosleep(&signal_delay, NULL);
+		tgkill(getppid(), getppid(), SIGUSR1);
+		nanosleep(&ready_delay, NULL);
+		write(fds[1], "m", 1);
+		exit(0);
+	}
+	if (pid < 0)
+		return 1;
+
+	pfd.fd = fds[0];
+	pfd.events = POLLIN;
+	pfd.revents = 0;
+	failed += expect_ret("ppoll masked signal waits for ready",
+			     ppoll(&pfd, 1, &timeout, &signal_mask), 1);
+	failed += expect_revents("ppoll masked signal ready", pfd.revents,
+				 POLLIN, POLLIN);
+	failed += expect_ret("ppoll masked signal handler deferred",
+			     poll_signal_count, 1);
+	failed += wait_signal_sender(pid, "ppoll masked signal");
+
+	close(fds[0]);
+	close(fds[1]);
+	return failed;
+}
+
+static int test_ppoll_ready_precedes_signal(void)
+{
+	const unsigned long signal_mask = 1UL << (SIGUSR1 - 1);
+	const unsigned long wait_mask = 0;
+	struct timespec timeout = {1, 0};
+	struct pollfd pfd;
+	int fds[2];
+	int failed = 0;
+
+	if (pipe(fds) != 0 || install_poll_signal_handler() != 0)
+		return 1;
+	if (sigprocmask(SIG_BLOCK, &signal_mask, NULL) != 0)
+		return 1;
+	write(fds[1], "r", 1);
+	tgkill(getpid(), gettid(), SIGUSR1);
+
+	pfd.fd = fds[0];
+	pfd.events = POLLIN;
+	pfd.revents = 0;
+	failed += expect_ret("ppoll ready precedes pending signal",
+			     ppoll(&pfd, 1, &timeout, &wait_mask), 1);
+	failed += expect_revents("ppoll ready precedence revents", pfd.revents,
+				 POLLIN, POLLIN);
+	failed += expect_ret("ppoll ready leaves signal pending",
+			     poll_signal_count, 0);
+	failed += expect_ret("ppoll ready unblock signal",
+			     sigprocmask(SIG_UNBLOCK, &signal_mask, NULL), 0);
+	failed += expect_ret("ppoll ready pending signal delivered",
+			     poll_signal_count, 1);
+
+	close(fds[0]);
+	close(fds[1]);
+	return failed;
+}
+
+static int test_ppoll_cannot_block_sigkill(void)
+{
+	const unsigned long wait_mask = 1UL << (SIGKILL - 1);
+	struct timespec timeout = {1, 0};
+	long child = fork();
+	long waited;
+	int status = 0;
+
+	if (child == 0) {
+		ppoll(NULL, 0, &timeout, &wait_mask);
+		exit(1);
+	}
+	if (child < 0)
+		return 1;
+
+	{
+		struct timespec delay = {0, 20000000};
+
+		nanosleep(&delay, NULL);
+	}
+	kill(child, SIGKILL);
+	waited = wait4(child, &status, 0, NULL);
+	if (waited != child ||
+	    status != (SIGNAL_EXIT_CODE(SIGKILL) << 8)) {
+		printf("FAIL: ppoll SIGKILL mask waited=%ld status=0x%x\n",
+		       waited, status);
+		return 1;
+	}
+
+	return 0;
 }
 
 static int test_ready_pipe(void)
@@ -273,6 +573,40 @@ static int test_pselect_invalid_fd(void)
 	return failed;
 }
 
+static int test_pselect_invalid_sigmask_releases_files(void)
+{
+	struct timespec ts = {0, 0};
+	struct pollfd write_poll;
+	fd_set readfds;
+	int fds[2];
+	int failed = 0;
+
+	if (pipe(fds) != 0) {
+		printf("FAIL: pselect invalid sigmask pipe\n");
+		return 1;
+	}
+
+	FD_ZERO(&readfds);
+	FD_SET(fds[0], &readfds);
+	failed += expect_ret(
+		"pselect invalid sigmask metadata",
+		syscall(SYS_pselect6, fds[0] + 1, (long)&readfds, 0, 0,
+			(long)&ts, 1),
+		-EFAULT);
+	close(fds[0]);
+
+	write_poll.fd = fds[1];
+	write_poll.events = POLLOUT;
+	write_poll.revents = 0;
+	failed += expect_ret("pselect invalid sigmask released reader",
+			     ppoll(&write_poll, 1, &ts, NULL), 1);
+	failed += expect_revents("pselect invalid sigmask pipe error",
+				 write_poll.revents, POLLERR, POLLERR);
+
+	close(fds[1]);
+	return failed;
+}
+
 static int test_pselect_timeout(void)
 {
 	struct timespec ts = {0, 1000000};
@@ -477,7 +811,7 @@ static int test_epoll_ctl_mod_del(void)
 		.data = 1,
 	};
 	struct epoll_event mod_ev = {
-		.events = EPOLLOUT | EPOLLET | EPOLLONESHOT,
+		.events = EPOLLOUT,
 		.data = 2,
 	};
 	int fds[2];
@@ -1017,7 +1351,7 @@ static int test_epoll_pwait_invalid_args(void)
 	return failed;
 }
 
-static int test_epoll_pwait_unsupported_flags(void)
+static int test_epoll_ctl_rejects_unsupported_flags(void)
 {
 	struct epoll_event et_ev = {
 		.events = EPOLLIN | EPOLLET,
@@ -1026,6 +1360,10 @@ static int test_epoll_pwait_unsupported_flags(void)
 	struct epoll_event one_ev = {
 		.events = EPOLLIN | EPOLLONESHOT,
 		.data = 0x32,
+	};
+	struct epoll_event base_ev = {
+		.events = EPOLLIN,
+		.data = 0x33,
 	};
 	struct epoll_event out = {
 		.events = 0,
@@ -1048,19 +1386,28 @@ static int test_epoll_pwait_unsupported_flags(void)
 		return 1;
 	}
 
-	failed += expect_ret("epoll_pwait add et",
+	failed += expect_ret("epoll_ctl reject et add",
 			     epoll_ctl((int)epfd, EPOLL_CTL_ADD, fds[0], &et_ev),
-			     0);
-	failed += expect_ret("epoll_pwait reject et",
-			     epoll_pwait((int)epfd, &out, 1, 0, NULL), -EINVAL);
-	failed += expect_ret("epoll_pwait del et",
-			     epoll_ctl((int)epfd, EPOLL_CTL_DEL, fds[0], NULL),
-			     0);
-	failed += expect_ret("epoll_pwait add oneshot",
+			     -EINVAL);
+	failed += expect_ret("epoll_ctl reject oneshot add",
 			     epoll_ctl((int)epfd, EPOLL_CTL_ADD, fds[0], &one_ev),
+			     -EINVAL);
+	failed += expect_ret("epoll_ctl add base after rejected flags",
+			     epoll_ctl((int)epfd, EPOLL_CTL_ADD, fds[0],
+				       &base_ev),
 			     0);
-	failed += expect_ret("epoll_pwait reject oneshot",
-			     epoll_pwait((int)epfd, &out, 1, 0, NULL), -EINVAL);
+	failed += expect_ret("epoll_ctl reject oneshot mod",
+			     epoll_ctl((int)epfd, EPOLL_CTL_MOD, fds[0],
+				       &one_ev),
+			     -EINVAL);
+
+	write(fds[1], "u", 1);
+	failed += expect_ret("epoll_pwait still uses base event",
+			     epoll_pwait((int)epfd, &out, 1, 0, NULL), 1);
+	failed += expect_epoll_events("epoll_pwait base event ready", out.events,
+				      EPOLLIN, EPOLLIN);
+	failed += expect_ret("epoll_pwait base event data", (long)out.data,
+			     (long)base_ev.data);
 
 	close((int)epfd);
 	close(fds[0]);
@@ -1088,9 +1435,23 @@ int main(void)
 		     &failed);
 	report_group("blocking pipe wakeup", test_blocking_pipe_wakeup(),
 		     &failed);
+	report_group("ppoll signal interruption",
+		     test_ppoll_signal_interruption(), &failed);
+	report_group("pselect signal interruption",
+		     test_pselect_signal_interruption(), &failed);
+	report_group("epoll_pwait signal interruption",
+		     test_epoll_signal_interruption(), &failed);
+	report_group("ppoll masked signal waits for ready",
+		     test_ppoll_masked_signal_waits_for_ready(), &failed);
+	report_group("ppoll ready precedes signal",
+		     test_ppoll_ready_precedes_signal(), &failed);
+	report_group("ppoll cannot block SIGKILL",
+		     test_ppoll_cannot_block_sigkill(), &failed);
 	report_group("timeout", test_timeout(), &failed);
 	report_group("pselect ready pipe", test_pselect_ready_pipe(), &failed);
 	report_group("pselect invalid fd", test_pselect_invalid_fd(), &failed);
+	report_group("pselect invalid sigmask releases files",
+		     test_pselect_invalid_sigmask_releases_files(), &failed);
 	report_group("pselect timeout", test_pselect_timeout(), &failed);
 	report_group("pselect blocking pipe wakeup",
 		     test_pselect_blocking_pipe_wakeup(), &failed);
@@ -1122,8 +1483,8 @@ int main(void)
 		     test_epoll_pwait_normal_aliases(), &failed);
 	report_group("epoll_pwait invalid args",
 		     test_epoll_pwait_invalid_args(), &failed);
-	report_group("epoll_pwait unsupported flags",
-		     test_epoll_pwait_unsupported_flags(), &failed);
+	report_group("epoll_ctl rejects unsupported flags",
+		     test_epoll_ctl_rejects_unsupported_flags(), &failed);
 
 	if (failed)
 		printf("poll_test: %d test group(s) FAILED\n", failed);

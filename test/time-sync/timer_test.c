@@ -2,6 +2,7 @@
 #include <kernel/test.h>
 #include <kernel/time.h>
 #include <kernel/timer.h>
+#include <kernel/wait.h>
 
 #include "../ktest.h"
 
@@ -81,8 +82,7 @@ fail:
 
 int test_mtime_deadline_helpers(void)
 {
-	bool has_timeout = true;
-	uint64_t deadline = 1;
+	struct wait_deadline deadline = wait_deadline_at(1);
 
 	TEST_BEGIN("timer: mtime deadline helpers");
 	{
@@ -105,62 +105,51 @@ int test_mtime_deadline_helpers(void)
 		uint64_t before;
 		uint64_t after;
 
-		TEST_ASSERT_EQ(mtime_deadline_from_timespec(NULL,
-							    &has_timeout,
-							    &deadline),
+		TEST_ASSERT_EQ(mtime_deadline_from_timespec(NULL, &deadline),
 			       0);
-		TEST_ASSERT(!has_timeout);
-		TEST_ASSERT_EQ(deadline, (uint64_t)0);
+		TEST_ASSERT(!deadline.active);
+		TEST_ASSERT_EQ(deadline.expires, (uint64_t)0);
 
 		before = arch_timer_now();
-		TEST_ASSERT_EQ(mtime_deadline_from_timespec(&one_sec,
-							    &has_timeout,
-							    &deadline),
+		TEST_ASSERT_EQ(mtime_deadline_from_timespec(&one_sec, &deadline),
 			       0);
 		after = arch_timer_now();
-		TEST_ASSERT(has_timeout);
-		TEST_ASSERT(deadline >= before + MTIME_FREQ);
-		TEST_ASSERT(deadline <= after + MTIME_FREQ);
+		TEST_ASSERT(deadline.active);
+		TEST_ASSERT(deadline.expires >= before + MTIME_FREQ);
+		TEST_ASSERT(deadline.expires <= after + MTIME_FREQ);
 
 		TEST_ASSERT_EQ(mtime_deadline_from_timespec(&invalid_nsec,
-							    &has_timeout,
-							    &deadline),
+						    &deadline),
 			       -EINVAL);
 		TEST_ASSERT_EQ(mtime_deadline_from_timespec(&invalid_sec,
-							    &has_timeout,
-							    &deadline),
+						    &deadline),
 			       -EINVAL);
 
-		TEST_ASSERT_EQ(mtime_deadline_from_timespec(&huge,
-							    &has_timeout,
-							    &deadline),
+		TEST_ASSERT_EQ(mtime_deadline_from_timespec(&huge, &deadline),
 			       0);
-		TEST_ASSERT(has_timeout);
-		TEST_ASSERT_EQ(deadline, UINT64_MAX);
+		TEST_ASSERT(deadline.active);
+		TEST_ASSERT_EQ(deadline.expires, UINT64_MAX);
 
-		TEST_ASSERT_EQ(mtime_deadline_from_ms(-1, &has_timeout,
-						      &deadline),
+		TEST_ASSERT_EQ(mtime_deadline_from_ms(-1, &deadline),
 			       0);
-		TEST_ASSERT(!has_timeout);
-		TEST_ASSERT_EQ(deadline, (uint64_t)0);
+		TEST_ASSERT(!deadline.active);
+		TEST_ASSERT_EQ(deadline.expires, (uint64_t)0);
 
 		before = arch_timer_now();
-		TEST_ASSERT_EQ(mtime_deadline_from_ms(0, &has_timeout,
-						      &deadline),
+		TEST_ASSERT_EQ(mtime_deadline_from_ms(0, &deadline),
 			       0);
 		after = arch_timer_now();
-		TEST_ASSERT(has_timeout);
-		TEST_ASSERT(deadline >= before);
-		TEST_ASSERT(deadline <= after);
+		TEST_ASSERT(deadline.active);
+		TEST_ASSERT(deadline.expires >= before);
+		TEST_ASSERT(deadline.expires <= after);
 
 		before = arch_timer_now();
-		TEST_ASSERT_EQ(mtime_deadline_from_ms(25, &has_timeout,
-						      &deadline),
+		TEST_ASSERT_EQ(mtime_deadline_from_ms(25, &deadline),
 			       0);
 		after = arch_timer_now();
-		TEST_ASSERT(has_timeout);
-		TEST_ASSERT(deadline >= before + 250000UL);
-		TEST_ASSERT(deadline <= after + 250000UL);
+		TEST_ASSERT(deadline.active);
+		TEST_ASSERT(deadline.expires >= before + 250000UL);
+		TEST_ASSERT(deadline.expires <= after + 250000UL);
 	}
 	TEST_END("timer: mtime deadline helpers");
 	return __test_ret;

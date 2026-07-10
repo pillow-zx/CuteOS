@@ -118,10 +118,15 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | Nr | syscall | 等级 | 当前语义 | 主要缺口 | 下一步 |
 | ---: | --- | --- | --- | --- | --- |
 | 20 | `epoll_create1` | B | 创建 eventpoll file，支持 cloexec | epoll fd 自身 readiness 浅 | 加嵌套/close 行为测试 |
-| 21 | `epoll_ctl` | B | ADD/MOD/DEL，校验 event mask | `EPOLLET/ONESHOT` 接受但 scan 不支持 | 明确拒绝或实现 |
-| 22 | `epoll_pwait` | B | wait、sigmask、timeout | event 触发模型简化 | 优先修 edge/oneshot 策略 |
-| 72 | `pselect6` | B | fdset + timeout + sigmask | 信号 race 语义简化 | 增加 signal interruption 测试 |
-| 73 | `ppoll` | B | pollfd + timeout + sigmask | 大 nfds 限 NR_OPEN | 文档化 NR_OPEN 限制 |
+| 21 | `epoll_ctl` | B | ADD/MOD/DEL，校验 event mask；`EPOLLET/EPOLLONESHOT` 返回 `-EINVAL` | edge/oneshot 未实现 | 按需求实现触发策略 |
+| 22 | `epoll_pwait` | B | wait、临时 sigmask、timeout；可投递 signal 在无 ready event 时返回 `-EINTR` | event 触发模型简化 | 加嵌套/close 行为测试 |
+| 72 | `pselect6` | B | fdset + timeout + 临时 sigmask；可投递 signal 在无 ready fd 时返回 `-EINTR` | 更复杂的 Linux signal race/restart 未实现 | 保持 interruption 回归测试 |
+| 73 | `ppoll` | B | pollfd + timeout + 临时 sigmask；可投递 signal 在无 ready fd 时返回 `-EINTR` | 大 nfds 限 NR_OPEN | 文档化 NR_OPEN 限制 |
+
+`ppoll`、`pselect6`、`epoll_pwait` 每轮先扫描 readiness。若 event/fd 已
+ready，则返回 ready 数量并保留 signal pending；只有无 ready 结果时才以
+`-EINTR` 返回。临时 signal mask 在 handler 完成后恢复原值。`-EINTR` 路径
+不回写 `pollfd.revents`、fd sets 或 epoll events，也不修改 timeout 参数。
 
 ## 进程、线程、等待
 
@@ -179,15 +184,30 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | 130 | `tkill` | B | tid 投递 | 权限模型浅 | 补 cred 检查 |
 | 131 | `tgkill` | B | tgid+tid 投递 | 权限模型浅 | 同 tkill |
 | 132 | `sigaltstack` | B | 注册/查询 altstack | SS_AUTODISARM 等未支持 | 明确 flag policy |
-| 134 | `rt_sigaction` | B | handler/mask 基础语义 | SA_RESTART/SA_SIGINFO 等细节 | 建立 signal flag 矩阵 |
+| 134 | `rt_sigaction` | B | handler/mask，支持 `SA_ONSTACK/NODEFER/RESETHAND`；保存 `SA_RESTART` | 无 syscall restart、无三参数 siginfo handler | 实现 restart frame 前保持固定策略 |
 | 135 | `rt_sigprocmask` | B | 设/查 blocked mask | sigset size 固定 unsigned long | 保持 ABI 断言 |
-| 139 | `rt_sigreturn` | B | 从 signal frame 恢复上下文 | frame 安全和 restart 细节 | 继续补非法 frame 测试 |
+| 139 | `rt_sigreturn` | B | 恢复用户上下文/mask，拒绝非用户 PC 和特权 `sstatus` | 无 syscall restart frame | 继续补架构状态边界测试 |
+
+### `rt_sigaction` flag 支持表
+
+| flag | 状态 | 当前语义 |
+| --- | --- | --- |
+| `SA_ONSTACK` | supported | altstack 可用且当前不在 altstack 时在其上构造 frame |
+| `SA_NODEFER` | supported | 不自动屏蔽当前 signal；`sa_mask` 仍正常应用 |
+| `SA_RESETHAND` | supported | 进入 handler 前将 disposition 重置为 `SIG_DFL` |
+| `SA_RESTART` | accepted, inactive | 保存并可查询；当前不重启任何 syscall，等待仍返回 `-EINTR` |
+| `SA_SIGINFO` | unsupported | 返回 `-EINVAL`；当前 handler interface 仅传 signal number |
+| `SA_NOCLDSTOP` / `SA_NOCLDWAIT` | unsupported | 返回 `-EINVAL`；尚无对应 child-state 语义 |
+| unknown bits | unsupported | 返回 `-EINVAL`，避免伪装支持 |
+
+`SIG_DFL` 和 `SIG_IGN` disposition 可以保存已支持 flag；只有实际用户 handler
+会消费 `SA_ONSTACK`、`SA_NODEFER`、`SA_RESETHAND` 行为。
 
 ## 时间和 timer
 
 | Nr | syscall | 等级 | 当前语义 | 主要缺口 | 下一步 |
 | ---: | --- | --- | --- | --- | --- |
-| 101 | `nanosleep` | A | timer sleep，支持 EINTR remainder | 精度受 tick/mtime 影响 | 保持 |
+| 101 | `nanosleep` | A | timer sleep；signal 打断返回 `-EINTR` 并写相对 remainder | 精度受 tick/mtime 影响 | 保持 |
 | 102 | `getitimer` | B | 支持 itimer 状态查询 | 主要支持 REAL | 文档化 `ITIMER_REAL` 优先 |
 | 103 | `setitimer` | B | 支持 `ITIMER_REAL` | virtual/prof 返回 EINVAL | 需要 CPU accounting 后再扩展 |
 | 107 | `timer_create` | B | POSIX timer，支持 SIGEV_NONE/SIGNAL | SIGEV_THREAD、clock 细节缺失 | 补 sigevent 支持表 |
@@ -198,7 +218,12 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | 112 | `clock_settime` | C | REALTIME 返回 `-EPERM`，其它 `-EINVAL` | 无 RTC/wall-clock offset | 加 RTC/offset 前保持 |
 | 113 | `clock_gettime` | B | REALTIME/MONOTONIC/BOOTTIME 基于 mtime | REALTIME 不是真实 wall clock | 文档化 |
 | 114 | `clock_getres` | A | 返回 mtime 分辨率 | 保持 |
-| 115 | `clock_nanosleep` | B | 支持 relative/absolute sleep | clock 差异浅 | 与 clock_gettime 同步 |
+| 115 | `clock_nanosleep` | B | relative/absolute sleep；relative `-EINTR` 写 remainder，absolute 不修改 remainder | clock 差异浅 | 与 clock_gettime 同步 |
+
+`SA_RESTART` 当前不改变 sleep 行为。`nanosleep` 和相对
+`clock_nanosleep` 被 signal 打断时返回 `-EINTR`，remainder 满足
+`0 < remainder <= request`。绝对 `clock_nanosleep(TIMER_ABSTIME)` 同样返回
+`-EINTR`，但不写 remainder。
 | 153 | `times` | B | 当前/系统 tick，child time 部分 | 更完整 cputime 统计 | 补 child cputime 测试 |
 | 169 | `gettimeofday` | B | 基于启动后 mtime，timezone UTC | 无 RTC | 等平台 RTC |
 

@@ -24,7 +24,7 @@ struct inode;
 struct dentry;
 struct super_block;
 struct statfs64;
-struct vfs_poll_table;
+struct wait_registrar;
 
 /**
  * @def VFS_NAME_MAX
@@ -152,8 +152,8 @@ struct file_operations {
 	loff_t (*llseek)(struct file *file, loff_t offset, int whence);
 	int (*open)(struct inode *inode, struct file *file);
 	int (*readdir)(struct file *file, void *ctx, filldir_t filldir);
-	uint32_t (*poll)(struct file *file, uint32_t events,
-			 struct vfs_poll_table *table);
+	int (*poll)(struct file *file, uint32_t events,
+		    struct wait_registrar *registrar);
 	int (*ioctl)(struct file *file, uint64_t cmd, uint64_t arg);
 	int (*release)(struct file *file);
 };
@@ -347,44 +347,6 @@ struct file {
 };
 
 /**
- * @def VFS_POLL_MAX_WAIT_QUEUES
- * @brief Maximum wait queues tracked by one poll/ppoll/select scan.
- */
-#define VFS_POLL_MAX_WAIT_QUEUES (NR_OPEN * 2)
-
-/**
- * @struct vfs_poll_entry
- * @brief One wait-queue registration owned by a VFS poll table.
- *
- * @par Fields
- * - @c wq: Queue registered by a file poll hook.
- * - @c wait: Wait entry inserted into @ref wq.
- */
-struct vfs_poll_entry {
-	struct wait_queue_head *wq;
-	struct wait_queue_entry wait;
-};
-
-/**
- * @struct vfs_poll_table
- * @brief Temporary wait registration set for poll/select-style syscalls.
- *
- * @par Fields
- * - @c entries: Entries.
- * - @c nr_entries: Number of active entries in @ref entries.
- */
-struct vfs_poll_table {
-	struct vfs_poll_entry entries[VFS_POLL_MAX_WAIT_QUEUES];
-	size_t nr_entries;
-};
-
-/**
- * @typedef vfs_poll_scan_t
- * @brief Callback that scans fds and returns readiness for poll wait loops.
- */
-typedef int (*vfs_poll_scan_t)(struct vfs_poll_table *table, void *arg);
-
-/**
  * @brief Open a path relative to the current task cwd.
  * @param path Kernel string path.
  * @param flags Linux O_* open flags.
@@ -508,36 +470,15 @@ int __must_check vfs_stat_inode(const struct inode *inode, struct stat *st);
  */
 int __must_check vfs_stat_file(struct file *file, struct stat *st);
 int __must_check vfs_statfs(struct super_block *sb, struct statfs64 *buf);
-void vfs_poll_table_init(struct vfs_poll_table *table);
-void vfs_poll_table_cleanup(struct vfs_poll_table *table);
-
-/**
- * @brief Register a wait queue in the active poll table.
- * @param table Poll table for the current scan, or NULL for readiness-only.
- * @param wq Wait queue that should wake the sleeping poll operation.
- */
-void vfs_poll_wait(struct vfs_poll_table *table, struct wait_queue_head *wq);
-
-/**
- * @brief Repeatedly scan readiness until ready, timeout, or signal.
- * @param scan Callback that fills @p table and reports ready descriptors.
- * @param arg Opaque argument passed to @p scan.
- * @param has_timeout Whether @p deadline is meaningful.
- * @param deadline Absolute kernel time deadline.
- * @return Positive readiness count, 0 on timeout, or a negative errno.
- */
-int __must_check vfs_poll_wait_until(vfs_poll_scan_t scan, void *arg,
-				     bool has_timeout, uint64_t deadline);
-
 /**
  * @brief Poll one file for Linux POLL* readiness bits.
  * @param file Open file.
  * @param events Requested POLL* event mask.
- * @param table Optional wait registration table.
- * @return Ready event mask.
+ * @param registrar Optional generic wait registrar.
+ * @return Ready event mask, or a negative errno.
  */
-uint32_t __must_check vfs_poll(struct file *file, uint32_t events,
-			       struct vfs_poll_table *table);
+int __must_check vfs_poll(struct file *file, uint32_t events,
+			  struct wait_registrar *registrar);
 int __must_check vfs_ioctl(struct file *file, uint64_t cmd, uint64_t arg);
 int __must_check vfs_getcwd_path(const struct path *cwd, char *buf,
 				 size_t size);

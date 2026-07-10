@@ -4,6 +4,7 @@
 
 #include <kernel/time.h>
 #include <kernel/timer.h>
+#include <kernel/wait.h>
 #include <kernel/worker.h>
 
 static uint64_t worker_interval_ticks(unsigned int interval_sec)
@@ -21,10 +22,14 @@ void worker_run_periodic(unsigned int interval_sec, void (*work)(void *),
 
 	interval = worker_interval_ticks(interval_sec);
 	for (;;) {
-		uint64_t deadline =
-			mtime_deadline_after(arch_timer_now(), interval);
+		struct wait_deadline deadline = wait_deadline_at(
+			mtime_deadline_after(arch_timer_now(), interval));
+		wait_completion_t completion;
+		int ret;
 
-		(void)timer_sleep_until(deadline, false);
+		ret = wait_complete(NULL, 0, &deadline, &completion);
+		if (ret < 0 || completion != WAIT_COMPLETION_TIMEOUT)
+			return;
 		work(arg);
 	}
 }

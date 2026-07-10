@@ -100,10 +100,10 @@
 
 ### 2.4 signal 和 sleep/poll 中断语义
 
-- [ ] 建立 signal action flag 支持表。
-- [ ] 明确 `SA_RESTART` 当前策略，并选择实现或固定不支持行为。
-- [ ] 增加 sleep、ppoll、pselect、epoll_pwait 被 signal 打断的测试。
-- [ ] 继续扩展非法 signal frame 和 sigreturn 安全测试。
+- [x] 建立 signal action flag 支持表。
+- [x] 明确 `SA_RESTART` 当前策略，并选择实现或固定不支持行为。
+- [x] 增加 sleep、ppoll、pselect、epoll_pwait 被 signal 打断的测试。
+- [x] 继续扩展非法 signal frame 和 sigreturn 安全测试。
 
 验收：
 

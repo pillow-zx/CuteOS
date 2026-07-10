@@ -23,6 +23,23 @@ void slab_init(void);
 void *kmalloc(size_t size) __must_check __malloc __alloc_size(1);
 
 /**
+ * @brief Allocate n * size space
+ * @param n number of requirement
+ * @param size per size of requirement obj
+ * @return Allocated objects, or NULL
+ */
+static __always_inline void *__must_check kmalloc_array(size_t n, size_t size)
+{
+	size_t bytes;
+
+	if (check_mul_overflow(n, size, &bytes))
+		return NULL;
+
+	bytes = n * size;
+	return kmalloc(bytes);
+}
+
+/**
  * @brief Free an object allocated by kmalloc/kzalloc.
  * @param ptr Object pointer, or NULL.
  */

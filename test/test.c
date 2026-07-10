@@ -143,15 +143,15 @@ static const struct ktest_case ktimer_cases[] = {
 };
 
 static const struct ktest_case waitqueue_cases[] = {
-	KTEST_CASE(test_waitqueue_timeout_expiry_wakes_task),
-	KTEST_CASE(test_waitqueue_timeout_cancel_prevents_wake),
-	KTEST_CASE(test_wait_event_interruptible_ready),
-	KTEST_CASE(test_wait_event_interruptible_signal),
-	KTEST_CASE(test_waitqueue_prepare_finish),
-	KTEST_CASE(test_waitqueue_wake_one_fifo),
-	KTEST_CASE(test_waitqueue_wake_all),
-	KTEST_CASE(test_wait_schedule_until_timeout),
-	KTEST_CASE(test_wait_schedule_preserves_early_wakeup),
+	KTEST_CASE(test_wait_complete_timeout),
+	KTEST_CASE(test_wait_complete_event),
+	KTEST_CASE(test_wait_complete_spurious_retry),
+	KTEST_CASE(test_wait_complete_priority),
+	KTEST_CASE(test_wait_complete_wake_before_block),
+	KTEST_CASE(test_wait_complete_registration),
+	KTEST_CASE(test_wait_complete_partial_error_cleanup),
+	KTEST_CASE(test_wait_complete_signal_only),
+	KTEST_CASE(test_wait_complete_validation),
 };
 
 static const struct ktest_case sync_cases[] = {
@@ -161,6 +161,7 @@ static const struct ktest_case sync_cases[] = {
 
 static const struct ktest_case mutex_cases[] = {
 	KTEST_CASE(test_mutex_blocking),
+	KTEST_CASE(test_mutex_uncontended_preserves_sleep_state),
 };
 
 static const struct ktest_case trap_cases[] = {
@@ -231,7 +232,7 @@ static const struct ktest_case virtio_blk_cases[] = {
 static const struct ktest_case syscall_compat_cases[] = {
 	KTEST_CASE(test_rlimit_defaults),
 	KTEST_CASE(test_vfs_default_poll_masks),
-	KTEST_CASE(test_vfs_poll_table_registers_multiple_queues),
+	KTEST_CASE(test_vfs_poll_propagates_registrar_errors),
 	KTEST_CASE(test_vfs_default_ioctl_enotty),
 	KTEST_CASE(test_console_tty_line_discipline),
 	KTEST_CASE(test_tty_signal_delivery_policy),

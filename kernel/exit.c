@@ -78,9 +78,18 @@ static bool has_wait_target(pid_t pid)
 	return find_child(pid) != NULL;
 }
 
-static bool wait4_ready(void *arg)
+static int wait4_probe(struct wait_registrar *registrar, void *arg)
 {
 	pid_t pid = *(pid_t *)arg;
+	int ret;
+
+	if (!has_wait_target(pid) || find_waitable_child(pid))
+		return 1;
+
+	ret = wait_register(registrar,
+			    task_wait_child_queue(current_task()));
+	if (ret < 0)
+		return ret;
 
 	return !has_wait_target(pid) || find_waitable_child(pid) != NULL;
 }
@@ -141,8 +150,6 @@ static void detach_task_queues(struct task_struct *task)
 
 	if (!list_empty(&task->sched.run_list))
 		sched_dequeue(task);
-	if (!list_empty(&task->sched.wait_entry.node))
-		list_del_init(&task->sched.wait_entry.node);
 }
 
 static void __nonnull(1)
@@ -152,6 +159,7 @@ static void __nonnull(1)
 		return;
 
 	detach_task_queues(task);
+	wait_cancel_task(task);
 
 	task_set_exit_code(task, code);
 	futex_exit_robust_list(task);
@@ -279,15 +287,22 @@ void release_task(struct task_struct *task)
 		list_del_init(&task->links.thread_node);
 	if (!list_empty(&task->sched.run_list))
 		sched_dequeue(task);
-	if (!list_empty(&task->sched.wait_entry.node))
-		list_del_init(&task->sched.wait_entry.node);
-
 	task_set_state(task, TASK_DEAD);
 	task_free(task);
 }
 
 int kernel_wait4(pid_t pid, int options, struct wait4_result *result)
 {
+	const struct wait_deadline deadline = {
+		.active = false,
+	};
+	struct wait_source source = {
+		.probe = wait4_probe,
+		.arg = &pid,
+		.registration_limit = 1,
+	};
+	wait_completion_t completion;
+
 	if (pid != (pid_t)-1 && pid <= 0)
 		return -EINVAL;
 	if (options != 0)
@@ -301,11 +316,11 @@ int kernel_wait4(pid_t pid, int options, struct wait4_result *result)
 
 		struct task_struct *child = find_waitable_child(pid);
 		if (!child) {
-			int ret = wait_event(
-				task_wait_child_queue(current_task()),
-				wait4_ready, &pid);
+			int ret = wait_complete(&source, 0, &deadline,
+						&completion);
 			if (ret < 0)
 				return ret;
+			BUG_ON(completion != WAIT_COMPLETION_EVENT);
 			continue;
 		}
 

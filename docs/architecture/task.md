@@ -16,7 +16,7 @@ flowchart TB
     Res["resources<br/>mm / files / fs / sighand / signal"]
     Sig["sigctx<br/>blocked / pending / altstack / robust futex"]
     Rseq["rseq<br/>registered area / signature"]
-    Sched["sched<br/>run_list / wait_entry / MLFQ state"]
+    Sched["sched<br/>run_list / MLFQ state"]
     Time["cputime<br/>utime / stime"]
 
     Task --> Arch
@@ -314,6 +314,15 @@ void signal_user_map_init(void);
 
 signal frame 保存原 trap frame、blocked mask、信号号和 altstack 状态。handler 返回时调用 signal trampoline 中的 `rt_sigreturn`，由 `do_sigreturn()` 恢复原始 trap frame 和 signal mask。
 
+`ppoll`、`pselect6`、`epoll_pwait` 的临时 signal mask 跨越 syscall 返回和
+handler frame 建立：可投递 signal 打断等待时，frame 保存调用前的 mask，
+handler 运行期间仍使用临时 mask，`rt_sigreturn` 再恢复调用前 mask。这样
+signal 不会在 syscall 返回边缘被重新屏蔽。`SA_RESTART` 当前仅保存于 action，
+不触发 syscall restart。
+
+`rt_sigreturn` 只接受用户地址 PC，并拒绝包含 `SPP`、`SUM` 或 `SIE` 的恢复
+状态；恢复 blocked mask 时始终清除 `SIGKILL` 和 `SIGSTOP` 位。
+
 `SIGNAL_TRAMPOLINE_ADDR = USER_STACK_GUARD_BASE - PAGE_SIZE`，通过 `user_map` 映射进每个用户页表。
 
 ## futex
@@ -439,7 +448,8 @@ void worker_run_periodic(unsigned int interval_sec,
                          void *arg);
 ```
 
-它循环计算下一次 deadline，调用 `timer_sleep_until(deadline, false)`，然后执行 work。page cache 写回线程用它每 5 秒调用一次全局同步。
+它循环构造下一次 `wait_deadline`，通过 `wait_complete()` 执行不可中断的纯
+deadline wait，然后执行 work。page cache 写回线程用它每 5 秒调用一次全局同步。
 
 ## 设计约束
 

@@ -189,6 +189,8 @@ int signals_init(struct task_struct *task)
 	signal_set_blocked_mask(task, 0);
 	signal_clear_pending(task, ~0UL);
 	signal_clear_handlers(task);
+	task->sigctx.restore_mask = 0;
+	task->sigctx.restore_mask_pending = false;
 	reset_task_altstack(task);
 	return 0;
 }
@@ -205,6 +207,8 @@ void signals_release(struct task_struct *task)
 	signal_set_blocked_mask(task, 0);
 	signal_clear_pending(task, ~0UL);
 	signal_clear_handlers(task);
+	task->sigctx.restore_mask = 0;
+	task->sigctx.restore_mask_pending = false;
 	reset_task_altstack(task);
 }
 
@@ -261,6 +265,8 @@ int signals_clone(struct task_struct *child, bool share_sighand,
 	signal_set_blocked_mask(child, signal_blocked_mask(current_task()));
 	signal_clear_pending(child, ~0UL);
 	signal_clear_handlers(child);
+	child->sigctx.restore_mask = 0;
+	child->sigctx.restore_mask_pending = false;
 	if (current_task() && !disable_altstack) {
 		struct stack_t *child_sas = task_altstack(child);
 
@@ -348,6 +354,35 @@ void signal_leave_handler(struct task_struct *task, int sig)
 void signal_clear_handlers(struct task_struct *task)
 {
 	task_set_in_handler_mask(task, 0);
+}
+
+void signal_defer_mask_restore(struct task_struct *task, uint64_t mask)
+{
+	if (!task)
+		return;
+
+	task->sigctx.restore_mask = mask & ~unblockable_mask();
+	task->sigctx.restore_mask_pending = true;
+}
+
+static bool signal_restore_mask_pending(struct task_struct *task)
+{
+	return task && task->sigctx.restore_mask_pending;
+}
+
+static uint64_t signal_take_restore_mask(struct task_struct *task)
+{
+	uint64_t mask = task->sigctx.restore_mask;
+
+	task->sigctx.restore_mask = 0;
+	task->sigctx.restore_mask_pending = false;
+	return mask;
+}
+
+static void signal_restore_deferred_mask(struct task_struct *task)
+{
+	if (signal_restore_mask_pending(task))
+		signal_set_blocked_mask(task, signal_take_restore_mask(task));
 }
 
 static void wake_signal_target(struct task_struct *task, int sig)
@@ -539,7 +574,10 @@ static int setup_signal_frame(struct trap_frame *tf, int sig,
 		return -EFAULT;
 
 	trap_save_signal_state(&frame.state, tf);
-	frame.blocked = signal_blocked_mask(current_task());
+	if (signal_restore_mask_pending(current_task()))
+		frame.blocked = signal_take_restore_mask(current_task());
+	else
+		frame.blocked = signal_blocked_mask(current_task());
 	frame.sig = sig;
 	frame.on_altstack = on_altstack;
 
@@ -549,7 +587,8 @@ static int setup_signal_frame(struct trap_frame *tf, int sig,
 	if (on_altstack)
 		sas->ss_flags |= SS_ONSTACK;
 
-	signal_block_mask(current_task(), signal_mask(sig));
+	if (!(action->sa_flags & SA_NODEFER))
+		signal_block_mask(current_task(), signal_mask(sig));
 	signal_block_mask(current_task(), action->sa_mask);
 	signal_enter_handler(current_task(), sig);
 
@@ -624,14 +663,29 @@ static struct sigaction get_signal_action(int sig)
 	return action;
 }
 
+static void reset_signal_action(int sig)
+{
+	struct sighand_struct *sighand = task_sighand(current_task());
+
+	if (!sighand)
+		return;
+
+	mutex_lock(&sighand->lock);
+	memset(&sighand->sigactions[sig], 0,
+	       sizeof(sighand->sigactions[sig]));
+	mutex_unlock(&sighand->lock);
+}
+
 void do_signal(struct trap_frame *tf)
 {
 	while (true) {
 		bool shared;
 		int sig = next_signal(&shared);
 
-		if (sig == 0)
+		if (sig == 0) {
+			signal_restore_deferred_mask(current_task());
 			return;
+		}
 
 		uint64_t mask = signal_mask(sig);
 		struct sigaction action = get_signal_action(sig);
@@ -663,6 +717,9 @@ void do_signal(struct trap_frame *tf)
 				do_exit(SIGNAL_EXIT_CODE(sig));
 			continue;
 		}
+
+		if (action.sa_flags & SA_RESETHAND)
+			reset_signal_action(sig);
 
 		if (rseq_signal_deliver(tf) < 0)
 			do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
@@ -756,6 +813,8 @@ int do_sigaltstack(const struct stack_t *ss, struct stack_t *old_ss)
 
 int do_sigaction(int sig, const struct sigaction *act, struct sigaction *oldact)
 {
+	const unsigned long supported_flags =
+		SA_ONSTACK | SA_RESTART | SA_NODEFER | SA_RESETHAND;
 	struct sighand_struct *sighand = task_sighand(current_task());
 	struct sigaction kact;
 
@@ -778,6 +837,8 @@ int do_sigaction(int sig, const struct sigaction *act, struct sigaction *oldact)
 
 	kact = *act;
 	if (kact.sa_handler == SIG_ERR)
+		return -EINVAL;
+	if (kact.sa_flags & ~supported_flags)
 		return -EINVAL;
 
 	kact.sa_mask &= ~unblockable_mask();
@@ -827,6 +888,10 @@ int do_sigreturn(struct trap_frame *tf, uintptr_t sp)
 	if (copy_from_user(&frame, user_frame, sizeof(frame)) != 0)
 		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 	if (!signal_is_valid((int)frame.sig))
+		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+	if (!access_ok((const void *)frame.state.tf.sepc, 1))
+		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+	if (frame.state.tf.sstatus & (SSTATUS_SPP | SSTATUS_SUM | SSTATUS_SIE))
 		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 
 	trap_restore_signal_state(tf, &frame.state);
