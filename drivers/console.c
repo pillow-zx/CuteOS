@@ -307,7 +307,7 @@ static ssize_t console_write(struct file *file, const char *buf, size_t count)
 	return (ssize_t)count;
 }
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 ssize_t console_tty_write_for_test(const struct termios *termios,
 				   const char *input, size_t input_len,
 				   char *out, size_t out_size);

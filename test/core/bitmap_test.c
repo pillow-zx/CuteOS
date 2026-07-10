@@ -1,9 +1,9 @@
 #include <kernel/bitmap.h>
 #include <kernel/test.h>
 
-#include "ktest.h"
+#include "../ktest.h"
 
-void test_bitmap(void)
+int test_bitmap(void)
 {
 	TEST_BEGIN("bitmap: basic set/clear/test");
 	{
@@ -35,12 +35,14 @@ void test_bitmap(void)
 		TEST_ASSERT_EQ(bitmap_test(&bm, 31), false);
 	}
 	TEST_END("bitmap: basic set/clear/test");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("bitmap: basic set/clear/test", "see above");
+
+	return __test_ret;
 }
 
-void test_bitmap_find_first_zero(void)
+int test_bitmap_find_first_zero(void)
 {
 	TEST_BEGIN("bitmap: find_first_zero");
 	{
@@ -66,12 +68,14 @@ void test_bitmap_find_first_zero(void)
 		TEST_ASSERT_EQ(bitmap_find_first_zero(&bm), (size_t)64);
 	}
 	TEST_END("bitmap: find_first_zero");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("bitmap: find_first_zero", "see above");
+
+	return __test_ret;
 }
 
-void test_bitmap_odd_bits(void)
+int test_bitmap_odd_bits(void)
 {
 	TEST_BEGIN("bitmap: odd bits set/clear");
 	{
@@ -95,7 +99,9 @@ void test_bitmap_odd_bits(void)
 		TEST_ASSERT_EQ(bitmap_find_first_zero(&bm), (size_t)0);
 	}
 	TEST_END("bitmap: odd bits set/clear");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("bitmap: odd bits set/clear", "see above");
+
+	return __test_ret;
 }

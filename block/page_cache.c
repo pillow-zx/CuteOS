@@ -9,6 +9,7 @@
 #include <kernel/fs.h>
 #include <kernel/hash.h>
 #include <kernel/list.h>
+#include <kernel/printk.h>
 #include <kernel/slab.h>
 
 #define PAGE_CACHE_HASH_BITS 7
@@ -284,8 +285,8 @@ void page_cache_put_page(struct page_cache *page)
 	if (!page)
 		return;
 
-	if (page->refcount > 0)
-		page->refcount--;
+	BUG_ON(page->refcount == 0);
+	page->refcount--;
 	if (page->refcount == 0 && page->dropped)
 		page_cache_free_page(page);
 }

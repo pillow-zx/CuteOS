@@ -11,7 +11,7 @@
 #include <kernel/tools.h>
 #include <kernel/wait.h>
 #include <kernel/irq.h>
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 #include <kernel/test_wait.h>
 #endif
 #include <kernel/processor.h>
@@ -85,7 +85,7 @@ static bool wait_timeout_fired(const struct wait_timeout *timeout)
 	return timeout && timeout->fired;
 }
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 static struct wait_timeout wait_timeout_test;
 
 void wait_timeout_test_start(struct task_struct *task, uint64_t expires)

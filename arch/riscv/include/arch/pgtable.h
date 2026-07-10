@@ -122,7 +122,7 @@ static __always_inline void flush_tlb_page(uintptr_t va)
 	tlb_flush_page(va);
 }
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 static __always_inline __must_check __nonnull(1) pte_t *pagetable_walk(
 	pte_t *root, uintptr_t va, bool alloc)
 {

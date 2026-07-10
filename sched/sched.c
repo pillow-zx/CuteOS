@@ -96,7 +96,6 @@ void schedule(void)
 		if (prev == &idle_task || prev->lifecycle.state == TASK_RUNNING)
 			return;
 
-		check_canary(prev);
 		rseq_sched_switch(prev);
 		arch_task_switch_address_space(prev, &idle_task);
 		set_current_task(&idle_task);
@@ -113,14 +112,13 @@ void schedule(void)
 	    list_empty(&prev->sched.run_list))
 		mlfq_enqueue(prev);
 
-	check_canary(prev);
 	rseq_sched_switch(prev);
 	set_current_task(next);
 	arch_task_switch_address_space(prev, next);
 	arch_task_switch(prev, next);
 }
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 bool sched_test_runqueue_empty(void)
 {
 	return mlfq_empty();

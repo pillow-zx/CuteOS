@@ -2,9 +2,9 @@
 #include <kernel/buddy.h>
 #include <kernel/task.h>
 
-#include "ktest.h"
+#include "../ktest.h"
 
-void test_buddy_single_page(void)
+int test_buddy_single_page(void)
 {
 	TEST_BEGIN("buddy: single page alloc/free");
 	{
@@ -20,12 +20,14 @@ void test_buddy_single_page(void)
 		free_page(p, 0);
 	}
 	TEST_END("buddy: single page alloc/free");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("buddy: single page alloc/free", "see above");
+
+	return __test_ret;
 }
 
-void test_buddy_multi_order(void)
+int test_buddy_multi_order(void)
 {
 	TEST_BEGIN("buddy: multi-order alloc/free");
 	{
@@ -50,12 +52,14 @@ void test_buddy_multi_order(void)
 			free_page(ptrs[order], order);
 	}
 	TEST_END("buddy: multi-order alloc/free");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("buddy: multi-order alloc/free", "see above");
+
+	return __test_ret;
 }
 
-void test_buddy_merge(void)
+int test_buddy_merge(void)
 {
 	TEST_BEGIN("buddy: buddy merging");
 	{
@@ -84,12 +88,14 @@ void test_buddy_merge(void)
 		free_page(big, 2);
 	}
 	TEST_END("buddy: buddy merging");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("buddy: buddy merging", "see above");
+
+	return __test_ret;
 }
 
-void test_buddy_stress(void)
+int test_buddy_stress(void)
 {
 	TEST_BEGIN("buddy: stress alloc/free cycle");
 	{
@@ -112,12 +118,14 @@ void test_buddy_stress(void)
 #undef BUDDY_STRESS_N
 	}
 	TEST_END("buddy: stress alloc/free cycle");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("buddy: stress alloc/free cycle", "see above");
+
+	return __test_ret;
 }
 
-void test_buddy_split(void)
+int test_buddy_split(void)
 {
 	TEST_BEGIN("buddy: order split");
 	{
@@ -140,12 +148,14 @@ void test_buddy_split(void)
 			free_page(pages[i], 0);
 	}
 	TEST_END("buddy: order split");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("buddy: order split", "see above");
+
+	return __test_ret;
 }
 
-void test_buddy_over_order_preserves_free_count(void)
+int test_buddy_over_order_preserves_free_count(void)
 {
 	TEST_BEGIN("buddy: over-order preserves free count");
 	{
@@ -156,12 +166,14 @@ void test_buddy_over_order_preserves_free_count(void)
 		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
 	}
 	TEST_END("buddy: over-order preserves free count");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("buddy: over-order preserves free count", "see above");
+
+	return __test_ret;
 }
 
-void test_buddy_multi_order_preserves_free_count(void)
+int test_buddy_multi_order_preserves_free_count(void)
 {
 	TEST_BEGIN("buddy: multi-order preserves free count");
 	{
@@ -182,7 +194,9 @@ void test_buddy_multi_order_preserves_free_count(void)
 		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
 	}
 	TEST_END("buddy: multi-order preserves free count");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("buddy: multi-order preserves free count", "see above");
+
+	return __test_ret;
 }

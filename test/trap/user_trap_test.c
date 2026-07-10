@@ -3,6 +3,7 @@
 #include <kernel/test.h>
 #include <kernel/printk.h>
 #include <kernel/buddy.h>
+#include <kernel/irq.h>
 #include <kernel/task.h>
 #include <kernel/sched.h>
 #include <kernel/page.h>
@@ -10,7 +11,7 @@
 #include <kernel/trap.h>
 #include <kernel/processor.h>
 
-#include "ktest.h"
+#include "../ktest.h"
 
 extern void __trapret(void);
 extern char user_trap_test_start[];
@@ -50,6 +51,7 @@ static volatile bool user_trap_test_trapped;
 static volatile bool user_trap_test_resumed;
 static volatile const char *user_trap_test_fail_msg;
 static struct task_struct *user_trap_test_task;
+static struct task_struct *user_trap_test_runner_task;
 static uintptr_t user_trap_test_user_sp;
 static uintptr_t user_trap_test_ecall_va;
 
@@ -148,11 +150,16 @@ intercept:
 static void __noreturn user_trap_test_resume(void)
 {
 	struct task_struct *prev = current_task();
+	struct task_struct *next = user_trap_test_runner_task;
 
+	local_irq_disable();
 	user_trap_test_resumed = true;
 	prev->lifecycle.state = TASK_DEAD;
-	set_current_task(&idle_task);
-	arch_task_switch(prev, &idle_task);
+	BUG_ON(!next);
+	if (task_is_queued(next))
+		sched_dequeue(next);
+	set_current_task(next);
+	arch_task_switch(prev, next);
 	panic("user trap test resume returned unexpectedly");
 }
 
@@ -168,7 +175,7 @@ forge_user_return_task(size_t user_pc, size_t user_sp, size_t user_sstatus)
 	return task;
 }
 
-void test_trap_user_return_task_setup(void)
+int test_trap_user_return_task_setup(void)
 {
 	struct task_struct *t = NULL;
 	void *code_page = NULL;
@@ -216,6 +223,7 @@ void test_trap_user_return_task_setup(void)
 		user_trap_test_resumed = false;
 		user_trap_test_fail_msg = NULL;
 		user_trap_test_task = t;
+		user_trap_test_runner_task = current_task();
 		user_trap_test_user_sp = user_sp;
 		user_trap_test_ecall_va =
 			user_pc + (uintptr_t)(user_trap_test_ecall -
@@ -240,7 +248,8 @@ void test_trap_user_return_task_setup(void)
 		trap_set_hook(NULL);
 		hook_installed = false;
 
-		TEST_ASSERT_EQ((size_t)current_task(), (size_t)&idle_task);
+		TEST_ASSERT_EQ((size_t)current_task(),
+			       (size_t)user_trap_test_runner_task);
 		TEST_ASSERT(user_trap_test_trapped == true);
 		TEST_ASSERT(user_trap_test_resumed == true);
 		TEST_ASSERT_NULL((void *)user_trap_test_fail_msg);
@@ -272,5 +281,5 @@ cleanup:
 		free_page(code_page, 0);
 	if (stack_page)
 		free_page(stack_page, 0);
-	return;
+	return __test_ret;
 }

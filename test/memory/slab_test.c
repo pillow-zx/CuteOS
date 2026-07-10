@@ -3,9 +3,9 @@
 #include <kernel/test.h>
 #include <kernel/page.h>
 
-#include "ktest.h"
+#include "../ktest.h"
 
-void test_slab_basic(void)
+int test_slab_basic(void)
 {
 	TEST_BEGIN("slab: basic alloc/free");
 	{
@@ -37,11 +37,13 @@ void test_slab_basic(void)
 #undef SLAB_NR_CACHES
 	}
 	TEST_END("slab: basic alloc/free");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("slab: basic alloc/free", "see above");
+
+	return __test_ret;
 }
-void test_slab_cross_cache(void)
+int test_slab_cross_cache(void)
 {
 	TEST_BEGIN("slab: cross-cache sizes");
 	{
@@ -63,12 +65,14 @@ void test_slab_cross_cache(void)
 			kfree(ptrs[i]);
 	}
 	TEST_END("slab: cross-cache sizes");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("slab: cross-cache sizes", "see above");
+
+	return __test_ret;
 }
 
-void test_slab_stress(void)
+int test_slab_stress(void)
 {
 	TEST_BEGIN("slab: stress cycle");
 	{
@@ -89,12 +93,14 @@ void test_slab_stress(void)
 #undef SLAB_STRESS_N
 	}
 	TEST_END("slab: stress cycle");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("slab: stress cycle", "see above");
+
+	return __test_ret;
 }
 
-void test_slab_returns_empty_page_to_buddy(void)
+int test_slab_returns_empty_page_to_buddy(void)
 {
 	TEST_BEGIN("slab: returns empty page to buddy");
 	{
@@ -135,12 +141,14 @@ void test_slab_returns_empty_page_to_buddy(void)
 #undef SLAB_RECLAIM_PTRS
 	}
 	TEST_END("slab: returns empty page to buddy");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("slab: returns empty page to buddy", "see above");
+
+	return __test_ret;
 }
 
-void test_kmalloc_large_alloc_free(void)
+int test_kmalloc_large_alloc_free(void)
 {
 	TEST_BEGIN("kmalloc: large alloc/free");
 	{
@@ -157,12 +165,14 @@ void test_kmalloc_large_alloc_free(void)
 		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
 	}
 	TEST_END("kmalloc: large alloc/free");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("kmalloc: large alloc/free", "see above");
+
+	return __test_ret;
 }
 
-void test_kzalloc_large_zeroes_requested_size(void)
+int test_kzalloc_large_zeroes_requested_size(void)
 {
 	TEST_BEGIN("kzalloc: large zeroes requested size");
 	{
@@ -175,12 +185,14 @@ void test_kzalloc_large_zeroes_requested_size(void)
 		kfree(ptr);
 	}
 	TEST_END("kzalloc: large zeroes requested size");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("kzalloc: large zeroes requested size", "see above");
+
+	return __test_ret;
 }
 
-void test_kmalloc_oversize_preserves_free_count(void)
+int test_kmalloc_oversize_preserves_free_count(void)
 {
 	TEST_BEGIN("kmalloc: oversize preserves free count");
 	{
@@ -191,7 +203,9 @@ void test_kmalloc_oversize_preserves_free_count(void)
 		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
 	}
 	TEST_END("kmalloc: oversize preserves free count");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("kmalloc: oversize preserves free count", "see above");
+
+	return __test_ret;
 }

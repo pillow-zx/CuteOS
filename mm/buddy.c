@@ -53,6 +53,11 @@ static void buddy_add_free_block(size_t pfn, uint32_t order, bool tail)
 {
 	struct page *page = pfn_to_page(pfn);
 
+	if (pfn >= total_pages)
+		panic("buddy: add free pfn %zu out of range", pfn);
+	if (order > MAX_ORDER)
+		panic("buddy: add free order %u out of range", order);
+
 	page->flags = BIT(PG_BUDDY);
 	page->order = order;
 	page->refcount = 0;
@@ -126,6 +131,9 @@ void buddy_init(void)
 
 void *get_free_page(uint32_t order)
 {
+	struct list_head *node;
+	struct page *page;
+
 	if (order > MAX_ORDER)
 		return NULL;
 
@@ -138,8 +146,17 @@ void *get_free_page(uint32_t order)
 		return NULL;
 
 
-	struct page *page =
-		list_entry(free_area[cur].free_list.next, struct page, lru);
+	node = free_area[cur].free_list.next;
+	page = list_entry(node, struct page, lru);
+	if (page < mem_map || page >= mem_map + total_pages)
+		panic("buddy: corrupt free list order %u node=%p page=%p",
+		      cur, node, page);
+	if (!page_test_flag(page, PG_BUDDY))
+		panic("buddy: non-free page on free list order %u pfn=%lu",
+		      cur, (unsigned long)page_to_pfn(page));
+	if (page->order != cur)
+		panic("buddy: free list order %u contains pfn=%lu order=%u",
+		      cur, (unsigned long)page_to_pfn(page), page->order);
 	buddy_remove_free_block(page);
 
 
@@ -245,3 +262,54 @@ void *page_to_virt(const struct page *page)
 	BUG_ON(page < mem_map || page >= mem_map + total_pages);
 	return pfn_to_virt(page_to_pfn(page));
 }
+
+#ifdef KERNEL_SELFTEST
+void buddy_test_validate(void)
+{
+	for (uint32_t order = 0; order <= MAX_ORDER; order++) {
+		struct list_head *head = &free_area[order].free_list;
+		struct list_head *pos;
+		uint32_t count = 0;
+
+		if (!head->next || !head->prev)
+			panic("buddy: free list order %u has null links", order);
+
+		list_for_each (pos, head) {
+			struct page *page;
+
+			if (++count > total_pages)
+				panic("buddy: free list order %u cycle", order);
+			if (!pos || !pos->next || !pos->prev)
+				panic("buddy: free list order %u null node link",
+				      order);
+			if (pos->next->prev != pos || pos->prev->next != pos)
+				panic("buddy: free list order %u broken links",
+				      order);
+
+			page = list_entry(pos, struct page, lru);
+			if (page < mem_map || page >= mem_map + total_pages)
+				panic("buddy: free list order %u bad page %p",
+				      order, page);
+			if (!page_test_flag(page, PG_BUDDY))
+				panic("buddy: free list order %u pfn=%lu "
+				      "flags=0x%x ref=%u is not free",
+				      order, (unsigned long)page_to_pfn(page),
+				      page->flags, page->refcount);
+			if (page->order != order)
+				panic("buddy: free list order %u pfn=%lu has "
+				      "order=%u",
+				      order, (unsigned long)page_to_pfn(page),
+				      page->order);
+			if (page->refcount != 0)
+				panic("buddy: free list order %u pfn=%lu has "
+				      "ref=%u",
+				      order, (unsigned long)page_to_pfn(page),
+				      page->refcount);
+		}
+
+		if (count != free_area[order].nr_free)
+			panic("buddy: free list order %u count=%u nr_free=%u",
+			      order, count, free_area[order].nr_free);
+	}
+}
+#endif

@@ -23,7 +23,7 @@ ssize_t console_tty_write_for_test(const struct termios *termios,
 				   const char *input, size_t input_len,
 				   char *out, size_t out_size);
 
-void test_rlimit_defaults(void)
+int test_rlimit_defaults(void)
 {
 	struct rlimit64 limits[RLIM_NLIMITS];
 
@@ -38,12 +38,14 @@ void test_rlimit_defaults(void)
 			       (uint64_t)RLIM_INFINITY);
 	}
 	TEST_END("syscall compat: rlimit defaults");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("syscall compat: rlimit defaults", "see above");
+
+	return __test_ret;
 }
 
-void test_vfs_default_poll_masks(void)
+int test_vfs_default_poll_masks(void)
 {
 	struct file file = {
 		.f_mode = FMODE_READ | FMODE_WRITE,
@@ -60,12 +62,14 @@ void test_vfs_default_poll_masks(void)
 			       (uint32_t)POLLNVAL);
 	}
 	TEST_END("syscall compat: default poll masks");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("syscall compat: default poll masks", "see above");
+
+	return __test_ret;
 }
 
-void test_vfs_poll_table_registers_multiple_queues(void)
+int test_vfs_poll_table_registers_multiple_queues(void)
 {
 	struct wait_queue_head readers;
 	struct wait_queue_head writers;
@@ -93,13 +97,15 @@ void test_vfs_poll_table_registers_multiple_queues(void)
 		TEST_ASSERT(list_empty(&writers.task_list));
 	}
 	TEST_END("syscall compat: poll table multiple queues");
-	return;
+	return __test_ret;
 fail:
 	vfs_poll_table_cleanup(&table);
 	TEST_FAIL("syscall compat: poll table multiple queues", "see above");
+
+	return __test_ret;
 }
 
-void test_vfs_default_ioctl_enotty(void)
+int test_vfs_default_ioctl_enotty(void)
 {
 	struct file file = {
 		.f_mode = FMODE_READ | FMODE_WRITE,
@@ -112,12 +118,14 @@ void test_vfs_default_ioctl_enotty(void)
 		TEST_ASSERT_EQ(vfs_ioctl(&file, 0xdeadbeef, 0), -ENOTTY);
 	}
 	TEST_END("syscall compat: default ioctl enotty");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("syscall compat: default ioctl enotty", "see above");
+
+	return __test_ret;
 }
 
-void test_console_tty_line_discipline(void)
+int test_console_tty_line_discipline(void)
 {
 	struct termios termios = {
 		.c_iflag = ICRNL,
@@ -181,12 +189,14 @@ void test_console_tty_line_discipline(void)
 		TEST_ASSERT_EQ(out[0], 26);
 	}
 	TEST_END("syscall compat: console tty line discipline");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("syscall compat: console tty line discipline", "see above");
+
+	return __test_ret;
 }
 
-void test_tty_signal_delivery_policy(void)
+int test_tty_signal_delivery_policy(void)
 {
 	struct task_struct *saved = current_task();
 	struct task_struct *task = NULL;
@@ -213,9 +223,11 @@ cleanup:
 	set_current_task(saved);
 	if (task)
 		task_free(task);
+
+	return __test_ret;
 }
 
-void test_tty_console_job_control_policy(void)
+int test_tty_console_job_control_policy(void)
 {
 	struct task_struct *saved = current_task();
 	struct task_struct *task = NULL;
@@ -265,9 +277,11 @@ cleanup:
 	set_current_task(saved);
 	if (task)
 		task_free(task);
+
+	return __test_ret;
 }
 
-void test_signal_rt_sigsetsize_validation(void)
+int test_signal_rt_sigsetsize_validation(void)
 {
 	struct trap_frame tf = {0};
 
@@ -299,13 +313,15 @@ void test_signal_rt_sigsetsize_validation(void)
 		TEST_ASSERT_EQ(sys_sigprocmask(&tf), 0);
 	}
 	TEST_END("syscall compat: rt signal sigsetsize validation");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("syscall compat: rt signal sigsetsize validation",
 		  "see above");
+
+	return __test_ret;
 }
 
-void test_root_statfs_fields(void)
+int test_root_statfs_fields(void)
 {
 	struct statfs64 st;
 
@@ -320,12 +336,14 @@ void test_root_statfs_fields(void)
 		TEST_ASSERT(st.f_namelen >= 255);
 	}
 	TEST_END("syscall compat: root statfs fields");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("syscall compat: root statfs fields", "see above");
+
+	return __test_ret;
 }
 
-void test_pipe2_file_alloc_failure_cleanup(void)
+int test_pipe2_file_alloc_failure_cleanup(void)
 {
 	uint32_t live_before;
 	uint32_t live_after;
@@ -344,9 +362,11 @@ void test_pipe2_file_alloc_failure_cleanup(void)
 		TEST_ASSERT_EQ(fds[1], -1);
 	}
 	TEST_END("syscall compat: pipe2 allocation failure cleanup");
-	return;
+	return __test_ret;
 fail:
 	pipe_test_set_file_alloc_fail_at(0);
 	TEST_FAIL("syscall compat: pipe2 allocation failure cleanup",
 		  "see above");
+
+	return __test_ret;
 }

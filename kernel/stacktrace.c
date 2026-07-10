@@ -6,6 +6,7 @@
 
 #define STACKTRACE_MAX_DEPTH 16
 
+extern char boot_stack[];
 extern char boot_stack_top[];
 
 static void current_stack_bounds(uintptr_t *low, uintptr_t *high)
@@ -17,7 +18,7 @@ static void current_stack_bounds(uintptr_t *low, uintptr_t *high)
 	}
 
 	*high = (uintptr_t)boot_stack_top;
-	*low = *high - 4096;
+	*low = (uintptr_t)boot_stack;
 }
 
 static bool frame_pointer_valid(uintptr_t fp, uintptr_t low, uintptr_t high)

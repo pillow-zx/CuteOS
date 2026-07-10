@@ -1,14 +1,14 @@
 #include <kernel/hash.h>
 #include <kernel/test.h>
 
-#include "ktest.h"
+#include "../ktest.h"
 
 struct hash_test_node {
 	uint64_t key;
 	struct list_head hash;
 };
 
-void test_hash_insert_lookup(void)
+int test_hash_insert_lookup(void)
 {
 	TEST_BEGIN("hash: insert lookup");
 	{
@@ -44,12 +44,14 @@ void test_hash_insert_lookup(void)
 		TEST_ASSERT_EQ(found_other_hash, false);
 	}
 	TEST_END("hash: insert lookup");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("hash: insert lookup", "see above");
+
+	return __test_ret;
 }
 
-void test_hash_collision_delete(void)
+int test_hash_collision_delete(void)
 {
 	TEST_BEGIN("hash: collision delete");
 	{
@@ -95,7 +97,9 @@ void test_hash_collision_delete(void)
 		TEST_ASSERT_EQ(found, (uint32_t)0x2);
 	}
 	TEST_END("hash: collision delete");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("hash: collision delete", "see above");
+
+	return __test_ret;
 }

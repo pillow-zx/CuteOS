@@ -1,7 +1,7 @@
 #ifndef _CUTEOS_KERNEL_TEST_WAIT_H
 #define _CUTEOS_KERNEL_TEST_WAIT_H
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 
 #include <kernel/types.h>
 

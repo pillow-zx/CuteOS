@@ -9,27 +9,55 @@
 #include <kernel/types.h>
 #include <kernel/compiler.h>
 
-extern uint32_t __test_total;
-extern uint32_t __test_passed;
-extern uint32_t __test_failed;
+struct ktest_case {
+	const char *name;
+	int (*run)(void);
+};
+
+struct ktest_module {
+	const char *name;
+	const struct ktest_case *cases;
+	uint32_t nr_cases;
+};
+
+struct ktest_subsystem {
+	const char *name;
+	const struct ktest_module *const *modules;
+	uint32_t nr_modules;
+};
+
+struct ktest_summary {
+	uint32_t subsystems;
+	uint32_t modules;
+	uint32_t failed_modules;
+	uint32_t cases;
+	uint32_t failed_cases;
+};
+
+#define KTEST_CASE(fn)                                                         \
+	{                                                                      \
+		.name = #fn, .run = fn                                         \
+	}
+
+#define KTEST_ARRAY_SIZE(array) ((uint32_t)(sizeof(array) / sizeof((array)[0])))
 
 #define TEST_SECTION(name) pr_info("\n=== " name " ===\n")
 
-#define TEST_BEGIN(name) pr_info("  [TEST] %s ... ", name)
+#define TEST_BEGIN(name)                                                       \
+	int __test_ret = 0;                                                    \
+	pr_info("    [CASE] %s ... ", name)
 
 #define TEST_END(name)                                                         \
 	do {                                                                   \
 		pr_info("PASS\n");                                             \
-		__test_passed++;                                               \
-		__test_total++;                                                \
+		__test_ret = 0;                                                \
 	} while (0)
 
 #define TEST_FAIL(name, msg)                                                   \
 	do {                                                                   \
 		pr_err("FAIL\n");                                              \
 		pr_err("    [FAIL] %s: %s\n", name, msg);                      \
-		__test_failed++;                                               \
-		__test_total++;                                                \
+		__test_ret = -1;                                               \
 	} while (0)
 
 #define TEST_ASSERT(cond)                                                      \
@@ -93,6 +121,6 @@ extern uint32_t __test_failed;
 		}                                                              \
 	} while (0)
 
-void kernel_test(void);
+int kernel_test_run(struct ktest_summary *summary);
 
 #endif

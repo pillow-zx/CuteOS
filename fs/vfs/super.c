@@ -62,7 +62,7 @@ struct file_system_type *get_next_filesystem_type(struct file_system_type *prev)
 	return NULL;
 }
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 int unregister_filesystem(struct file_system_type *fs_type)
 {
 	if (!fs_type)

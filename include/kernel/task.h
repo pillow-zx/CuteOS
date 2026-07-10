@@ -69,12 +69,6 @@
  */
 #define KSTACK_SIZE ARCH_KSTACK_SIZE
 
-/**
- * @def CANARY_MAGIC
- * @brief Stack canary value placed at the low end of task kernel stacks.
- */
-#define CANARY_MAGIC 0xDEADBEEFDEADBEEFUL
-
 struct files_struct;
 struct fs_struct;
 struct mm_struct;
@@ -650,12 +644,6 @@ void task_release_resources(struct task_struct *task);
 void task_free(struct task_struct *task);
 
 /**
- * @brief Validate the task kernel-stack canary.
- * @param task Task whose stack canary should still equal @ref CANARY_MAGIC.
- */
-void check_canary(struct task_struct *task);
-
-/**
  * @brief Initialize architecture-owned task fields.
  * @param task Non-NULL task being prepared for execution.
  */
@@ -710,7 +698,7 @@ void __nonnull(1, 2)
 bool __must_check __pure
 arch_task_trap_from_user(const struct task_struct *task);
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 bool __must_check __pure arch_task_test_kernel_thread_setup(
 	const struct task_struct *task, void (*fn)(void *), void *arg);
 bool __must_check __pure arch_task_test_layout_contract(void);

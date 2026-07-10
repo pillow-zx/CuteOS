@@ -15,6 +15,7 @@
 !block/
 !init/
 !test/
+!test/**/
 !docs/
 !scripts/
 !fs/

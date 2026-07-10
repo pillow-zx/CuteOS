@@ -132,13 +132,11 @@ syscall_arg(tf, 5);
 `do_syscall(tf)` 执行：
 
 1. `nr = syscall_nr(tf)`。
-2. 保存 `a0-a5` 到 trace 参数数组。
-3. 若 `nr >= NR_SYSCALL` 或表项为空，返回 `-ENOSYS`。
-4. 调用 `syscall_table[nr](tf)`。
-5. 将 handler 返回值写入 `a0`。
-6. 调用 `syscall_trace_log(nr, args, ret)`。
+2. 若 `nr >= NR_SYSCALL` 或表项为空，返回 `-ENOSYS`。
+3. 调用 `syscall_table[nr](tf)`。
+4. 将 handler 返回值写入 `a0`。
 
-未知 syscall 也会 trace，并返回 `-ENOSYS`。
+未知 syscall 返回 `-ENOSYS`。
 
 `syscall_init()` 还会调用 `futex_init()`，因为 futex wait bucket 是 syscall 触发的全局服务。
 
@@ -220,12 +218,6 @@ access_ok()
 | `membarrier/rseq` | mm registrations/rseq API |
 
 不要因为入口位于 `syscall/` 就把核心状态或算法放入 syscall 文件。
-
-## trace
-
-`syscall_trace_log()` 接收 syscall number、参数数组和返回值。dispatch 在调用 handler 前保存原始参数，避免 handler 改写 trap frame 后 trace 丢失入口参数。
-
-execve 等成功 syscall 可能重写 trap frame；dispatch 的后处理应保持最小，只写返回值和 trace。
 
 ## 支持面策略
 

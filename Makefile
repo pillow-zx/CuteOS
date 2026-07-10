@@ -9,7 +9,11 @@ include scripts/flags.mk
 
 include filelist.mk
 
-ifeq ($(CONFIG_KERNEL_TEST),y)
+KERNEL_SELFTEST ?= 0
+
+ifeq ($(KERNEL_SELFTEST),1)
+CFLAGS += -DKERNEL_SELFTEST
+ASFLAGS += -DKERNEL_SELFTEST
 include test/test.mk
 KERNEL_TEST_OBJS = $(TEST_OBJS)
 else
@@ -49,12 +53,17 @@ endif
 
 all: $(KERNEL)
 
+TEST_OUTROOT ?= build/test
+TEST_KERNEL = $(TEST_OUTROOT)/kernel/$(KERNEL_NAME)
+TEST_KERNEL_IMG = $(TEST_KERNEL).img
+
 help:
 	@printf 'CuteOS build usage:\n'
 	@printf '  make                         Build kernel ELF using .config\n'
 	@printf '  make defconfig               Reset .config from configs/cuteos_defconfig\n'
 	@printf '  make menuconfig              Configure build options\n'
 	@printf '  make qemu                    Build image and boot QEMU\n'
+	@printf '  make test                    Build and run kernel self-test regression suite\n'
 	@printf '  make qemu-gdb                Boot QEMU paused with GDB stub\n'
 	@printf '  make .gdbinit                Generate GDB startup file\n'
 	@printf '  make user                    Build user-space ELFs only\n'
@@ -150,6 +159,13 @@ check-qemu-version:
 
 qemu: check-qemu-version $(KERNEL) $(KERNEL_IMG)
 	$(QEMU) $(QEMUOPTS)
+
+test: check-qemu-version
+	$(Q)rm -f $(TEST_KERNEL_IMG)
+	$(Q)$(MAKE) KERNEL_SELFTEST=1 OUTROOT=$(TEST_OUTROOT) all $(KERNEL_NAME).img
+	$(Q)scripts/run_kernel_tests.sh \
+		"$(QEMU)" "$(TEST_KERNEL)" "$(TEST_KERNEL_IMG)" \
+		"$(CONFIG_DRAM_SIZE_MB)" "$(CPUS)"
 
 qemu-gdb: $(KERNEL) $(KERNEL_IMG) .gdbinit
 	@echo "*** Now run 'gdb' in another window (target remote :$(GDBPORT))." 1>&2
@@ -300,7 +316,7 @@ clean: clean-user
 
 FORCE:
 
-.PHONY: all help qemu qemu-gdb check-qemu-version clean clean-user FORCE
+.PHONY: all help qemu test qemu-gdb check-qemu-version clean clean-user FORCE
 .PHONY: user format analyze analyze-kernel analyze-user asm sym tags gtags
 .PHONY: $(KERNEL_NAME) $(KERNEL_NAME).img
 .PHONY: print-gdbport print-toolprefix

@@ -6,8 +6,8 @@
 #include <kernel/test.h>
 #include <kernel/vfs.h>
 
-#include "../fs/ext2/ext2.h"
-#include "ktest.h"
+#include "../../fs/ext2/ext2.h"
+#include "../ktest.h"
 
 static void fill_pattern(uint8_t *buf, size_t len, uint8_t seed)
 {
@@ -208,7 +208,7 @@ static bool dir_page_has_entry(const uint8_t *data, const char *name)
 	return false;
 }
 
-void test_page_cache_dirty_write_visibility(void)
+int test_page_cache_dirty_write_visibility(void)
 {
 	static uint8_t wbuf[BLOCK_SIZE];
 	static uint8_t raw[BLOCK_SIZE];
@@ -237,9 +237,11 @@ fail:
 cleanup:
 	close_test_file(fd, file);
 	unlink_test_path("/pcache-dirty");
+
+	return __test_ret;
 }
 
-void test_page_cache_fsync_inode_scope(void)
+int test_page_cache_fsync_inode_scope(void)
 {
 	static uint8_t abuf[BLOCK_SIZE];
 	static uint8_t bbuf[BLOCK_SIZE];
@@ -293,9 +295,11 @@ cleanup:
 	close_test_file(fd_b, file_b);
 	unlink_test_path("/pcache-fsync-a");
 	unlink_test_path("/pcache-fsync-b");
+
+	return __test_ret;
 }
 
-void test_vfs_datasync_metadata_policy(void)
+int test_vfs_datasync_metadata_policy(void)
 {
 	struct super_block sb = {0};
 	struct inode inode = {0};
@@ -322,12 +326,14 @@ void test_vfs_datasync_metadata_policy(void)
 		TEST_ASSERT_EQ(datasync_test_hooks, 1);
 	}
 	TEST_END("vfs: fdatasync metadata hook policy");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("vfs: fdatasync metadata hook policy", "see above");
+
+	return __test_ret;
 }
 
-void test_page_cache_datasync_skips_pure_inode_metadata(void)
+int test_page_cache_datasync_skips_pure_inode_metadata(void)
 {
 	static uint8_t wbuf[BLOCK_SIZE];
 	static uint8_t raw[BLOCK_SIZE];
@@ -382,9 +388,11 @@ fail:
 cleanup:
 	close_test_file(fd, file);
 	unlink_test_path("/pcache-datasync-data-only");
+
+	return __test_ret;
 }
 
-void test_page_cache_raw_alias_fsync(void)
+int test_page_cache_raw_alias_fsync(void)
 {
 	static uint8_t wbuf[BLOCK_SIZE];
 	static uint8_t cached[BLOCK_SIZE];
@@ -421,9 +429,11 @@ fail:
 cleanup:
 	close_test_file(fd, file);
 	unlink_test_path("/pcache-block-mapping-refresh");
+
+	return __test_ret;
 }
 
-void test_page_cache_directory_alias_refresh(void)
+int test_page_cache_directory_alias_refresh(void)
 {
 	static uint8_t cached[BLOCK_SIZE];
 	struct path dir_path = {0};
@@ -477,9 +487,11 @@ cleanup:
 	path_put(&dir_path);
 	(void)vfs_unlink_at_path(NULL, "/pcache-alias-dir/child", 0);
 	(void)vfs_unlink_at_path(NULL, "/pcache-alias-dir", AT_REMOVEDIR);
+
+	return __test_ret;
 }
 
-void test_page_cache_raw_alias_drop(void)
+int test_page_cache_raw_alias_drop(void)
 {
 	static uint8_t old_buf[BLOCK_SIZE];
 	static uint8_t new_buf[BLOCK_SIZE];
@@ -518,9 +530,11 @@ fail:
 cleanup:
 	close_test_file(fd, file);
 	unlink_test_path("/pcache-alias-invalidate");
+
+	return __test_ret;
 }
 
-void test_page_cache_pressure_eviction(void)
+int test_page_cache_pressure_eviction(void)
 {
 	enum { NR_PRESSURE_PAGES = 513 };
 	static uint8_t page_buf[BLOCK_SIZE];
@@ -576,9 +590,11 @@ cleanup:
 	close_test_file(dirty_fd, dirty_file);
 	unlink_test_path("/pcache-clean");
 	unlink_test_path("/pcache-pressure");
+
+	return __test_ret;
 }
 
-void test_page_cache_clustered_writeback(void)
+int test_page_cache_clustered_writeback(void)
 {
 	static uint8_t page_buf[BLOCK_SIZE];
 	struct virtio_blk_test_stats stats;
@@ -625,9 +641,11 @@ fail:
 cleanup:
 	close_test_file(fd, file);
 	unlink_test_path("/pcache-cluster");
+
+	return __test_ret;
 }
 
-void test_page_cache_indirect_reclaim_progress(void)
+int test_page_cache_indirect_reclaim_progress(void)
 {
 	enum {
 		NR_INDIRECT_PAGES = 513,
@@ -668,9 +686,11 @@ fail:
 cleanup:
 	close_test_file(fd, file);
 	unlink_test_path("/pcache-indirect-reclaim");
+
+	return __test_ret;
 }
 
-void test_page_cache_truncate_extend_zero_fill(void)
+int test_page_cache_truncate_extend_zero_fill(void)
 {
 	enum {
 		INITIAL_LEN = 5000,
@@ -731,9 +751,11 @@ fail:
 cleanup:
 	close_test_file(fd, file);
 	unlink_test_path("/pcache-extend-tail");
+
+	return __test_ret;
 }
 
-void test_page_cache_large_offset_rejected(void)
+int test_page_cache_large_offset_rejected(void)
 {
 	static uint8_t byte = 0x5a;
 	struct file *file = NULL;
@@ -759,4 +781,6 @@ fail:
 cleanup:
 	close_test_file(fd, file);
 	unlink_test_path("/pcache-large-offset");
+
+	return __test_ret;
 }

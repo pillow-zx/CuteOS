@@ -2,7 +2,7 @@
 #include <kernel/test.h>
 #include <kernel/timer.h>
 
-void test_sched_init(void)
+int test_sched_init(void)
 {
 	TEST_BEGIN("sched: MLFQ init");
 	{
@@ -10,12 +10,14 @@ void test_sched_init(void)
 		TEST_ASSERT_EQ(sched_test_runnable_count(), (uint32_t)0);
 	}
 	TEST_END("sched: MLFQ init");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("sched: MLFQ init", "see above");
+
+	return __test_ret;
 }
 
-void test_sched_enqueue_dequeue(void)
+int test_sched_enqueue_dequeue(void)
 {
 	TEST_BEGIN("sched: MLFQ enqueue/dequeue order");
 	{
@@ -50,12 +52,14 @@ void test_sched_enqueue_dequeue(void)
 		task_free(t3);
 	}
 	TEST_END("sched: MLFQ enqueue/dequeue order");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("sched: MLFQ enqueue/dequeue order", "see above");
+
+	return __test_ret;
 }
 
-void test_sched_need_resched(void)
+int test_sched_need_resched(void)
 {
 	struct task_struct *t = NULL;
 	struct task_struct *saved_current = current_task();
@@ -89,9 +93,11 @@ cleanup:
 	jiffies = saved_jiffies;
 	if (t)
 		task_free(t);
+
+	return __test_ret;
 }
 
-void test_sched_preempt_count_is_cpu_local(void)
+int test_sched_preempt_count_is_cpu_local(void)
 {
 	int saved = cpu_preempt_count(current_cpu());
 
@@ -114,9 +120,11 @@ fail:
 	TEST_FAIL("sched: preempt count is CPU-local", "see above");
 cleanup:
 	cpu_set_preempt_count(current_cpu(), saved);
+
+	return __test_ret;
 }
 
-void test_sched_wakeup_refresh(void)
+int test_sched_wakeup_refresh(void)
 {
 	TEST_BEGIN("sched: wakeup refreshes without duplicate enqueue");
 	{
@@ -140,13 +148,15 @@ void test_sched_wakeup_refresh(void)
 		task_free(t);
 	}
 	TEST_END("sched: wakeup refreshes without duplicate enqueue");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("sched: wakeup refreshes without duplicate enqueue",
 		  "see above");
+
+	return __test_ret;
 }
 
-void test_sched_boost(void)
+int test_sched_boost(void)
 {
 	struct task_struct *t1 = NULL;
 	struct task_struct *t2 = NULL;
@@ -201,4 +211,6 @@ cleanup:
 	}
 	if (t3)
 		task_free(t3);
+
+	return __test_ret;
 }

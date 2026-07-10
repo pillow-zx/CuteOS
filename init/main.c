@@ -23,14 +23,40 @@
 #include <kernel/pgtable.h>
 #include <kernel/user_map_arch.h>
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
+#include <arch/sbi.h>
 #include <kernel/test.h>
+#endif
+
+#ifdef KERNEL_SELFTEST
+static void kernel_selftest_thread(void *arg)
+{
+	struct ktest_summary test_summary;
+	int ret;
+
+	(void)arg;
+
+	ret = kernel_test_run(&test_summary);
+	pr_info("[KTEST] done modules=%u failed_modules=%u cases=%u "
+		"failed_cases=%u\n",
+		test_summary.modules, test_summary.failed_modules,
+		test_summary.cases, test_summary.failed_cases);
+	if (ret < 0)
+		pr_err("[KTEST] result failed\n");
+	else
+		pr_info("[KTEST] result passed\n");
+	sbi_shutdown();
+}
 #endif
 
 void kernel_main(void)
 {
+#ifdef KERNEL_SELFTEST
+	struct task_struct *selftest;
+#else
 	struct task_struct *init;
 	struct task_struct *writeback;
+#endif
 	int ret;
 
 	console_init_sbi();
@@ -89,10 +115,10 @@ void kernel_main(void)
 	if (ret < 0)
 		panic("VFS: root mount failed (%d)", ret);
 
-#ifdef CONFIG_KERNEL_TEST
-	kernel_test();
-#endif
-
+#ifdef KERNEL_SELFTEST
+	selftest = kernel_thread(kernel_selftest_thread, NULL);
+	BUG_ON(!selftest);
+#else
 	init = kernel_thread(init_process, NULL);
 	BUG_ON(!init);
 	set_init_task(init);
@@ -100,7 +126,7 @@ void kernel_main(void)
 
 	writeback = kernel_thread(page_cache_wb_thread, NULL);
 	BUG_ON(!writeback);
-
+#endif
 
 	while (true) {
 		schedule();

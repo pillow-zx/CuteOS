@@ -248,9 +248,6 @@ void __noreturn do_exit_group(int code)
 	BUG_ON(!task);
 	leader = task_group_leader(task);
 
-	pr_info("exit_group: pid=%d tgid=%d exit_code=%d\n", task_pid(task),
-		task_tgid(task), code);
-
 	if (leader && leader != task) {
 		finish_task_exit(leader, code, true);
 	}

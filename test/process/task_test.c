@@ -3,19 +3,21 @@
 #include <kernel/cpu.h>
 #include <kernel/pid.h>
 
-void test_task_layout_contract(void)
+int test_task_layout_contract(void)
 {
 	TEST_BEGIN("task: layout contract");
 	{
 		TEST_ASSERT(arch_task_test_layout_contract());
 	}
 	TEST_END("task: layout contract");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("task: layout contract", "see above");
+
+	return __test_ret;
 }
 
-void test_cpu_boot_topology(void)
+int test_cpu_boot_topology(void)
 {
 	TEST_BEGIN("cpu: boot topology");
 	{
@@ -28,12 +30,14 @@ void test_cpu_boot_topology(void)
 			TEST_ASSERT(!cpu_is_online(id));
 	}
 	TEST_END("cpu: boot topology");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("cpu: boot topology", "see above");
+
+	return __test_ret;
 }
 
-void test_cpu_current_task_accessors(void)
+int test_cpu_current_task_accessors(void)
 {
 	struct task_struct *saved = current_task();
 	struct task_struct *task = NULL;
@@ -57,9 +61,11 @@ cleanup:
 	set_current_task(saved);
 	if (task)
 		task_free(task);
+
+	return __test_ret;
 }
 
-void test_task_alloc_free(void)
+int test_task_alloc_free(void)
 {
 	TEST_BEGIN("task: alloc/free");
 	{
@@ -86,9 +92,6 @@ void test_task_alloc_free(void)
 		TEST_ASSERT_NULL(task_trap_frame(task));
 
 
-		check_canary(task);
-
-
 		TEST_ASSERT(list_empty(task_children(task)));
 		TEST_ASSERT(!task_has_parent_link(task));
 		TEST_ASSERT(!task_is_queued(task));
@@ -96,32 +99,14 @@ void test_task_alloc_free(void)
 		task_free(task);
 	}
 	TEST_END("task: alloc/free");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("task: alloc/free", "see above");
+
+	return __test_ret;
 }
 
-void test_task_canary(void)
-{
-	TEST_BEGIN("task: canary integrity");
-	{
-		struct task_struct *task = task_alloc();
-		TEST_ASSERT_NOT_NULL(task);
-
-
-		uint64_t *canary_ptr = (uint64_t *)task_kernel_stack(task);
-		TEST_ASSERT_EQ(*canary_ptr, CANARY_MAGIC);
-
-		check_canary(task);
-		task_free(task);
-	}
-	TEST_END("task: canary integrity");
-	return;
-fail:
-	TEST_FAIL("task: canary integrity", "see above");
-}
-
-void test_task_multiple(void)
+int test_task_multiple(void)
 {
 	TEST_BEGIN("task: multiple tasks");
 	{
@@ -148,12 +133,14 @@ void test_task_multiple(void)
 #undef TASK_N_TASKS
 	}
 	TEST_END("task: multiple tasks");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("task: multiple tasks", "see above");
+
+	return __test_ret;
 }
 
-void test_task_process_tree(void)
+int test_task_process_tree(void)
 {
 	TEST_BEGIN("task: process tree linkage");
 	{
@@ -188,28 +175,30 @@ void test_task_process_tree(void)
 		task_free(parent);
 	}
 	TEST_END("task: process tree linkage");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("task: process tree linkage", "see above");
+
+	return __test_ret;
 }
 
-void test_task_idle(void)
+int test_task_idle(void)
 {
 	TEST_BEGIN("task: idle task init");
 	{
 		TEST_ASSERT_NOT_NULL(current_task());
-		TEST_ASSERT_EQ(task_pid(current_task()), (pid_t)0);
 		TEST_ASSERT_EQ(task_pid(&idle_task), (pid_t)0);
-		TEST_ASSERT_EQ(current_task(), &idle_task);
 		TEST_ASSERT_EQ(task_state(&idle_task), (uint32_t)TASK_RUNNING);
 	}
 	TEST_END("task: idle task init");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("task: idle task init", "see above");
+
+	return __test_ret;
 }
 
-void test_task_free_null(void)
+int test_task_free_null(void)
 {
 	TEST_BEGIN("task: free(NULL) safe");
 	{
@@ -217,4 +206,6 @@ void test_task_free_null(void)
 
 	}
 	TEST_END("task: free(NULL) safe");
+
+	return __test_ret;
 }

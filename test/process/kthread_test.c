@@ -7,7 +7,7 @@ static void dummy_thread_fn(void *arg)
 
 }
 
-void test_kernel_thread_basic(void)
+int test_kernel_thread_basic(void)
 {
 	TEST_BEGIN("kthread: basic create");
 	{
@@ -32,12 +32,14 @@ void test_kernel_thread_basic(void)
 			TEST_ASSERT(sched_test_runqueue_empty());
 	}
 	TEST_END("kthread: basic create");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("kthread: basic create", "see above");
+
+	return __test_ret;
 }
 
-void test_kernel_thread_ctx_setup(void)
+int test_kernel_thread_ctx_setup(void)
 {
 	TEST_BEGIN("kthread: ctx and trap_frame setup");
 	{
@@ -54,7 +56,9 @@ void test_kernel_thread_ctx_setup(void)
 		task_free(t);
 	}
 	TEST_END("kthread: ctx and trap_frame setup");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("kthread: ctx and trap_frame setup", "see above");
+
+	return __test_ret;
 }

@@ -86,7 +86,6 @@ int page_cache_wb_run(struct page_cache *start)
 	if (!wb_buf || wb_pages == 0)
 		return -ENOMEM;
 
-
 	index = start->index;
 	limit = wb_pages;
 	if (limit > 32u)

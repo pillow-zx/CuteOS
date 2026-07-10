@@ -57,7 +57,7 @@ SCOPE_DEFINE(cleanup_test_class, struct cleanup_test_object *,
 SCOPE_EXTEND(cleanup_test_class, _zero, cleanup_test_class_init(obj, 0),
 	     struct cleanup_test_object *obj)
 
-void test_cleanup_free_scope(void)
+int test_cleanup_free_scope(void)
 {
 	TEST_BEGIN("cleanup: __cleanup_with releases at scope exit");
 
@@ -75,10 +75,12 @@ void test_cleanup_free_scope(void)
 	TEST_ASSERT_EQ(cleanup_test_last_id, 42);
 
 	TEST_END("cleanup: __cleanup_with releases at scope exit");
-	return;
+	return __test_ret;
 
 fail:
 	TEST_FAIL("cleanup: __cleanup_with releases at scope exit", "see above");
+
+	return __test_ret;
 }
 
 static struct cleanup_test_object *
@@ -89,7 +91,7 @@ cleanup_test_return_owned_ptr(struct cleanup_test_object *obj)
 	cleanup_return_ptr(ptr);
 }
 
-void test_cleanup_take_ptr(void)
+int test_cleanup_take_ptr(void)
 {
 	struct cleanup_test_object obj = { .id = 7 };
 	struct cleanup_test_object *ptr;
@@ -111,13 +113,15 @@ void test_cleanup_take_ptr(void)
 	TEST_ASSERT_EQ(cleanup_test_free_count, 0);
 
 	TEST_END("cleanup: cleanup_take_ptr transfers ownership");
-	return;
+	return __test_ret;
 
 fail:
 	TEST_FAIL("cleanup: cleanup_take_ptr transfers ownership", "see above");
+
+	return __test_ret;
 }
 
-void test_cleanup_forget_ptr(void)
+int test_cleanup_forget_ptr(void)
 {
 	struct cleanup_test_object obj = { .id = 9 };
 
@@ -135,13 +139,15 @@ void test_cleanup_forget_ptr(void)
 	TEST_ASSERT_EQ(cleanup_test_free_count, 0);
 
 	TEST_END("cleanup: cleanup_forget_ptr cancels cleanup");
-	return;
+	return __test_ret;
 
 fail:
 	TEST_FAIL("cleanup: cleanup_forget_ptr cancels cleanup", "see above");
+
+	return __test_ret;
 }
 
-void test_cleanup_guard_scope(void)
+int test_cleanup_guard_scope(void)
 {
 	struct cleanup_test_object obj = { .id = 3 };
 
@@ -160,13 +166,15 @@ void test_cleanup_guard_scope(void)
 	TEST_ASSERT_EQ(cleanup_test_guard_log[1], -3);
 
 	TEST_END("cleanup: scope_guard unlocks at scope exit");
-	return;
+	return __test_ret;
 
 fail:
 	TEST_FAIL("cleanup: scope_guard unlocks at scope exit", "see above");
+
+	return __test_ret;
 }
 
-void test_cleanup_with_guard_block(void)
+int test_cleanup_with_guard_block(void)
 {
 	struct cleanup_test_object obj = { .id = 5 };
 
@@ -183,13 +191,15 @@ void test_cleanup_with_guard_block(void)
 	TEST_ASSERT_EQ(cleanup_test_guard_log[1], -5);
 
 	TEST_END("cleanup: with_guard lifetime is block");
-	return;
+	return __test_ret;
 
 fail:
 	TEST_FAIL("cleanup: with_guard lifetime is block", "see above");
+
+	return __test_ret;
 }
 
-void test_cleanup_class_helpers(void)
+int test_cleanup_class_helpers(void)
 {
 	struct cleanup_test_object obj = { .id = 0 };
 
@@ -234,13 +244,15 @@ void test_cleanup_class_helpers(void)
 	TEST_ASSERT_EQ(cleanup_test_last_id, 0);
 
 	TEST_END("cleanup: scope helpers construct and destroy");
-	return;
+	return __test_ret;
 
 fail:
 	TEST_FAIL("cleanup: scope helpers construct and destroy", "see above");
+
+	return __test_ret;
 }
 
-void test_cleanup_kfree_scope(void)
+int test_cleanup_kfree_scope(void)
 {
 	size_t free_before;
 
@@ -258,9 +270,11 @@ void test_cleanup_kfree_scope(void)
 	TEST_ASSERT_EQ(buddy_free_pages(), free_before);
 
 	TEST_END("cleanup: __cleanup_with(kfree) frees kmalloc object");
-	return;
+	return __test_ret;
 
 fail:
 	TEST_FAIL("cleanup: __cleanup_with(kfree) frees kmalloc object",
 		  "see above");
+
+	return __test_ret;
 }

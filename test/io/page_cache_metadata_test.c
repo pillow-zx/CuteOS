@@ -8,9 +8,9 @@
 #include <kernel/page_cache.h>
 #include <kernel/test.h>
 
-#include "ktest.h"
+#include "../ktest.h"
 
-void test_page_cache_metadata_basic(void)
+int test_page_cache_metadata_basic(void)
 {
 	struct block_device *bdev;
 	struct page_cache *page;
@@ -54,15 +54,16 @@ void test_page_cache_metadata_basic(void)
 		TEST_ASSERT_EQ(again, page);
 		page_cache_put_page(again);
 		page_cache_put_page(page);
-		page_cache_put_page(page);
 	}
 	TEST_END("page cache metadata: get/sync/reget");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("page cache metadata: get/sync/reget", "see above");
+
+	return __test_ret;
 }
 
-void test_page_cache_metadata_errors(void)
+int test_page_cache_metadata_errors(void)
 {
 	struct page_cache *page;
 	int ret;
@@ -76,12 +77,14 @@ void test_page_cache_metadata_errors(void)
 		TEST_ASSERT_EQ(ret, -EINVAL);
 	}
 	TEST_END("page cache metadata: error paths");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("page cache metadata: error paths", "see above");
+
+	return __test_ret;
 }
 
-void test_page_cache_block_zero_writeback(void)
+int test_page_cache_block_zero_writeback(void)
 {
 	struct page_cache *page;
 
@@ -96,12 +99,14 @@ void test_page_cache_block_zero_writeback(void)
 		TEST_ASSERT_EQ(page_cache_sync_all(), 0);
 	}
 	TEST_END("page cache metadata: block zero writeback");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("page cache metadata: block zero writeback", "see above");
+
+	return __test_ret;
 }
 
-void test_page_cache_metadata_eviction(void)
+int test_page_cache_metadata_eviction(void)
 {
 	struct block_device *bdev;
 	uint64_t blocks;
@@ -125,7 +130,9 @@ void test_page_cache_metadata_eviction(void)
 		}
 	}
 	TEST_END("page cache metadata: eviction");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("page cache metadata: eviction", "see above");
+
+	return __test_ret;
 }

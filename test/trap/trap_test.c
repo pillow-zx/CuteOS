@@ -1,7 +1,7 @@
 #include <kernel/test.h>
 #include <kernel/trap.h>
 
-void test_trap_frame_layout(void)
+int test_trap_frame_layout(void)
 {
 	TEST_BEGIN("trap: frame layout");
 	{
@@ -10,12 +10,14 @@ void test_trap_frame_layout(void)
 			       (size_t)(35 * sizeof(size_t)));
 	}
 	TEST_END("trap: frame layout");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("trap: frame layout", "see above");
+
+	return __test_ret;
 }
 
-void test_trap_from_user(void)
+int test_trap_from_user(void)
 {
 	TEST_BEGIN("trap: arch_from_user helper");
 	{
@@ -36,12 +38,14 @@ void test_trap_from_user(void)
 		TEST_ASSERT(trap_frame_from_user(&tf) == true);
 	}
 	TEST_END("trap: arch_from_user helper");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("trap: arch_from_user helper", "see above");
+
+	return __test_ret;
 }
 
-void test_trap_context_layout(void)
+int test_trap_context_layout(void)
 {
 	TEST_BEGIN("trap: context layout");
 	{
@@ -50,12 +54,14 @@ void test_trap_context_layout(void)
 			       (size_t)(14 * sizeof(size_t)));
 	}
 	TEST_END("trap: context layout");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("trap: context layout", "see above");
+
+	return __test_ret;
 }
 
-void test_trap_irq_codes(void)
+int test_trap_irq_codes(void)
 {
 	TEST_BEGIN("trap: IRQ/exception codes");
 	{
@@ -75,7 +81,9 @@ void test_trap_irq_codes(void)
 		TEST_ASSERT_EQ(SCAUSE_IRQ_FLAG, (1UL << 63));
 	}
 	TEST_END("trap: IRQ/exception codes");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("trap: IRQ/exception codes", "see above");
+
+	return __test_ret;
 }

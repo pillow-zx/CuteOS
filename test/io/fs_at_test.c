@@ -11,8 +11,8 @@
 #include <kernel/test.h>
 #include <kernel/vfs.h>
 
-#include "../fs/ext2/ext2.h"
-#include "ktest.h"
+#include "../../fs/ext2/ext2.h"
+#include "../ktest.h"
 
 #define FAT_DIR	 "/fat_testdir"
 #define FAT_FILE "/fat_testfile"
@@ -123,7 +123,7 @@ static int fat_large_bgdt_register_device(void)
 	return register_block_device(&fat_large_bgdt_bdev);
 }
 
-void test_fs_at_path_lookup_basics(void)
+int test_fs_at_path_lookup_basics(void)
 {
 	struct path path = {0};
 
@@ -149,13 +149,15 @@ void test_fs_at_path_lookup_basics(void)
 		path_put(&path);
 	}
 	TEST_END("fs-at: path_lookupat_path basics");
-	return;
+	return __test_ret;
 fail:
 	path_put(&path);
 	TEST_FAIL("fs-at: path_lookupat_path basics", "see above");
+
+	return __test_ret;
 }
 
-void test_fs_at_empty_path_error(void)
+int test_fs_at_empty_path_error(void)
 {
 	struct path path = {0};
 	int ret;
@@ -168,12 +170,14 @@ void test_fs_at_empty_path_error(void)
 		TEST_ASSERT_NULL(path.dentry);
 	}
 	TEST_END("fs-at: empty path returns error");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("fs-at: empty path returns error", "see above");
+
+	return __test_ret;
 }
 
-void test_fs_at_mkdir_rmdir_cycle(void)
+int test_fs_at_mkdir_rmdir_cycle(void)
 {
 	struct path path = {0};
 	int ret;
@@ -206,14 +210,16 @@ void test_fs_at_mkdir_rmdir_cycle(void)
 		TEST_ASSERT_NULL(path.dentry);
 	}
 	TEST_END("fs-at: mkdir_at / rmdir_at cycle");
-	return;
+	return __test_ret;
 fail:
 	path_put(&path);
 	(void)vfs_unlink_at_path(NULL, FAT_DIR, AT_REMOVEDIR);
 	TEST_FAIL("fs-at: mkdir_at / rmdir_at cycle", "see above");
+
+	return __test_ret;
 }
 
-void test_fs_at_readlink_not_symlink(void)
+int test_fs_at_readlink_not_symlink(void)
 {
 	struct path path = {0};
 	char buf[64];
@@ -232,14 +238,16 @@ void test_fs_at_readlink_not_symlink(void)
 		path_put(&path);
 	}
 	TEST_END("fs-at: readlink on non-symlink returns -EINVAL");
-	return;
+	return __test_ret;
 fail:
 	path_put(&path);
 	TEST_FAIL("fs-at: readlink on non-symlink returns -EINVAL",
 		  "see above");
+
+	return __test_ret;
 }
 
-void test_fs_at_lookup_nofollow_on_dir(void)
+int test_fs_at_lookup_nofollow_on_dir(void)
 {
 	struct path path = {0};
 
@@ -254,14 +262,16 @@ void test_fs_at_lookup_nofollow_on_dir(void)
 		path_put(&path);
 	}
 	TEST_END("fs-at: LOOKUP_NOFOLLOW on directory is harmless");
-	return;
+	return __test_ret;
 fail:
 	path_put(&path);
 	TEST_FAIL("fs-at: LOOKUP_NOFOLLOW on directory is harmless",
 		  "see above");
+
+	return __test_ret;
 }
 
-void test_fs_at_non_directory_parent_error(void)
+int test_fs_at_non_directory_parent_error(void)
 {
 	struct path path = {0};
 	int ret;
@@ -273,13 +283,15 @@ void test_fs_at_non_directory_parent_error(void)
 		TEST_ASSERT_NULL(path.dentry);
 	}
 	TEST_END("fs-at: non-directory parent returns -ENOTDIR");
-	return;
+	return __test_ret;
 fail:
 	path_put(&path);
 	TEST_FAIL("fs-at: non-directory parent returns -ENOTDIR", "see above");
+
+	return __test_ret;
 }
 
-void test_fs_at_openat_regular_file(void)
+int test_fs_at_openat_regular_file(void)
 {
 	const char data[] = "fat-test";
 	char rbuf[16];
@@ -321,7 +333,7 @@ void test_fs_at_openat_regular_file(void)
 		TEST_ASSERT_NULL(path.dentry);
 	}
 	TEST_END("fs-at: openat create, write, read, unlink");
-	return;
+	return __test_ret;
 fail:
 	if (f)
 		file_put(f);
@@ -329,9 +341,11 @@ fail:
 		fd_close(fd);
 	(void)vfs_unlink_at_path(NULL, FAT_FILE, 0);
 	TEST_FAIL("fs-at: openat create, write, read, unlink", "see above");
+
+	return __test_ret;
 }
 
-void test_fs_mount_ext2_on_directory(void)
+int test_fs_mount_ext2_on_directory(void)
 {
 	struct path path = {0};
 	struct statfs64 st;
@@ -370,7 +384,7 @@ void test_fs_mount_ext2_on_directory(void)
 		TEST_ASSERT_EQ(vfs_unlink_at_path(NULL, FAT_MOUNT_DEV, 0), 0);
 	}
 	TEST_END("fs-mount: mount ext2 block device on directory");
-	return;
+	return __test_ret;
 fail:
 	path_put(&path);
 	ignored = vfs_umount(FAT_MOUNT_DIR, 0);
@@ -379,9 +393,11 @@ fail:
 	(void)vfs_unlink_at_path(NULL, FAT_MOUNT_DEV, 0);
 	TEST_FAIL("fs-mount: mount ext2 block device on directory",
 		  "see above");
+
+	return __test_ret;
 }
 
-void test_ext2_bgdt_uses_vmalloc_for_large_tables(void)
+int test_ext2_bgdt_uses_vmalloc_for_large_tables(void)
 {
 	struct path path = {0};
 	struct statfs64 st;
@@ -428,7 +444,7 @@ void test_ext2_bgdt_uses_vmalloc_for_large_tables(void)
 			       0);
 	}
 	TEST_END("ext2: large BGDT uses vmalloc");
-	return;
+	return __test_ret;
 fail:
 	path_put(&path);
 	ignored = vfs_umount(FAT_LARGE_BGDT_DIR, 0);
@@ -436,4 +452,6 @@ fail:
 	(void)vfs_unlink_at_path(NULL, FAT_LARGE_BGDT_DIR, AT_REMOVEDIR);
 	(void)vfs_unlink_at_path(NULL, FAT_LARGE_BGDT_DEV, 0);
 	TEST_FAIL("ext2: large BGDT uses vmalloc", "see above");
+
+	return __test_ret;
 }

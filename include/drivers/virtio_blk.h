@@ -25,7 +25,7 @@
  */
 void virtio_blk_init(void);
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 /**
  * @struct virtio_blk_test_stats
  * @brief Test-only counters exported by the polling virtio-blk driver.

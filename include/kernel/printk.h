@@ -80,8 +80,6 @@ void __noreturn __panic(const char *fmt, ...) __printf(1, 2) __nonnull(1)
 #define pr_debug(fmt, ...)  printk(LOG_DEBUG, fmt, ##__VA_ARGS__)
 #define panic(fmt, ...)	    __panic(fmt, ##__VA_ARGS__)
 
-void print_hexdump(const void *buf, size_t len);
-
 #define BUG_ON(cond)                                                           \
 	do {                                                                   \
 		if (unlikely(cond))                                            \

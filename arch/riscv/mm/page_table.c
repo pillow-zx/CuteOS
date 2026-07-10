@@ -14,7 +14,7 @@ typedef void *(*page_alloc_fn)(void);
 static page_alloc_fn pt_alloc;
 static uintptr_t ksatp_val;
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 static int32_t pt_alloc_fail_after = -1;
 #endif
 
@@ -45,7 +45,7 @@ static void *pt_alloc_page(void)
 {
 	BUG_ON(!pt_alloc);
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 	if (pt_alloc_fail_after == 0)
 		return NULL;
 	if (pt_alloc_fail_after > 0)
@@ -55,7 +55,7 @@ static void *pt_alloc_page(void)
 	return pt_alloc();
 }
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 void pagetable_test_fail_alloc_after(uint32_t successful_allocs)
 {
 	pt_alloc_fail_after = (int32_t)successful_allocs;

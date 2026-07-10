@@ -87,7 +87,7 @@ struct super_block *__must_check super_alloc(struct file_system_type *fs_type,
 void vfs_init(void);
 int __must_check filesystems_init(void);
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 int __must_check unregister_filesystem(struct file_system_type *fs_type);
 int __must_check vfs_test_select_rootfs(dev_t dev,
 					struct file_system_type **out_fs);

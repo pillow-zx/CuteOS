@@ -8,7 +8,7 @@
 #include <kernel/test.h>
 #include <kernel/vfs.h>
 
-#include "ktest.h"
+#include "../ktest.h"
 
 #define VFS_ROOT_PROBE_MAJOR 30U
 #define VFS_ROOT_PROBE_DEV   MKDEV(VFS_ROOT_PROBE_MAJOR, 0)
@@ -120,7 +120,7 @@ static void vfs_root_probe_unregister_tests(void)
 	(void)ignored;
 }
 
-void test_vfs_root_autodetect_missing_device(void)
+int test_vfs_root_autodetect_missing_device(void)
 {
 	struct file_system_type *fs_type = NULL;
 
@@ -132,13 +132,15 @@ void test_vfs_root_autodetect_missing_device(void)
 		TEST_ASSERT_NULL(fs_type);
 	}
 	TEST_END("vfs-root: missing block device returns -ENXIO");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("vfs-root: missing block device returns -ENXIO",
 		  "see above");
+
+	return __test_ret;
 }
 
-void test_vfs_root_autodetect_no_match(void)
+int test_vfs_root_autodetect_no_match(void)
 {
 	struct file_system_type *fs_type = NULL;
 
@@ -153,13 +155,15 @@ void test_vfs_root_autodetect_no_match(void)
 		TEST_ASSERT_NULL(fs_type);
 	}
 	TEST_END("vfs-root: no probe match returns -ENODEV");
-	return;
+	return __test_ret;
 fail:
 	vfs_root_probe_unregister_tests();
 	TEST_FAIL("vfs-root: no probe match returns -ENODEV", "see above");
+
+	return __test_ret;
 }
 
-void test_vfs_root_autodetect_single_match(void)
+int test_vfs_root_autodetect_single_match(void)
 {
 	struct file_system_type *fs_type = NULL;
 
@@ -176,13 +180,15 @@ void test_vfs_root_autodetect_single_match(void)
 		TEST_ASSERT_EQ(unregister_filesystem(&vfs_root_probe_fs_a), 0);
 	}
 	TEST_END("vfs-root: single probe match is selected");
-	return;
+	return __test_ret;
 fail:
 	vfs_root_probe_unregister_tests();
 	TEST_FAIL("vfs-root: single probe match is selected", "see above");
+
+	return __test_ret;
 }
 
-void test_vfs_root_autodetect_ambiguous_match(void)
+int test_vfs_root_autodetect_ambiguous_match(void)
 {
 	struct file_system_type *fs_type = NULL;
 
@@ -200,14 +206,16 @@ void test_vfs_root_autodetect_ambiguous_match(void)
 		vfs_root_probe_unregister_tests();
 	}
 	TEST_END("vfs-root: multiple probe matches return -EINVAL");
-	return;
+	return __test_ret;
 fail:
 	vfs_root_probe_unregister_tests();
 	TEST_FAIL("vfs-root: multiple probe matches return -EINVAL",
 		  "see above");
+
+	return __test_ret;
 }
 
-void test_vfs_root_autodetect_probe_error(void)
+int test_vfs_root_autodetect_probe_error(void)
 {
 	struct file_system_type *fs_type = NULL;
 
@@ -226,13 +234,15 @@ void test_vfs_root_autodetect_probe_error(void)
 			       0);
 	}
 	TEST_END("vfs-root: hard probe error is preserved");
-	return;
+	return __test_ret;
 fail:
 	vfs_root_probe_unregister_tests();
 	TEST_FAIL("vfs-root: hard probe error is preserved", "see above");
+
+	return __test_ret;
 }
 
-void test_vfs_root_autodetect_skips_no_probe(void)
+int test_vfs_root_autodetect_skips_no_probe(void)
 {
 	struct file_system_type *fs_type = NULL;
 
@@ -252,9 +262,11 @@ void test_vfs_root_autodetect_skips_no_probe(void)
 			0);
 	}
 	TEST_END("vfs-root: filesystems without probe are skipped");
-	return;
+	return __test_ret;
 fail:
 	vfs_root_probe_unregister_tests();
 	TEST_FAIL("vfs-root: filesystems without probe are skipped",
 		  "see above");
+
+	return __test_ret;
 }

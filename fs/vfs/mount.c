@@ -405,7 +405,7 @@ int vfs_mount(const char *source, const char *target, const char *type,
 	return ret;
 }
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 int vfs_test_select_rootfs(dev_t dev, struct file_system_type **out_fs)
 {
 	return vfs_select_rootfs(dev, out_fs);

@@ -7,7 +7,7 @@
 #include <kernel/errno.h>
 #include <drivers/virtio_blk.h>
 
-void test_virtio_blk(void)
+int test_virtio_blk(void)
 {
 
 	enum { NSEC = 2 };
@@ -44,12 +44,14 @@ void test_virtio_blk(void)
 		TEST_ASSERT_EQ(memcmp(wbuf, rbuf, sizeof(wbuf)), 0);
 	}
 	TEST_END("virtio_blk write/readback (2 sectors)");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("virtio_blk write/readback (2 sectors)", "see above");
+
+	return __test_ret;
 }
 
-void test_virtio_blk_errors(void)
+int test_virtio_blk_errors(void)
 {
 	struct block_device *bdev;
 
@@ -78,7 +80,9 @@ void test_virtio_blk_errors(void)
 		TEST_ASSERT_EQ(ret, -EINVAL);
 	}
 	TEST_END("virtio_blk error paths");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("virtio_blk error paths", "see above");
+
+	return __test_ret;
 }

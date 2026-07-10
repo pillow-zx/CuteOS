@@ -171,6 +171,7 @@ make qemu
 | `make defconfig` | 用 `configs/cuteos_defconfig` 重置 `.config` |
 | `make menuconfig` | 交互式修改构建配置 |
 | `make qemu` | 构建镜像并启动 QEMU |
+| `make test` | 构建并运行内核自测回归套件 |
 | `make qemu-gdb` | 启动 QEMU 并暂停在入口，同时打开 GDB stub |
 | `make .gdbinit` | 生成 GDB 启动文件 |
 | `make user` | 只构建用户态 ELF |
@@ -288,7 +289,8 @@ TOOLPREFIX=riscv64-linux-gnu- make qemu
   `strncpy_from_user()`、`user_range_probe()` 或相关 uaccess helper。
 - `include/uapi/`、trap frame、signal frame、task layout、用户链接脚本等
   ABI 可见内容必须同步内核、用户态和测试。
-- `CONFIG_KERNEL_TEST=y` 时，启动后自动运行内核自测。
+- 普通 `make qemu` 启动后进入 shell；内核自测只通过 `make test` 构建并运行，
+  且每次运行使用临时 rootfs 镜像副本。
 - 改动子系统后，至少运行对应内核自测或用户态集成测试，并在 shell 中复现
   关键路径。
 - 新增内核对象时更新对应目录 `.mk`；新增用户命令时放到

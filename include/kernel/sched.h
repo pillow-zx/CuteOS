@@ -81,7 +81,7 @@ static __always_inline bool preemptible(void)
 	return cpu_preempt_count(current_cpu()) == 0;
 }
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 bool sched_test_runqueue_empty(void);
 uint32_t sched_test_runnable_count(void);
 struct task_struct *sched_test_peek_next(void);

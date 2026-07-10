@@ -103,7 +103,7 @@ High-level directory responsibilities:
   through generic kernel headers.
 - `include/uapi/`: kernel/user ABI constants and layouts.
 - `user/`: minimal userspace libc, init, shell, and command/test binaries.
-- `test/`: kernel self tests compiled when `CONFIG_KERNEL_TEST=y`.
+- `test/`: kernel self-test regression suite compiled only by `make test`.
 - `docs/architecture/`: subsystem architecture explanations.
 - `tools/` and `scripts/`: kconfig, build, image, and helper tooling.
 
@@ -134,11 +134,21 @@ Current initialization order:
 18. `filesystems_init()`
 19. `virtio_blk_init()`
 20. `vfs_mount_root(ROOT_DEV)`
-21. optional `kernel_test()`
-22. `kernel_thread(init_process, NULL)`
-23. `set_init_task(init)`
-24. `kernel_thread(page_cache_wb_thread, NULL)`
-25. idle loop with `schedule()` and `wait_for_interrupt()`
+21. `kernel_thread(init_process, NULL)`
+22. `set_init_task(init)`
+23. `kernel_thread(page_cache_wb_thread, NULL)`
+24. idle loop with `schedule()` and `wait_for_interrupt()`
+
+Self-test builds created by `make test` create a self-test kernel thread after
+rootfs mount and then enter the normal idle scheduling loop. That thread runs
+`kernel_test_run()` on a regular 8 KiB task stack, emits the `[KTEST] done
+modules=X failed_modules=Y cases=A failed_cases=B` sentinel, and shuts down
+through SBI before PID 1 is created.
+
+The boot stack is always 8 KiB and only carries the early boot path plus the
+idle task. The self-test runner disables local interrupts before and after each
+case so trap/schedule tests that temporarily re-enable SIE cannot leave timer
+IRQs interleaving with tests that directly manipulate scheduler state.
 
 PID 1 starts as a kernel thread. `kernel/init_process.c` calls
 `exec_user_path("/bin/init")`, which replaces the thread image with the
@@ -798,8 +808,12 @@ object lists:
 - `syscall/syscall.mk`
 - `lib/lib.mk`
 
-`CONFIG_KERNEL_TEST=y` additionally includes `test/test.mk`. User programs are
-built by `user/user.mk`.
+`make test` performs a recursive build with `KERNEL_SELFTEST=1` and
+`OUTROOT=build/test`; that mode additionally includes `test/test.mk`. The target
+rebuilds the test rootfs image and QEMU boots a temporary image copy so self-test
+writes do not pollute later runs. Normal kernel builds do not link self-test
+objects; both normal and self-test kernels use the same 8 KiB boot stack.
+User programs are built by `user/user.mk`.
 
 Important targets:
 
@@ -809,6 +823,7 @@ Important targets:
 - `make user`: build userspace ELFs
 - `make cuteos.img`: build the root filesystem image
 - `make qemu`: build the kernel/image and boot QEMU
+- `make test`: build and run the kernel self-test regression suite
 - `make qemu-gdb`: boot QEMU with a GDB stub
 - `make .gdbinit`: generate a GDB startup file
 - `make analyze`: run GCC analyzer and extra diagnostics

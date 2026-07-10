@@ -56,7 +56,7 @@ static struct vblk_used vblk_used __aligned(VRING_USED_ALIGN_SIZE);
 static struct virtio_blk_req vblk_req;
 static struct virtio_blk_dev vblk_dev;
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 static struct virtio_blk_test_stats vblk_test_stats;
 #endif
 
@@ -198,7 +198,7 @@ static int virtio_blk_rw(struct block_device *bdev, bool write, uintptr_t buf_ad
 	if (nsec > vd->capacity || sector > vd->capacity - nsec)
 		return -EINVAL;
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 	if (write) {
 		vblk_test_stats.write_reqs++;
 		vblk_test_stats.last_write_nsec = nsec;
@@ -224,20 +224,6 @@ static int virtio_blk_write_sectors(struct block_device *bdev, const void *buf,
 				    uint64_t sector, uint32_t nsec)
 {
 	return virtio_blk_rw(bdev, true, (uintptr_t)buf, sector, nsec);
-}
-
-static void vblk_smoke_test(void)
-{
-	static uint8_t sect0[SECTOR_SIZE];
-	int ret;
-
-	ret = virtio_blk_rw(&vblk_bdev, false, (uintptr_t)sect0, 0, 1);
-	if (ret) {
-		pr_err("virtio_blk: sector 0 read failed (%d)\n", ret);
-		return;
-	}
-	pr_info("virtio_blk: sector 0 first 32 bytes:\n");
-	print_hexdump(sect0, 32);
 }
 
 void virtio_blk_init(void)
@@ -294,12 +280,9 @@ void virtio_blk_init(void)
 	pr_info("virtio_blk: init ok, capacity=%llu sectors (%llu MB)\n",
 		(unsigned long long)vblk_dev.capacity,
 		(unsigned long long)(vblk_dev.capacity >> 11));
-
-
-	vblk_smoke_test();
 }
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 void virtio_blk_test_reset_stats(void)
 {
 	memset(&vblk_test_stats, 0, sizeof(vblk_test_stats));

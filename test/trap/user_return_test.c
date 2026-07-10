@@ -16,7 +16,7 @@ static void user_return_test_hook(struct trap_frame *tf)
 	user_return_test_tf = tf;
 }
 
-void test_user_return_work_ecall_path(void)
+int test_user_return_work_ecall_path(void)
 {
 	struct trap_frame tf;
 	struct trap_frame *saved_tf = task_trap_frame(current_task());
@@ -44,14 +44,16 @@ void test_user_return_work_ecall_path(void)
 			       (uintptr_t)task_tgid(current_task()));
 	}
 	TEST_END("user-return: ecall path uses generic work");
-	return;
+	return __test_ret;
 fail:
 	user_return_set_test_hook(NULL);
 	task_set_trap_frame(current_task(), saved_tf);
 	TEST_FAIL("user-return: ecall path uses generic work", "see above");
+
+	return __test_ret;
 }
 
-void test_user_return_work_page_fault_path(void)
+int test_user_return_work_page_fault_path(void)
 {
 	const uintptr_t fault_addr = 0x400000UL;
 	struct task_struct *saved_task = current_task();
@@ -103,9 +105,11 @@ cleanup:
 	}
 	if (mm)
 		mm_put(mm);
+
+	return __test_ret;
 }
 
-void test_user_return_work_timer_path(void)
+int test_user_return_work_timer_path(void)
 {
 	struct trap_frame tf;
 	struct trap_frame *saved_tf = task_trap_frame(current_task());
@@ -129,9 +133,11 @@ void test_user_return_work_timer_path(void)
 		TEST_ASSERT_EQ((uintptr_t)user_return_test_tf, (uintptr_t)&tf);
 	}
 	TEST_END("user-return: timer path uses generic work");
-	return;
+	return __test_ret;
 fail:
 	user_return_set_test_hook(NULL);
 	task_set_trap_frame(current_task(), saved_tf);
 	TEST_FAIL("user-return: timer path uses generic work", "see above");
+
+	return __test_ret;
 }

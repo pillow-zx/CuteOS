@@ -17,7 +17,7 @@ static struct task_struct *resource_test_task(void)
 	return task;
 }
 
-void test_files_struct_copy_and_share(void)
+int test_files_struct_copy_and_share(void)
 {
 	struct task_struct *saved = current_task();
 	struct task_struct *parent = NULL;
@@ -71,9 +71,11 @@ cleanup:
 		task_free(child);
 	if (parent)
 		task_free(parent);
+
+	return __test_ret;
 }
 
-void test_files_struct_copy_preserves_cloexec(void)
+int test_files_struct_copy_preserves_cloexec(void)
 {
 	struct task_struct *saved = current_task();
 	struct task_struct *parent = NULL;
@@ -123,9 +125,11 @@ cleanup:
 		task_free(child);
 	if (parent)
 		task_free(parent);
+
+	return __test_ret;
 }
 
-void test_fs_struct_copy_and_share(void)
+int test_fs_struct_copy_and_share(void)
 {
 	struct task_struct *saved = current_task();
 	struct task_struct *parent = NULL;
@@ -174,9 +178,11 @@ cleanup:
 		task_free(child);
 	if (parent)
 		task_free(parent);
+
+	return __test_ret;
 }
 
-void test_sighand_struct_copy_and_share(void)
+int test_sighand_struct_copy_and_share(void)
 {
 	struct task_struct *saved = current_task();
 	struct task_struct *parent = NULL;
@@ -249,9 +255,11 @@ cleanup:
 		task_free(child);
 	if (parent)
 		task_free(parent);
+
+	return __test_ret;
 }
 
-void test_signal_struct_pending(void)
+int test_signal_struct_pending(void)
 {
 	struct task_struct *saved = current_task();
 	struct task_struct *parent = NULL;
@@ -286,9 +294,11 @@ cleanup:
 		task_free(child);
 	if (parent)
 		task_free(parent);
+
+	return __test_ret;
 }
 
-void test_signal_struct_rlimits_copy(void)
+int test_signal_struct_rlimits_copy(void)
 {
 	struct task_struct *saved = current_task();
 	struct task_struct *parent = NULL;
@@ -324,4 +334,6 @@ cleanup:
 		task_free(child);
 	if (parent)
 		task_free(parent);
+
+	return __test_ret;
 }

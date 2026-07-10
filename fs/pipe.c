@@ -50,7 +50,7 @@ bool pipe_file(struct file *file)
 			file->f_op == &pipe_write_fops);
 }
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 static int pipe_test_file_alloc_fail_at;
 static int pipe_test_file_alloc_calls;
 static uint32_t pipe_test_live_buffer_count;
@@ -70,7 +70,7 @@ uint32_t pipe_test_live_buffers(void)
 static struct file *pipe_file_alloc(const struct file_operations *f_op,
 				    uint32_t mode, void *private_data)
 {
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 	pipe_test_file_alloc_calls++;
 	if (pipe_test_file_alloc_fail_at > 0 &&
 	    pipe_test_file_alloc_calls == pipe_test_file_alloc_fail_at)
@@ -136,7 +136,7 @@ static struct pipe_buffer *pipe_buffer_alloc(void)
 	init_waitqueue_head(&pipe->readers_wq);
 	init_waitqueue_head(&pipe->writers_wq);
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 	pipe_test_live_buffer_count++;
 #endif
 
@@ -151,7 +151,7 @@ static void pipe_buffer_free(struct pipe_buffer *pipe)
 	if (pipe->data)
 		free_page(pipe->data, 0);
 	kfree(pipe);
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 	pipe_test_live_buffer_count--;
 #endif
 }

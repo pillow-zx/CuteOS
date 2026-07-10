@@ -3,6 +3,7 @@
  */
 
 #include <kernel/compiler.h>
+#include <kernel/test.h>
 #include <kernel/types.h>
 #include <arch/irq.h>
 #include <arch/pgtable.h>
@@ -33,3 +34,12 @@ static_assert(same_type(&user_access_begin, (bool (*)(void))0),
 	      "arch uaccess header must expose user_access_begin()");
 static_assert(same_type(&user_map_init, (void (*)(void))0),
 	      "arch user_map header must expose user_map_init()");
+
+#include "../ktest.h"
+
+int test_arch_interface_static_contracts(void)
+{
+	TEST_BEGIN("arch-interface: public header static contracts");
+	TEST_END("arch-interface: public header static contracts");
+	return __test_ret;
+}

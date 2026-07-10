@@ -81,7 +81,7 @@ bool arch_task_trap_from_user(const struct task_struct *task)
 	return tf && trap_frame_from_user(tf);
 }
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 bool arch_task_test_layout_contract(void)
 {
 	return offsetof(struct task_struct, arch.kstack) == TASK_KSTACK &&

@@ -9,6 +9,7 @@
 #include <asm/trap.h>
 #include <asm/trap_frame.h>
 
+#ifdef KERNEL_SELFTEST
 /**
  * @typedef trap_test_hook_t
  * @brief Optional kernel-test hook invoked from the trap path.
@@ -16,6 +17,7 @@
  * @return True when the hook consumed the trap.
  */
 typedef bool (*trap_test_hook_t)(struct trap_frame *tf);
+#endif
 
 /**
  * @struct signal_frame_state
@@ -69,7 +71,9 @@ struct signal_frame_state {
 
 void trap_init(void);
 void trap_handler(struct trap_frame *tf);
+#ifdef KERNEL_SELFTEST
 void trap_set_hook(trap_test_hook_t hook);
+#endif
 void __trapret(void);
 void trapret_to_user(struct trap_frame *tf) __noreturn;
 void switch_to(struct context *prev, struct context *next);
@@ -413,7 +417,7 @@ static __always_inline __nonnull(1, 2) void trap_restore_signal_state(
 	*tf = state->tf;
 }
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 static __always_inline __must_check __const size_t trap_frame_size(void)
 {
 	return sizeof(struct trap_frame);

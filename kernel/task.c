@@ -22,11 +22,6 @@ uint32_t nr_cpu_ids;
 
 struct task_struct *init_task;
 
-static inline uint64_t *stack_canary_ptr(struct task_struct *task)
-{
-	return (uint64_t *)task_kernel_stack(task);
-}
-
 void cpu_boot_init(struct task_struct *idle)
 {
 	BUG_ON(!idle);
@@ -46,15 +41,6 @@ void cpu_boot_init(struct task_struct *idle)
 	cpu_table[0].state = CPU_ONLINE;
 	cpu_table[0].idle_task = idle;
 	cpu_table[0].current_task = idle;
-}
-
-void check_canary(struct task_struct *task)
-{
-	if (!task_kernel_stack_safe(task))
-		return;
-
-	uint64_t canary = *stack_canary_ptr(task);
-	BUG_ON(canary != CANARY_MAGIC);
 }
 
 struct task_struct *task_alloc(void)
@@ -101,7 +87,6 @@ struct task_struct *task_alloc(void)
 	init_waitqueue_head(&task->links.wait_child_queue);
 
 	memset(kstack, 0, KSTACK_SIZE);
-	*stack_canary_ptr(task) = CANARY_MAGIC;
 
 	pid_attach_task(task->ids.pid, task);
 
@@ -215,9 +200,6 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 	list_add_tail(&task->links.sibling, &parent->links.children);
 
 	sched_enqueue(task);
-
-	pr_info("task: kernel thread (PID %d) created, fn=%p\n", task->ids.pid,
-		(void *)fn);
 
 	return task;
 }

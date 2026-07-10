@@ -8,7 +8,7 @@
 #include <kernel/signal.h>
 #include <uapi/signal.h>
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 static user_return_test_hook_t user_return_test_hook;
 
 void user_return_set_test_hook(user_return_test_hook_t hook)
@@ -22,7 +22,7 @@ void user_return_work(struct trap_frame *tf)
 	if (rseq_resume_user(tf) < 0)
 		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 	if (user_return_test_hook)
 		user_return_test_hook(tf);
 #endif

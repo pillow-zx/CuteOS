@@ -14,17 +14,21 @@
 #include <kernel/mm.h>
 #include <kernel/user_return.h>
 
+#ifdef KERNEL_SELFTEST
 static trap_test_hook_t trap_test_hook;
+#endif
 
 static const char *trap_origin(const struct trap_frame *tf)
 {
 	return trap_frame_from_user(tf) ? "user" : "kernel";
 }
 
+#ifdef KERNEL_SELFTEST
 void trap_set_hook(trap_test_hook_t hook)
 {
 	trap_test_hook = hook;
 }
+#endif
 
 static void handle_timer_irq(void)
 {
@@ -47,8 +51,10 @@ void trap_handler(struct trap_frame *tf)
 	if (current_task())
 		task_set_trap_frame(current_task(), tf);
 
+#ifdef KERNEL_SELFTEST
 	if (trap_test_hook && trap_test_hook(tf))
 		return;
+#endif
 
 	if (is_interrupt) {
 		switch (code) {

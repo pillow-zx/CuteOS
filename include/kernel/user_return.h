@@ -17,7 +17,7 @@ struct trap_frame;
  */
 void __nonnull(1) user_return_work(struct trap_frame *tf);
 
-#ifdef CONFIG_KERNEL_TEST
+#ifdef KERNEL_SELFTEST
 typedef void (*user_return_test_hook_t)(struct trap_frame *tf);
 
 void user_return_set_test_hook(user_return_test_hook_t hook);

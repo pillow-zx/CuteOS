@@ -53,14 +53,6 @@ config UBSAN
 	help
 	  Enable kernel-side undefined behavior sanitizer trap instrumentation.
 
-config SYSCALL_TRACE
-	bool "Syscall trace logging"
-	default n
-
-config KERNEL_TEST
-	bool "Kernel self tests"
-	default y
-
 config KSYMS
 	bool "Kernel symbol lookup table"
 	depends on !LTO

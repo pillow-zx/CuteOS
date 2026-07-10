@@ -111,7 +111,7 @@ uint32_t nr_cpu_ids;
 5. `arch_task_init()` 初始化架构状态。
 6. 设置默认 `tgid=pid`、`pgid=pid`、`sid=pid`、`group_leader=self`。
 7. 初始化调度字段、链表、等待队列。
-8. 清零内核栈，在栈底写入 `CANARY_MAGIC`。
+8. 清零内核栈。
 9. `pid_attach_task(pid, task)` 建立 PID 到 task 映射。
 
 `task_free()` 反向释放 PID、文件/FS/信号资源、内核栈和 task 对象。

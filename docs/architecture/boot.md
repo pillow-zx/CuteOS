@@ -29,7 +29,7 @@ flowchart TD
 
 1. 保存并检查 hart id，只允许 hart 0 继续。
 2. 初始化 `gp`，让 RISC-V small data 访问可用。
-3. 将 `sp` 设为 `boot_stack_top`，使用 4 KiB 启动栈。
+3. 将 `sp` 设为 `boot_stack_top`，使用 8 KiB 启动栈。
 4. 清零 `__bss_start` 到 `_end`，保证未初始化全局状态为零。
 5. 构造临时 Sv39 根页表 `tmp_root`。
 6. 写入 `satp` 启用 MMU，并执行 `sfence.vma`。
@@ -104,11 +104,21 @@ flowchart TD
 19. `virtio_blk_init()`：初始化 QEMU virtio-blk MMIO 设备并注册块设备。
 20. `vfs_mount_root(ROOT_DEV)`：对 root block device 探测已注册文件系统类型，
     挂载唯一匹配的根文件系统。
-21. 可选 `kernel_test()`：在测试配置下运行内核自测。
-22. `kernel_thread(init_process, NULL)`：创建 PID 1 内核线程。
-23. `set_init_task(init)`：记录 PID 1，供 exit/reparent 路径使用。
-24. `kernel_thread(page_cache_wb_thread, NULL)`：创建页缓存后台写回线程。
-25. idle 循环反复调用 `schedule()` 和 `wait_for_interrupt()`。
+21. `kernel_thread(init_process, NULL)`：创建 PID 1 内核线程。
+22. `set_init_task(init)`：记录 PID 1，供 exit/reparent 路径使用。
+23. `kernel_thread(page_cache_wb_thread, NULL)`：创建页缓存后台写回线程。
+24. idle 循环反复调用 `schedule()` 和 `wait_for_interrupt()`。
+
+`make test` 使用 `KERNEL_SELFTEST=1` 构建单独的测试内核。该内核在根文件系统
+挂载后创建 self-test 内核线程，然后进入普通 idle 调度循环。self-test 线程在
+普通 8 KiB task 栈上运行 `kernel_test_run()`，输出 `[KTEST] done ...` 结果哨兵，
+然后通过 SBI 关机，不再创建 PID 1。
+
+普通内核和测试内核都使用 8 KiB 启动栈。启动栈只承载早期启动路径和 idle
+task；VFS/ext2/page-cache/virtio 等深层回归路径由 self-test 线程的 task 栈
+承载。runner 在每个 case 前后都会关闭本地中断：许多内核自测会直接改写
+`current_task`、runqueue、`jiffies` 等调度状态，不能被 trap/schedule 类用例
+重新打开 SIE 后留下的真实 timer IRQ 异步打断。
 
 这个顺序体现了几个关键依赖：
 

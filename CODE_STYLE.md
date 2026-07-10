@@ -285,8 +285,9 @@ int foo(void)
 Example:
 
 ```c
-#ifdef CONFIG_KERNEL_TEST
-void kernel_test(void);
+#ifdef KERNEL_SELFTEST
+struct ktest_summary;
+int kernel_test_run(struct ktest_summary *summary);
 #endif
 ```
 

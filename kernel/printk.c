@@ -55,30 +55,6 @@ int __printk(const char *fmt, ...)
 	return n;
 }
 
-void print_hexdump(const void *buf, size_t len)
-{
-	const uint8_t *p = buf;
-
-	for (size_t off = 0; off < len; off += 16) {
-		pr_info("%04x: ", (unsigned int)off);
-		for (size_t i = 0; i < 16; i++) {
-			if (off + i < len)
-				pr_info("%02x ", p[off + i]);
-			else
-				pr_info("   ");
-		}
-		pr_info(" ");
-		for (size_t i = 0; i < 16; i++) {
-			if (off + i < len) {
-				uint8_t c = p[off + i];
-				pr_info("%c",
-					(c >= 0x20 && c < 0x7f) ? c : '.');
-			}
-		}
-		pr_info("\n");
-	}
-}
-
 void __noreturn __panic(const char *fmt, ...)
 {
 	pr_err("\nKERNEL PANIC: ");

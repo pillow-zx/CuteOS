@@ -1,81 +1,13 @@
-#include <kernel/atomic.h>
 #include <kernel/errno.h>
-#include <kernel/exit.h>
-#include <kernel/refcount.h>
 #include <kernel/sched.h>
 #include <kernel/signal.h>
-#include <kernel/sync.h>
 #include <kernel/task.h>
 #include <kernel/test.h>
+#include <kernel/test_wait.h>
 #include <kernel/timer.h>
 #include <kernel/wait.h>
-#include <kernel/irq.h>
 
-void test_atomic_basic(void)
-{
-	TEST_BEGIN("sync: atomic basic");
-	{
-		atomic_t value = ATOMIC_INIT(1);
-
-		TEST_ASSERT_EQ(atomic_read(&value), 1);
-		atomic_set(&value, 3);
-		TEST_ASSERT_EQ(atomic_read(&value), 3);
-		TEST_ASSERT_EQ(atomic_inc_return(&value), 4);
-		atomic_inc(&value);
-		TEST_ASSERT_EQ(atomic_read(&value), 5);
-		TEST_ASSERT_EQ(atomic_dec_return(&value), 4);
-		atomic_add(&value, -3);
-		TEST_ASSERT_EQ(atomic_read(&value), 1);
-		TEST_ASSERT(atomic_dec_and_test(&value));
-		TEST_ASSERT_EQ(atomic_read(&value), 0);
-		TEST_ASSERT_EQ(atomic_cmpxchg(&value, 0, 9), 0);
-		TEST_ASSERT_EQ(atomic_read(&value), 9);
-		TEST_ASSERT_EQ(atomic_cmpxchg(&value, 0, 1), 9);
-		TEST_ASSERT_EQ(atomic_read(&value), 9);
-
-		refcount_t refs = REFCOUNT_INIT(1);
-		TEST_ASSERT_EQ(refcount_read(&refs), 1);
-		refcount_inc(&refs);
-		TEST_ASSERT_EQ(refcount_read(&refs), 2);
-		TEST_ASSERT(!refcount_dec_and_test(&refs));
-		TEST_ASSERT(refcount_dec_and_test(&refs));
-		TEST_ASSERT_EQ(refcount_read(&refs), 0);
-		TEST_ASSERT(!refcount_inc_not_zero(&refs));
-		TEST_ASSERT(!refcount_dec_if_positive(&refs));
-		refcount_inc_allow_zero(&refs);
-		TEST_ASSERT_EQ(refcount_read(&refs), 1);
-		TEST_ASSERT(refcount_inc_not_zero(&refs));
-		TEST_ASSERT_EQ(refcount_read(&refs), 2);
-		TEST_ASSERT(!refcount_dec_if_positive(&refs));
-		TEST_ASSERT(refcount_dec_if_positive(&refs));
-		TEST_ASSERT_EQ(refcount_read(&refs), 0);
-	}
-	TEST_END("sync: atomic basic");
-	return;
-fail:
-	TEST_FAIL("sync: atomic basic", "see above");
-}
-
-void test_spinlock_irqsave(void)
-{
-	TEST_BEGIN("sync: spinlock irqsave");
-	{
-		spinlock_t lock = SPINLOCK_INIT;
-		irq_flags_t flags;
-		bool was_disabled = irqs_disabled();
-
-		spin_lock_irqsave(&lock, &flags);
-		TEST_ASSERT(lock.locked);
-		TEST_ASSERT(irqs_disabled());
-		spin_unlock_irqrestore(&lock, flags);
-		TEST_ASSERT(!lock.locked);
-		TEST_ASSERT_EQ(irqs_disabled(), was_disabled);
-	}
-	TEST_END("sync: spinlock irqsave");
-	return;
-fail:
-	TEST_FAIL("sync: spinlock irqsave", "see above");
-}
+#include "../ktest.h"
 
 static bool wait_test_ready(void *arg)
 {
@@ -84,7 +16,77 @@ static bool wait_test_ready(void *arg)
 	return *ready;
 }
 
-void test_wait_event_interruptible_ready(void)
+int test_waitqueue_timeout_expiry_wakes_task(void)
+{
+	struct task_struct *task = NULL;
+
+	TEST_BEGIN("waitqueue: timeout expiry wakes task");
+	{
+		task = task_alloc();
+		TEST_ASSERT_NOT_NULL(task);
+		task->lifecycle.state = TASK_UNINTERRUPTIBLE;
+
+		wait_timeout_test_start(task, 100);
+		timer_run_expired(99);
+		TEST_ASSERT_EQ(task->lifecycle.state, (uint32_t)TASK_UNINTERRUPTIBLE);
+		TEST_ASSERT(!wait_timeout_test_fired());
+		TEST_ASSERT(wait_timeout_test_active());
+
+		timer_run_expired(100);
+		TEST_ASSERT_EQ(task->lifecycle.state, (uint32_t)TASK_RUNNING);
+		TEST_ASSERT(wait_timeout_test_fired());
+		TEST_ASSERT(!wait_timeout_test_active());
+		TEST_ASSERT(!wait_timeout_test_cancel());
+		TEST_ASSERT(!list_empty(&task->sched.run_list));
+	}
+	TEST_END("waitqueue: timeout expiry wakes task");
+	goto cleanup;
+fail:
+	TEST_FAIL("waitqueue: timeout expiry wakes task", "see above");
+cleanup:
+	if (task) {
+		if (!list_empty(&task->sched.run_list))
+			sched_dequeue(task);
+		task_free(task);
+	}
+
+	return __test_ret;
+}
+
+int test_waitqueue_timeout_cancel_prevents_wake(void)
+{
+	struct task_struct *task = NULL;
+
+	TEST_BEGIN("waitqueue: timeout cancel prevents wake");
+	{
+		task = task_alloc();
+		TEST_ASSERT_NOT_NULL(task);
+		task->lifecycle.state = TASK_UNINTERRUPTIBLE;
+
+		wait_timeout_test_start(task, 200);
+		TEST_ASSERT(wait_timeout_test_active());
+		TEST_ASSERT(wait_timeout_test_cancel());
+		TEST_ASSERT(!wait_timeout_test_active());
+		timer_run_expired(200);
+		TEST_ASSERT_EQ(task->lifecycle.state, (uint32_t)TASK_UNINTERRUPTIBLE);
+		TEST_ASSERT(!wait_timeout_test_fired());
+		TEST_ASSERT(list_empty(&task->sched.run_list));
+	}
+	TEST_END("waitqueue: timeout cancel prevents wake");
+	goto cleanup;
+fail:
+	TEST_FAIL("waitqueue: timeout cancel prevents wake", "see above");
+cleanup:
+	if (task) {
+		if (!list_empty(&task->sched.run_list))
+			sched_dequeue(task);
+		task_free(task);
+	}
+
+	return __test_ret;
+}
+
+int test_wait_event_interruptible_ready(void)
 {
 	struct wait_queue_head wq;
 	bool ready = true;
@@ -101,12 +103,14 @@ void test_wait_event_interruptible_ready(void)
 			       (uint32_t)TASK_RUNNING);
 	}
 	TEST_END("sync: wait_event_interruptible ready");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("sync: wait_event_interruptible ready", "see above");
+
+	return __test_ret;
 }
 
-void test_wait_event_interruptible_signal(void)
+int test_wait_event_interruptible_signal(void)
 {
 	struct wait_queue_head wq;
 	uint64_t saved_pending = current_task()->sigctx.pending;
@@ -133,9 +137,11 @@ fail:
 cleanup:
 	current_task()->sigctx.pending = saved_pending;
 	current_task()->sigctx.blocked = saved_blocked;
+
+	return __test_ret;
 }
 
-void test_waitqueue_prepare_finish(void)
+int test_waitqueue_prepare_finish(void)
 {
 	struct wait_queue_head wq;
 	struct wait_queue_entry entry;
@@ -158,12 +164,14 @@ void test_waitqueue_prepare_finish(void)
 		TEST_ASSERT(entry.wq == NULL);
 	}
 	TEST_END("sync: waitqueue prepare finish");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("sync: waitqueue prepare finish", "see above");
+
+	return __test_ret;
 }
 
-void test_waitqueue_wake_one_fifo(void)
+int test_waitqueue_wake_one_fifo(void)
 {
 	struct wait_queue_head wq;
 	struct task_struct *first = NULL;
@@ -210,9 +218,11 @@ cleanup:
 		finish_wait_entry(&second->sched.wait_entry);
 		task_free(second);
 	}
+
+	return __test_ret;
 }
 
-void test_waitqueue_wake_all(void)
+int test_waitqueue_wake_all(void)
 {
 	struct wait_queue_head wq;
 	struct task_struct *first = NULL;
@@ -255,9 +265,11 @@ cleanup:
 		finish_wait_entry(&second->sched.wait_entry);
 		task_free(second);
 	}
+
+	return __test_ret;
 }
 
-void test_wait_schedule_until_timeout(void)
+int test_wait_schedule_until_timeout(void)
 {
 	TEST_BEGIN("sync: wait_schedule_until timeout");
 	{
@@ -271,12 +283,14 @@ void test_wait_schedule_until_timeout(void)
 			list_empty(&current_task()->sched.wait_entry.node));
 	}
 	TEST_END("sync: wait_schedule_until timeout");
-	return;
+	return __test_ret;
 fail:
 	TEST_FAIL("sync: wait_schedule_until timeout", "see above");
+
+	return __test_ret;
 }
 
-void test_wait_schedule_preserves_early_wakeup(void)
+int test_wait_schedule_preserves_early_wakeup(void)
 {
 	struct wait_queue_head wq;
 
@@ -298,54 +312,10 @@ void test_wait_schedule_preserves_early_wakeup(void)
 			list_empty(&current_task()->sched.wait_entry.node));
 	}
 	TEST_END("sync: wait_schedule preserves early wakeup");
-	return;
+	return __test_ret;
 fail:
 	finish_wait(&wq);
 	TEST_FAIL("sync: wait_schedule preserves early wakeup", "see above");
-}
 
-static mutex_t mutex_test_lock;
-static volatile int mutex_test_stage;
-
-static void mutex_waiter(void *arg)
-{
-	(void)arg;
-
-	mutex_test_stage = 1;
-	mutex_lock(&mutex_test_lock);
-	mutex_test_stage = 2;
-	mutex_unlock(&mutex_test_lock);
-	do_exit(0);
-}
-
-void test_mutex_blocking(void)
-{
-	TEST_BEGIN("sync: mutex blocking wake");
-	{
-		struct task_struct *waiter;
-
-		mutex_test_stage = 0;
-		mutex_init(&mutex_test_lock);
-		mutex_lock(&mutex_test_lock);
-		TEST_ASSERT(!mutex_trylock(&mutex_test_lock));
-
-		waiter = kernel_thread(mutex_waiter, NULL);
-		TEST_ASSERT_NOT_NULL(waiter);
-
-		schedule();
-		TEST_ASSERT_EQ(mutex_test_stage, 1);
-		TEST_ASSERT_EQ(waiter->lifecycle.state,
-			       (uint32_t)TASK_UNINTERRUPTIBLE);
-
-		mutex_unlock(&mutex_test_lock);
-		schedule();
-		TEST_ASSERT_EQ(mutex_test_stage, 2);
-		TEST_ASSERT_EQ(waiter->lifecycle.state, (uint32_t)TASK_ZOMBIE);
-
-		release_task(waiter);
-	}
-	TEST_END("sync: mutex blocking wake");
-	return;
-fail:
-	TEST_FAIL("sync: mutex blocking wake", "see above");
+	return __test_ret;
 }

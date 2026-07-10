@@ -68,4 +68,8 @@ size_t __must_check __pure buddy_free_pages(void);
 struct page *__must_check __pure virt_to_page(const void *addr);
 void *__must_check __pure __nonnull(1) page_to_virt(const struct page *page);
 
+#ifdef KERNEL_SELFTEST
+void buddy_test_validate(void);
+#endif
+
 #endif
