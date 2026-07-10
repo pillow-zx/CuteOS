@@ -32,33 +32,74 @@ static int futex_copy_timeout(const struct timespec *utimeout,
 	return ret;
 }
 
+static int futex_copy_absolute_timeout(const struct timespec *utimeout,
+				       struct futex_deadline *deadline)
+{
+	struct timespec timeout;
+	uint64_t expires;
+	int ret;
+
+	if (!deadline)
+		return -EINVAL;
+
+	deadline->active = false;
+	deadline->expires = 0;
+	if (!utimeout)
+		return 0;
+
+	if (copy_from_user(&timeout, utimeout, sizeof(timeout)) != 0)
+		return -EFAULT;
+
+	ret = timespec_to_mtime_delta(&timeout, &expires);
+	if (ret < 0)
+		return ret;
+
+	deadline->active = true;
+	deadline->expires = expires;
+	return 0;
+}
+
 /*
  * SYSCALL_SUPPORT(B): futex
- * Current: supports FUTEX_WAIT/FUTEX_WAKE, PRIVATE aliases, and robust-list
- * exit wakeups.
- * Unsupported errno: realtime timeout, requeue, PI, bitset, and unknown ops
- * return -ENOSYS from kernel_futex().
- * Future: add requeue, PI, and bitset ops only by pthread/libc demand.
+ * Current: supports FUTEX_WAIT/FUTEX_WAKE, WAIT_BITSET/WAKE_BITSET, PRIVATE
+ * aliases, realtime option on wait ops, and robust-list exit wakeups.
+ * Unsupported errno: requeue, PI, and unknown ops return -ENOSYS from
+ * kernel_futex().
+ * Future: add requeue and PI ops only by pthread/libc demand.
  */
 ssize_t sys_futex(struct trap_frame *tf)
 {
 	int *uaddr = (int *)syscall_arg(tf, 0);
 	int op = (int)syscall_arg(tf, 1);
 	int val = (int)syscall_arg(tf, 2);
-	const struct timespec *timeout = (const struct timespec *)syscall_arg(tf, 3);
+	const struct timespec *timeout =
+		(const struct timespec *)syscall_arg(tf, 3);
+	int *uaddr2 = (int *)syscall_arg(tf, 4);
+	int val3 = (int)syscall_arg(tf, 5);
 	struct futex_deadline deadline;
+	struct kernel_futex_args args;
+	int cmd = op & FUTEX_CMD_MASK;
 	int ret;
 
 	deadline.active = false;
 	deadline.expires = 0;
-	if ((op & FUTEX_CMD_MASK) == FUTEX_WAIT &&
-	    !(op & FUTEX_CLOCK_REALTIME)) {
+	if (cmd == FUTEX_WAIT) {
 		ret = futex_copy_timeout(timeout, &deadline);
+		if (ret < 0)
+			return ret;
+	} else if (cmd == FUTEX_WAIT_BITSET) {
+		ret = futex_copy_absolute_timeout(timeout, &deadline);
 		if (ret < 0)
 			return ret;
 	}
 
-	return kernel_futex(uaddr, op, val, &deadline);
+	args.uaddr = uaddr;
+	args.op = op;
+	args.val = val;
+	args.deadline = &deadline;
+	args.uaddr2 = uaddr2;
+	args.val3 = val3;
+	return kernel_futex(&args);
 }
 
 /*

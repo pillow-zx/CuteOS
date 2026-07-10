@@ -23,6 +23,7 @@ struct futex_waiter {
 	struct futex_key key;
 	struct wait_queue_head wait;
 	struct list_head node;
+	uint32_t bitset;
 	bool woken;
 };
 
@@ -79,7 +80,7 @@ static int futex_read_user_value_checked(int *uaddr, int *value)
 	return 0;
 }
 
-static int futex_wait(int *uaddr, int expected,
+static int futex_wait(int *uaddr, int expected, uint32_t bitset,
 		      const struct futex_deadline *deadline)
 {
 	struct futex_key key;
@@ -90,6 +91,9 @@ static int futex_wait(int *uaddr, int expected,
 	int value;
 	bool has_timeout;
 	uint64_t expires;
+
+	if (bitset == 0)
+		return -EINVAL;
 
 	ret = futex_make_key(task_mm(current_task()), uaddr, &key);
 	if (ret < 0)
@@ -102,6 +106,7 @@ static int futex_wait(int *uaddr, int expected,
 	bucket = futex_bucket_for(&key);
 	memset(&waiter, 0, sizeof(waiter));
 	waiter.key = key;
+	waiter.bitset = bitset;
 	init_waitqueue_head(&waiter.wait);
 	INIT_LIST_HEAD(&waiter.node);
 
@@ -144,7 +149,8 @@ static int futex_wait(int *uaddr, int expected,
 	return 0;
 }
 
-int futex_wake_mm(struct mm_struct *mm, int *uaddr, int nr)
+static int futex_wake_mm_bitset(struct mm_struct *mm, int *uaddr, int nr,
+				uint32_t bitset)
 {
 	struct futex_key key;
 	struct futex_bucket *bucket;
@@ -153,6 +159,8 @@ int futex_wake_mm(struct mm_struct *mm, int *uaddr, int nr)
 	int ret;
 	int woken = 0;
 
+	if (bitset == 0)
+		return -EINVAL;
 	if (nr <= 0)
 		return 0;
 
@@ -169,6 +177,8 @@ int futex_wake_mm(struct mm_struct *mm, int *uaddr, int nr)
 
 		if (!futex_key_equal(&waiter->key, &key))
 			continue;
+		if ((waiter->bitset & bitset) == 0)
+			continue;
 		if (!wake_up_one(&waiter->wait))
 			continue;
 		waiter->woken = true;
@@ -181,18 +191,25 @@ int futex_wake_mm(struct mm_struct *mm, int *uaddr, int nr)
 	return woken;
 }
 
-static int futex_wake(int *uaddr, int nr)
+int futex_wake_mm(struct mm_struct *mm, int *uaddr, int nr)
+{
+	return futex_wake_mm_bitset(mm, uaddr, nr, FUTEX_BITSET_MATCH_ANY);
+}
+
+static int futex_wake(int *uaddr, int nr, uint32_t bitset)
 {
 	struct futex_key key;
 	int ret;
 
+	if (bitset == 0)
+		return -EINVAL;
 	ret = futex_make_key(task_mm(current_task()), uaddr, &key);
 	if (ret < 0)
 		return ret;
 	if (!access_ok(uaddr, sizeof(*uaddr)))
 		return -EFAULT;
 
-	return futex_wake_mm(key.mm, uaddr, nr);
+	return futex_wake_mm_bitset(key.mm, uaddr, nr, bitset);
 }
 
 static void robust_wake_owner(struct task_struct *task,
@@ -277,19 +294,30 @@ int futex_get_robust_list(struct task_struct *task,
 	return 0;
 }
 
-int kernel_futex(int *uaddr, int op, int val,
-		 const struct futex_deadline *deadline)
+int kernel_futex(const struct kernel_futex_args *args)
 {
-	int cmd = op & FUTEX_CMD_MASK;
+	int cmd;
 
-	if (op & FUTEX_CLOCK_REALTIME)
+	if (!args)
+		return -EINVAL;
+
+	cmd = args->op & FUTEX_CMD_MASK;
+	if ((args->op & FUTEX_CLOCK_REALTIME) && cmd != FUTEX_WAIT &&
+	    cmd != FUTEX_WAIT_BITSET)
 		return -ENOSYS;
 
 	switch (cmd) {
 	case FUTEX_WAIT:
-		return futex_wait(uaddr, val, deadline);
+		return futex_wait(args->uaddr, args->val,
+				  FUTEX_BITSET_MATCH_ANY, args->deadline);
 	case FUTEX_WAKE:
-		return futex_wake(uaddr, val);
+		return futex_wake(args->uaddr, args->val,
+				  FUTEX_BITSET_MATCH_ANY);
+	case FUTEX_WAIT_BITSET:
+		return futex_wait(args->uaddr, args->val, (uint32_t)args->val3,
+				  args->deadline);
+	case FUTEX_WAKE_BITSET:
+		return futex_wake(args->uaddr, args->val, (uint32_t)args->val3);
 	default:
 		return -ENOSYS;
 	}

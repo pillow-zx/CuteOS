@@ -323,6 +323,7 @@ futex 实现位于 `kernel/futex.c`。当前支持：
 - `FUTEX_WAIT`
 - `FUTEX_WAKE`
 - `FUTEX_WAIT_PRIVATE` / `FUTEX_WAKE_PRIVATE`
+- `FUTEX_WAIT_BITSET` / `FUTEX_WAKE_BITSET`
 - robust futex list exit-time 处理
 
 等待 key 是：
@@ -335,11 +336,16 @@ struct futex_key {
 ```
 
 这表示 futex wait queue 按地址空间和用户地址区分。当前没有跨进程共享内存的全局 inode key。
-`FUTEX_PRIVATE_FLAG` 是 pthread 路径的稳定支持面；`FUTEX_CLOCK_REALTIME`、
-requeue、bitset 和 PI futex op 目前固定返回 `-ENOSYS`，避免误导 libc
-探测。
+`FUTEX_PRIVATE_FLAG` 是 pthread 路径的稳定支持面。`FUTEX_CLOCK_REALTIME`
+在 wait op 上接受，但当前 `CLOCK_REALTIME` 与 mtime 同源，不提供真实墙钟
+差异。requeue 和 PI futex op 目前固定返回 `-ENOSYS`，避免误导 libc 探测。
 
-`kernel_futex()` 根据 `FUTEX_CMD_MASK` 分发。`FUTEX_WAIT` 会：
+`kernel_futex()` 根据 `FUTEX_CMD_MASK` 分发。普通 `FUTEX_WAIT/WAKE` 按
+`FUTEX_BITSET_MATCH_ANY` 处理；`FUTEX_WAIT_BITSET/WAKE_BITSET` 在 waiter
+中保存 bitset，wake 时只唤醒 bitset 相交的 waiter。`FUTEX_WAIT` 的
+timeout 是 relative；`FUTEX_WAIT_BITSET` 的 timeout 是 absolute。
+
+`FUTEX_WAIT` 和 `FUTEX_WAIT_BITSET` 会：
 
 1. 校验地址对齐和 `access_ok()`。
 2. `user_range_probe()` 确保可读。

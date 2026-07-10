@@ -877,7 +877,7 @@ These may change over time, but they are not current baseline assumptions:
 - full epoll edge/oneshot semantics and nested epoll
 - full POSIX signal restart and complex signal-mask race behavior
 - full POSIX timer semantics and writable wall-clock time
-- PI futex, futex requeue, bitset waits, and shared inode-key futexes
+- PI futex, futex requeue, and shared inode-key futexes
 - COW fork, swapping, and complete resident page pinning
 - complete ext2 crash consistency or journaling
 - cryptographically secure randomness

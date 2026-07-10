@@ -12,7 +12,7 @@
 
 /**
  * @struct futex_deadline
- * @brief Optional absolute timeout for FUTEX_WAIT.
+ * @brief Optional absolute mtime deadline for futex waits.
  *
  * @par Fields
  * - @c active: Whether @ref expires is meaningful.
@@ -21,6 +21,27 @@
 struct futex_deadline {
 	bool active;
 	uint64_t expires;
+};
+
+/**
+ * @struct kernel_futex_args
+ * @brief Decoded futex syscall arguments passed to the futex module.
+ *
+ * @par Fields
+ * - @c uaddr: Primary userspace futex word.
+ * - @c op: Linux futex operation plus option bits.
+ * - @c val: Operation-specific integer argument.
+ * - @c deadline: Optional absolute mtime deadline.
+ * - @c uaddr2: Secondary userspace futex word for future operations.
+ * - @c val3: Operation-specific third integer argument.
+ */
+struct kernel_futex_args {
+	int *uaddr;
+	int op;
+	int val;
+	const struct futex_deadline *deadline;
+	int *uaddr2;
+	int val3;
 };
 
 static __always_inline __must_check __pure int *
@@ -77,14 +98,10 @@ void futex_exit_robust_list(struct task_struct *task);
 
 /**
  * @brief Implement supported Linux futex operations for the current task.
- * @param uaddr Userspace futex word.
- * @param op Linux futex operation plus private flag bits.
- * @param val Operation-specific integer argument.
- * @param deadline Optional wait deadline.
+ * @param args Decoded futex syscall arguments.
  * @return Operation result or a negative errno.
  */
-int kernel_futex(int *uaddr, int op, int val,
-		 const struct futex_deadline *deadline);
+int kernel_futex(const struct kernel_futex_args *args);
 int futex_set_robust_list(struct task_struct *task,
 			  struct robust_list_head *head, size_t len);
 int futex_get_robust_list(struct task_struct *task,

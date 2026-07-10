@@ -76,7 +76,7 @@ unsupported errno 和后续计划。
 | 调度与同步 | 单核非抢占内核、4 级 MLFQ、timer tick 计费、等待队列、mutex、内核线程 |
 | 进程与线程 | PID、`fork` 风格 clone、Linux `clone` 子集、线程组、`execve`、`exit`、`exit_group`、`wait4`、孤儿进程过继 |
 | 信号 | `kill`、`tkill`、`tgkill`、`rt_sigaction`、`rt_sigprocmask`、`rt_sigreturn`、`sigaltstack`、用户 signal frame 和 trampoline |
-| futex / rseq / membarrier | `FUTEX_WAIT`、`FUTEX_WAKE`、robust list、`set_tid_addr`、单核 rseq 注册/恢复/abort、单核兼容 membarrier |
+| futex / rseq / membarrier | `FUTEX_WAIT`、`FUTEX_WAKE`、`FUTEX_WAIT_BITSET`、`FUTEX_WAKE_BITSET`、robust list、`set_tid_addr`、单核 rseq 注册/恢复/abort、单核兼容 membarrier |
 | VFS 与 fd | fdtable、cwd/root/umask、`openat`、`close`、`read`、`write`、`readv`、`writev`、`pread64`、`pwrite64`、`lseek`、`dup`、`dup3`、`fcntl` 子集 |
 | 路径与目录 | `getcwd`、`chdir`、`mkdirat`、`mknodat`、`unlinkat`、`symlinkat`、`linkat`、`readlinkat`、`renameat2` 的 `RENAME_NOREPLACE` 子集 |
 | stat / fs 信息 | `newfstatat`、`fstat`、`statfs64`、`fstatfs64`、`statx` 基础字段、ext2 `statfs` |
@@ -117,7 +117,7 @@ smp_test task_test time_test
 - 完整 epoll edge/oneshot、嵌套 epoll、poll/select 与信号 race 细节。
 - 完整 POSIX signal 行为、`SA_RESTART`、复杂 signal mask/restart 语义。
 - 完整 POSIX timer、wall-clock RTC、`clock_settime` 可写实时时钟。
-- futex requeue、PI futex、wait bitset、跨进程 shared futex inode key。
+- futex requeue、PI futex、跨进程 shared futex inode key。
 - 完整权限/capability/credential/LSM/ACL 模型。
 - virtio-blk 中断驱动、多请求队列、UART 中断驱动。
 - ext2 大文件 triple-indirect 常规映射、完整崩溃一致性和日志。

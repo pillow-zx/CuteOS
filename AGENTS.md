@@ -106,7 +106,7 @@ For ABI questions:
 - Discover targets: `make help`.
 - Build kernel: `make` or `make all`.
 - Build user ELF files: `make user`.
-- Full boot and kernel self-test path: `make qemu`(When user-mode tests need to be run, use interactive operations; do not use timeout x make qemu).
+- Full boot and kernel self-test path: `make test`(When user-mode tests need to be run, use interactive operations; do not use timeout x make qemu).
 - Debug path: `make qemu-gdb`, then use GDB.
 
 For syscall or user-visible behavior, run the relevant user program from

@@ -626,6 +626,70 @@ static int test_shared_counter(void)
 	return 0;
 }
 
+static volatile int musl_ready;
+static volatile int musl_tid_word = -1;
+static volatile int musl_parent_tid = -1;
+
+static int thread_musl_clone_flags(void *arg)
+{
+	(void)arg;
+
+	__atomic_store_n((int *)&musl_ready, 1, __ATOMIC_RELEASE);
+	futex((int *)&musl_ready, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, NULL, 0,
+	      0);
+	return 0;
+}
+
+static int test_clone_musl_pthread_flags(void)
+{
+	void *stack;
+	long child;
+	unsigned long flags;
+	int tid;
+	int failed = 0;
+
+	musl_ready = 0;
+	musl_tid_word = -1;
+	musl_parent_tid = -1;
+
+	stack = mmap(NULL, THREAD_STACK_SIZE, PROT_READ | PROT_WRITE,
+		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)stack < 0) {
+		printf("FAIL: mmap musl clone stack: %ld\n", (long)stack);
+		return 1;
+	}
+
+	flags = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
+		CLONE_THREAD | CLONE_SYSVSEM | CLONE_SETTLS |
+		CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID | CLONE_DETACHED;
+	child = clone_thread(flags, (char *)stack + THREAD_STACK_SIZE,
+			     (int *)&musl_parent_tid, 0,
+			     (int *)&musl_tid_word, thread_musl_clone_flags,
+			     NULL);
+	if (child < 0) {
+		printf("FAIL: clone musl pthread flags: %ld\n", child);
+		munmap(stack, THREAD_STACK_SIZE);
+		return 1;
+	}
+
+	if (musl_parent_tid != child) {
+		printf("FAIL: musl clone parent_tid got %d want %ld\n",
+		       musl_parent_tid, child);
+		failed++;
+	}
+
+	while (__atomic_load_n((int *)&musl_ready, __ATOMIC_ACQUIRE) == 0)
+		futex((int *)&musl_ready, FUTEX_WAIT | FUTEX_PRIVATE_FLAG, 0,
+		      NULL, 0, 0);
+	while ((tid = __atomic_load_n((int *)&musl_tid_word,
+				      __ATOMIC_ACQUIRE)) != 0)
+		futex((int *)&musl_tid_word, FUTEX_WAIT | FUTEX_PRIVATE_FLAG,
+		      tid, NULL, 0, 0);
+
+	munmap(stack, THREAD_STACK_SIZE);
+	return failed;
+}
+
 static void *thread_return_value(void *arg)
 {
 	return (void *)((long)arg + 1);
@@ -761,6 +825,209 @@ static int test_self_consistency(void)
 	return 0;
 }
 
+static volatile int bitset_word;
+static volatile int bitset_ready;
+static volatile int bitset_seen;
+static volatile int bitset_tid_a = -1;
+static volatile int bitset_tid_b = -1;
+
+static int thread_futex_bitset_wait(void *arg)
+{
+	int mask = (int)(long)arg;
+
+	__atomic_fetch_add((int *)&bitset_ready, 1, __ATOMIC_RELEASE);
+	futex((int *)&bitset_ready, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, NULL,
+	      0, 0);
+	if (futex((int *)&bitset_word, FUTEX_WAIT_BITSET_PRIVATE, 0, NULL, NULL,
+		  mask) == 0)
+		__atomic_fetch_or((int *)&bitset_seen, mask, __ATOMIC_RELEASE);
+	return 0;
+}
+
+static void wait_for_tid_clear(volatile int *tid_word)
+{
+	int tid;
+
+	while ((tid = __atomic_load_n((int *)tid_word, __ATOMIC_ACQUIRE)) != 0)
+		futex((int *)tid_word, FUTEX_WAIT | FUTEX_PRIVATE_FLAG, tid,
+		      NULL, 0, 0);
+}
+
+static int test_futex_bitset_selective_wake(void)
+{
+	void *stack_a;
+	void *stack_b;
+	long child_a;
+	long child_b;
+	unsigned long flags;
+	long woke = 0;
+	int ready;
+	int failed = 0;
+
+	bitset_word = 0;
+	bitset_ready = 0;
+	bitset_seen = 0;
+	bitset_tid_a = -1;
+	bitset_tid_b = -1;
+
+	stack_a = mmap(NULL, THREAD_STACK_SIZE, PROT_READ | PROT_WRITE,
+		       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	stack_b = mmap(NULL, THREAD_STACK_SIZE, PROT_READ | PROT_WRITE,
+		       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)stack_a < 0 || (long)stack_b < 0) {
+		printf("FAIL: mmap futex bitset stacks: %ld %ld\n",
+		       (long)stack_a, (long)stack_b);
+		if ((long)stack_a >= 0)
+			munmap(stack_a, THREAD_STACK_SIZE);
+		if ((long)stack_b >= 0)
+			munmap(stack_b, THREAD_STACK_SIZE);
+		return 1;
+	}
+
+	flags = CLONE_VM | CLONE_SIGHAND | CLONE_THREAD | CLONE_FILES |
+		CLONE_FS | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID;
+	child_a = clone_thread(flags, (char *)stack_a + THREAD_STACK_SIZE,
+			       NULL, 0, (int *)&bitset_tid_a,
+			       thread_futex_bitset_wait, (void *)1L);
+	child_b = clone_thread(flags, (char *)stack_b + THREAD_STACK_SIZE,
+			       NULL, 0, (int *)&bitset_tid_b,
+			       thread_futex_bitset_wait, (void *)2L);
+	if (child_a < 0 || child_b < 0) {
+		printf("FAIL: clone futex bitset waiters: %ld %ld\n", child_a,
+		       child_b);
+		munmap(stack_a, THREAD_STACK_SIZE);
+		munmap(stack_b, THREAD_STACK_SIZE);
+		return 1;
+	}
+
+	while ((ready = __atomic_load_n((int *)&bitset_ready,
+					__ATOMIC_ACQUIRE)) < 2)
+		futex((int *)&bitset_ready, FUTEX_WAIT | FUTEX_PRIVATE_FLAG,
+		      ready, NULL, 0, 0);
+
+	for (int i = 0; i < 1000 && woke == 0; i++) {
+		woke = futex((int *)&bitset_word, FUTEX_WAKE_BITSET_PRIVATE, 1,
+			     NULL, NULL, 2);
+		if (woke == 0)
+			yield();
+	}
+	if (woke != 1) {
+		printf("FAIL: futex wake bitset woke %ld want 1\n", woke);
+		failed++;
+	}
+	for (int i = 0;
+	     i < 1000 &&
+	     (__atomic_load_n((int *)&bitset_seen, __ATOMIC_ACQUIRE) & 2) == 0;
+	     i++)
+		yield();
+	if (__atomic_load_n((int *)&bitset_seen, __ATOMIC_ACQUIRE) != 2) {
+		printf("FAIL: futex bitset seen mask got %d want 2\n",
+		       bitset_seen);
+		failed++;
+	}
+
+	futex((int *)&bitset_word, FUTEX_WAKE_BITSET_PRIVATE, 2, NULL, NULL,
+	      FUTEX_BITSET_MATCH_ANY);
+	wait_for_tid_clear(&bitset_tid_a);
+	wait_for_tid_clear(&bitset_tid_b);
+	munmap(stack_a, THREAD_STACK_SIZE);
+	munmap(stack_b, THREAD_STACK_SIZE);
+	return failed;
+}
+
+static volatile int match_any_word;
+static volatile int match_any_ready;
+static volatile int match_any_seen;
+static volatile int match_any_tid = -1;
+
+static int thread_futex_match_any_wait(void *arg)
+{
+	int use_bitset = (int)(long)arg;
+	long ret;
+
+	__atomic_store_n((int *)&match_any_ready, 1, __ATOMIC_RELEASE);
+	futex((int *)&match_any_ready, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1,
+	      NULL, 0, 0);
+	if (use_bitset)
+		ret = futex((int *)&match_any_word, FUTEX_WAIT_BITSET_PRIVATE, 0,
+			    NULL, NULL, FUTEX_BITSET_MATCH_ANY);
+	else
+		ret = futex((int *)&match_any_word, FUTEX_WAIT_PRIVATE, 0,
+			    NULL, NULL, 0);
+	if (ret == 0)
+		__atomic_store_n((int *)&match_any_seen, 1, __ATOMIC_RELEASE);
+	return 0;
+}
+
+static int run_futex_match_any_case(int wait_uses_bitset, int wake_uses_bitset)
+{
+	void *stack;
+	long child;
+	unsigned long flags;
+	long woke = 0;
+	int failed = 0;
+
+	match_any_word = 0;
+	match_any_ready = 0;
+	match_any_seen = 0;
+	match_any_tid = -1;
+
+	stack = mmap(NULL, THREAD_STACK_SIZE, PROT_READ | PROT_WRITE,
+		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if ((long)stack < 0)
+		return 1;
+
+	flags = CLONE_VM | CLONE_SIGHAND | CLONE_THREAD | CLONE_FILES |
+		CLONE_FS | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID;
+	child = clone_thread(flags, (char *)stack + THREAD_STACK_SIZE, NULL, 0,
+			     (int *)&match_any_tid, thread_futex_match_any_wait,
+			     (void *)(long)wait_uses_bitset);
+	if (child < 0) {
+		munmap(stack, THREAD_STACK_SIZE);
+		return 1;
+	}
+
+	while (__atomic_load_n((int *)&match_any_ready, __ATOMIC_ACQUIRE) == 0)
+		futex((int *)&match_any_ready, FUTEX_WAIT | FUTEX_PRIVATE_FLAG,
+		      0, NULL, 0, 0);
+
+	for (int i = 0; i < 1000 && woke == 0; i++) {
+		if (wake_uses_bitset)
+			woke = futex((int *)&match_any_word,
+				     FUTEX_WAKE_BITSET_PRIVATE, 1, NULL, NULL,
+				     FUTEX_BITSET_MATCH_ANY);
+		else
+			woke = futex((int *)&match_any_word,
+				     FUTEX_WAKE_PRIVATE, 1, NULL, NULL, 0);
+		if (woke == 0)
+			yield();
+	}
+	if (woke != 1)
+		failed++;
+	for (int i = 0;
+	     i < 1000 &&
+	     __atomic_load_n((int *)&match_any_seen, __ATOMIC_ACQUIRE) == 0;
+	     i++)
+		yield();
+	if (__atomic_load_n((int *)&match_any_seen, __ATOMIC_ACQUIRE) != 1)
+		failed++;
+
+	futex((int *)&match_any_word, FUTEX_WAKE_BITSET_PRIVATE, 1, NULL, NULL,
+	      FUTEX_BITSET_MATCH_ANY);
+	wait_for_tid_clear(&match_any_tid);
+	munmap(stack, THREAD_STACK_SIZE);
+	return failed;
+}
+
+static int test_futex_bitset_match_any_equivalence(void)
+{
+	int failed = 0;
+
+	failed += run_futex_match_any_case(0, 1);
+	failed += run_futex_match_any_case(1, 0);
+	return failed;
+}
+
 static int futex_clone_expect_eq(const char *name, long got, long want)
 {
 	if (got == want)
@@ -804,19 +1071,53 @@ static int test_futex_error_paths(void)
 					      0, &timeout, NULL, 0),
 					-ETIMEDOUT);
 	failed += futex_clone_expect_eq(
-		"futex realtime unsupported",
-		futex(&word, FUTEX_WAIT | FUTEX_CLOCK_REALTIME, 1, NULL,
-		      NULL, 0),
-		-ENOSYS);
+		"futex wait realtime zero timeout",
+		futex(&word,
+		      FUTEX_WAIT | FUTEX_PRIVATE_FLAG | FUTEX_CLOCK_REALTIME, 0,
+		      &timeout, NULL, 0),
+		-ETIMEDOUT);
 	failed += futex_clone_expect_eq(
 		"futex requeue unsupported",
 		futex(&word, FUTEX_REQUEUE_PRIVATE, 1, NULL, &word, 0),
 		-ENOSYS);
 	failed += futex_clone_expect_eq(
-		"futex bitset unsupported",
-		futex(&word, FUTEX_WAIT_BITSET_PRIVATE, 1, NULL, NULL,
+		"futex bitset zero mask",
+		futex(&word, FUTEX_WAIT_BITSET_PRIVATE, 0, NULL, NULL, 0),
+		-EINVAL);
+
+	word = 1;
+	failed += futex_clone_expect_eq(
+		"futex bitset wait mismatch",
+		futex(&word, FUTEX_WAIT_BITSET_PRIVATE, 0, NULL, NULL,
 		      FUTEX_BITSET_MATCH_ANY),
-		-ENOSYS);
+		-EAGAIN);
+
+	word = 0;
+	failed += futex_clone_expect_eq(
+		"futex bitset bad timeout pointer",
+		futex(&word, FUTEX_WAIT_BITSET_PRIVATE, 0, (void *)~0UL, NULL,
+		      FUTEX_BITSET_MATCH_ANY),
+		-EFAULT);
+	timeout.tv_sec = 0;
+	timeout.tv_nsec = 1000000000L;
+	failed += futex_clone_expect_eq(
+		"futex bitset invalid timeout nsec",
+		futex(&word, FUTEX_WAIT_BITSET_PRIVATE, 0, &timeout, NULL,
+		      FUTEX_BITSET_MATCH_ANY),
+		-EINVAL);
+	timeout.tv_sec = 0;
+	timeout.tv_nsec = 0;
+	failed += futex_clone_expect_eq(
+		"futex bitset expired absolute timeout",
+		futex(&word, FUTEX_WAIT_BITSET_PRIVATE, 0, &timeout, NULL,
+		      FUTEX_BITSET_MATCH_ANY),
+		-ETIMEDOUT);
+	failed += futex_clone_expect_eq(
+		"futex bitset realtime expired timeout",
+		futex(&word,
+		      FUTEX_WAIT_BITSET_PRIVATE | FUTEX_CLOCK_REALTIME, 0,
+		      &timeout, NULL, FUTEX_BITSET_MATCH_ANY),
+		-ETIMEDOUT);
 
 	return failed;
 }
@@ -954,11 +1255,17 @@ int main(void)
 		     &failed);
 	report_group("clone thread shared counter", test_shared_counter(),
 		     &failed);
+	report_group("clone musl pthread flags", test_clone_musl_pthread_flags(),
+		     &failed);
 	report_group("pthread create/join", test_create_join(), &failed);
 	report_group("pthread mutex counter", test_mutex_counter(), &failed);
 	report_group("pthread mutex error paths", test_mutex_errors(), &failed);
 	report_group("pthread self consistency", test_self_consistency(),
 		     &failed);
+	report_group("futex bitset selective wake",
+		     test_futex_bitset_selective_wake(), &failed);
+	report_group("futex bitset match any equivalence",
+		     test_futex_bitset_match_any_equivalence(), &failed);
 	report_group("futex error paths", test_futex_error_paths(), &failed);
 	report_group("robust list roundtrip", test_robust_list_roundtrip(),
 		     &failed);

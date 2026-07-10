@@ -160,12 +160,13 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | `CLONE_CHILD_CLEARTID` | supported for threads | 线程退出时清零并 futex wake；非线程 clone 返回 `-EINVAL` |
 | `CLONE_SETTLS` | supported for threads | 设置 child TLS；非线程 clone 返回 `-EINVAL` |
 | `CLONE_DETACHED/CLONE_UNTRACED` | supported no-op | 无 ptrace 模型，作为兼容 hint 接受 |
+| `CLONE_SYSVSEM` | supported no-op | 无 SysV semaphore undo 状态；为 musl-style pthread flag 组合接受 |
 | `CLONE_PIDFD` | unsupported | `-EINVAL`；没有 pidfd 文件描述符模型 |
 | `CLONE_VFORK` | unsupported | `-EINVAL`；没有 parent blocking / mm_release 语义 |
 | `CLONE_PARENT` | unsupported | `-EINVAL`；不改变 parent 关系 |
 | `CLONE_PTRACE` | unsupported | `-EINVAL`；没有 ptrace 模型 |
 | namespace flags | unsupported | `CLONE_NEWTIME/NEWNS/NEWCGROUP/NEWUTS/NEWIPC/NEWUSER/NEWPID/NEWNET` 返回 `-EINVAL` |
-| `CLONE_SYSVSEM/CLONE_IO` | unsupported | `-EINVAL`；没有 SysV sem undo 或 io context |
+| `CLONE_IO` | unsupported | `-EINVAL`；没有 io context |
 | clone3-only flags | unsupported | `CLONE_CLEAR_SIGHAND/CLONE_INTO_CGROUP` 返回 `-EINVAL` |
 | unknown flag bits | unsupported | `-EINVAL` |
 | non-leader non-thread clone | unsupported | `-EINVAL` |
@@ -273,7 +274,7 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 
 | Nr | syscall | 等级 | 当前语义 | 主要缺口 | 下一步 |
 | ---: | --- | --- | --- | --- | --- |
-| 98 | `futex` | B | 支持 WAIT/WAKE、PRIVATE aliases 和 robust exit wake，见 op 支持表 | requeue、pi、wait_bitset 等返回 `-ENOSYS` | 按 pthread 需求扩展 |
+| 98 | `futex` | B | 支持 WAIT/WAKE、WAIT_BITSET/WAKE_BITSET、PRIVATE aliases、wait op realtime option 和 robust exit wake，见 op 支持表 | requeue、PI、shared inode key 缺失 | 按 pthread 需求扩展 |
 | 99 | `set_robust_list` | B | 登记 robust list | 仅 exit-time 遍历 | 保持并压测非法链 |
 | 100 | `get_robust_list` | B | 查询 robust list | 权限模型浅 | 补跨线程权限 |
 | 283 | `membarrier` | B | 单核 private/global/sync_core/rseq 兼容，见 cmd 支持表 | 无 SMP IPI/runqueue 语义 | SMP 前保持单核标注 |
@@ -289,9 +290,9 @@ pthread 路径，跨进程 shared futex 的 inode/page-cache key 尚未实现。
 | `FUTEX_WAIT` / `FUTEX_WAIT_PRIVATE` | supported | 值不匹配返回 `-EAGAIN`；relative timeout 可返回 `-ETIMEDOUT`；signal 打断返回 `-EINTR` |
 | `FUTEX_WAKE` / `FUTEX_WAKE_PRIVATE` | supported | 返回唤醒 waiter 数；`nr <= 0` 返回 0 |
 | `FUTEX_PRIVATE_FLAG` | supported | 作为 pthread fast path 固定接受；当前 private/shared 都使用 mm-local key |
-| `FUTEX_CLOCK_REALTIME` | unsupported | `-ENOSYS`；尚无 realtime futex timeout 语义 |
+| `FUTEX_CLOCK_REALTIME` | supported for wait ops | `FUTEX_WAIT` / `FUTEX_WAIT_BITSET` 接受；当前 `CLOCK_REALTIME` 与 mtime 同源，不承诺真实墙钟 |
+| `FUTEX_WAIT_BITSET/WAKE_BITSET` | supported | `val3 == 0` 返回 `-EINVAL`；WAIT_BITSET timeout 为 absolute；WAKE_BITSET 只唤醒 bitset 相交 waiter |
 | `FUTEX_REQUEUE/CMP_REQUEUE/WAKE_OP` | unsupported | `-ENOSYS` |
-| `FUTEX_WAIT_BITSET/WAKE_BITSET` | unsupported | `-ENOSYS` |
 | PI futex ops | unsupported | `FUTEX_LOCK_PI/UNLOCK_PI/TRYLOCK_PI/LOCK_PI2` 返回 `-ENOSYS` |
 | requeue-PI ops | unsupported | `FUTEX_WAIT_REQUEUE_PI/CMP_REQUEUE_PI` 返回 `-ENOSYS` |
 | unknown op bits | unsupported | `-ENOSYS` |
