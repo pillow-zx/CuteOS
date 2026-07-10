@@ -16,6 +16,14 @@
 #define RSEQ_SINGLE_CPU_ID  0U
 #define RSEQ_SINGLE_NODE_ID 0U
 #define RSEQ_SINGLE_MM_CID  0U
+#define RSEQ_CS_SUPPORTED_FLAGS                                             \
+	(RSEQ_CS_FLAG_NO_RESTART_ON_PREEMPT | RSEQ_CS_FLAG_NO_RESTART_ON_SIGNAL | \
+	 RSEQ_CS_FLAG_NO_RESTART_ON_MIGRATE)
+
+enum rseq_restart_event {
+	RSEQ_RESTART_ON_PREEMPT,
+	RSEQ_RESTART_ON_SIGNAL,
+};
 
 static __always_inline __must_check __pure struct rseq *
 rseq_task_area(const struct task_struct *task)
@@ -158,9 +166,20 @@ static int __must_check __nonnull(1) rseq_clear_user_cs(struct rseq *area)
 	return 0;
 }
 
+static bool rseq_cs_suppresses_restart(const struct rseq_cs *cs,
+					enum rseq_restart_event event)
+{
+	if (event == RSEQ_RESTART_ON_PREEMPT)
+		return cs->flags & RSEQ_CS_FLAG_NO_RESTART_ON_PREEMPT;
+	if (event == RSEQ_RESTART_ON_SIGNAL)
+		return cs->flags & RSEQ_CS_FLAG_NO_RESTART_ON_SIGNAL;
+
+	return false;
+}
+
 static int __must_check __nonnull(1, 2)
 	rseq_handle_cs(struct task_struct *task, struct trap_frame *tf,
-		       unsigned long csaddr)
+		       unsigned long csaddr, enum rseq_restart_event event)
 {
 	struct rseq_cs cs;
 	uintptr_t ip;
@@ -173,6 +192,8 @@ static int __must_check __nonnull(1, 2)
 	ret = rseq_copy_cs(&cs, (const struct rseq_cs *)csaddr);
 	if (ret < 0)
 		return ret;
+	if (cs.version != 0 || (cs.flags & ~RSEQ_CS_SUPPORTED_FLAGS))
+		return -EINVAL;
 
 	ip = trap_user_pc(tf);
 	start_ip = cs.start_ip;
@@ -182,6 +203,8 @@ static int __must_check __nonnull(1, 2)
 		return -EFAULT;
 	if (ip < start_ip || ip >= end)
 		return rseq_clear_user_cs(rseq_task_area(task));
+	if (rseq_cs_suppresses_restart(&cs, event))
+		return 0;
 
 	ret = rseq_read_signature(abort_ip, &sig);
 	if (ret < 0)
@@ -199,7 +222,7 @@ static int __must_check __nonnull(1, 2)
 
 static int __must_check __nonnull(1, 2)
 	rseq_update_user(struct task_struct *task, struct trap_frame *tf,
-			 bool force)
+			 enum rseq_restart_event event, bool force)
 {
 	struct rseq *area = rseq_task_area(task);
 	unsigned long csaddr;
@@ -221,7 +244,7 @@ static int __must_check __nonnull(1, 2)
 	if (!csaddr)
 		return 0;
 
-	return rseq_handle_cs(task, tf, csaddr);
+	return rseq_handle_cs(task, tf, csaddr, event);
 }
 
 static int __must_check rseq_reregister(struct rseq *area, uint32_t len,
@@ -321,10 +344,12 @@ void rseq_sched_switch(struct task_struct *prev)
 
 int rseq_resume_user(struct trap_frame *tf)
 {
-	return rseq_update_user(current_task(), tf, false);
+	return rseq_update_user(current_task(), tf, RSEQ_RESTART_ON_PREEMPT,
+				false);
 }
 
 int rseq_signal_deliver(struct trap_frame *tf)
 {
-	return rseq_update_user(current_task(), tf, true);
+	return rseq_update_user(current_task(), tf, RSEQ_RESTART_ON_SIGNAL,
+				true);
 }

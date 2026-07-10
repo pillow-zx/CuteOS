@@ -23,10 +23,11 @@ static int sys_write_tid(int *uaddr, pid_t tid)
 
 /*
  * SYSCALL_SUPPORT(B): clone
- * Current: supports fork-like clone and a thread subset through kernel_clone.
+ * Current: supports fork-like clone and a thread subset through kernel_clone;
+ * see SYSCALL.md for the clone flag support table.
  * Unsupported errno: namespace, vfork, parent, io, and invalid flag
  * combinations return -EINVAL.
- * Future: maintain a clone flag support table.
+ * Future: extend only when a concrete runtime needs a rejected flag.
  */
 ssize_t sys_clone(struct trap_frame *tf)
 {

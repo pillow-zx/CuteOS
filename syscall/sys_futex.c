@@ -34,9 +34,11 @@ static int futex_copy_timeout(const struct timespec *utimeout,
 
 /*
  * SYSCALL_SUPPORT(B): futex
- * Current: supports FUTEX_WAIT and FUTEX_WAKE plus robust-list exit wakeups.
- * Unsupported errno: other futex commands return -ENOSYS from kernel_futex().
- * Future: prioritize PRIVATE, requeue, PI, and bitset ops by pthread demand.
+ * Current: supports FUTEX_WAIT/FUTEX_WAKE, PRIVATE aliases, and robust-list
+ * exit wakeups.
+ * Unsupported errno: realtime timeout, requeue, PI, bitset, and unknown ops
+ * return -ENOSYS from kernel_futex().
+ * Future: add requeue, PI, and bitset ops only by pthread/libc demand.
  */
 ssize_t sys_futex(struct trap_frame *tf)
 {
@@ -49,7 +51,8 @@ ssize_t sys_futex(struct trap_frame *tf)
 
 	deadline.active = false;
 	deadline.expires = 0;
-	if ((op & FUTEX_CMD_MASK) == FUTEX_WAIT) {
+	if ((op & FUTEX_CMD_MASK) == FUTEX_WAIT &&
+	    !(op & FUTEX_CLOCK_REALTIME)) {
 		ret = futex_copy_timeout(timeout, &deadline);
 		if (ret < 0)
 			return ret;

@@ -803,6 +803,20 @@ static int test_futex_error_paths(void)
 					      FUTEX_WAIT | FUTEX_PRIVATE_FLAG,
 					      0, &timeout, NULL, 0),
 					-ETIMEDOUT);
+	failed += futex_clone_expect_eq(
+		"futex realtime unsupported",
+		futex(&word, FUTEX_WAIT | FUTEX_CLOCK_REALTIME, 1, NULL,
+		      NULL, 0),
+		-ENOSYS);
+	failed += futex_clone_expect_eq(
+		"futex requeue unsupported",
+		futex(&word, FUTEX_REQUEUE_PRIVATE, 1, NULL, &word, 0),
+		-ENOSYS);
+	failed += futex_clone_expect_eq(
+		"futex bitset unsupported",
+		futex(&word, FUTEX_WAIT_BITSET_PRIVATE, 1, NULL, NULL,
+		      FUTEX_BITSET_MATCH_ANY),
+		-ENOSYS);
 
 	return failed;
 }
@@ -857,6 +871,57 @@ static int test_clone_bad_parent_tid(void)
 	return futex_clone_expect_eq("clone bad parent_tid", ret, -EFAULT);
 }
 
+static int test_clone_flag_rejections(void)
+{
+	int failed = 0;
+
+	failed += futex_clone_expect_eq(
+		"clone pidfd unsupported",
+		clone(SIGCHLD | CLONE_PIDFD, NULL, NULL, 0, NULL), -EINVAL);
+	failed += futex_clone_expect_eq(
+		"clone namespace unsupported",
+		clone(SIGCHLD | CLONE_NEWNS, NULL, NULL, 0, NULL), -EINVAL);
+	failed += futex_clone_expect_eq(
+		"clone vfork unsupported",
+		clone(SIGCHLD | CLONE_VFORK, NULL, NULL, 0, NULL), -EINVAL);
+	failed += futex_clone_expect_eq(
+		"clone parent unsupported",
+		clone(SIGCHLD | CLONE_PARENT, NULL, NULL, 0, NULL), -EINVAL);
+	failed += futex_clone_expect_eq(
+		"clone io unsupported",
+		clone(SIGCHLD | CLONE_IO, NULL, NULL, 0, NULL), -EINVAL);
+	failed += futex_clone_expect_eq(
+		"clone clear sighand unsupported",
+		clone(SIGCHLD | CLONE_CLEAR_SIGHAND, NULL, NULL, 0, NULL),
+		-EINVAL);
+
+	return failed;
+}
+
+static int test_clone_ignored_flags(void)
+{
+	long child;
+	long waited;
+	int status = 0;
+
+	child = clone(SIGCHLD | CLONE_DETACHED | CLONE_UNTRACED, NULL, NULL,
+		      0, NULL);
+	if (child == 0)
+		exit(0);
+	if (child < 0)
+		return futex_clone_expect_eq("clone ignored flags", child, 0);
+
+	waited = wait4(child, &status, 0, NULL);
+	if (waited != child || status != 0) {
+		printf("FAIL: clone ignored flags waited=%ld child=%ld "
+		       "status=%d\n",
+		       waited, child, status);
+		return 1;
+	}
+
+	return 0;
+}
+
 static void report_group(const char *name, int ret, int *failed)
 {
 	printf("task_test: %s ... ", name);
@@ -898,6 +963,10 @@ int main(void)
 	report_group("robust list roundtrip", test_robust_list_roundtrip(),
 		     &failed);
 	report_group("clone bad parent_tid", test_clone_bad_parent_tid(),
+		     &failed);
+	report_group("clone flag rejections", test_clone_flag_rejections(),
+		     &failed);
+	report_group("clone ignored flags", test_clone_ignored_flags(),
 		     &failed);
 
 	if (failed)

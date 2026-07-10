@@ -138,9 +138,37 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | 172 | `getpid` | A | 返回 tgid | 保持 |
 | 173 | `getppid` | A | 返回 parent pid | orphan/adoption 已依赖 task | 保持 |
 | 178 | `gettid` | A | 返回 task pid | 保持 |
-| 220 | `clone` | B | 支持 fork-like 和线程子集，拒绝 namespace/vfork/io | clone3/vfork/namespace 不支持 | 完善 clone flag 表 |
+| 220 | `clone` | B | 支持 fork-like 和线程子集，见 flag 支持表 | clone3/vfork/namespace 不支持 | 按真实线程库需求扩展 |
 | 221 | `execve` | A | 通过 VFS 加载静态 ELF，复制 argv/envp，安装新 mm | 动态链接、解释器脚本、auxv 完整度有限 | 保持静态 ELF 主线，补 auxv/错误码测试 |
 | 260 | `wait4` | B | 等待 pid `-1` 或正 pid，`options == 0`，返回 rusage | options/pgrp wait 不完整 | 扩展 `WNOHANG/WUNTRACED` 等 |
+
+### `clone` flag 支持表
+
+`clone` 当前覆盖 fork-like clone 和 pthread 所需线程子集。复杂 Linux
+模型先固定为 `-EINVAL`，避免真实程序把探测成功误认为完整支持。
+
+| flag / 组合 | 状态 | errno / 语义 |
+| --- | --- | --- |
+| exit signal `0` / `SIGCHLD` | supported | 非线程 clone 可用；其它非零 exit signal 返回 `-EINVAL` |
+| `CLONE_VM` | supported | 共享 mm；必须提供 child stack，并且必须同时设置 `CLONE_SIGHAND` |
+| `CLONE_FS` | supported | 共享 cwd/root/umask 状态 |
+| `CLONE_FILES` | supported | 共享 fdtable |
+| `CLONE_SIGHAND` | supported | 共享 handler 表；必须同时设置 `CLONE_VM` |
+| `CLONE_THREAD` | supported | 加入调用者线程组；要求 `CLONE_VM | CLONE_SIGHAND` |
+| `CLONE_PARENT_SETTID` | supported | commit 前把 child TID 写入 parent_tid；写失败返回 `-EFAULT` 并回滚 |
+| `CLONE_CHILD_SETTID` | supported for threads | 线程 clone 写 child_tid；非线程 clone 返回 `-EINVAL` |
+| `CLONE_CHILD_CLEARTID` | supported for threads | 线程退出时清零并 futex wake；非线程 clone 返回 `-EINVAL` |
+| `CLONE_SETTLS` | supported for threads | 设置 child TLS；非线程 clone 返回 `-EINVAL` |
+| `CLONE_DETACHED/CLONE_UNTRACED` | supported no-op | 无 ptrace 模型，作为兼容 hint 接受 |
+| `CLONE_PIDFD` | unsupported | `-EINVAL`；没有 pidfd 文件描述符模型 |
+| `CLONE_VFORK` | unsupported | `-EINVAL`；没有 parent blocking / mm_release 语义 |
+| `CLONE_PARENT` | unsupported | `-EINVAL`；不改变 parent 关系 |
+| `CLONE_PTRACE` | unsupported | `-EINVAL`；没有 ptrace 模型 |
+| namespace flags | unsupported | `CLONE_NEWTIME/NEWNS/NEWCGROUP/NEWUTS/NEWIPC/NEWUSER/NEWPID/NEWNET` 返回 `-EINVAL` |
+| `CLONE_SYSVSEM/CLONE_IO` | unsupported | `-EINVAL`；没有 SysV sem undo 或 io context |
+| clone3-only flags | unsupported | `CLONE_CLEAR_SIGHAND/CLONE_INTO_CGROUP` 返回 `-EINVAL` |
+| unknown flag bits | unsupported | `-EINVAL` |
+| non-leader non-thread clone | unsupported | `-EINVAL` |
 
 ## signal
 
@@ -245,11 +273,63 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 
 | Nr | syscall | 等级 | 当前语义 | 主要缺口 | 下一步 |
 | ---: | --- | --- | --- | --- | --- |
-| 98 | `futex` | B | 支持 WAIT/WAKE 和 robust exit wake | requeue、pi、wait_bitset 等返回 `-ENOSYS` | 按 pthread 需求扩展 |
+| 98 | `futex` | B | 支持 WAIT/WAKE、PRIVATE aliases 和 robust exit wake，见 op 支持表 | requeue、pi、wait_bitset 等返回 `-ENOSYS` | 按 pthread 需求扩展 |
 | 99 | `set_robust_list` | B | 登记 robust list | 仅 exit-time 遍历 | 保持并压测非法链 |
 | 100 | `get_robust_list` | B | 查询 robust list | 权限模型浅 | 补跨线程权限 |
-| 283 | `membarrier` | B | 单核 private/global/sync_core/rseq 兼容 | 无 SMP IPI/runqueue 语义 | SMP 前标单核兼容 |
-| 293 | `rseq` | B | 单核注册/注销/abort-on-preempt/signal | flags、SMP migrate、完整 mm_cid 不支持 | 补 rseq flag 策略 |
+| 283 | `membarrier` | B | 单核 private/global/sync_core/rseq 兼容，见 cmd 支持表 | 无 SMP IPI/runqueue 语义 | SMP 前保持单核标注 |
+| 293 | `rseq` | B | 单核注册/注销/abort-on-preempt/signal，见 flag 支持表 | SMP migrate、完整 mm_cid 不支持 | 跟 SMP 一起扩展 |
+
+### `futex` op 支持表
+
+futex key 当前是 `(mm, uaddr)`；`FUTEX_PRIVATE_FLAG` 明确支持并覆盖
+pthread 路径，跨进程 shared futex 的 inode/page-cache key 尚未实现。
+
+| op / flag | 状态 | errno / 语义 |
+| --- | --- | --- |
+| `FUTEX_WAIT` / `FUTEX_WAIT_PRIVATE` | supported | 值不匹配返回 `-EAGAIN`；relative timeout 可返回 `-ETIMEDOUT`；signal 打断返回 `-EINTR` |
+| `FUTEX_WAKE` / `FUTEX_WAKE_PRIVATE` | supported | 返回唤醒 waiter 数；`nr <= 0` 返回 0 |
+| `FUTEX_PRIVATE_FLAG` | supported | 作为 pthread fast path 固定接受；当前 private/shared 都使用 mm-local key |
+| `FUTEX_CLOCK_REALTIME` | unsupported | `-ENOSYS`；尚无 realtime futex timeout 语义 |
+| `FUTEX_REQUEUE/CMP_REQUEUE/WAKE_OP` | unsupported | `-ENOSYS` |
+| `FUTEX_WAIT_BITSET/WAKE_BITSET` | unsupported | `-ENOSYS` |
+| PI futex ops | unsupported | `FUTEX_LOCK_PI/UNLOCK_PI/TRYLOCK_PI/LOCK_PI2` 返回 `-ENOSYS` |
+| requeue-PI ops | unsupported | `FUTEX_WAIT_REQUEUE_PI/CMP_REQUEUE_PI` 返回 `-ENOSYS` |
+| unknown op bits | unsupported | `-ENOSYS` |
+
+### `rseq` flag 支持表
+
+| flag / field | 状态 | errno / 语义 |
+| --- | --- | --- |
+| syscall flags `0` | supported | 注册当前线程 rseq area；写入 CPU/node/mm_cid 单核值 0 |
+| `RSEQ_FLAG_UNREGISTER` | supported | 注销当前线程；area/len/sig 不匹配返回 `-EINVAL` 或 `-EPERM` |
+| unknown syscall flags | unsupported | `-EINVAL` |
+| duplicate matching registration | supported error | `-EBUSY` |
+| duplicate with wrong signature | supported error | `-EPERM` |
+| `struct rseq.flags` | ignored | kernel 写 0；当前不解释 userspace 后续写入 |
+| `rseq_cs.version == 0` | supported | 其它版本在用户返回处理 active CS 时触发 `SIGSEGV` 退出 |
+| `RSEQ_CS_FLAG_NO_RESTART_ON_PREEMPT` | supported | timer preempt 后不跳转 abort handler |
+| `RSEQ_CS_FLAG_NO_RESTART_ON_SIGNAL` | supported | signal delivery 不跳转 abort handler |
+| `RSEQ_CS_FLAG_NO_RESTART_ON_MIGRATE` | supported no-op | 当前单核无 migrate 事件 |
+| unknown `rseq_cs.flags` | unsupported | active CS 遇到未知 bit 时触发 `SIGSEGV` 退出 |
+
+### `membarrier` cmd 支持表
+
+membarrier 当前只承诺单核兼容语义：本地 fence、registration bitmask 和
+CPU0 参数校验。没有 SMP IPI、remote runqueue 扫描或跨 hart expedited
+保证；SMP 前不应宣传完整 Linux expedited 行为。
+
+| cmd / flag | 状态 | errno / 语义 |
+| --- | --- | --- |
+| `MEMBARRIER_CMD_QUERY` | supported | 返回 cuteOS 当前支持的 cmd bitmask |
+| `MEMBARRIER_CMD_GLOBAL` | supported single-core | 执行本地 full memory barrier |
+| `MEMBARRIER_CMD_GLOBAL_EXPEDITED` | supported single-core | 执行本地 full memory barrier；不要求调用者注册 |
+| `REGISTER_*` cmds | supported | 记录到当前 mm registration bitmask 并执行本地 barrier |
+| `MEMBARRIER_CMD_PRIVATE_EXPEDITED` | supported single-core | 未注册返回 `-EPERM`；注册后本地 full barrier |
+| `MEMBARRIER_CMD_PRIVATE_EXPEDITED_SYNC_CORE` | supported single-core | 未注册返回 `-EPERM`；注册后执行本地 icache/core sync hook |
+| `MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ` | supported single-core | 未注册返回 `-EPERM`；注册后本地 barrier |
+| `MEMBARRIER_CMD_FLAG_CPU` | supported for RSEQ only | 只接受 `cpu_id == 0`；其它 cmd 携带 flag 返回 `-EINVAL` |
+| `MEMBARRIER_CMD_GET_REGISTRATIONS` | supported | 返回当前 mm registration bitmask；无 mm 返回 0 |
+| unknown cmd / bad flags / bad CPU | unsupported | `-EINVAL` |
 
 ## 身份、资源、杂项
 

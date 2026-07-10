@@ -255,13 +255,14 @@ static void rseq_signal_handler(int sig)
 	signal_seen = 1;
 }
 
-static __attribute__((noinline)) void run_signal_abort_section(void)
+static __attribute__((noinline)) void run_signal_section(unsigned int cs_flags)
 {
 	long pid = getpid();
 	long tid = gettid();
 
 	__asm__ volatile("lla t0, rseq_signal_cs\n"
 			 "sd zero, 0(t0)\n"
+			 "sw %[cs_flags], 4(t0)\n"
 			 "lla t1, 1f\n"
 			 "sd t1, 8(t0)\n"
 			 "lla t2, 2f\n"
@@ -293,9 +294,15 @@ static __attribute__((noinline)) void run_signal_abort_section(void)
 			 "4:\n"
 			 :
 			 : [pid] "r"(pid), [tid] "r"(tid), [sig] "i"(SIGUSR1),
-			   [tgkill] "i"(SYS_tgkill)
+			   [tgkill] "i"(SYS_tgkill),
+			   [cs_flags] "r"(cs_flags)
 			 : "a0", "a1", "a2", "a7", "t0", "t1", "t2",
 			   "memory");
+}
+
+static void run_signal_abort_section(void)
+{
+	run_signal_section(0);
 }
 
 static int test_rseq_signal_abort(void)
@@ -348,10 +355,60 @@ static int test_rseq_signal_abort(void)
 	return failed;
 }
 
-static __attribute__((noinline)) void run_preempt_abort_section(void)
+static int test_rseq_signal_no_restart_flag(void)
+{
+	struct sigaction sa;
+	int failed = 0;
+
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = rseq_signal_handler;
+	if (sigaction(SIGUSR1, &sa, NULL) != 0) {
+		printf("FAIL: sigaction rseq signal no-restart\n");
+		return 1;
+	}
+
+	signal_seen = 0;
+	abort_seen = 0;
+	commit_seen = 0;
+	memset(&rseq_area, 0, sizeof(rseq_area));
+
+	failed += rseq_expect_ret(
+		"signal no-restart register",
+		rseq(&rseq_area, sizeof(rseq_area), 0, RSEQ_SIG), 0);
+	if (failed)
+		return failed;
+
+	run_signal_section(RSEQ_CS_FLAG_NO_RESTART_ON_SIGNAL);
+	if (!signal_seen) {
+		printf("FAIL: rseq signal no-restart handler did not run\n");
+		failed++;
+	}
+	if (abort_seen) {
+		printf("FAIL: rseq signal no-restart aborted\n");
+		failed++;
+	}
+	if (!commit_seen) {
+		printf("FAIL: rseq signal no-restart did not commit\n");
+		failed++;
+	}
+	if (rseq_area.rseq_cs != 0) {
+		printf("FAIL: rseq_cs not cleared after no-restart signal\n");
+		failed++;
+	}
+
+	failed += rseq_expect_ret(
+		"signal no-restart unregister",
+		rseq(&rseq_area, sizeof(rseq_area), RSEQ_FLAG_UNREGISTER,
+		     RSEQ_SIG),
+		0);
+	return failed;
+}
+
+static __attribute__((noinline)) void run_preempt_section(unsigned int cs_flags)
 {
 	__asm__ volatile("lla t0, rseq_preempt_cs\n"
 			 "sd zero, 0(t0)\n"
+			 "sw %[cs_flags], 4(t0)\n"
 			 "lla t1, 1f\n"
 			 "sd t1, 8(t0)\n"
 			 "lla t2, 2f\n"
@@ -383,8 +440,13 @@ static __attribute__((noinline)) void run_preempt_abort_section(void)
 			 "sw t1, 0(t0)\n"
 			 "4:\n"
 			 :
-			 :
+			 : [cs_flags] "r"(cs_flags)
 			 : "t0", "t1", "t2", "t3", "memory");
+}
+
+static void run_preempt_abort_section(void)
+{
+	run_preempt_section(0);
 }
 
 static int test_rseq_preempt_abort(void)
@@ -447,6 +509,66 @@ unregister:
 	return failed;
 }
 
+static int test_rseq_preempt_no_restart_flag(void)
+{
+	long child;
+	long waited;
+	int status = 0;
+	int failed = 0;
+
+	abort_seen = 0;
+	commit_seen = 0;
+	memset(&rseq_area, 0, sizeof(rseq_area));
+
+	failed += rseq_expect_ret(
+		"preempt no-restart register",
+		rseq(&rseq_area, sizeof(rseq_area), 0, RSEQ_SIG), 0);
+	if (failed)
+		return failed;
+
+	child = fork();
+	if (child == 0) {
+		for (volatile int i = 0; i < 40000000; i++)
+			spin_sink = i;
+		exit(0);
+	}
+	if (child < 0) {
+		printf("FAIL: preempt no-restart fork: %ld\n", child);
+		failed++;
+		goto unregister;
+	}
+
+	run_preempt_section(RSEQ_CS_FLAG_NO_RESTART_ON_PREEMPT);
+	waited = wait4(child, &status, 0, NULL);
+	if (waited != child || status != 0) {
+		printf("FAIL: preempt no-restart child waited=%ld child=%ld "
+		       "status=%d\n",
+		       waited, child, status);
+		failed++;
+	}
+
+	if (abort_seen) {
+		printf("FAIL: rseq preempt no-restart aborted\n");
+		failed++;
+	}
+	if (!commit_seen) {
+		printf("FAIL: rseq preempt no-restart did not commit\n");
+		failed++;
+	}
+	if (rseq_area.rseq_cs != 0) {
+		printf("FAIL: rseq_cs not cleared after no-restart preempt\n");
+		failed++;
+	}
+
+unregister:
+	failed += rseq_expect_ret(
+		"preempt no-restart unregister",
+		rseq(&rseq_area, sizeof(rseq_area), RSEQ_FLAG_UNREGISTER,
+		     RSEQ_SIG),
+		0);
+	return failed;
+}
+
 static void report_group(const char *name, int ret, int *failed)
 {
 	printf("rseq_test: %s ... ", name);
@@ -470,7 +592,11 @@ int main(int argc, char **argv)
 	report_group("fork clone exec lifecycle", test_rseq_lifecycle(),
 		     &failed);
 	report_group("signal abort", test_rseq_signal_abort(), &failed);
+	report_group("signal no-restart flag",
+		     test_rseq_signal_no_restart_flag(), &failed);
 	report_group("preempt abort", test_rseq_preempt_abort(), &failed);
+	report_group("preempt no-restart flag",
+		     test_rseq_preempt_no_restart_flag(), &failed);
 
 	if (failed)
 		printf("rseq_test: %d test group(s) FAILED\n", failed);

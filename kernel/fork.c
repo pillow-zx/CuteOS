@@ -17,12 +17,24 @@
 
 #define CLONE_EXIT_SIGNAL_MASK 0xffUL
 
-static const unsigned long unsupported_clone_flags =
-	CLONE_NEWTIME | CLONE_PTRACE | CLONE_VFORK | CLONE_PARENT |
-	CLONE_NEWNS | CLONE_SYSVSEM | CLONE_NEWCGROUP | CLONE_NEWUTS |
-	CLONE_NEWIPC | CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNET | CLONE_IO;
-static const unsigned long thread_only_clone_flags =
-	CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_SETTLS;
+#define KNOWN_CLONE_FLAGS                                                      \
+	(CLONE_EXIT_SIGNAL_MASK | CLONE_VM | CLONE_FS | CLONE_FILES |          \
+	 CLONE_SIGHAND | CLONE_PIDFD | CLONE_PTRACE | CLONE_VFORK |            \
+	 CLONE_PARENT | CLONE_THREAD | CLONE_NEWNS | CLONE_SYSVSEM |           \
+	 CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID |           \
+	 CLONE_DETACHED | CLONE_UNTRACED | CLONE_CHILD_SETTID |                \
+	 CLONE_NEWCGROUP | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWUSER |       \
+	 CLONE_NEWPID | CLONE_NEWNET | CLONE_IO | CLONE_CLEAR_SIGHAND |        \
+	 CLONE_INTO_CGROUP)
+
+#define UNSUPPORTED_CLONE_FLAGS                                                \
+	(CLONE_NEWTIME | CLONE_PIDFD | CLONE_PTRACE | CLONE_VFORK |            \
+	 CLONE_PARENT | CLONE_NEWNS | CLONE_SYSVSEM | CLONE_NEWCGROUP |        \
+	 CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWUSER | CLONE_NEWPID |          \
+	 CLONE_NEWNET | CLONE_IO | CLONE_CLEAR_SIGHAND | CLONE_INTO_CGROUP)
+
+#define THREAD_ONLY_CLONE_FLAGS                                                \
+	(CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_SETTLS)
 
 static bool clone_wants_thread(unsigned long flags)
 {
@@ -33,7 +45,9 @@ static int validate_clone_flags(unsigned long flags, uintptr_t child_stack)
 {
 	unsigned long exit_signal = flags & CLONE_EXIT_SIGNAL_MASK;
 
-	if (flags & unsupported_clone_flags)
+	if (flags & ~KNOWN_CLONE_FLAGS)
+		return -EINVAL;
+	if (flags & UNSUPPORTED_CLONE_FLAGS)
 		return -EINVAL;
 	if ((flags & CLONE_SIGHAND) && !(flags & CLONE_VM))
 		return -EINVAL;
@@ -48,7 +62,7 @@ static int validate_clone_flags(unsigned long flags, uintptr_t child_stack)
 		return -EINVAL;
 	if (!clone_wants_thread(flags) && !task_is_group_leader(current_task()))
 		return -EINVAL;
-	if (!clone_wants_thread(flags) && (flags & thread_only_clone_flags))
+	if (!clone_wants_thread(flags) && (flags & THREAD_ONLY_CLONE_FLAGS))
 		return -EINVAL;
 
 	if (!clone_wants_thread(flags) && exit_signal != 0 &&

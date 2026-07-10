@@ -24,7 +24,7 @@
 #include <kernel/user_map_arch.h>
 
 #ifdef KERNEL_SELFTEST
-#include <arch/sbi.h>
+#include <kernel/sbi.h>
 #include <kernel/test.h>
 #endif
 

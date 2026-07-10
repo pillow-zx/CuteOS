@@ -116,6 +116,11 @@ static int test_membarrier_errors(void)
 		"rseq bad flag",
 		membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ, 2, 0),
 		-EINVAL);
+	failed += smp_expect_ret(
+		"rseq bad cpu",
+		membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ,
+			   MEMBARRIER_CMD_FLAG_CPU, 1),
+		-EINVAL);
 
 	return failed;
 }

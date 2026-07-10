@@ -282,6 +282,9 @@ int kernel_futex(int *uaddr, int op, int val,
 {
 	int cmd = op & FUTEX_CMD_MASK;
 
+	if (op & FUTEX_CLOCK_REALTIME)
+		return -ENOSYS;
+
 	switch (cmd) {
 	case FUTEX_WAIT:
 		return futex_wait(uaddr, val, deadline);

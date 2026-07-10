@@ -176,7 +176,11 @@ clone 被拆成 prepare/commit/abort，便于 syscall 层在需要写用户 TID 
 
 当前 clone flag 策略：
 
-- 不支持 namespace、ptrace、vfork、io 等复杂 flag。
+- 支持 fork-like clone 和 pthread 所需线程子集。
+- 不支持 namespace、pidfd、ptrace、vfork、parent、io、clone3-only 等复杂
+  flag；这些组合在 validator 中固定返回 `-EINVAL`。
+- `CLONE_DETACHED` 和 `CLONE_UNTRACED` 在当前无 ptrace 模型下作为兼容
+  no-op 接受。
 - `CLONE_SIGHAND` 要求 `CLONE_VM`。
 - `CLONE_VM` 要求显式 child stack，并要求 `CLONE_SIGHAND`。
 - `CLONE_THREAD` 要求 `CLONE_VM | CLONE_SIGHAND`。
@@ -318,6 +322,7 @@ futex 实现位于 `kernel/futex.c`。当前支持：
 
 - `FUTEX_WAIT`
 - `FUTEX_WAKE`
+- `FUTEX_WAIT_PRIVATE` / `FUTEX_WAKE_PRIVATE`
 - robust futex list exit-time 处理
 
 等待 key 是：
@@ -330,6 +335,9 @@ struct futex_key {
 ```
 
 这表示 futex wait queue 按地址空间和用户地址区分。当前没有跨进程共享内存的全局 inode key。
+`FUTEX_PRIVATE_FLAG` 是 pthread 路径的稳定支持面；`FUTEX_CLOCK_REALTIME`、
+requeue、bitset 和 PI futex op 目前固定返回 `-ENOSYS`，避免误导 libc
+探测。
 
 `kernel_futex()` 根据 `FUTEX_CMD_MASK` 分发。`FUTEX_WAIT` 会：
 
@@ -357,6 +365,8 @@ rseq 实现位于 `kernel/rseq.c`。当前是单核兼容实现：
 - len 等于 32。
 - area 按 32 字节对齐。
 - 用户范围合法。
+- syscall flags 只支持 `0` 和 `RSEQ_FLAG_UNREGISTER`，其它返回
+  `-EINVAL`。
 
 核心 API：
 
@@ -373,6 +383,10 @@ int rseq_signal_deliver(struct trap_frame *tf);
 ```
 
 调度切换时，如果 prev 是从用户态 trap 进来的且注册了 rseq，则设置 `need_update`。返回用户态前 `rseq_resume_user()` 更新用户 rseq area，并在 PC 位于 critical section 时校验 abort signature，清除 `rseq_cs` 并把 `sepc` 改到 abort IP。
+`rseq_cs` 的 `NO_RESTART_ON_PREEMPT` 和 `NO_RESTART_ON_SIGNAL` 会抑制
+对应事件的 abort；`NO_RESTART_ON_MIGRATE` 在当前单核模型下是 no-op。
+未知 `rseq_cs` flag 或非 0 version 会在 active CS 的用户返回处理中变成
+`SIGSEGV` 退出。
 
 exec 清除 rseq。`CLONE_VM` 清除 child rseq；fork-like clone 继承。
 

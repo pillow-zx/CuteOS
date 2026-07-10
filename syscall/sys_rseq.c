@@ -8,10 +8,11 @@
 
 /*
  * SYSCALL_SUPPORT(B): rseq
- * Current: supports single-core register, unregister, resume, and abort paths.
+ * Current: supports single-core register, unregister, resume, abort paths, and
+ * documented rseq/rseq_cs flag policy.
  * Unsupported errno: unknown flags return -EINVAL; signature mismatch returns
  * -EPERM; duplicate matching registration returns -EBUSY.
- * Future: define flag, migration, and mm_cid policy before SMP work.
+ * Future: extend migrate and mm_cid semantics with SMP work.
  */
 ssize_t sys_rseq(struct trap_frame *tf)
 {

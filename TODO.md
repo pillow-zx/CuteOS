@@ -88,10 +88,10 @@
 
 ### 2.3 clone/futex/rseq/membarrier
 
-- [ ] 建立 clone flag 支持表，明确 namespace/vfork/io/parent 等拒绝原因。
-- [ ] futex 扩展按 pthread 实际需求排序：WAIT_PRIVATE/WAKE_PRIVATE 已有则固定，requeue/bitset 视需求添加。
-- [ ] rseq 明确 flag 语义：支持、忽略、拒绝三选一，并补测试。
-- [ ] membarrier 标注单核兼容语义，SMP 前不宣传完整 expedited 行为。
+- [x] 建立 clone flag 支持表，明确 namespace/vfork/io/parent 等拒绝原因。
+- [x] futex 扩展按 pthread 实际需求排序：WAIT_PRIVATE/WAKE_PRIVATE 已有则固定，requeue/bitset 视需求添加。
+- [x] rseq 明确 flag 语义：支持、忽略、拒绝三选一，并补测试。
+- [x] membarrier 标注单核兼容语义，SMP 前不宣传完整 expedited 行为。
 
 验收：
 
