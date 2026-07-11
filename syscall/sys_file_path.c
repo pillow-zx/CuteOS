@@ -459,10 +459,11 @@ ssize_t sys_mknod(struct trap_frame *tf)
 
 /*
  * SYSCALL_SUPPORT(C): umount2
- * Current: delegates to the single-namespace VFS unmount path.
+ * Current: delegates to the single-namespace VFS unmount path for mounted
+ * roots.
  * Unsupported errno: any nonzero flag returns -EINVAL; root or busy mounts
- * return -EBUSY.
- * Future: define mount lifecycle semantics before deepening umount.
+ * return -EBUSY; non-mount targets return -EINVAL.
+ * Future: keep C until lazy/force/no-follow and namespace semantics exist.
  */
 ssize_t sys_umount2(struct trap_frame *tf)
 {
@@ -481,10 +482,13 @@ ssize_t sys_umount2(struct trap_frame *tf)
 
 /*
  * SYSCALL_SUPPORT(C): mount
- * Current: supports a minimal block-device-to-directory VFS mount path.
+ * Current: supports a minimal single-namespace ext2 block-device-to-directory
+ * VFS mount path with explicit filesystem type and zero flags.
  * Unsupported errno: nonzero flags return -EINVAL; unknown filesystem returns
- * -ENODEV; non-block sources return -ENOTBLK.
- * Future: define the minimal mount model before advertising broader support.
+ * -ENODEV; non-block sources return -ENOTBLK; non-directory targets return
+ * -ENOTDIR; duplicate mountpoints return -EBUSY.
+ * Future: keep C until bind, remount, move, propagation, read-only, or mount
+ * namespace semantics exist.
  */
 ssize_t sys_mount(struct trap_frame *tf)
 {

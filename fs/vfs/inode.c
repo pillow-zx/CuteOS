@@ -244,7 +244,10 @@ int vfs_stat_inode(const struct inode *inode, struct stat *st)
 	st->st_gid = vfs_inode_gid(inode);
 	st->st_rdev = vfs_inode_rdev(inode);
 	st->st_size = (int64_t)size;
-	st->st_blksize = 1024;
+	if (inode->i_sb && inode->i_sb->s_blocksize)
+		st->st_blksize = inode->i_sb->s_blocksize;
+	else
+		st->st_blksize = 1024;
 	st->st_blocks = vfs_inode_blocks(inode);
 	st->st_atime_sec = vfs_inode_atime_sec(inode);
 	st->st_mtime_sec = vfs_inode_mtime_sec(inode);

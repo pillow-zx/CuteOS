@@ -66,6 +66,43 @@ static void ext2_free_super(struct super_block *sb)
 	kfree(sb);
 }
 
+static bool ext2_uuid_is_zero(const uint8_t uuid[16])
+{
+	for (uint32_t i = 0; i < 16; i++) {
+		if (uuid[i] != 0)
+			return false;
+	}
+
+	return true;
+}
+
+static uint32_t ext2_uuid_word(const uint8_t uuid[16], uint32_t offset)
+{
+	return (uint32_t)uuid[offset] | ((uint32_t)uuid[offset + 1] << 8) |
+	       ((uint32_t)uuid[offset + 2] << 16) |
+	       ((uint32_t)uuid[offset + 3] << 24);
+}
+
+static void ext2_statfs_fsid(const struct super_block *sb,
+			     const struct ext2_sb_info *sbi,
+			     struct statfs64 *buf)
+{
+	if (!ext2_uuid_is_zero(sbi->s_es.s_uuid)) {
+		uint32_t fsid0 = ext2_uuid_word(sbi->s_es.s_uuid, 0) ^
+				 ext2_uuid_word(sbi->s_es.s_uuid, 8);
+		uint32_t fsid1 = ext2_uuid_word(sbi->s_es.s_uuid, 4) ^
+				 ext2_uuid_word(sbi->s_es.s_uuid, 12);
+
+		buf->f_fsid[0] = (int32_t)fsid0;
+		buf->f_fsid[1] = (int32_t)fsid1;
+		if (buf->f_fsid[0] != 0 || buf->f_fsid[1] != 0)
+			return;
+	}
+
+	buf->f_fsid[0] = (int32_t)sb->s_dev;
+	buf->f_fsid[1] = 0;
+}
+
 static int ext2_statfs(struct super_block *sb, struct statfs64 *buf)
 {
 	struct ext2_sb_info *sbi;
@@ -91,11 +128,10 @@ static int ext2_statfs(struct super_block *sb, struct statfs64 *buf)
 	buf->f_bavail = free_blocks;
 	buf->f_files = sbi->s_es.s_inodes_count;
 	buf->f_ffree = free_inodes;
-	buf->f_fsid[0] = (int32_t)sb->s_dev;
-	buf->f_fsid[1] = 0;
+	ext2_statfs_fsid(sb, sbi, buf);
 	buf->f_namelen = EXT2_NAME_LEN;
 	buf->f_frsize = sb->s_blocksize;
-	buf->f_flags = sb->s_flags;
+	buf->f_flags = 0;
 	return 0;
 }
 

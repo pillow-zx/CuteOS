@@ -105,10 +105,12 @@ static void statx_from_stat(const struct stat *st, struct statx *stx)
 
 /*
  * SYSCALL_SUPPORT(B): statx
- * Current: reports STATX_BASIC_STATS converted from struct stat.
+ * Current: reports real STATX_BASIC_STATS fields converted from VFS stat data.
  * Unsupported errno: reserved mask bits and unsupported AT_STATX flag
- * combinations return -EINVAL.
- * Future: document the supported mask and only report fields with real data.
+ * combinations return -EINVAL; unsupported field request bits are accepted as
+ * probes but are not set in stx_mask.
+ * Future: add btime, mount id, DIO alignment, or attribute bits only when the
+ * backing VFS/filesystem state exists.
  */
 ssize_t sys_statx(struct trap_frame *tf)
 {
@@ -155,8 +157,10 @@ ssize_t sys_statx(struct trap_frame *tf)
  * SYSCALL_SUPPORT(B): statfs64
  * Current: reports the mounted superblock statfs data for a resolved path.
  * Unsupported errno: missing mount/superblock returns -EINVAL; detailed field
- * completeness depends on the filesystem.
- * Future: complete and document ext2 statfs fields.
+ * semantics depend on the filesystem. ext2 fills block/inode counts, name
+ * length, UUID-derived fsid, and zero mount flags.
+ * Future: extend per-filesystem statfs fields only when the backing
+ * filesystem owns the corresponding state.
  */
 ssize_t sys_statfs64(struct trap_frame *tf)
 {
@@ -193,8 +197,9 @@ ssize_t sys_statfs64(struct trap_frame *tf)
  * SYSCALL_SUPPORT(B): fstatfs64
  * Current: reports the mounted superblock statfs data for an open file.
  * Unsupported errno: bad fd returns -EBADF; missing mount/superblock returns
- * -EINVAL; field completeness depends on the filesystem.
- * Future: track statfs64 when ext2 field coverage is deepened.
+ * -EINVAL; field semantics depend on the filesystem. ext2 mirrors statfs64
+ * path semantics.
+ * Future: track any new per-filesystem statfs fields with statfs64.
  */
 ssize_t sys_fstatfs64(struct trap_frame *tf)
 {

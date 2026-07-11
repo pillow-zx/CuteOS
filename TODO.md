@@ -112,10 +112,10 @@
 
 ### 2.5 statx/statfs/mount
 
-- [ ] statx mask 支持范围文档化，只报告真实支持字段。
-- [ ] ext2 statfs 字段补齐或明确置零字段。
-- [ ] mount/umount 先定义最小模型：单 namespace、ext2、无 bind、无 propagation。
-- [ ] 若暂不加深 mount，则把等级保持 C 并测试 unsupported flag。
+- [x] statx mask 支持范围文档化，只报告真实支持字段。
+- [x] ext2 statfs 字段补齐或明确置零字段。
+- [x] mount/umount 先定义最小模型：单 namespace、ext2、无 bind、无 propagation。
+- [x] 若暂不加深 mount，则把等级保持 C 并测试 unsupported flag。
 
 验收：
 

@@ -16,6 +16,7 @@
 #include <uapi/rseq.h>
 #include <uapi/mman.h>
 #include <uapi/membarrier.h>
+#include <uapi/mount.h>
 #include <uapi/sched.h>
 #include <uapi/select.h>
 #include <uapi/signal.h>

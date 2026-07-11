@@ -23,8 +23,8 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | 域 | 数量 | 主要等级 | 主要风险 |
 | --- | ---: | --- | --- |
 | 文件描述符与 I/O | 20 | A/B | fcntl/ioctl/splice/fallocate flag 子集 |
-| 路径、目录、挂载 | 18 | A/B/C | mount/umount 动态语义、rename/link 边界 |
-| stat/statfs/statx | 5 | A/B | statx mask 和属性语义较浅 |
+| 路径、目录、挂载 | 18 | A/B/C | mount/umount 保持 C 级最小模型、rename/link 边界 |
+| stat/statfs/statx | 5 | A/B | statx 扩展字段不置位、statfs 字段随 FS 声明 |
 | poll/select/epoll | 6 | B | edge/oneshot、嵌套 epoll、信号掩码细节 |
 | 进程、线程、等待 | 11 | A/B | clone flag、wait options、线程组细节 |
 | signal | 7 | B | restart、默认动作、复杂 signal mask 细节 |
@@ -92,8 +92,8 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | 35 | `unlinkat` | A | 支持 `AT_REMOVEDIR` | sticky bit/权限浅 | 补目录错误码 |
 | 36 | `symlinkat` | B | VFS symlink | ext2 symlink 边界需压测 | 增加长 symlink 测试 |
 | 37 | `linkat` | B | 支持 `AT_SYMLINK_FOLLOW` | 跨挂载、目录硬链接限制 | 明确 errno 表 |
-| 39 | `umount2` | C | 存在 VFS 入口 | 动态 mount 模型未成熟 | 先定义 mount lifecycle |
-| 40 | `mount` | C | 存在 VFS 入口 | fs_context、namespace、flag 语义浅 | 建立最小 mount 设计 |
+| 39 | `umount2` | C | 单 namespace VFS unmount；拒绝所有非零 flag；root/busy mount 返回 `-EBUSY` | 无 lazy/force/no-follow、namespace 语义 | 保持探测安全最小模型 |
+| 40 | `mount` | C | 单 namespace、显式 `ext2`、block-device source 到 directory target，`flags == 0` | 无 bind/remount/move/propagation/read-only、无 fs_context | 保持探测安全最小模型 |
 | 48 | `faccessat` | B | 权限检查通过 VFS | real/effective id 差异浅 | 与 cred 模型一起加深 |
 | 49 | `chdir` | A | path lookup 后切 cwd | mount namespace 不存在 | 保持 |
 | 56 | `openat` | A | dirfd/path/flags/umask/VFS open | flag 组合仍需持续补 | 用 busybox/coreutils trace 补缺口 |
@@ -103,15 +103,65 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | 276 | `renameat2` | B | 支持 `RENAME_NOREPLACE` | exchange/whiteout 不支持 | 文档化 flag policy |
 | 439 | `faccessat2` | B | 支持 `AT_EACCESS/EMPTY_PATH/NOFOLLOW` | cred 语义浅 | 和权限模型一起推进 |
 
+### `mount` / `umount2` 最小模型
+
+`mount`/`umount2` 当前保持 C 级：用于让真实软件探测到清晰边界，而不是宣
+传完整 Linux 动态挂载。已支持模型是全局单 namespace 中把一个已存在块设备
+节点挂到一个已存在目录，文件系统类型必须显式为 `ext2`，`data` 当前不解释，
+`flags` 必须为 0。
+
+| 场景 | errno / 语义 |
+| --- | --- |
+| `mount(blockdev, dir, "ext2", 0, NULL)` | supported；在目标目录覆盖处安装新的 ext2 root |
+| unknown filesystem type | `-ENODEV` |
+| source 不是 block device | `-ENOTBLK` |
+| target 不是目录 | `-ENOTDIR` |
+| duplicate mountpoint | `-EBUSY` |
+| any nonzero `MS_*` flag | `-EINVAL` |
+| `umount2(target, 0)` on non-root non-busy mount root | supported |
+| root mount or active file/cwd/dirfd refs | `-EBUSY` |
+| non-mount target | `-EINVAL` |
+| any nonzero `MNT_*`/`UMOUNT_*` flag | `-EINVAL` |
+
 ## stat/statfs/statx
 
 | Nr | syscall | 等级 | 当前语义 | 主要缺口 | 下一步 |
 | ---: | --- | --- | --- | --- | --- |
-| 43 | `statfs64` | B | VFS statfs | 多 FS/mount 信息有限 | 补 ext2 字段完整性 |
-| 44 | `fstatfs64` | B | fd -> mount superblock statfs | 同 statfs64 | 同 statfs64 |
+| 43 | `statfs64` | B | VFS statfs；ext2 字段见下表 | 只有 ext2 声明完整字段；mount flags 固定 0 | 新 FS 按字段表声明 |
+| 44 | `fstatfs64` | B | fd -> mount superblock statfs；语义同路径 statfs | 同 statfs64 | 同 statfs64 |
 | 79 | `newfstatat` | A | 支持 empty path/nofollow | inode 属性完整度依赖 FS | 补 uid/gid/nsec 测试 |
 | 80 | `fstat` | A | fd stat | 同 newfstatat | 保持 |
-| 291 | `statx` | B | 从 `stat` 转 `STATX_BASIC_STATS` | btime、mount id、属性 mask 缺失 | 标注 mask 支持范围 |
+| 291 | `statx` | B | 从 VFS stat 转换真实 `STATX_BASIC_STATS`；扩展请求 probe-safe | btime、mount id、DIO alignment、attribute mask 缺失且不置位 | 有真实 backing state 后逐项增加 |
+
+### `statx` mask 支持表
+
+`statx` 接受 `AT_STATX_FORCE_SYNC`、`AT_STATX_DONT_SYNC` 和默认 sync 语义
+作为本地文件系统 no-op hint。`mask` 的 `STATX__RESERVED` 位返回
+`-EINVAL`；其它当前未支持的字段请求位作为探测接受，但结果中不会置位。
+返回值可以包含调用者未显式请求但 VFS 已有的基础字段。
+
+| result mask bit | 状态 | 字段语义 |
+| --- | --- | --- |
+| `STATX_BASIC_STATS` | supported | type/mode/nlink/uid/gid/atime/mtime/ctime/ino/size/blocks/blksize/dev/rdev |
+| `STATX_BTIME` | unsupported | `stx_btime` 清零，result mask 不置位 |
+| `STATX_MNT_ID` / `STATX_MNT_ID_UNIQUE` | unsupported | `stx_mnt_id` 清零，result mask 不置位 |
+| `STATX_DIOALIGN` | unsupported | DIO alignment 字段清零，result mask 不置位 |
+| `STATX_SUBVOL` | unsupported | `stx_subvol` 清零，result mask 不置位 |
+| attributes / `stx_attributes_mask` | unsupported | 当前均为 0 |
+
+### ext2 `statfs64` 字段表
+
+| 字段 | ext2 当前语义 |
+| --- | --- |
+| `f_type` | `EXT2_SUPER_MAGIC` (`0xef53`) |
+| `f_bsize` / `f_frsize` | 4 KiB ext2 block/page-cache block size |
+| `f_blocks` | ext2 superblock total block count |
+| `f_bfree` / `f_bavail` | group descriptor free block count；无配额/权限保留区差异，二者相同 |
+| `f_files` / `f_ffree` | ext2 total/free inode count |
+| `f_fsid` | ext2 UUID 派生的两个 32-bit 值；UUID 全零时回退到 device id |
+| `f_namelen` | `EXT2_NAME_LEN` (`255`) |
+| `f_flags` | 0；mount flags 未实现 |
+| `f_spare` | 0 |
 
 ## poll/select/epoll
 

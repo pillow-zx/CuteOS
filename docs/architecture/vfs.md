@@ -228,6 +228,20 @@ filesystem type。
 启动期 root mount 失败是 fatal。非 root 的 `vfs_mount(source, target, type,
 ...)` 不做自动探测，仍按显式 `type` 查找 filesystem type。
 
+当前非 root `mount(2)` 模型故意很小：
+
+- 全局单 mount namespace，没有 per-task mount namespace。
+- source 必须解析为 block device，target 必须解析为目录。
+- filesystem type 必须显式指定；当前可用动态挂载类型是 `ext2`。
+- `flags` 必须为 0；bind、remount、move、propagation、read-only、lazytime
+  等 Linux mount flag 都返回 `-EINVAL`。
+- target 已经是 mountpoint 时返回 `-EBUSY`。
+- `data` 当前不解释，由具体 filesystem mount hook 自行决定是否使用。
+
+`vfs_umount(target, flags)` 也只支持 `flags == 0`。target 必须解析到 mounted
+root；root mount 和仍被 file/cwd/dirfd 等 path 引用的 mount 返回 `-EBUSY`。
+lazy detach、force umount、expiry 和 no-follow 语义尚未实现。
+
 ## 路径解析
 
 路径解析主入口：

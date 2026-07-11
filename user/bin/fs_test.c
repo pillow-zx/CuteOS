@@ -8,6 +8,7 @@
 #define EXDEV 18
 #define EFBIG 27
 #define EXT2_SUPER_MAGIC 0xef53
+#define EXT2_BLOCK_SIZE 4096
 
 #define MOUNT_DEV "/tmp/mount_dev"
 #define MOUNT_DIR "/tmp/mount_dir"
@@ -1157,6 +1158,7 @@ static int test_splice_file_to_pipe_explicit_offset_and_eof(void)
 
 static int test_statx_basic_regular_file(void)
 {
+	struct stat st;
 	struct statx stx;
 	long ret;
 
@@ -1165,32 +1167,142 @@ static int test_statx_basic_regular_file(void)
 		return 1;
 	}
 
+	memset(&st, 0, sizeof(st));
+	ret = fstatat(AT_FDCWD, "/tmp/statx_file", &st, 0);
+	if (ret != 0) {
+		printf("FAIL: stat before statx got %ld\n", ret);
+		unlinkat(AT_FDCWD, "/tmp/statx_file", 0);
+		return 1;
+	}
+
 	memset(&stx, 0, sizeof(stx));
-	ret = statx(AT_FDCWD, "/tmp/statx_file", 0, STATX_BASIC_STATS, &stx);
+	ret = statx(AT_FDCWD, "/tmp/statx_file", 0,
+		    STATX_ALL | STATX_MNT_ID | STATX_DIOALIGN |
+			    STATX_MNT_ID_UNIQUE | STATX_SUBVOL,
+		    &stx);
 	if (ret != 0) {
 		printf("FAIL: statx expected 0 got %ld\n", ret);
 		unlinkat(AT_FDCWD, "/tmp/statx_file", 0);
 		return 1;
 	}
 
-	if ((stx.stx_mask & (STATX_TYPE | STATX_MODE | STATX_NLINK |
-			    STATX_INO | STATX_SIZE)) !=
-	    (STATX_TYPE | STATX_MODE | STATX_NLINK | STATX_INO |
-	     STATX_SIZE)) {
-		printf("FAIL: statx mask missing fields 0x%x\n", stx.stx_mask);
+	if (stx.stx_mask != STATX_BASIC_STATS) {
+		printf("FAIL: statx mask expected 0x%x got 0x%x\n",
+		       STATX_BASIC_STATS, stx.stx_mask);
 		unlinkat(AT_FDCWD, "/tmp/statx_file", 0);
 		return 1;
 	}
-	if ((stx.stx_mode & S_IFMT) != S_IFREG || stx.stx_size != 5 ||
-	    stx.stx_nlink != 1 || stx.stx_ino == 0) {
-		printf("FAIL: statx fields mode=0%o size=%lu nlink=%u ino=%lu\n",
+	if (stx.stx_blksize != EXT2_BLOCK_SIZE ||
+	    stx.stx_attributes != 0 || stx.stx_attributes_mask != 0 ||
+	    stx.stx_mnt_id != 0 || stx.stx_dio_mem_align != 0 ||
+	    stx.stx_dio_offset_align != 0 || stx.stx_subvol != 0 ||
+	    stx.stx_btime.tv_sec != 0 || stx.stx_btime.tv_nsec != 0) {
+		printf("FAIL: statx unsupported fields mask=0x%x attr=%lu\n",
+		       stx.stx_mask, stx.stx_attributes);
+		unlinkat(AT_FDCWD, "/tmp/statx_file", 0);
+		return 1;
+	}
+	if ((stx.stx_mode & S_IFMT) != S_IFREG ||
+	    (stx.stx_mode & 0777) != 0644 || stx.stx_size != 5 ||
+	    stx.stx_nlink != 1 || stx.stx_ino != st.st_ino ||
+	    stx.stx_uid != st.st_uid || stx.stx_gid != st.st_gid ||
+	    stx.stx_blocks != st.st_blocks) {
+		printf("FAIL: statx basic mode=0%o size=%lu nlink=%u ino=%lu\n",
 		       stx.stx_mode, stx.stx_size, stx.stx_nlink,
 		       stx.stx_ino);
 		unlinkat(AT_FDCWD, "/tmp/statx_file", 0);
 		return 1;
 	}
+	if (stx.stx_atime.tv_sec != st.st_atime_sec ||
+	    stx.stx_mtime.tv_sec != st.st_mtime_sec ||
+	    stx.stx_ctime.tv_sec != st.st_ctime_sec ||
+	    stx.stx_atime.tv_nsec != st.st_atime_nsec ||
+	    stx.stx_mtime.tv_nsec != st.st_mtime_nsec ||
+	    stx.stx_ctime.tv_nsec != st.st_ctime_nsec) {
+		printf("FAIL: statx timestamps mismatch\n");
+		unlinkat(AT_FDCWD, "/tmp/statx_file", 0);
+		return 1;
+	}
+	if (stx.stx_dev_major != MAJOR(st.st_dev) ||
+	    stx.stx_dev_minor != MINOR(st.st_dev) ||
+	    stx.stx_rdev_major != MAJOR(st.st_rdev) ||
+	    stx.stx_rdev_minor != MINOR(st.st_rdev)) {
+		printf("FAIL: statx dev mismatch dev=%u:%u rdev=%u:%u\n",
+		       stx.stx_dev_major, stx.stx_dev_minor,
+		       stx.stx_rdev_major, stx.stx_rdev_minor);
+		unlinkat(AT_FDCWD, "/tmp/statx_file", 0);
+		return 1;
+	}
 
 	unlinkat(AT_FDCWD, "/tmp/statx_file", 0);
+	return 0;
+}
+
+static int statfs_basic_fields_ok(const char *name, const struct statfs64 *st)
+{
+	int i;
+
+	if (st->f_type != EXT2_SUPER_MAGIC || st->f_bsize != EXT2_BLOCK_SIZE ||
+	    st->f_frsize != EXT2_BLOCK_SIZE || st->f_blocks == 0 ||
+	    st->f_bfree > st->f_blocks || st->f_bavail > st->f_bfree ||
+	    st->f_files == 0 || st->f_ffree > st->f_files ||
+	    st->f_namelen != 255 || st->f_flags != 0) {
+		printf("FAIL: %s statfs fields type=%lx bsize=%ld blocks=%lu\n",
+		       name, st->f_type, st->f_bsize, st->f_blocks);
+		return 0;
+	}
+	if (st->f_fsid[0] == 0 && st->f_fsid[1] == 0) {
+		printf("FAIL: %s statfs fsid is zero\n", name);
+		return 0;
+	}
+	for (i = 0; i < 4; i++) {
+		if (st->f_spare[i] != 0) {
+			printf("FAIL: %s statfs spare[%d]=%ld\n", name, i,
+			       st->f_spare[i]);
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+static int test_statfs_basic_fields(void)
+{
+	struct statfs64 path_st;
+	struct statfs64 fd_st;
+	long fd;
+	long ret;
+
+	memset(&path_st, 0, sizeof(path_st));
+	ret = statfs64("/", &path_st);
+	if (ret != 0 || !statfs_basic_fields_ok("path", &path_st)) {
+		printf("FAIL: statfs64 root ret=%ld\n", ret);
+		return 1;
+	}
+
+	fd = open("/", O_RDONLY | O_DIRECTORY);
+	if (fd < 0) {
+		printf("FAIL: open root directory got %ld\n", fd);
+		return 1;
+	}
+
+	memset(&fd_st, 0, sizeof(fd_st));
+	ret = fstatfs64((int)fd, &fd_st);
+	close((int)fd);
+	if (ret != 0 || !statfs_basic_fields_ok("fd", &fd_st)) {
+		printf("FAIL: fstatfs64 root ret=%ld\n", ret);
+		return 1;
+	}
+
+	if (fd_st.f_type != path_st.f_type || fd_st.f_bsize != path_st.f_bsize ||
+	    fd_st.f_frsize != path_st.f_frsize ||
+	    fd_st.f_namelen != path_st.f_namelen ||
+	    fd_st.f_fsid[0] != path_st.f_fsid[0] ||
+	    fd_st.f_fsid[1] != path_st.f_fsid[1]) {
+		printf("FAIL: statfs path/fd mismatch\n");
+		return 1;
+	}
+
 	return 0;
 }
 
@@ -1874,19 +1986,45 @@ static int test_mount_umount_error_returns(void)
 {
 	long ret;
 	int failed = 0;
+	unsigned long mount_flags[] = {
+		MS_RDONLY,
+		MS_BIND,
+		MS_REC,
+		MS_MOVE,
+		MS_REMOUNT,
+		MS_PRIVATE,
+		MS_SHARED,
+	};
+	int umount_flags[] = {
+		MNT_FORCE,
+		MNT_DETACH,
+		MNT_EXPIRE,
+		UMOUNT_NOFOLLOW,
+	};
 
 	if (mount_test_setup())
 		return 1;
 
-	ret = mount(MOUNT_DEV, MOUNT_DIR, "ext2", 1, NULL);
-	if (ret != -EINVAL) {
-		printf("FAIL: mount flags expected -EINVAL got %ld\n", ret);
-		failed++;
+	for (int i = 0; i < (int)(sizeof(mount_flags) /
+				  sizeof(mount_flags[0]));
+	     i++) {
+		ret = mount(MOUNT_DEV, MOUNT_DIR, "ext2", mount_flags[i],
+			    NULL);
+		if (ret != -EINVAL) {
+			printf("FAIL: mount flag 0x%lx expected -EINVAL got %ld\n",
+			       mount_flags[i], ret);
+			failed++;
+		}
 	}
-	ret = umount2(MOUNT_DIR, 1);
-	if (ret != -EINVAL) {
-		printf("FAIL: umount flags expected -EINVAL got %ld\n", ret);
-		failed++;
+	for (int i = 0; i < (int)(sizeof(umount_flags) /
+				  sizeof(umount_flags[0]));
+	     i++) {
+		ret = umount2(MOUNT_DIR, umount_flags[i]);
+		if (ret != -EINVAL) {
+			printf("FAIL: umount flag 0x%x expected -EINVAL got %ld\n",
+			       umount_flags[i], ret);
+			failed++;
+		}
 	}
 	ret = mount(MOUNT_DEV, MOUNT_DIR, "no_such_fs", 0, NULL);
 	if (ret != -ENODEV) {
@@ -1986,6 +2124,8 @@ int main(void)
 		     test_splice_file_to_pipe_explicit_offset_and_eof(),
 		     &failed);
 	report_group("statx basic regular file", test_statx_basic_regular_file(),
+		     &failed);
+	report_group("statfs basic fields", test_statfs_basic_fields(),
 		     &failed);
 	report_group("fallocate mode 0 allocates blocks",
 		     test_fallocate_mode0_allocates_blocks(), &failed);

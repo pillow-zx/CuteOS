@@ -335,10 +335,16 @@ fallocate 通过 inode operation 预分配指定范围所需的块。
 
 - `f_type = EXT2_SUPER_MAGIC`
 - `f_bsize = BLOCK_SIZE`
-- `f_blocks`
-- `f_bfree/f_bavail`
-- `f_files/f_ffree`
+- `f_blocks = s_blocks_count`
+- `f_bfree/f_bavail` 来自所有 group descriptor 的 free block 计数；cuteOS
+  当前没有配额、reserved blocks 或 capability 区分，所以二者相同。
+- `f_files/f_ffree` 来自 ext2 total/free inode 计数。
+- `f_fsid` 从 ext2 superblock UUID 派生两个 32-bit 值；UUID 全零时回退到
+  mounted device id。
 - `f_namelen = EXT2_NAME_LEN`
+- `f_frsize = BLOCK_SIZE`
+- `f_flags = 0`，因为当前 mount flag 均不实现。
+- `f_spare[] = 0`
 
 ## 设计约束
 
