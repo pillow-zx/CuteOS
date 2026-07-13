@@ -1,6 +1,8 @@
 #ifndef _CUTEOS_UAPI_SIGNAL_H
 #define _CUTEOS_UAPI_SIGNAL_H
 
+#include <uapi/siginfo.h>
+
 /**
  * @file signal.h
  * @brief Linux-compatible signal UAPI constants and layouts.
@@ -33,6 +35,7 @@
  * @brief Userspace signal handler pointer taking the delivered signal number.
  */
 typedef void (*__sighandler_t)(int);
+typedef void (*__sigactionhandler_t)(int, siginfo_t *, void *);
 
 /**
  * @typedef __sigrestorer_t
@@ -72,11 +75,17 @@ typedef union sigval {
  * - @c sa_mask: Additional blocked signal mask.
  */
 struct sigaction {
-	__sighandler_t sa_handler;
+	union {
+		__sighandler_t handler;
+		__sigactionhandler_t sigaction;
+	} handler;
 	unsigned long sa_flags;
 	__sigrestorer_t sa_restorer;
 	unsigned long sa_mask;
 };
+
+#define sa_handler   handler.handler
+#define sa_sigaction handler.sigaction
 
 #define SA_NOCLDSTOP 0x00000001
 #define SA_NOCLDWAIT 0x00000002
@@ -144,6 +153,8 @@ struct stack_t {
 	int ss_flags;
 	unsigned long ss_size;
 };
+
+#include <uapi/ucontext.h>
 
 #define SS_ONSTACK 1
 #define SS_DISABLE 2

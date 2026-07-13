@@ -19,54 +19,43 @@
 typedef bool (*trap_test_hook_t)(struct trap_frame *tf);
 #endif
 
-/**
- * @struct signal_frame_state
- * @brief Architecture register image embedded in a user signal frame.
- *
- * @par Fields
- * - @c tf: Full interrupted user register state.
- */
-struct signal_frame_state {
-	struct trap_frame tf;
-};
-
 /** @def ARCH_TRAP_REG_SEPC
  * @brief Test index for the saved sepc field in struct trap_frame.
  */
-#define ARCH_TRAP_REG_SEPC 0
-#define ARCH_TRAP_REG_RA 1
-#define ARCH_TRAP_REG_SP 2
-#define ARCH_TRAP_REG_GP 3
-#define ARCH_TRAP_REG_TP 4
-#define ARCH_TRAP_REG_T0 5
-#define ARCH_TRAP_REG_T1 6
-#define ARCH_TRAP_REG_T2 7
-#define ARCH_TRAP_REG_S0 8
-#define ARCH_TRAP_REG_S1 9
-#define ARCH_TRAP_REG_A0 10
-#define ARCH_TRAP_REG_A1 11
-#define ARCH_TRAP_REG_A2 12
-#define ARCH_TRAP_REG_A3 13
-#define ARCH_TRAP_REG_A4 14
-#define ARCH_TRAP_REG_A5 15
-#define ARCH_TRAP_REG_A6 16
-#define ARCH_TRAP_REG_A7 17
-#define ARCH_TRAP_REG_S2 18
-#define ARCH_TRAP_REG_S3 19
-#define ARCH_TRAP_REG_S4 20
-#define ARCH_TRAP_REG_S5 21
-#define ARCH_TRAP_REG_S6 22
-#define ARCH_TRAP_REG_S7 23
-#define ARCH_TRAP_REG_S8 24
-#define ARCH_TRAP_REG_S9 25
-#define ARCH_TRAP_REG_S10 26
-#define ARCH_TRAP_REG_S11 27
-#define ARCH_TRAP_REG_T3 28
-#define ARCH_TRAP_REG_T4 29
-#define ARCH_TRAP_REG_T5 30
-#define ARCH_TRAP_REG_T6 31
-#define ARCH_TRAP_REG_SCAUSE 32
-#define ARCH_TRAP_REG_STVAL 33
+#define ARCH_TRAP_REG_SEPC    0
+#define ARCH_TRAP_REG_RA      1
+#define ARCH_TRAP_REG_SP      2
+#define ARCH_TRAP_REG_GP      3
+#define ARCH_TRAP_REG_TP      4
+#define ARCH_TRAP_REG_T0      5
+#define ARCH_TRAP_REG_T1      6
+#define ARCH_TRAP_REG_T2      7
+#define ARCH_TRAP_REG_S0      8
+#define ARCH_TRAP_REG_S1      9
+#define ARCH_TRAP_REG_A0      10
+#define ARCH_TRAP_REG_A1      11
+#define ARCH_TRAP_REG_A2      12
+#define ARCH_TRAP_REG_A3      13
+#define ARCH_TRAP_REG_A4      14
+#define ARCH_TRAP_REG_A5      15
+#define ARCH_TRAP_REG_A6      16
+#define ARCH_TRAP_REG_A7      17
+#define ARCH_TRAP_REG_S2      18
+#define ARCH_TRAP_REG_S3      19
+#define ARCH_TRAP_REG_S4      20
+#define ARCH_TRAP_REG_S5      21
+#define ARCH_TRAP_REG_S6      22
+#define ARCH_TRAP_REG_S7      23
+#define ARCH_TRAP_REG_S8      24
+#define ARCH_TRAP_REG_S9      25
+#define ARCH_TRAP_REG_S10     26
+#define ARCH_TRAP_REG_S11     27
+#define ARCH_TRAP_REG_T3      28
+#define ARCH_TRAP_REG_T4      29
+#define ARCH_TRAP_REG_T5      30
+#define ARCH_TRAP_REG_T6      31
+#define ARCH_TRAP_REG_SCAUSE  32
+#define ARCH_TRAP_REG_STVAL   33
 #define ARCH_TRAP_REG_SSTATUS 34
 
 void trap_init(void);
@@ -296,9 +285,8 @@ trap_set_arg0(struct trap_frame *tf, uintptr_t value)
  * @param tf Trap frame.
  * @param pc Supervisor PC to restore through sret.
  */
-static __always_inline
-	__nonnull(1) void trap_set_kernel_return(struct trap_frame *tf,
-						      uintptr_t pc)
+static __always_inline __nonnull(1) void
+trap_set_kernel_return(struct trap_frame *tf, uintptr_t pc)
 {
 	tf->sepc = pc;
 	tf->sstatus |= SSTATUS_SPP | SSTATUS_SPIE;
@@ -345,9 +333,8 @@ trap_set_clone_return(struct trap_frame *tf)
  * @param tf Trap frame.
  * @param tls New tp value.
  */
-static __always_inline
-	__nonnull(1) void trap_set_tls(struct trap_frame *tf,
-					    uintptr_t tls)
+static __always_inline __nonnull(1) void
+trap_set_tls(struct trap_frame *tf, uintptr_t tls)
 {
 	tf->tp = tls;
 }
@@ -362,12 +349,14 @@ static __always_inline
  */
 static __always_inline __nonnull(1) void trap_setup_signal_handler(
 	struct trap_frame *tf, uintptr_t handler, uintptr_t restorer,
-	uintptr_t sp, uintptr_t arg0)
+	uintptr_t sp, uintptr_t arg0, uintptr_t arg1, uintptr_t arg2)
 {
 	tf->sepc = handler;
 	tf->ra = restorer;
 	tf->sp = sp;
 	tf->a0 = arg0;
+	tf->a1 = arg1;
+	tf->a2 = arg2;
 }
 
 /**
@@ -387,34 +376,12 @@ static __always_inline __must_check __pure __nonnull(1) uintptr_t
  * @param pc User entry PC.
  * @param sp User stack pointer.
  */
-static __always_inline __nonnull(1) void trap_setup_user_return(
-	struct trap_frame *tf, uintptr_t pc, uintptr_t sp)
+static __always_inline __nonnull(1) void
+trap_setup_user_return(struct trap_frame *tf, uintptr_t pc, uintptr_t sp)
 {
 	tf->sepc = pc;
 	tf->sp = sp;
 	tf->sstatus = SSTATUS_SPIE;
-}
-
-/**
- * @brief Save architecture signal-frame state from a trap frame.
- * @param state Destination state embedded in the user signal frame.
- * @param tf Source user trap frame.
- */
-static __always_inline __nonnull(1, 2) void trap_save_signal_state(
-	struct signal_frame_state *state, const struct trap_frame *tf)
-{
-	state->tf = *tf;
-}
-
-/**
- * @brief Restore architecture signal-frame state into a trap frame.
- * @param tf Destination trap frame.
- * @param state State copied back from the user signal frame.
- */
-static __always_inline __nonnull(1, 2) void trap_restore_signal_state(
-	struct trap_frame *tf, const struct signal_frame_state *state)
-{
-	*tf = state->tf;
 }
 
 #ifdef KERNEL_SELFTEST

@@ -107,6 +107,18 @@ High-level directory responsibilities:
 - `docs/architecture/`: subsystem architecture explanations.
 - `tools/` and `scripts/`: kconfig, build, image, and helper tooling.
 
+## Stable Trap And Signal Entries
+
+- `trap_classify_exception()` is the single synchronous-exception policy seam:
+  syscall, page fault, forced user signal, or kernel-fatal.
+- `send_signal_info()`, `send_group_signal_info()`, and
+  `force_signal_info()` carry producer metadata without exposing pending-state
+  representation.
+- `user_return_work()` is the common user-return boundary that completes rseq
+  work and delivers pending signals.
+- User signal delivery and `rt_sigreturn` use the Linux riscv64 signal-frame
+  contract; architecture trap-frame layout remains private to the kernel.
+
 ## Boot And Initialization
 
 The boot path starts in `arch/riscv/boot.S` and reaches `kernel_main()` in

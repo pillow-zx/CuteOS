@@ -3,6 +3,8 @@
 	.section .text
 	.align 2
 	.globl user_trap_test_start
+	.globl user_trap_test_illegal
+	.globl user_trap_test_handler
 	.globl user_trap_test_ecall
 	.globl user_trap_test_end
 
@@ -36,10 +38,35 @@ user_trap_test_start:
 	li      t5,  0x1b1b1b1b1b1b1b1b
 	li      t6,  0x1c1c1c1c1c1c1c1c
 
+user_trap_test_illegal:
+	.word   0xffffffff
+	li      a0,  0x0707070707070707
+
 user_trap_test_ecall:
 	ecall
 
 1:
 	j       1b
+
+	.align 2
+user_trap_test_handler:
+	li      t0, 4
+	bne     a0, t0, 2f
+	lw      t0, 0(a1)
+	li      t1, 4
+	bne     t0, t1, 2f
+	lw      t0, 8(a1)
+	li      t1, 1
+	bne     t0, t1, 2f
+	ld      t0, 16(a1)
+	ld      t1, 176(a2)
+	bne     t0, t1, 2f
+	addi    t1, t1, 4
+	sd      t1, 176(a2)
+	ret
+2:
+	li      a0, -1
+	ecall
+	j       2b
 
 user_trap_test_end:

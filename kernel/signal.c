@@ -332,6 +332,14 @@ void signal_mark_pending(struct task_struct *task, uint64_t mask)
 
 void signal_clear_pending(struct task_struct *task, uint64_t mask)
 {
+	if (!task)
+		return;
+
+	for (int sig = 1; sig < NSIG; sig++) {
+		if (mask & signal_mask(sig))
+			memset(&task->sigctx.pending_info[sig], 0,
+			       sizeof(task->sigctx.pending_info[sig]));
+	}
 	task_and_pending_mask(task, ~mask);
 }
 
@@ -406,17 +414,35 @@ static void wake_signal_target(struct task_struct *task, int sig)
 	}
 }
 
-int send_signal(int sig, struct task_struct *task)
+int send_signal_info(int sig, const siginfo_t *info, struct task_struct *task)
 {
+	uint64_t mask;
+
 	if (!signal_is_valid(sig))
+		return -EINVAL;
+	if (!info)
 		return -EINVAL;
 	if (task_signal_target_dead(task))
 		return -ESRCH;
 
-	signal_mark_pending(task, signal_mask(sig));
+	mask = signal_mask(sig);
+	if (!(task_pending_mask(task) & mask)) {
+		task->sigctx.pending_info[sig] = *info;
+		task->sigctx.pending_info[sig].si_signo = sig;
+		signal_mark_pending(task, mask);
+	}
 	wake_signal_target(task, sig);
 
 	return 0;
+}
+
+int send_signal(int sig, struct task_struct *task)
+{
+	siginfo_t info = {0};
+
+	info.si_signo = sig;
+	info.si_code = SI_KERNEL;
+	return send_signal_info(sig, &info, task);
 }
 
 int send_current_signal(int sig)
@@ -424,20 +450,30 @@ int send_current_signal(int sig)
 	return send_signal(sig, current_task());
 }
 
-int send_group_signal(int sig, struct task_struct *leader)
+int send_group_signal_info(int sig, const siginfo_t *info,
+			   struct task_struct *leader)
 {
+	uint64_t mask;
+
 	if (!signal_is_valid(sig))
+		return -EINVAL;
+	if (!info)
 		return -EINVAL;
 	if (task_signal_target_dead(leader))
 		return -ESRCH;
 
 	if (!task_signal_state(leader))
-		return send_signal(sig, leader);
+		return send_signal_info(sig, info, leader);
 
 	struct signal_struct *signal = task_signal_state(leader);
 
 	mutex_lock(&signal->lock);
-	signal->shared_pending |= signal_mask(sig);
+	mask = signal_mask(sig);
+	if (!(signal->shared_pending & mask)) {
+		signal->shared_pending_info[sig] = *info;
+		signal->shared_pending_info[sig].si_signo = sig;
+		signal->shared_pending |= mask;
+	}
 	mutex_unlock(&signal->lock);
 
 	wake_signal_target(leader, sig);
@@ -449,6 +485,27 @@ int send_group_signal(int sig, struct task_struct *leader)
 			wake_signal_target(thread, sig);
 	}
 
+	return 0;
+}
+
+int send_group_signal(int sig, struct task_struct *leader)
+{
+	siginfo_t info = {0};
+
+	info.si_signo = sig;
+	info.si_code = SI_KERNEL;
+	return send_group_signal_info(sig, &info, leader);
+}
+
+int signal_pending_info(const struct task_struct *task, int sig,
+			siginfo_t *info)
+{
+	if (!task || !info || !signal_is_valid(sig))
+		return -EINVAL;
+	if (!(task_pending_mask(task) & signal_mask(sig)))
+		return -ENOENT;
+
+	*info = task->sigctx.pending_info[sig];
 	return 0;
 }
 
@@ -481,7 +538,7 @@ int send_pgrp_signal(int sig, pid_t pgid)
 	return first_error;
 }
 
-int force_signal(int sig, struct task_struct *task)
+int force_signal_info(int sig, const siginfo_t *info, struct task_struct *task)
 {
 	int ret;
 
@@ -489,7 +546,6 @@ int force_signal(int sig, struct task_struct *task)
 		return -EINVAL;
 	if (!task)
 		return -ESRCH;
-
 
 	if (task_in_handler_mask(task) & signal_mask(sig)) {
 		if (task == current_task())
@@ -507,11 +563,20 @@ int force_signal(int sig, struct task_struct *task)
 		mutex_unlock(&sighand->lock);
 	}
 
-	ret = send_signal(sig, task);
+	ret = send_signal_info(sig, info, task);
 	if (ret < 0)
 		return ret;
 
 	return 0;
+}
+
+int force_signal(int sig, struct task_struct *task)
+{
+	siginfo_t info = {0};
+
+	info.si_signo = sig;
+	info.si_code = SI_KERNEL;
+	return force_signal_info(sig, &info, task);
 }
 
 static int signal_map_trampoline(pte_t *pgd)
@@ -552,34 +617,115 @@ static void stop_current(void)
 	schedule();
 }
 
+static void signal_save_user_regs(struct user_regs_struct *regs,
+				  const struct trap_frame *tf)
+{
+	regs->pc = tf->sepc;
+	regs->ra = tf->ra;
+	regs->sp = tf->sp;
+	regs->gp = tf->gp;
+	regs->tp = tf->tp;
+	regs->t0 = tf->t0;
+	regs->t1 = tf->t1;
+	regs->t2 = tf->t2;
+	regs->s0 = tf->s0;
+	regs->s1 = tf->s1;
+	regs->a0 = tf->a0;
+	regs->a1 = tf->a1;
+	regs->a2 = tf->a2;
+	regs->a3 = tf->a3;
+	regs->a4 = tf->a4;
+	regs->a5 = tf->a5;
+	regs->a6 = tf->a6;
+	regs->a7 = tf->a7;
+	regs->s2 = tf->s2;
+	regs->s3 = tf->s3;
+	regs->s4 = tf->s4;
+	regs->s5 = tf->s5;
+	regs->s6 = tf->s6;
+	regs->s7 = tf->s7;
+	regs->s8 = tf->s8;
+	regs->s9 = tf->s9;
+	regs->s10 = tf->s10;
+	regs->s11 = tf->s11;
+	regs->t3 = tf->t3;
+	regs->t4 = tf->t4;
+	regs->t5 = tf->t5;
+	regs->t6 = tf->t6;
+}
+
+static void signal_restore_user_regs(struct trap_frame *tf,
+				     const struct user_regs_struct *regs)
+{
+	tf->sepc = regs->pc;
+	tf->ra = regs->ra;
+	tf->sp = regs->sp;
+	tf->gp = regs->gp;
+	tf->tp = regs->tp;
+	tf->t0 = regs->t0;
+	tf->t1 = regs->t1;
+	tf->t2 = regs->t2;
+	tf->s0 = regs->s0;
+	tf->s1 = regs->s1;
+	tf->a0 = regs->a0;
+	tf->a1 = regs->a1;
+	tf->a2 = regs->a2;
+	tf->a3 = regs->a3;
+	tf->a4 = regs->a4;
+	tf->a5 = regs->a5;
+	tf->a6 = regs->a6;
+	tf->a7 = regs->a7;
+	tf->s2 = regs->s2;
+	tf->s3 = regs->s3;
+	tf->s4 = regs->s4;
+	tf->s5 = regs->s5;
+	tf->s6 = regs->s6;
+	tf->s7 = regs->s7;
+	tf->s8 = regs->s8;
+	tf->s9 = regs->s9;
+	tf->s10 = regs->s10;
+	tf->s11 = regs->s11;
+	tf->t3 = regs->t3;
+	tf->t4 = regs->t4;
+	tf->t5 = regs->t5;
+	tf->t6 = regs->t6;
+}
+
 static int setup_signal_frame(struct trap_frame *tf, int sig,
+			      const siginfo_t *info,
 			      const struct sigaction *action)
 {
 	uintptr_t sp;
-	struct signal_frame frame;
+	struct rt_sigframe frame;
 	struct stack_t *sas = task_altstack(current_task());
 	bool on_altstack = false;
+
+	memset(&frame, 0, sizeof(frame));
 
 	if ((action->sa_flags & SA_ONSTACK) && sas &&
 	    !(sas->ss_flags & (SS_DISABLE | SS_ONSTACK))) {
 		uintptr_t top = (uintptr_t)sas->ss_sp + sas->ss_size;
-		sp = (top - sizeof(struct signal_frame)) & ~(uintptr_t)0xf;
+		sp = (top - sizeof(struct rt_sigframe)) & ~(uintptr_t)0xf;
 		on_altstack = true;
 	} else {
-		sp = (trap_user_sp(tf) - sizeof(struct signal_frame)) &
+		sp = (trap_user_sp(tf) - sizeof(struct rt_sigframe)) &
 		     ~(uintptr_t)0xf;
 	}
 
 	if (!access_ok((void *)sp, sizeof(frame)))
 		return -EFAULT;
 
-	trap_save_signal_state(&frame.state, tf);
+	frame.info = *info;
+	frame.info.si_signo = sig;
+	frame.uc.uc_flags = 0;
+	frame.uc.uc_link = NULL;
+	if (sas)
+		frame.uc.uc_stack = *sas;
+	signal_save_user_regs(&frame.uc.uc_mcontext.sc_regs, tf);
 	if (signal_restore_mask_pending(current_task()))
-		frame.blocked = signal_take_restore_mask(current_task());
+		frame.uc.uc_sigmask = signal_take_restore_mask(current_task());
 	else
-		frame.blocked = signal_blocked_mask(current_task());
-	frame.sig = sig;
-	frame.on_altstack = on_altstack;
+		frame.uc.uc_sigmask = signal_blocked_mask(current_task());
 
 	if (copy_to_user((void *)sp, &frame, sizeof(frame)) != 0)
 		return -EFAULT;
@@ -593,7 +739,9 @@ static int setup_signal_frame(struct trap_frame *tf, int sig,
 	signal_enter_handler(current_task(), sig);
 
 	trap_setup_signal_handler(tf, (uintptr_t)action->sa_handler,
-				  SIGNAL_TRAMPOLINE_ADDR, sp, (uintptr_t)sig);
+				  SIGNAL_TRAMPOLINE_ADDR, sp, (uintptr_t)sig,
+				  sp + offsetof(struct rt_sigframe, info),
+				  sp + offsetof(struct rt_sigframe, uc));
 	return 0;
 }
 
@@ -611,16 +759,24 @@ static uint64_t current_shared_pending(void)
 	return pending;
 }
 
-static void clear_shared_pending(int sig)
+static int take_shared_pending(int sig, siginfo_t *info)
 {
 	struct signal_struct *signal = task_signal_state(current_task());
 
 	if (!signal)
-		return;
+		return -ENOENT;
 
 	mutex_lock(&signal->lock);
+	if (!(signal->shared_pending & signal_mask(sig))) {
+		mutex_unlock(&signal->lock);
+		return -ENOENT;
+	}
+	*info = signal->shared_pending_info[sig];
 	signal->shared_pending &= ~signal_mask(sig);
+	memset(&signal->shared_pending_info[sig], 0,
+	       sizeof(signal->shared_pending_info[sig]));
 	mutex_unlock(&signal->lock);
+	return 0;
 }
 
 static int next_signal(bool *shared)
@@ -671,8 +827,7 @@ static void reset_signal_action(int sig)
 		return;
 
 	mutex_lock(&sighand->lock);
-	memset(&sighand->sigactions[sig], 0,
-	       sizeof(sighand->sigactions[sig]));
+	memset(&sighand->sigactions[sig], 0, sizeof(sighand->sigactions[sig]));
 	mutex_unlock(&sighand->lock);
 }
 
@@ -680,6 +835,7 @@ void do_signal(struct trap_frame *tf)
 {
 	while (true) {
 		bool shared;
+		siginfo_t info;
 		int sig = next_signal(&shared);
 
 		if (sig == 0) {
@@ -691,10 +847,14 @@ void do_signal(struct trap_frame *tf)
 		struct sigaction action = get_signal_action(sig);
 		__sighandler_t handler = action.sa_handler;
 
-		if (shared)
-			clear_shared_pending(sig);
-		else
+		if (shared) {
+			if (take_shared_pending(sig, &info) < 0)
+				continue;
+		} else {
+			if (signal_pending_info(current_task(), sig, &info) < 0)
+				continue;
 			signal_clear_pending(current_task(), mask);
+		}
 
 		if (sig == SIGCONT) {
 			if (handler == SIG_DFL || handler == SIG_IGN)
@@ -723,7 +883,7 @@ void do_signal(struct trap_frame *tf)
 
 		if (rseq_signal_deliver(tf) < 0)
 			do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
-		if (setup_signal_frame(tf, sig, &action) < 0)
+		if (setup_signal_frame(tf, sig, &info, &action) < 0)
 			do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 		return;
 	}
@@ -732,6 +892,7 @@ void do_signal(struct trap_frame *tf)
 int do_kill(pid_t pid, int sig)
 {
 	struct task_struct *task;
+	siginfo_t info = {0};
 
 	if (sig != 0 && !signal_is_valid(sig))
 		return -EINVAL;
@@ -744,12 +905,17 @@ int do_kill(pid_t pid, int sig)
 	if (sig == 0)
 		return 0;
 
-	return send_group_signal(sig, task);
+	info.si_signo = sig;
+	info.si_code = SI_USER;
+	info.si_pid = task_pid(current_task());
+	info.si_uid = task_uid(current_task());
+	return send_group_signal_info(sig, &info, task);
 }
 
 int do_tkill(pid_t tid, int sig)
 {
 	struct task_struct *task;
+	siginfo_t info = {0};
 
 	if (sig != 0 && !signal_is_valid(sig))
 		return -EINVAL;
@@ -762,12 +928,17 @@ int do_tkill(pid_t tid, int sig)
 	if (sig == 0)
 		return 0;
 
-	return send_signal(sig, task);
+	info.si_signo = sig;
+	info.si_code = SI_USER;
+	info.si_pid = task_pid(current_task());
+	info.si_uid = task_uid(current_task());
+	return send_signal_info(sig, &info, task);
 }
 
 int do_tgkill(pid_t tgid, pid_t tid, int sig)
 {
 	struct task_struct *task;
+	siginfo_t info = {0};
 
 	if (sig != 0 && !signal_is_valid(sig))
 		return -EINVAL;
@@ -780,7 +951,11 @@ int do_tgkill(pid_t tgid, pid_t tid, int sig)
 	if (sig == 0)
 		return 0;
 
-	return send_signal(sig, task);
+	info.si_signo = sig;
+	info.si_code = SI_USER;
+	info.si_pid = task_pid(current_task());
+	info.si_uid = task_uid(current_task());
+	return send_signal_info(sig, &info, task);
 }
 
 int do_sigaltstack(const struct stack_t *ss, struct stack_t *old_ss)
@@ -791,7 +966,6 @@ int do_sigaltstack(const struct stack_t *ss, struct stack_t *old_ss)
 		*old_ss = *sas;
 
 	if (ss) {
-
 		if (sas->ss_flags & SS_ONSTACK)
 			return -EPERM;
 
@@ -813,8 +987,9 @@ int do_sigaltstack(const struct stack_t *ss, struct stack_t *old_ss)
 
 int do_sigaction(int sig, const struct sigaction *act, struct sigaction *oldact)
 {
-	const unsigned long supported_flags =
-		SA_ONSTACK | SA_RESTART | SA_NODEFER | SA_RESETHAND;
+	const unsigned long supported_flags = SA_SIGINFO | SA_ONSTACK |
+					      SA_RESTART | SA_NODEFER |
+					      SA_RESETHAND;
 	struct sighand_struct *sighand = task_sighand(current_task());
 	struct sigaction kact;
 
@@ -882,27 +1057,44 @@ int do_sigprocmask(int how, const uint64_t *set, uint64_t *oldset)
 
 int do_sigreturn(struct trap_frame *tf, uintptr_t sp)
 {
-	struct signal_frame frame;
-	struct signal_frame *user_frame = (struct signal_frame *)sp;
+	struct rt_sigframe frame;
+	struct rt_sigframe *user_frame = (struct rt_sigframe *)sp;
+	const unsigned char *fp_state;
 
 	if (copy_from_user(&frame, user_frame, sizeof(frame)) != 0)
 		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
-	if (!signal_is_valid((int)frame.sig))
+	if (!signal_is_valid(frame.info.si_signo))
 		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
-	if (!access_ok((const void *)frame.state.tf.sepc, 1))
+	if (!(task_in_handler_mask(current_task()) &
+	      signal_mask(frame.info.si_signo)))
 		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
-	if (frame.state.tf.sstatus & (SSTATUS_SPP | SSTATUS_SUM | SSTATUS_SIE))
+	if (frame.uc.uc_flags != 0 || frame.uc.uc_link != NULL)
 		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
-
-	trap_restore_signal_state(tf, &frame.state);
-	signal_set_blocked_mask(current_task(), frame.blocked);
-	signal_leave_handler(current_task(), (int)frame.sig);
-	if (frame.on_altstack) {
-		struct stack_t *sas = task_altstack(current_task());
-
-		if (sas)
-			sas->ss_flags &= ~SS_ONSTACK;
+	if ((frame.uc.uc_mcontext.sc_regs.pc & 1) ||
+	    !access_ok((const void *)frame.uc.uc_mcontext.sc_regs.pc, 1))
+		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+	if ((frame.uc.uc_mcontext.sc_regs.sp & 0xf) ||
+	    frame.uc.uc_mcontext.sc_regs.sp == 0 ||
+	    !access_ok((const void *)(frame.uc.uc_mcontext.sc_regs.sp - 1), 1))
+		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+	if (frame.uc.uc_stack.ss_flags != 0 &&
+	    frame.uc.uc_stack.ss_flags != SS_DISABLE)
+		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+	if (!(frame.uc.uc_stack.ss_flags & SS_DISABLE) &&
+	    (frame.uc.uc_stack.ss_size < MINSIGSTKSZ ||
+	     !access_ok(frame.uc.uc_stack.ss_sp, frame.uc.uc_stack.ss_size)))
+		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+	fp_state = (const unsigned char *)&frame.uc.uc_mcontext.sc_fpregs;
+	for (size_t index = 0; index < sizeof(frame.uc.uc_mcontext.sc_fpregs);
+	     index++) {
+		if (fp_state[index] != 0)
+			do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 	}
+
+	signal_restore_user_regs(tf, &frame.uc.uc_mcontext.sc_regs);
+	signal_set_blocked_mask(current_task(), frame.uc.uc_sigmask);
+	signal_leave_handler(current_task(), frame.info.si_signo);
+	*task_altstack(current_task()) = frame.uc.uc_stack;
 	task_set_trap_frame(current_task(), tf);
 	return (ssize_t)trap_return_value(tf);
 }

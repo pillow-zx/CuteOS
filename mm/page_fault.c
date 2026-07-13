@@ -48,15 +48,22 @@ static bool pte_allows_fault(int access, pte_t pte)
 	}
 }
 
-static void signal_or_exit_segv(bool from_user_mode)
+static void signal_or_panic_segv(struct trap_frame *tf, int code)
 {
-	if (from_user_mode) {
-		if (force_signal(SIGSEGV, current_task()) < 0)
+	if (trap_frame_from_user(tf)) {
+		siginfo_t info = {0};
+
+		info.si_signo = SIGSEGV;
+		info.si_code = code;
+		info.si_addr = (void *)trap_fault_addr(tf);
+		if (force_signal_info(SIGSEGV, &info, current_task()) < 0)
 			do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 		return;
 	}
 
-	do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+	panic("kernel page fault: type=%s addr=%p sepc=%p pid=%d",
+	      trap_fault_name(tf), (void *)trap_fault_addr(tf),
+	      (void *)trap_user_pc(tf), task_pid(current_task()));
 }
 
 static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
@@ -74,7 +81,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 	page_addr = fault_addr & PAGE_MASK;
 	existing = pagetable_lookup(mm->pgd, page_addr);
 
-		if (existing && pte_is_present(*existing)) {
+	if (existing && pte_is_present(*existing)) {
 		if (pte_allows_fault(access, *existing)) {
 			flush_tlb_page(page_addr);
 			return 0;
@@ -88,7 +95,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 	if (vma->vm_file) {
 		struct page_cache *file_page;
 		uint64_t page_index;
-			pgprot_t pte_flags;
+		pgprot_t pte_flags;
 
 		page_index = vma_page_index(vma, page_addr);
 		file_page = page_cache_read_page(
@@ -222,8 +229,7 @@ void do_page_fault(struct trap_frame *tf)
 	if (!mm) {
 		panic("page fault in kernel thread: type=%s addr=%p "
 		      "sepc=%p",
-		      fault_name, (void *)fault_addr,
-		      (void *)trap_user_pc(tf));
+		      fault_name, (void *)fault_addr, (void *)trap_user_pc(tf));
 	}
 
 	mm_lock(mm);
@@ -252,7 +258,7 @@ void do_page_fault(struct trap_frame *tf)
 			(void *)trap_user_pc(tf),
 			from_user_mode ? "user" : "kernel",
 			task_pid(current_task()));
-		signal_or_exit_segv(from_user_mode);
+		signal_or_panic_segv(tf, SEGV_MAPERR);
 		return;
 	}
 
@@ -267,7 +273,7 @@ void do_page_fault(struct trap_frame *tf)
 			(void *)trap_user_pc(tf),
 			from_user_mode ? "user" : "kernel",
 			task_pid(current_task()));
-		signal_or_exit_segv(from_user_mode);
+		signal_or_panic_segv(tf, SEGV_ACCERR);
 		return;
 	}
 	mm_unlock(mm);
@@ -277,5 +283,5 @@ void do_page_fault(struct trap_frame *tf)
 		fault_name, (void *)fault_addr, (size_t)fault_pte,
 		(void *)trap_user_pc(tf), from_user_mode ? "user" : "kernel",
 		task_pid(current_task()));
-	signal_or_exit_segv(from_user_mode);
+	signal_or_panic_segv(tf, SEGV_ACCERR);
 }

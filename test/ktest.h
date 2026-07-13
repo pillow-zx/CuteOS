@@ -33,6 +33,8 @@ int test_trap_frame_layout(void);
 int test_trap_from_user(void);
 int test_trap_context_layout(void);
 int test_trap_irq_codes(void);
+int test_trap_user_exception_classification(void);
+int test_signal_riscv_frame_abi(void);
 int test_trap_user_return_task_setup(void);
 int test_user_return_work_ecall_path(void);
 int test_user_return_work_page_fault_path(void);

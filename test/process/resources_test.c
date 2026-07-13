@@ -264,6 +264,9 @@ int test_signal_struct_pending(void)
 	struct task_struct *saved = current_task();
 	struct task_struct *parent = NULL;
 	struct task_struct *child = NULL;
+	siginfo_t first = {0};
+	siginfo_t second = {0};
+	siginfo_t pending = {0};
 
 	TEST_BEGIN("resources: signal pending");
 	{
@@ -283,6 +286,19 @@ int test_signal_struct_pending(void)
 			       signal_mask(SIGUSR2));
 		TEST_ASSERT_EQ(child->resources.signal->shared_pending,
 			       signal_mask(SIGUSR2));
+
+		first.si_signo = SIGTRAP;
+		first.si_code = TRAP_BRKPT;
+		first.si_addr = (void *)0x1234;
+		second = first;
+		second.si_addr = (void *)0x5678;
+		TEST_ASSERT_EQ(send_signal_info(SIGTRAP, &first, child), 0);
+		TEST_ASSERT_EQ(send_signal_info(SIGTRAP, &second, child), 0);
+		TEST_ASSERT_EQ(signal_pending_info(child, SIGTRAP, &pending),
+			       0);
+		TEST_ASSERT_EQ(pending.si_signo, SIGTRAP);
+		TEST_ASSERT_EQ(pending.si_code, TRAP_BRKPT);
+		TEST_ASSERT_EQ((uintptr_t)pending.si_addr, 0x1234UL);
 	}
 	TEST_END("resources: signal pending");
 	goto cleanup;

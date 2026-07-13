@@ -48,6 +48,7 @@ struct signal_struct {
 	refcount_t refcount;
 	mutex_t lock;
 	uint64_t shared_pending;
+	siginfo_t shared_pending_info[NSIG];
 	struct itimer_state itimers[ITIMER_COUNT];
 	struct posix_timer_table posix_timers;
 	struct rlimit64 rlimits[RLIM_NLIMITS];
@@ -69,12 +70,13 @@ struct signal_struct {
  * - @c sig: Delivered signal number.
  * - @c on_altstack: Whether delivery entered an alternate stack.
  */
-struct signal_frame {
-	struct signal_frame_state state;
-	uint64_t blocked;
-	uint64_t sig;
-	uint64_t on_altstack;
+struct rt_sigframe {
+	siginfo_t info;
+	struct ucontext uc;
 };
+
+static_assert(sizeof(struct rt_sigframe) == 1088,
+	      "Linux riscv64 rt_sigframe size mismatch");
 
 struct task_struct;
 
@@ -217,10 +219,16 @@ void signal_clear_handlers(struct task_struct *task);
  */
 void signal_defer_mask_restore(struct task_struct *task, uint64_t mask);
 int send_signal(int sig, struct task_struct *task);
+int send_signal_info(int sig, const siginfo_t *info, struct task_struct *task);
 int send_group_signal(int sig, struct task_struct *leader);
+int send_group_signal_info(int sig, const siginfo_t *info,
+			   struct task_struct *leader);
 int send_pgrp_signal(int sig, pid_t pgid);
 int send_current_signal(int sig);
 int force_signal(int sig, struct task_struct *task);
+int force_signal_info(int sig, const siginfo_t *info, struct task_struct *task);
+int signal_pending_info(const struct task_struct *task, int sig,
+			siginfo_t *info);
 bool signal_pending(struct task_struct *task);
 int signals_init(struct task_struct *task);
 int signals_clone(struct task_struct *child, bool share_sighand,

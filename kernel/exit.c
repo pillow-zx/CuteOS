@@ -86,8 +86,7 @@ static int wait4_probe(struct wait_registrar *registrar, void *arg)
 	if (!has_wait_target(pid) || find_waitable_child(pid))
 		return 1;
 
-	ret = wait_register(registrar,
-			    task_wait_child_queue(current_task()));
+	ret = wait_register(registrar, task_wait_child_queue(current_task()));
 	if (ret < 0)
 		return ret;
 
@@ -120,7 +119,6 @@ static void clear_child_tid(struct task_struct *task)
 
 	if (!clear_tid)
 		return;
-
 
 	if (copy_to_user(clear_tid, &zero, sizeof(zero)) == 0)
 		futex_wake_mm(task_mm(task), clear_tid, 1);
@@ -182,7 +180,17 @@ static void __nonnull(1)
 
 	if (notify_parent && task->links.parent &&
 	    task->lifecycle.exit_signal > 0) {
-		send_signal(task->lifecycle.exit_signal, task->links.parent);
+		siginfo_t info = {0};
+
+		info.si_signo = task->lifecycle.exit_signal;
+		info.si_code = task->lifecycle.exit_signal == SIGCHLD
+				       ? CLD_EXITED
+				       : SI_KERNEL;
+		info.si_pid = task_pid(task);
+		info.si_uid = task_uid(task);
+		info.si_status = code;
+		send_signal_info(task->lifecycle.exit_signal, &info,
+				 task->links.parent);
 		wake_up(&task->links.parent->links.wait_child_queue);
 	}
 }

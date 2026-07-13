@@ -10,11 +10,16 @@
 #include <kernel/pgtable.h>
 #include <kernel/trap.h>
 #include <kernel/processor.h>
+#include <kernel/mm.h>
+#include <kernel/signal.h>
+#include <uapi/mman.h>
 
 #include "../ktest.h"
 
 extern void __trapret(void);
 extern char user_trap_test_start[];
+extern char user_trap_test_illegal[];
+extern char user_trap_test_handler[];
 extern char user_trap_test_ecall[];
 extern char user_trap_test_end[];
 
@@ -68,6 +73,11 @@ static bool user_trap_test_hook(struct trap_frame *tf)
 	} while (0)
 
 	if (current_task() != user_trap_test_task)
+		return false;
+	if (trap_frame_cause(tf) != EXC_ECALL_U)
+		return false;
+	if (trap_frame_cause(tf) == EXC_ECALL_U &&
+	    trap_user_pc(tf) == SIGNAL_TRAMPOLINE_ADDR + sizeof(uint32_t))
 		return false;
 
 	user_trap_test_trapped = true;
@@ -178,6 +188,7 @@ forge_user_return_task(size_t user_pc, size_t user_sp, size_t user_sstatus)
 int test_trap_user_return_task_setup(void)
 {
 	struct task_struct *t = NULL;
+	struct mm_struct *mm = NULL;
 	void *code_page = NULL;
 	void *stack_page = NULL;
 	bool enqueued = false;
@@ -186,8 +197,7 @@ int test_trap_user_return_task_setup(void)
 	unsigned long saved_sie = 0;
 	uintptr_t user_pc = 0;
 	uintptr_t user_sp = 0;
-	uintptr_t code_pa = 0;
-	uintptr_t stack_pa = 0;
+	const uintptr_t code_va = 0x400000UL;
 	size_t stub_size = 0;
 
 	TEST_BEGIN("trap: runtime user entry and return");
@@ -205,19 +215,34 @@ int test_trap_user_return_task_setup(void)
 		TEST_ASSERT(stub_size > 0);
 		TEST_ASSERT(stub_size <= PAGE_SIZE);
 		memcpy(code_page, user_trap_test_start, stub_size);
-
-		code_pa = __pa((uintptr_t)code_page);
-		stack_pa = __pa((uintptr_t)stack_page);
-		user_pc = code_pa;
-		user_sp = stack_pa + PAGE_SIZE;
-
-		pagetable_write_current(code_pa, code_pa,
-					pgprot_user(true, false, true));
-		pagetable_write_current(stack_pa, stack_pa,
-					pgprot_user(true, true, false));
+		mm = mm_create_user();
+		TEST_ASSERT_NOT_NULL(mm);
+		TEST_ASSERT_EQ(mm_map_segment(mm, code_va, code_va + PAGE_SIZE,
+					      PROT_READ | PROT_EXEC),
+			       0);
+		TEST_ASSERT_EQ(mm_map_page(mm, code_va, code_page,
+					   PROT_READ | PROT_EXEC),
+			       0);
+		TEST_ASSERT_EQ(mm_add_stack(mm, stack_page), 0);
+		user_pc = code_va;
+		user_sp = USER_STACK_TOP;
 
 		t = forge_user_return_task(user_pc, user_sp, 0);
 		TEST_ASSERT_NOT_NULL(t);
+		TEST_ASSERT_EQ(task_init_resources(t), 0);
+		task_set_mm(t, mm);
+		task_set_satp(t, mm_user_satp(mm));
+		struct task_struct *saved_task = current_task();
+		set_current_task(t);
+		struct sigaction action = {
+			.sa_sigaction =
+				(__sigactionhandler_t)(code_va +
+						       (uintptr_t)(user_trap_test_handler -
+								   user_trap_test_start)),
+			.sa_flags = SA_SIGINFO,
+		};
+		TEST_ASSERT_EQ(do_sigaction(SIGILL, &action, NULL), 0);
+		set_current_task(saved_task);
 
 		user_trap_test_trapped = false;
 		user_trap_test_resumed = false;
@@ -231,7 +256,6 @@ int test_trap_user_return_task_setup(void)
 
 		trap_set_hook(user_trap_test_hook);
 		hook_installed = true;
-
 
 		saved_sie = csr_read(sie);
 		csr_clear(sie, SIE_STIE);
@@ -270,16 +294,14 @@ cleanup:
 	if (enqueued)
 		sched_dequeue(t);
 	if (t)
+		task_set_mm(t, NULL);
+	if (t)
+		task_set_satp(t, 0);
+	if (t)
 		task_free(t);
-	if (code_pa)
-		pagetable_write_current(code_pa, code_pa,
-					pgprot_kernel(true, true, true));
-	if (stack_pa)
-		pagetable_write_current(stack_pa, stack_pa,
-					pgprot_kernel(true, true, true));
-	if (code_page)
+	if (code_page && !mm)
 		free_page(code_page, 0);
-	if (stack_page)
+	if (stack_page && !mm)
 		free_page(stack_page, 0);
 	return __test_ret;
 }

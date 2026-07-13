@@ -65,8 +65,7 @@ static int timeval_to_mtime_delta(const struct timeval *tv, uint64_t *delta)
 	else
 		sec_ticks = (uint64_t)tv->tv_sec * MTIME_FREQ;
 
-	usec_ticks = ((uint64_t)tv->tv_usec * MTIME_FREQ +
-		      USEC_PER_SEC - 1) /
+	usec_ticks = ((uint64_t)tv->tv_usec * MTIME_FREQ + USEC_PER_SEC - 1) /
 		     USEC_PER_SEC;
 	if (usec_ticks > UINT64_MAX - sec_ticks)
 		*delta = UINT64_MAX;
@@ -183,6 +182,7 @@ static void posix_timer_fire(struct ktimer *timer, void *arg)
 	irq_flags_t flags;
 	int notify = SIGEV_NONE;
 	int signo = 0;
+	siginfo_t info = {0};
 
 	(void)timer;
 	(void)arg;
@@ -196,6 +196,11 @@ static void posix_timer_fire(struct ktimer *timer, void *arg)
 		target = posix_timer->target;
 		notify = posix_timer->notify;
 		signo = posix_timer->signo;
+		info.si_signo = signo;
+		info.si_code = SI_TIMER;
+		info.si_tid = posix_timer->id;
+		info.si_overrun = posix_timer->overrun;
+		info.si_int = posix_timer->sigev_value.sival_int;
 		if (notify == SIGEV_SIGNAL && target &&
 		    (task_pending_mask(target) & signal_mask(signo))) {
 			posix_timer_note_overrun(posix_timer);
@@ -205,7 +210,7 @@ static void posix_timer_fire(struct ktimer *timer, void *arg)
 	spin_unlock_irqrestore(&table->lock, flags);
 
 	if (notify == SIGEV_SIGNAL && target)
-		(void)send_signal(signo, target);
+		(void)send_signal_info(signo, &info, target);
 }
 
 static int posix_timer_event_init(struct posix_timer *timer,
@@ -252,8 +257,7 @@ posix_timer_lookup_locked(struct posix_timer_table *table, timer_t id)
 }
 
 static void posix_timer_snapshot_locked(struct posix_timer *timer,
-					struct itimerspec *value,
-					uint64_t now)
+					struct itimerspec *value, uint64_t now)
 {
 	*value = timer->value;
 	if (ktimer_active(&timer->timer))
@@ -330,8 +334,8 @@ int mtime_deadline_from_timespec(const struct timespec *ts,
 	if (ret < 0)
 		return ret;
 
-	*deadline = wait_deadline_at(
-		mtime_deadline_after(arch_timer_now(), delta));
+	*deadline =
+		wait_deadline_at(mtime_deadline_after(arch_timer_now(), delta));
 	return 0;
 }
 
@@ -355,8 +359,8 @@ int mtime_deadline_from_ms(long timeout_ms, struct wait_deadline *deadline)
 	else
 		delta = (ms * MTIME_FREQ + 999ULL) / 1000ULL;
 
-	*deadline = wait_deadline_at(
-		mtime_deadline_after(arch_timer_now(), delta));
+	*deadline =
+		wait_deadline_at(mtime_deadline_after(arch_timer_now(), delta));
 	return 0;
 }
 
@@ -638,8 +642,7 @@ int posix_timer_settime(struct signal_struct *signal, timer_t id, int flags,
 	ret = timespec_to_mtime_delta(&new_value->it_value, &value_delta);
 	if (ret < 0)
 		return ret;
-	ret = timespec_to_mtime_delta(&new_value->it_interval,
-				      &interval_delta);
+	ret = timespec_to_mtime_delta(&new_value->it_interval, &interval_delta);
 	if (ret < 0)
 		return ret;
 

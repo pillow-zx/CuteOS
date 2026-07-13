@@ -173,6 +173,7 @@ struct task_resources {
 struct task_signal_context {
 	uint64_t blocked;
 	uint64_t pending;
+	siginfo_t pending_info[NSIG];
 	uint64_t in_handler;
 	uint64_t restore_mask;
 	bool restore_mask_pending;
