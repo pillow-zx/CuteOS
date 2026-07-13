@@ -24,14 +24,14 @@ struct pipe_buffer {
 
 	int readers;
 	int writers;
-	struct wait_queue_head readers_wq;
-	struct wait_queue_head writers_wq;
+	struct wait_channel readers_wq;
+	struct wait_channel writers_wq;
 };
 
 static ssize_t pipe_read(struct file *file, char *buf, size_t count);
 static ssize_t pipe_write(struct file *file, const char *buf, size_t count);
 static int pipe_poll(struct file *file, uint32_t events,
-		     struct wait_registrar *registrar);
+		     struct wait_session *context);
 static int pipe_release(struct file *file);
 
 static const struct file_operations pipe_read_fops = {
@@ -101,7 +101,7 @@ static size_t pipe_linear_head_space(struct pipe_buffer *pipe)
 	return until_end;
 }
 
-static int pipe_read_probe(struct wait_registrar *registrar, void *arg)
+static int pipe_read_probe(struct wait_session *context, void *arg)
 {
 	struct pipe_buffer *pipe = arg;
 	irq_flags_t flags;
@@ -113,7 +113,7 @@ static int pipe_read_probe(struct wait_registrar *registrar, void *arg)
 		return 1;
 	}
 
-	ret = wait_register(registrar, &pipe->readers_wq);
+	ret = wait_session_watch(context, &pipe->readers_wq);
 	if (ret < 0) {
 		spin_unlock_irqrestore(&pipe->lock, flags);
 		return ret;
@@ -124,7 +124,7 @@ static int pipe_read_probe(struct wait_registrar *registrar, void *arg)
 	return ret;
 }
 
-static int pipe_write_probe(struct wait_registrar *registrar, void *arg)
+static int pipe_write_probe(struct wait_session *context, void *arg)
 {
 	struct pipe_buffer *pipe = arg;
 	irq_flags_t flags;
@@ -136,7 +136,7 @@ static int pipe_write_probe(struct wait_registrar *registrar, void *arg)
 		return 1;
 	}
 
-	ret = wait_register(registrar, &pipe->writers_wq);
+	ret = wait_session_watch(context, &pipe->writers_wq);
 	if (ret < 0) {
 		spin_unlock_irqrestore(&pipe->lock, flags);
 		return ret;
@@ -147,26 +147,27 @@ static int pipe_write_probe(struct wait_registrar *registrar, void *arg)
 	return ret;
 }
 
-static int pipe_wait(struct pipe_buffer *pipe, wait_probe_t probe)
+static int pipe_wait(struct pipe_buffer *pipe, wait_check_fn probe)
 {
 	const struct wait_deadline deadline = {
 		.active = false,
 	};
-	struct wait_source source = {
-		.probe = probe,
+	struct wait_request source = {
+		.kind = WAIT_KIND_PIPE,
+		.check = probe,
 		.arg = pipe,
-		.registration_limit = 1,
+		.channel_limit = 1,
 	};
-	wait_completion_t completion;
+	wait_outcome_t outcome;
 	int ret;
 
-	ret = wait_complete(&source, WAIT_F_INTERRUPTIBLE, &deadline,
-			    &completion);
+	ret = wait_for(&source, WAIT_FLAG_INTERRUPTIBLE, &deadline,
+			    &outcome);
 	if (ret < 0)
 		return ret;
-	if (completion == WAIT_COMPLETION_SIGNAL)
+	if (outcome == WAIT_OUTCOME_SIGNAL)
 		return -EINTR;
-	BUG_ON(completion != WAIT_COMPLETION_EVENT);
+	BUG_ON(outcome != WAIT_OUTCOME_EVENT);
 	return 0;
 }
 
@@ -174,7 +175,7 @@ static void pipe_commit_read_locked(struct pipe_buffer *pipe, size_t count)
 {
 	pipe->tail = (pipe->tail + count) % PIPE_SIZE;
 	pipe->used -= count;
-	wake_up(&pipe->writers_wq);
+	wait_channel_wake_one(&pipe->writers_wq);
 }
 
 static struct pipe_buffer *pipe_buffer_alloc(void)
@@ -191,8 +192,8 @@ static struct pipe_buffer *pipe_buffer_alloc(void)
 		return NULL;
 	}
 
-	init_waitqueue_head(&pipe->readers_wq);
-	init_waitqueue_head(&pipe->writers_wq);
+	wait_channel_init(&pipe->readers_wq);
+	wait_channel_init(&pipe->writers_wq);
 
 #ifdef KERNEL_SELFTEST
 	pipe_test_live_buffer_count++;
@@ -309,7 +310,7 @@ static ssize_t pipe_write(struct file *file, const char *buf, size_t count)
 		pipe->used += chunk;
 		done += chunk;
 
-		wake_up(&pipe->readers_wq);
+		wait_channel_wake_one(&pipe->readers_wq);
 		spin_unlock_irqrestore(&pipe->lock, flags);
 	}
 
@@ -317,7 +318,7 @@ static ssize_t pipe_write(struct file *file, const char *buf, size_t count)
 }
 
 static int pipe_poll(struct file *file, uint32_t events,
-		     struct wait_registrar *registrar)
+		     struct wait_session *context)
 {
 	struct pipe_buffer *pipe = file->private_data;
 	uint32_t mask = 0;
@@ -328,8 +329,8 @@ static int pipe_poll(struct file *file, uint32_t events,
 		return POLLERR;
 	spin_lock_irqsave(&pipe->lock, &flags);
 	if ((events & POLLIN) && (file->f_mode & FMODE_READ)) {
-		if (registrar) {
-			ret = wait_register(registrar, &pipe->readers_wq);
+		if (context) {
+			ret = wait_session_watch(context, &pipe->readers_wq);
 			if (ret < 0) {
 				spin_unlock_irqrestore(&pipe->lock, flags);
 				return ret;
@@ -341,8 +342,8 @@ static int pipe_poll(struct file *file, uint32_t events,
 			mask |= POLLHUP;
 	}
 	if ((events & POLLOUT) && (file->f_mode & FMODE_WRITE)) {
-		if (registrar) {
-			ret = wait_register(registrar, &pipe->writers_wq);
+		if (context) {
+			ret = wait_session_watch(context, &pipe->writers_wq);
 			if (ret < 0) {
 				spin_unlock_irqrestore(&pipe->lock, flags);
 				return ret;
@@ -370,13 +371,13 @@ static int pipe_release(struct file *file)
 	if (file->f_mode & FMODE_READ) {
 		if (pipe->readers > 0)
 			pipe->readers--;
-		wake_up_all(&pipe->writers_wq);
+		wait_channel_wake_all(&pipe->writers_wq);
 	}
 
 	if (file->f_mode & FMODE_WRITE) {
 		if (pipe->writers > 0)
 			pipe->writers--;
-		wake_up_all(&pipe->readers_wq);
+		wait_channel_wake_all(&pipe->readers_wq);
 	}
 
 	free_pipe = pipe->readers == 0 && pipe->writers == 0;

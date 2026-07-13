@@ -78,7 +78,7 @@ static bool has_wait_target(pid_t pid)
 	return find_child(pid) != NULL;
 }
 
-static int wait4_probe(struct wait_registrar *registrar, void *arg)
+static int wait4_probe(struct wait_session *session, void *arg)
 {
 	pid_t pid = *(pid_t *)arg;
 	int ret;
@@ -86,7 +86,7 @@ static int wait4_probe(struct wait_registrar *registrar, void *arg)
 	if (!has_wait_target(pid) || find_waitable_child(pid))
 		return 1;
 
-	ret = wait_register(registrar, task_wait_child_queue(current_task()));
+	ret = wait_session_watch(session, task_wait_child_queue(current_task()));
 	if (ret < 0)
 		return ret;
 
@@ -108,7 +108,7 @@ static void reparent_children(struct task_struct *dead)
 			      &child->links.parent->links.children);
 
 		if (child->lifecycle.state == TASK_ZOMBIE)
-			wake_up(&child->links.parent->links.wait_child_queue);
+			wait_channel_wake_one(&child->links.parent->links.wait_child_queue);
 	}
 }
 
@@ -191,7 +191,7 @@ static void __nonnull(1)
 		info.si_status = code;
 		send_signal_info(task->lifecycle.exit_signal, &info,
 				 task->links.parent);
-		wake_up(&task->links.parent->links.wait_child_queue);
+		wait_channel_wake_one(&task->links.parent->links.wait_child_queue);
 	}
 }
 
@@ -304,12 +304,13 @@ int kernel_wait4(pid_t pid, int options, struct wait4_result *result)
 	const struct wait_deadline deadline = {
 		.active = false,
 	};
-	struct wait_source source = {
-		.probe = wait4_probe,
+	struct wait_request source = {
+		.kind = WAIT_KIND_CHILD,
+		.check = wait4_probe,
 		.arg = &pid,
-		.registration_limit = 1,
+		.channel_limit = 1,
 	};
-	wait_completion_t completion;
+	wait_outcome_t outcome;
 
 	if (pid != (pid_t)-1 && pid <= 0)
 		return -EINVAL;
@@ -324,11 +325,11 @@ int kernel_wait4(pid_t pid, int options, struct wait4_result *result)
 
 		struct task_struct *child = find_waitable_child(pid);
 		if (!child) {
-			int ret = wait_complete(&source, 0, &deadline,
-						&completion);
+			int ret = wait_for(&source, 0, &deadline,
+						&outcome);
 			if (ret < 0)
 				return ret;
-			BUG_ON(completion != WAIT_COMPLETION_EVENT);
+			BUG_ON(outcome != WAIT_OUTCOME_EVENT);
 			continue;
 		}
 

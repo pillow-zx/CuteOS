@@ -24,7 +24,7 @@ struct inode;
 struct dentry;
 struct super_block;
 struct statfs64;
-struct wait_registrar;
+struct wait_session;
 
 /**
  * @def VFS_NAME_MAX
@@ -153,7 +153,7 @@ struct file_operations {
 	int (*open)(struct inode *inode, struct file *file);
 	int (*readdir)(struct file *file, void *ctx, filldir_t filldir);
 	int (*poll)(struct file *file, uint32_t events,
-		    struct wait_registrar *registrar);
+		    struct wait_session *context);
 	int (*ioctl)(struct file *file, uint64_t cmd, uint64_t arg);
 	int (*release)(struct file *file);
 };
@@ -474,11 +474,11 @@ int __must_check vfs_statfs(struct super_block *sb, struct statfs64 *buf);
  * @brief Poll one file for Linux POLL* readiness bits.
  * @param file Open file.
  * @param events Requested POLL* event mask.
- * @param registrar Optional generic wait registrar.
+ * @param context Optional wait session used to watch readiness channels.
  * @return Ready event mask, or a negative errno.
  */
 int __must_check vfs_poll(struct file *file, uint32_t events,
-			  struct wait_registrar *registrar);
+			  struct wait_session *context);
 int __must_check vfs_ioctl(struct file *file, uint64_t cmd, uint64_t arg);
 int __must_check vfs_getcwd_path(const struct path *cwd, char *buf,
 				 size_t size);

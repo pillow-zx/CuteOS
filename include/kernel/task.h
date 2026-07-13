@@ -129,7 +129,7 @@ struct task_links {
 	struct list_head sibling;
 	struct list_head thread_group;
 	struct list_head thread_node;
-	struct wait_queue_head wait_child_queue;
+	struct wait_channel wait_child_queue;
 };
 
 /**
@@ -242,7 +242,7 @@ struct task_cputime {
  * - @c sched: Scheduler queueing and tick state.
  * - @c cputime: CPU time charged to this task.
  * - @c child_cputime: Reaped child CPU time totals.
- * - @c active_wait: Opaque Wait Completion context cancelled during exit.
+ * - @c active_wait: Opaque wait session cancelled during exit.
  */
 struct task_struct {
 	struct task_arch_state arch;
@@ -255,7 +255,7 @@ struct task_struct {
 	struct task_sched_entity sched;
 	struct task_cputime cputime;
 	struct task_cputime child_cputime;
-	struct wait_context *active_wait;
+	struct wait_session *active_wait;
 };
 
 extern struct task_struct idle_task;
@@ -474,7 +474,7 @@ task_children_safe(struct task_struct *task)
 	return task ? task_children(task) : NULL;
 }
 
-static __always_inline __must_check __pure struct wait_queue_head *
+static __always_inline __must_check __pure struct wait_channel *
 task_wait_child_queue(struct task_struct *task)
 {
 	return task ? &task->links.wait_child_queue : NULL;

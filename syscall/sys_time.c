@@ -121,7 +121,7 @@ ssize_t sys_nanosleep(struct trap_frame *tf)
 	struct timespec *urem = (struct timespec *)syscall_arg(tf, 1);
 	struct wait_deadline deadline;
 	struct timespec req;
-	wait_completion_t completion;
+	wait_outcome_t outcome;
 	int ret;
 
 	if (!ureq)
@@ -133,13 +133,13 @@ ssize_t sys_nanosleep(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	ret = wait_complete(NULL, WAIT_F_INTERRUPTIBLE, &deadline,
-			    &completion);
+	ret = wait_for(NULL, WAIT_FLAG_INTERRUPTIBLE, &deadline,
+			    &outcome);
 	if (ret < 0)
 		return ret;
-	if (completion == WAIT_COMPLETION_TIMEOUT)
+	if (outcome == WAIT_OUTCOME_TIMEOUT)
 		return 0;
-	if (completion != WAIT_COMPLETION_SIGNAL)
+	if (outcome != WAIT_OUTCOME_SIGNAL)
 		return -EINVAL;
 
 	if (urem) {
@@ -171,7 +171,7 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 	struct wait_deadline deadline;
 	struct timespec req;
 	uint64_t delta;
-	wait_completion_t completion;
+	wait_outcome_t outcome;
 	int ret;
 
 	if (!clock_id_supported(clock_id))
@@ -194,13 +194,13 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 	} else
 		return -EINVAL;
 
-	ret = wait_complete(NULL, WAIT_F_INTERRUPTIBLE, &deadline,
-			    &completion);
+	ret = wait_for(NULL, WAIT_FLAG_INTERRUPTIBLE, &deadline,
+			    &outcome);
 	if (ret < 0)
 		return ret;
-	if (completion == WAIT_COMPLETION_TIMEOUT)
+	if (outcome == WAIT_OUTCOME_TIMEOUT)
 		return 0;
-	if (completion != WAIT_COMPLETION_SIGNAL)
+	if (outcome != WAIT_OUTCOME_SIGNAL)
 		return -EINVAL;
 
 	if (flags == 0 && urem) {

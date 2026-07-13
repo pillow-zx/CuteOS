@@ -24,7 +24,7 @@ struct epitem {
 struct eventpoll {
 	spinlock_t lock;
 	struct list_head items;
-	struct wait_queue_head waitq;
+	struct wait_channel waitq;
 	uint64_t generation;
 };
 
@@ -49,7 +49,7 @@ CLEANUP_DEFINE(eventpoll, struct eventpoll *, if (_T) kfree(_T));
 
 static int eventpoll_release(struct file *file);
 static int eventpoll_poll(struct file *file, uint32_t events,
-			  struct wait_registrar *registrar);
+			  struct wait_session *context);
 
 static const struct file_operations eventpoll_fops = {
 	.poll = eventpoll_poll,
@@ -155,7 +155,7 @@ static struct epitem *eventpoll_find_locked(struct eventpoll *ep, int fd,
 	return NULL;
 }
 
-static int eventpoll_scan(struct wait_registrar *registrar, void *arg)
+static int eventpoll_scan(struct wait_session *context, void *arg)
 {
 	struct epoll_scan_ctx *ctx = arg;
 	irq_flags_t flags;
@@ -165,8 +165,8 @@ static int eventpoll_scan(struct wait_registrar *registrar, void *arg)
 
 	ctx->nr_ready = 0;
 	ctx->generation_changed = false;
-	if (registrar) {
-		int ret = wait_register(registrar, &ctx->ep->waitq);
+	if (context) {
+		int ret = wait_session_watch(context, &ctx->ep->waitq);
 
 		if (ret < 0)
 			return ret;
@@ -185,7 +185,7 @@ static int eventpoll_scan(struct wait_registrar *registrar, void *arg)
 
 		mask = vfs_poll(item->file,
 				epoll_poll_events(item->file, &item->event),
-				registrar);
+				context);
 		if (mask < 0)
 			return mask;
 		events = epoll_result_events(&item->event, (uint32_t)mask);
@@ -203,7 +203,7 @@ static int eventpoll_scan(struct wait_registrar *registrar, void *arg)
 }
 
 static int eventpoll_poll(struct file *file, uint32_t events,
-			  struct wait_registrar *registrar)
+			  struct wait_session *context)
 {
 	struct eventpoll *ep = file ? file->private_data : NULL;
 	int ret;
@@ -211,8 +211,8 @@ static int eventpoll_poll(struct file *file, uint32_t events,
 	if (!ep)
 		return POLLERR;
 
-	if (registrar && (events & (POLLIN | POLLOUT))) {
-		ret = wait_register(registrar, &ep->waitq);
+	if (context && (events & (POLLIN | POLLOUT))) {
+		ret = wait_session_watch(context, &ep->waitq);
 		if (ret < 0)
 			return ret;
 	}
@@ -305,7 +305,7 @@ struct file *eventpoll_file_alloc(void)
 
 	ep->lock = (spinlock_t)SPINLOCK_INIT;
 	INIT_LIST_HEAD(&ep->items);
-	init_waitqueue_head(&ep->waitq);
+	wait_channel_init(&ep->waitq);
 	ep->generation = 0;
 
 	file = file_alloc(&eventpoll_fops, FMODE_READ | FMODE_WRITE, ep);
@@ -363,7 +363,7 @@ int eventpoll_ctl(struct file *epfile, int op, int fd, struct file *file,
 		list_add_tail(&item->node, &ep->items);
 		ep->generation++;
 		spin_unlock_irqrestore(&ep->lock, flags);
-		wake_up_all(&ep->waitq);
+		wait_channel_wake_all(&ep->waitq);
 		return 0;
 
 	case EPOLL_CTL_MOD:
@@ -381,7 +381,7 @@ int eventpoll_ctl(struct file *epfile, int op, int fd, struct file *file,
 		found->event = *event;
 		ep->generation++;
 		spin_unlock_irqrestore(&ep->lock, flags);
-		wake_up_all(&ep->waitq);
+		wait_channel_wake_all(&ep->waitq);
 		return 0;
 
 	case EPOLL_CTL_DEL:
@@ -397,7 +397,7 @@ int eventpoll_ctl(struct file *epfile, int op, int fd, struct file *file,
 		spin_unlock_irqrestore(&ep->lock, flags);
 		file_put(found->file);
 		kfree(found);
-		wake_up_all(&ep->waitq);
+		wait_channel_wake_all(&ep->waitq);
 		return 0;
 	}
 
@@ -409,9 +409,9 @@ int eventpoll_wait(struct file *epfile, struct epoll_event *events,
 {
 	struct epoll_snapshot_item snapshot[NR_OPEN];
 	struct epoll_scan_ctx scan_ctx;
-	struct wait_source source;
+	struct wait_request source = { .kind = WAIT_KIND_POLL };
 	struct eventpoll *ep;
-	wait_completion_t completion;
+	wait_outcome_t outcome;
 	size_t scan_limit;
 	int ret;
 
@@ -435,24 +435,25 @@ int eventpoll_wait(struct file *epfile, struct epoll_event *events,
 	scan_ctx.maxevents = scan_limit;
 	scan_ctx.nr_ready = 0;
 	scan_ctx.generation_changed = false;
-	source.probe = eventpoll_scan;
+	source.kind = WAIT_KIND_POLL;
+	source.check = eventpoll_scan;
 	source.arg = &scan_ctx;
-	source.registration_limit = WAIT_REGISTRAR_MAX_ENTRIES;
+	source.channel_limit = WAIT_SESSION_MAX_CHANNELS;
 
 	while (true) {
 		ret = epoll_snapshot_get(ep, &scan_ctx);
 		if (ret < 0)
 			break;
-		ret = wait_complete(&source, WAIT_F_INTERRUPTIBLE, deadline,
-				    &completion);
+		ret = wait_for(&source, WAIT_FLAG_INTERRUPTIBLE, deadline,
+				    &outcome);
 		epoll_snapshot_put(&scan_ctx);
 		if (ret < 0)
 			break;
-		if (completion == WAIT_COMPLETION_SIGNAL)
+		if (outcome == WAIT_OUTCOME_SIGNAL)
 			return -EINTR;
-		if (completion == WAIT_COMPLETION_TIMEOUT)
+		if (outcome == WAIT_OUTCOME_TIMEOUT)
 			return 0;
-		if (completion != WAIT_COMPLETION_EVENT)
+		if (outcome != WAIT_OUTCOME_EVENT)
 			return -EINVAL;
 		if (!scan_ctx.generation_changed)
 			return (int)scan_ctx.nr_ready;

@@ -258,7 +258,7 @@ but only entries present in `SYSCALL_TABLE` are installed.
 - `arch`: context, trap frame, kernel stack, and `satp`
 - `ids`: `pid`, `tgid`, `pgid`, `sid`, and group leader
 - `lifecycle`: task state, exit code, and exit signal
-- `links`: parent/child links, thread-group links, and wait queues
+- `links`: parent/child links, thread-group links, and wait channels
 - `resources`: `mm`, fdtable, fs state, sighand, signal state, uid, and gid
 - `sigctx`: per-thread signal mask/pending state, altstack, robust futex, and
   `clear_child_tid`
@@ -700,8 +700,8 @@ Common entry points:
 - `sched_enqueue(task)`
 - `sched_wake_task(task)`
 - `sched_yield()`
-- `wait_complete(source, flags, deadline, completion)`
-- `wait_register(registrar, wait_queue)`
+- `wait_for(source, flags, deadline, outcome)`
+- `wait_session_watch(context, channel)`
 - `do_exit(code)`
 - `do_exit_group(code)`
 - `kernel_wait4(...)`

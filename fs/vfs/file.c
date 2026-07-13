@@ -20,7 +20,7 @@
 static ssize_t null_read(struct file *file, char *buf, size_t count);
 static ssize_t null_write(struct file *file, const char *buf, size_t count);
 static int null_poll(struct file *file, uint32_t events,
-		     struct wait_registrar *registrar);
+		     struct wait_session *context);
 
 #define VFS_CHRDEV_MAX 8
 
@@ -141,14 +141,14 @@ int vfs_statfs(struct super_block *sb, struct statfs64 *buf)
 }
 
 int vfs_poll(struct file *file, uint32_t events,
-	     struct wait_registrar *registrar)
+	     struct wait_session *context)
 {
 	uint32_t mask = 0;
 
 	if (!file)
 		return POLLNVAL;
 	if (file->f_op && file->f_op->poll)
-		return file->f_op->poll(file, events, registrar);
+		return file->f_op->poll(file, events, context);
 
 	if ((events & POLLIN) && (file->f_mode & FMODE_READ))
 		mask |= POLLIN;
@@ -391,11 +391,11 @@ static ssize_t null_write(struct file *file, const char *buf, size_t count)
 }
 
 static int null_poll(struct file *file, uint32_t events,
-		     struct wait_registrar *registrar)
+		     struct wait_session *context)
 {
 	uint32_t mask = 0;
 
-	(void)registrar;
+	(void)context;
 
 	if ((events & POLLIN) && (file->f_mode & FMODE_READ))
 		mask |= POLLIN;

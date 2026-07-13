@@ -24,14 +24,14 @@ ssize_t console_tty_write_for_test(const struct termios *termios,
 				   const char *input, size_t input_len,
 				   char *out, size_t out_size);
 
-static struct wait_registrar *poll_test_registrar;
+static struct wait_session *poll_test_session;
 
 static int poll_test_error(struct file *file, uint32_t events,
-			   struct wait_registrar *registrar)
+			   struct wait_session *session)
 {
 	(void)file;
 	(void)events;
-	poll_test_registrar = registrar;
+	poll_test_session = session;
 	return -ENOMEM;
 }
 
@@ -81,26 +81,26 @@ fail:
 	return __test_ret;
 }
 
-int test_vfs_poll_propagates_registrar_errors(void)
+int test_vfs_poll_propagates_session_errors(void)
 {
 	static const struct file_operations fops = {
 		.poll = poll_test_error,
 	};
-	struct wait_registrar *registrar = (struct wait_registrar *)1;
+	struct wait_session *session = (struct wait_session *)1;
 	struct file file = {
 		.f_op = &fops,
 	};
 
-	TEST_BEGIN("syscall compat: poll registrar propagation");
+	TEST_BEGIN("syscall compat: poll wait-context propagation");
 	{
-		poll_test_registrar = NULL;
-		TEST_ASSERT_EQ(vfs_poll(&file, POLLIN, registrar), -ENOMEM);
-		TEST_ASSERT_EQ(poll_test_registrar, registrar);
+		poll_test_session = NULL;
+		TEST_ASSERT_EQ(vfs_poll(&file, POLLIN, session), -ENOMEM);
+		TEST_ASSERT_EQ(poll_test_session, session);
 	}
-	TEST_END("syscall compat: poll registrar propagation");
+	TEST_END("syscall compat: poll wait-context propagation");
 	return __test_ret;
 fail:
-	TEST_FAIL("syscall compat: poll registrar propagation", "see above");
+	TEST_FAIL("syscall compat: poll wait-context propagation", "see above");
 
 	return __test_ret;
 }

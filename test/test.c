@@ -144,15 +144,15 @@ static const struct ktest_case ktimer_cases[] = {
 };
 
 static const struct ktest_case waitqueue_cases[] = {
-	KTEST_CASE(test_wait_complete_timeout),
-	KTEST_CASE(test_wait_complete_event),
-	KTEST_CASE(test_wait_complete_spurious_retry),
-	KTEST_CASE(test_wait_complete_priority),
-	KTEST_CASE(test_wait_complete_wake_before_block),
-	KTEST_CASE(test_wait_complete_registration),
-	KTEST_CASE(test_wait_complete_partial_error_cleanup),
-	KTEST_CASE(test_wait_complete_signal_only),
-	KTEST_CASE(test_wait_complete_validation),
+	KTEST_CASE(test_wait_for_timeout),
+	KTEST_CASE(test_wait_for_event),
+	KTEST_CASE(test_wait_for_spurious_retry),
+	KTEST_CASE(test_wait_for_priority),
+	KTEST_CASE(test_wait_for_wake_before_block),
+	KTEST_CASE(test_wait_for_registration),
+	KTEST_CASE(test_wait_for_partial_error_cleanup),
+	KTEST_CASE(test_wait_for_signal_only),
+	KTEST_CASE(test_wait_for_validation),
 };
 
 static const struct ktest_case sync_cases[] = {
@@ -237,7 +237,7 @@ static const struct ktest_case virtio_blk_cases[] = {
 static const struct ktest_case syscall_compat_cases[] = {
 	KTEST_CASE(test_rlimit_defaults),
 	KTEST_CASE(test_vfs_default_poll_masks),
-	KTEST_CASE(test_vfs_poll_propagates_registrar_errors),
+	KTEST_CASE(test_vfs_poll_propagates_session_errors),
 	KTEST_CASE(test_vfs_default_ioctl_enotty),
 	KTEST_CASE(test_console_tty_line_discipline),
 	KTEST_CASE(test_tty_signal_delivery_policy),

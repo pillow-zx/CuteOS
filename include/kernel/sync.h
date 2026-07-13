@@ -12,14 +12,14 @@ struct task_struct;
 typedef struct {
 	spinlock_t lock;
 	struct task_struct *owner;
-	struct wait_queue_head wait;
+	struct wait_channel wait;
 } mutex_t;
 
 #define MUTEX_INIT(name)                                                       \
 	{                                                                      \
 		.lock = SPINLOCK_INIT,                                         \
 		.owner = NULL,                                                 \
-		.wait = WAIT_QUEUE_HEAD_INIT((name).wait),                    \
+		.wait = WAIT_CHANNEL_INIT((name).wait),                        \
 	}
 #define DEFINE_MUTEX(name) mutex_t name = MUTEX_INIT(name)
 

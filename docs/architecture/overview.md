@@ -58,7 +58,7 @@ arch/riscv
   CPU 启动、trap entry/return、上下文切换、Sv39 页表、Sstc timer
 
 kernel
-  task、fork/exec/exit、signal、futex、rseq、time、waitqueue、sync、pid
+  task、fork/exec/exit、signal、futex、rseq、time、wait channel、sync、pid
 
 sched
   单核 MLFQ 调度策略与 schedule() 核心

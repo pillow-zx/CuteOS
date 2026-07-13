@@ -24,11 +24,11 @@ void worker_run_periodic(unsigned int interval_sec, void (*work)(void *),
 	for (;;) {
 		struct wait_deadline deadline = wait_deadline_at(
 			mtime_deadline_after(arch_timer_now(), interval));
-		wait_completion_t completion;
+		wait_outcome_t outcome;
 		int ret;
 
-		ret = wait_complete(NULL, 0, &deadline, &completion);
-		if (ret < 0 || completion != WAIT_COMPLETION_TIMEOUT)
+		ret = wait_for(NULL, 0, &deadline, &outcome);
+		if (ret < 0 || outcome != WAIT_OUTCOME_TIMEOUT)
 			return;
 		work(arg);
 	}

@@ -18,7 +18,7 @@ struct futex_key {
 
 struct futex_waiter {
 	struct futex_key key;
-	struct wait_queue_head wait;
+	struct wait_channel wait;
 	struct list_head node;
 	uint32_t bitset;
 	bool woken;
@@ -84,7 +84,7 @@ static int futex_read_user_value_checked(int *uaddr, int *value)
 	return 0;
 }
 
-static int futex_wait_probe(struct wait_registrar *registrar, void *arg)
+static int futex_wait_check(struct wait_session *session, void *arg)
 {
 	struct futex_wait_ctx *ctx = arg;
 	struct futex_waiter *waiter = ctx->waiter;
@@ -111,7 +111,7 @@ static int futex_wait_probe(struct wait_registrar *registrar, void *arg)
 		newly_queued = true;
 	}
 
-	ret = wait_register(registrar, &waiter->wait);
+	ret = wait_session_watch(session, &waiter->wait);
 	if (ret < 0 && newly_queued)
 		list_del_init(&waiter->node);
 out:
@@ -126,8 +126,8 @@ static int futex_wait(int *uaddr, int expected, uint32_t bitset,
 	struct futex_bucket *bucket;
 	struct futex_waiter waiter;
 	struct futex_wait_ctx wait_ctx;
-	struct wait_source source;
-	wait_completion_t completion;
+	struct wait_request source = { .kind = WAIT_KIND_FUTEX };
+	wait_outcome_t outcome;
 	irq_flags_t flags;
 	int ret;
 
@@ -144,18 +144,19 @@ static int futex_wait(int *uaddr, int expected, uint32_t bitset,
 	memset(&waiter, 0, sizeof(waiter));
 	waiter.key = key;
 	waiter.bitset = bitset;
-	init_waitqueue_head(&waiter.wait);
+	wait_channel_init(&waiter.wait);
 	INIT_LIST_HEAD(&waiter.node);
 	wait_ctx.bucket = bucket;
 	wait_ctx.waiter = &waiter;
 	wait_ctx.uaddr = uaddr;
 	wait_ctx.expected = expected;
-	source.probe = futex_wait_probe;
+	source.kind = WAIT_KIND_FUTEX;
+	source.check = futex_wait_check;
 	source.arg = &wait_ctx;
-	source.registration_limit = 1;
+	source.channel_limit = 1;
 
-	ret = wait_complete(&source, WAIT_F_INTERRUPTIBLE, deadline,
-			    &completion);
+	ret = wait_for(&source, WAIT_FLAG_INTERRUPTIBLE, deadline,
+			    &outcome);
 
 	spin_lock_irqsave(&bucket->lock, &flags);
 	if (!list_empty(&waiter.node))
@@ -164,11 +165,11 @@ static int futex_wait(int *uaddr, int expected, uint32_t bitset,
 
 	if (ret < 0)
 		return ret;
-	if (completion == WAIT_COMPLETION_EVENT)
+	if (outcome == WAIT_OUTCOME_EVENT)
 		return 0;
-	if (completion == WAIT_COMPLETION_SIGNAL)
+	if (outcome == WAIT_OUTCOME_SIGNAL)
 		return -EINTR;
-	if (completion == WAIT_COMPLETION_TIMEOUT)
+	if (outcome == WAIT_OUTCOME_TIMEOUT)
 		return -ETIMEDOUT;
 	return -EINVAL;
 }
@@ -206,7 +207,7 @@ static int futex_wake_mm_bitset(struct mm_struct *mm, int *uaddr, int nr,
 		if (waiter->woken)
 			continue;
 		waiter->woken = true;
-		(void)wake_up_one(&waiter->wait);
+		(void)wait_channel_wake_one(&waiter->wait);
 		woken++;
 		if (woken >= nr)
 			break;
