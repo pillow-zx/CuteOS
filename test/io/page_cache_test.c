@@ -15,6 +15,25 @@ static void fill_pattern(uint8_t *buf, size_t len, uint8_t seed)
 		buf[i] = (uint8_t)(seed + (uint8_t)(i * 13u));
 }
 
+static uint64_t page_cache_key_test_block;
+
+static int page_cache_key_test_resolve(struct page_mapping *mapping,
+					       uint64_t index, bool create,
+					       uint64_t *block)
+{
+	(void)mapping;
+	(void)index;
+	(void)create;
+	if (!block)
+		return -EINVAL;
+	*block = page_cache_key_test_block;
+	return 0;
+}
+
+static const struct page_mapping_ops page_cache_key_test_ops = {
+	.resolve = page_cache_key_test_resolve,
+};
+
 static int open_test_file(const char *path, uint32_t flags, struct file **file)
 {
 	int fd = vfs_open(path, flags, 0644);
@@ -88,9 +107,8 @@ static int read_raw_file_page(struct file *file, uint32_t index, uint8_t *buf)
 	bdev = lookup_block_device(file->f_inode->i_sb->s_dev);
 	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->read_sectors)
 		return -ENXIO;
-
-	return bdev->bd_ops->read_sectors(bdev, buf, pblock * BLOCK_SECTORS,
-					  BLOCK_SECTORS);
+	return bdev->bd_ops->read_sectors(bdev, buf,
+					 pblock * BLOCK_SECTORS, BLOCK_SECTORS);
 }
 
 static int read_raw_inode(struct inode *inode, struct ext2_inode *raw)
@@ -129,9 +147,8 @@ static int read_raw_inode(struct inode *inode, struct ext2_inode *raw)
 	bdev = lookup_block_device(inode->i_sb->s_dev);
 	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->read_sectors)
 		return -ENXIO;
-
-	ret = bdev->bd_ops->read_sectors(bdev, block_buf, block * BLOCK_SECTORS,
-					 BLOCK_SECTORS);
+	ret = bdev->bd_ops->read_sectors(bdev, block_buf,
+					 block * BLOCK_SECTORS, BLOCK_SECTORS);
 	if (ret < 0)
 		return ret;
 
@@ -141,9 +158,9 @@ static int read_raw_inode(struct inode *inode, struct ext2_inode *raw)
 
 static int read_block_alias(struct file *file, uint32_t index, uint8_t *buf)
 {
+	int ret;
 	struct page_cache *page;
 	uint32_t pblock = 0;
-	int ret;
 
 	if (!file || !file->f_inode || !buf)
 		return -EINVAL;
@@ -167,9 +184,9 @@ static int read_block_alias(struct file *file, uint32_t index, uint8_t *buf)
 static int write_raw_file_page(struct file *file, uint32_t index,
 			       const uint8_t *buf)
 {
-	struct block_device *bdev;
-	uint32_t pblock = 0;
 	int ret;
+	struct page_cache *page;
+	uint32_t pblock = 0;
 
 	if (!file || !file->f_inode || !buf)
 		return -EINVAL;
@@ -180,12 +197,14 @@ static int write_raw_file_page(struct file *file, uint32_t index,
 	if (!pblock)
 		return -ENOENT;
 
-	bdev = lookup_block_device(file->f_inode->i_sb->s_dev);
-	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->write_sectors)
-		return -ENXIO;
-
-	return bdev->bd_ops->write_sectors(bdev, buf, pblock * BLOCK_SECTORS,
-					   BLOCK_SECTORS);
+	page = page_cache_get_block(file->f_inode->i_sb->s_dev, pblock);
+	if (!page)
+		return -EIO;
+	memcpy(page_cache_data(page), buf, BLOCK_SIZE);
+	page_cache_mark_dirty(page);
+	ret = page_cache_sync_page(page);
+	page_cache_put_page(page);
+	return ret;
 }
 
 static bool dir_page_has_entry(const uint8_t *data, const char *name)
@@ -237,6 +256,95 @@ fail:
 cleanup:
 	close_test_file(fd, file);
 	unlink_test_path("/pcache-dirty");
+
+	return __test_ret;
+}
+
+int test_page_cache_physical_key_identity(void)
+{
+	struct block_device *bdev;
+	struct page_mapping first = {0};
+	struct page_mapping second = {0};
+	struct page_cache *first_page = NULL;
+	struct page_cache *second_page = NULL;
+	uint64_t blocks;
+
+	TEST_BEGIN("page cache: physical key identity");
+	{
+		bdev = lookup_block_device(ROOT_DEV);
+		TEST_ASSERT_NOT_NULL(bdev);
+		blocks = bdev->bd_sectors / BLOCK_SECTORS;
+		TEST_ASSERT(blocks > 4);
+		page_cache_key_test_block = blocks - 2;
+		page_mapping_init(&first, &first, ROOT_DEV,
+				  &page_cache_key_test_ops);
+		page_mapping_init(&second, &second, ROOT_DEV,
+				  &page_cache_key_test_ops);
+
+		first_page = page_cache_get_mapping(&first, 3, PAGE_CACHE_READ,
+						    NULL);
+		second_page = page_cache_get_mapping(&second, 9, PAGE_CACHE_READ,
+						     NULL);
+		TEST_ASSERT_NOT_NULL(first_page);
+		TEST_ASSERT_EQ(second_page, first_page);
+		page_cache_put_page(second_page);
+		page_cache_put_page(first_page);
+	}
+	TEST_END("page cache: physical key identity");
+	return __test_ret;
+fail:
+	TEST_FAIL("page cache: physical key identity", "see above");
+	if (second_page)
+		page_cache_put_page(second_page);
+	if (first_page)
+		page_cache_put_page(first_page);
+	return __test_ret;
+}
+
+int test_page_cache_writeback_retry(void)
+{
+	static uint8_t pattern[BLOCK_SIZE];
+	static uint8_t raw[BLOCK_SIZE];
+	struct page_cache *page = NULL;
+	struct file *file = NULL;
+	uint32_t block = 0;
+	int fd = -1;
+
+	TEST_BEGIN("page cache: failed writeback retries");
+	{
+		unlink_test_path("/pcache-writeback-retry");
+		fill_pattern(pattern, sizeof(pattern), 0xa4);
+		fd = open_test_file("/pcache-writeback-retry",
+				    O_CREAT | O_TRUNC | O_RDWR, &file);
+		TEST_ASSERT(fd >= 0);
+		TEST_ASSERT_EQ(vfs_write(file, (const char *)pattern,
+					 sizeof(pattern)), (ssize_t)sizeof(pattern));
+		TEST_ASSERT_EQ(ext2_bmap(file->f_inode, 0, false, &block), 0);
+		TEST_ASSERT_NE(block, 0u);
+		page = page_cache_get_block(file->f_inode->i_sb->s_dev, block);
+		TEST_ASSERT_NOT_NULL(page);
+
+		virtio_blk_test_fail_next_write(-EIO);
+		TEST_ASSERT_EQ(page_cache_sync_page(page), -EIO);
+		TEST_ASSERT(page_cache_is_dirty(page));
+		TEST_ASSERT_EQ(memcmp(page_cache_data(page), pattern,
+				      sizeof(pattern)), 0);
+
+		TEST_ASSERT_EQ(page_cache_sync_page(page), 0);
+		TEST_ASSERT(!page_cache_is_dirty(page));
+		TEST_ASSERT_EQ(read_raw_file_page(file, 0, raw), 0);
+		TEST_ASSERT_EQ(memcmp(raw, pattern, sizeof(raw)), 0);
+	}
+	TEST_END("page cache: failed writeback retries");
+	goto cleanup;
+fail:
+	virtio_blk_test_fail_next_write(0);
+	TEST_FAIL("page cache: failed writeback retries", "see above");
+cleanup:
+	if (page)
+		page_cache_put_page(page);
+	close_test_file(fd, file);
+	unlink_test_path("/pcache-writeback-retry");
 
 	return __test_ret;
 }
@@ -309,7 +417,7 @@ int test_vfs_datasync_metadata_policy(void)
 	{
 		inode.i_sb = &sb;
 		file.f_inode = &inode;
-		page_mapping_init(&inode.i_pages, &inode, NULL, NULL);
+		page_mapping_init(&inode.i_pages, &inode, 0, NULL);
 
 		sb.s_op = &datasync_fallback_sops;
 		datasync_test_writebacks = 0;
@@ -412,7 +520,7 @@ int test_page_cache_raw_alias_fsync(void)
 			vfs_write(file, (const char *)wbuf, sizeof(wbuf)),
 			(ssize_t)sizeof(wbuf));
 		TEST_ASSERT_EQ(read_block_alias(file, 0, cached), 0);
-		TEST_ASSERT_NE(memcmp(cached, wbuf, sizeof(wbuf)), 0);
+		TEST_ASSERT_EQ(memcmp(cached, wbuf, sizeof(wbuf)), 0);
 
 
 		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
@@ -435,12 +543,12 @@ cleanup:
 
 int test_page_cache_directory_alias_refresh(void)
 {
+	int ret;
 	static uint8_t cached[BLOCK_SIZE];
 	struct path dir_path = {0};
 	struct path file_path = {0};
 	struct page_cache *raw_page = NULL;
 	uint32_t pblock = 0;
-	int ret;
 
 	TEST_BEGIN("page cache: directory alias refresh after create");
 	{
@@ -516,7 +624,6 @@ int test_page_cache_raw_alias_drop(void)
 		TEST_ASSERT_EQ(memcmp(cached, old_buf, sizeof(cached)), 0);
 
 		TEST_ASSERT_EQ(write_raw_file_page(file, 0, new_buf), 0);
-		page_cache_invalidate_inode(file->f_inode);
 
 		memset(cached, 0, sizeof(cached));
 		TEST_ASSERT_EQ(read_block_alias(file, 0, cached), 0);
@@ -596,13 +703,13 @@ cleanup:
 
 int test_page_cache_clustered_writeback(void)
 {
+	int ret;
 	static uint8_t page_buf[BLOCK_SIZE];
 	struct virtio_blk_test_stats stats;
 	uint32_t pblocks[3];
 	bool contiguous = true;
 	struct file *file = NULL;
 	int fd = -1;
-	int ret;
 
 	TEST_BEGIN("page cache: clustered writeback");
 	{
@@ -630,6 +737,7 @@ int test_page_cache_clustered_writeback(void)
 		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
 		memset(&stats, 0, sizeof(stats));
 		virtio_blk_test_get_stats(&stats);
+		TEST_ASSERT_EQ(stats.read_reqs, 0u);
 		TEST_ASSERT(stats.write_reqs >= 1);
 		if (contiguous)
 			TEST_ASSERT(stats.max_write_nsec >= 3 * BLOCK_SECTORS);

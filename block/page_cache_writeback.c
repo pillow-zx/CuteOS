@@ -1,6 +1,4 @@
-/*
- * block/page_cache_writeback.c - page cache sync and writeback clustering
- */
+/* Physical page-cache sync and writeback. */
 
 #include "page_cache_internal.h"
 
@@ -9,182 +7,189 @@
 #include <kernel/errno.h>
 #include <kernel/worker.h>
 
-#define PAGE_CACHE_WB_ORDER 5U
+#define PAGE_CACHE_WB_MAX 32
 
 static uint8_t *wb_buf;
-static uint32_t wb_pages = 1;
+static uint32_t wb_pages;
 static bool wb_ready;
+
+static bool page_cache_has_mapping_locked(struct page_cache *page,
+					  struct page_mapping *mapping)
+{
+	struct list_head *pos;
+
+	if (!mapping)
+		return true;
+	list_for_each (pos, &page_cache_associations) {
+		struct page_cache_assoc *assoc =
+			list_entry(pos, struct page_cache_assoc, mapping_node);
+
+		if (assoc->page == page && assoc->mapping == mapping)
+			return true;
+	}
+	return false;
+}
 
 void page_cache_wb_init(void)
 {
 	if (wb_ready)
 		return;
-
-	wb_buf = get_free_page(PAGE_CACHE_WB_ORDER);
+	wb_buf = get_free_page(5);
 	if (wb_buf)
-		wb_pages = 1u << PAGE_CACHE_WB_ORDER;
+		wb_pages = PAGE_CACHE_WB_MAX;
 	else {
 		wb_buf = get_free_page(0);
-		wb_pages = wb_buf ? 1u : 0u;
+		wb_pages = 1;
 	}
-
 	wb_ready = true;
+}
+
+static int page_cache_write_physical(struct page_cache *page)
+{
+	struct block_device *bdev;
+	int ret;
+	if (!page)
+		return -EINVAL;
+	bdev = lookup_block_device(page->dev);
+	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->write_sectors)
+		return -ENXIO;
+	ret = bdev->bd_ops->write_sectors(
+		bdev, page->data, page->block * BLOCK_SECTORS, BLOCK_SECTORS);
+	return ret;
 }
 
 int page_cache_sync_page(struct page_cache *page)
 {
-	struct page_mapping *mapping;
-	uint32_t blocknr;
+	irq_flags_t flags;
 	int ret;
-
-	if (!page || !page->owner)
+	if (!page)
 		return -EINVAL;
-
-	mapping = page->owner;
-	if (!mapping->ops || !mapping->ops->writepages)
-		return -EINVAL;
-
-	page->writeback = true;
-	ret = mapping->ops->writepages(mapping, page->index, 1, page->data);
-	page->writeback = false;
-	if (ret == 0) {
-
-		page_cache_clear_dirty(page);
-		page->uptodate = true;
-		if (mapping->ops->map_block &&
-		    mapping->ops->map_block(mapping, page->index, false,
-					    &blocknr) == 0)
-			page_cache_alias_refresh(mapping, blocknr, page->data);
+	spin_lock_irqsave(&page_cache_lock, &flags);
+	if (page->writeback) {
+		spin_unlock_irqrestore(&page_cache_lock, flags);
+		return -EBUSY;
 	}
+	page->writeback = true;
+	spin_unlock_irqrestore(&page_cache_lock, flags);
+	ret = page_cache_write_physical(page);
+	spin_lock_irqsave(&page_cache_lock, &flags);
+	page->writeback = false;
+	if (ret == 0)
+		page_cache_clear_dirty_locked(page);
+	spin_unlock_irqrestore(&page_cache_lock, flags);
 	return ret;
 }
 
-int page_cache_sync_block(struct page_cache *page)
+int page_cache_wb_run(struct page_cache *start, struct page_mapping *mapping)
 {
-	return page_cache_sync_page(page);
-}
-
-int page_cache_wb_run(struct page_cache *start)
-{
-	struct page_mapping *mapping;
-	struct page_cache *pages[32];
-	uint32_t pblocks[32];
+	struct page_cache *pages[PAGE_CACHE_WB_MAX] = {0};
+	struct list_head *pos;
 	uint32_t nr = 0;
-	uint32_t limit;
-	uint64_t index;
-	uint32_t prev;
+	struct block_device *bdev;
+	irq_flags_t flags;
 	int ret;
 
-	if (!start || !start->owner || !start->dirty)
+	if (!start)
 		return -EINVAL;
-	mapping = start->owner;
-	if (!mapping->ops || !mapping->ops->map_block ||
-	    !mapping->ops->writepages)
-		return -EINVAL;
-
 	page_cache_wb_init();
-	if (!wb_buf || wb_pages == 0)
+	if (!wb_buf || !wb_pages)
 		return -ENOMEM;
-
-	index = start->index;
-	limit = wb_pages;
-	if (limit > 32u)
-		limit = 32u;
-
-	ret = mapping->ops->map_block(mapping, index, false, &prev);
-	if (ret < 0)
-		return ret;
-
-	pblocks[0] = prev;
+	spin_lock_irqsave(&page_cache_lock, &flags);
+	if (start->writeback || !start->dirty) {
+		spin_unlock_irqrestore(&page_cache_lock, flags);
+		return -EBUSY;
+	}
 	pages[nr++] = start;
-	while (nr < limit) {
-		struct page_cache *next;
-		uint32_t block;
-		uint64_t next_index = index + nr;
-
-		next = page_cache_find(mapping, next_index);
-		if (!next || !next->dirty || next->writeback)
-			break;
-
-		ret = mapping->ops->map_block(mapping, next_index, false,
-					      &block);
-		if (ret < 0 || block != prev + 1)
-			break;
-
-		pblocks[nr] = block;
-		pages[nr++] = next;
-		prev = block;
+	list_for_each (pos, &page_cache_dirty_list) {
+		struct page_cache *page =
+			list_entry(pos, struct page_cache, dirty_node);
+		if (nr >= PAGE_CACHE_WB_MAX || nr >= wb_pages ||
+		    page == start || page->dev != start->dev ||
+		    page->block != start->block + nr || page->writeback ||
+		    !page_cache_has_mapping_locked(page, mapping))
+			continue;
+		pages[nr++] = page;
 	}
-
-	for (uint32_t i = 0; i < nr; i++) {
+	for (uint32_t i = 0; i < nr; i++)
 		pages[i]->writeback = true;
-		memcpy(wb_buf + i * BLOCK_SIZE, pages[i]->data, BLOCK_SIZE);
+	spin_unlock_irqrestore(&page_cache_lock, flags);
+	bdev = lookup_block_device(start->dev);
+	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->write_sectors) {
+		spin_lock_irqsave(&page_cache_lock, &flags);
+		for (uint32_t i = 0; i < nr; i++)
+			pages[i]->writeback = false;
+		spin_unlock_irqrestore(&page_cache_lock, flags);
+		return -ENXIO;
 	}
-
-	ret = mapping->ops->writepages(mapping, index, nr, wb_buf);
+	for (uint32_t i = 0; i < nr; i++)
+		memcpy(wb_buf + i * BLOCK_SIZE, pages[i]->data, BLOCK_SIZE);
+	ret = bdev->bd_ops->write_sectors(
+		bdev, wb_buf, start->block * BLOCK_SECTORS, nr * BLOCK_SECTORS);
+	spin_lock_irqsave(&page_cache_lock, &flags);
 	for (uint32_t i = 0; i < nr; i++) {
 		pages[i]->writeback = false;
-		if (ret == 0) {
-			page_cache_alias_refresh(mapping, pblocks[i],
-						 pages[i]->data);
-			page_cache_clear_dirty(pages[i]);
-		}
+		if (ret == 0)
+			page_cache_clear_dirty_locked(pages[i]);
 	}
-
+	spin_unlock_irqrestore(&page_cache_lock, flags);
 	return ret;
 }
 
 int page_cache_sync_mapping(struct page_mapping *mapping)
 {
-	int ret = 0;
-
+	struct page_cache *page;
+	struct list_head *pos;
+	irq_flags_t flags;
 	if (!mapping)
 		return -EINVAL;
-
 	for (;;) {
-		struct page_cache *page = page_cache_dirty_first(mapping);
-
-		if (!page)
+		page = NULL;
+		spin_lock_irqsave(&page_cache_lock, &flags);
+		list_for_each (pos, &page_cache_associations) {
+			struct page_cache_assoc *assoc = list_entry(
+				pos, struct page_cache_assoc, mapping_node);
+			if (assoc->mapping != mapping || !assoc->page->dirty)
+				continue;
+			page = assoc->page;
+			page->refcount++;
 			break;
+		}
+		spin_unlock_irqrestore(&page_cache_lock, flags);
+		if (!page)
+			return 0;
+		int ret = page_cache_wb_run(page, mapping);
 
-		ret = page_cache_wb_run(page);
-		if (ret < 0)
+		if (ret < 0) {
+			page_cache_put_page(page);
 			return ret;
+		}
+		page_cache_put_page(page);
 	}
-
-	return 0;
 }
 
 int page_cache_sync_inode(struct inode *inode)
 {
-	if (!inode)
-		return -EINVAL;
-
-	return page_cache_sync_mapping(&inode->i_pages);
+	return inode ? page_cache_sync_mapping(&inode->i_pages) : -EINVAL;
 }
 
 int page_cache_sync_all(void)
 {
-	int ret = 0;
-
-	for (;;) {
-		struct page_cache *page = page_cache_dirty_any();
-
-		if (!page)
-			break;
-
-		ret = page_cache_wb_run(page);
+	struct page_cache *page;
+	while ((page = page_cache_dirty_any()) != NULL) {
+		int ret = page_cache_wb_run(page, NULL);
+		page_cache_put_page(page);
 		if (ret < 0)
 			return ret;
 	}
-
 	return 0;
 }
 
 static void page_cache_wb_once(void *arg)
 {
+	int ret;
 	(void)arg;
-	(void)page_cache_sync_all();
+	ret = page_cache_sync_all();
+	(void)ret;
 }
 
 void page_cache_wb_thread(void *arg)

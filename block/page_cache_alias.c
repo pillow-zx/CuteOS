@@ -1,56 +1,94 @@
-/*
- * block/page_cache_alias.c - page cache block-alias coherency policy
- */
+/* Logical-to-physical association management for the page cache. */
+
+#include <kernel/errno.h>
+#include <kernel/slab.h>
 
 #include "page_cache_internal.h"
 
-#include <kernel/blkdev.h>
-
-void page_cache_alias_refresh(struct page_mapping *mapping, uint32_t blocknr,
-			      const void *data)
+bool page_cache_assoc_has_page_locked(struct page_cache *page)
 {
-	struct page_mapping *backing;
-	struct page_cache *alias;
+	struct list_head *pos;
 
-	if (!mapping || !data)
-		return;
+	if (!page)
+		return false;
+	list_for_each (pos, &page_cache_associations) {
+		struct page_cache_assoc *assoc =
+			list_entry(pos, struct page_cache_assoc, mapping_node);
 
-	backing = mapping->backing;
-	if (!backing)
-		return;
-
-	alias = page_cache_find(backing, blocknr);
-	if (!alias)
-		return;
-
-
-	memcpy(alias->data, data, BLOCK_SIZE);
-	alias->uptodate = true;
-	page_cache_clear_dirty(alias);
+		if (assoc->page == page)
+			return true;
+	}
+	return false;
 }
 
-void page_cache_alias_invalidate(struct page_cache *page)
+int page_cache_assoc_add(struct page_mapping *mapping, uint64_t index,
+			 struct page_cache *page)
 {
-	struct page_mapping *mapping;
-	struct page_mapping *backing;
-	struct page_cache *alias;
-	uint32_t blocknr;
+	struct page_cache_assoc *assoc;
+	struct list_head *pos;
+	irq_flags_t flags;
+	int ret = 0;
 
-	if (!page || !page->owner)
+	if (!mapping || !page)
+		return -EINVAL;
+	spin_lock_irqsave(&page_cache_lock, &flags);
+	list_for_each (pos, &page_cache_associations) {
+		assoc = list_entry(pos, struct page_cache_assoc, mapping_node);
+		if (assoc->mapping == mapping && assoc->index == index) {
+			ret = 0;
+			goto unlock;
+		}
+	}
+	assoc = kmalloc(sizeof(*assoc));
+	if (!assoc) {
+		ret = -ENOMEM;
+		goto unlock;
+	}
+	assoc->mapping = mapping;
+	assoc->index = index;
+	assoc->page = page;
+	INIT_LIST_HEAD(&assoc->page_node);
+	INIT_LIST_HEAD(&assoc->mapping_node);
+	list_add_tail(&assoc->mapping_node, &page_cache_associations);
+unlock:
+	spin_unlock_irqrestore(&page_cache_lock, flags);
+	return ret;
+}
+
+void page_cache_assoc_remove_mapping(struct page_mapping *mapping)
+{
+	struct list_head *pos, *next;
+	irq_flags_t flags;
+	if (!mapping)
 		return;
+	spin_lock_irqsave(&page_cache_lock, &flags);
+	list_for_each_safe (pos, next, &page_cache_associations) {
+		struct page_cache_assoc *assoc =
+			list_entry(pos, struct page_cache_assoc, mapping_node);
+		if (assoc->mapping != mapping)
+			continue;
+		struct page_cache *page = assoc->page;
+		list_del_init(&assoc->mapping_node);
+		kfree(assoc);
+		if (!page_cache_assoc_has_page_locked(page)) {
+			page_cache_clear_dirty_locked(page);
+			page->uptodate = false;
+		}
+	}
+	spin_unlock_irqrestore(&page_cache_lock, flags);
+}
 
-	mapping = page->owner;
-	backing = mapping->backing;
-	if (!backing || !mapping->ops || !mapping->ops->map_block)
+void page_cache_assoc_remove_page_locked(struct page_cache *page)
+{
+	struct list_head *pos, *next;
+	if (!page)
 		return;
-	if (mapping->ops->map_block(mapping, page->index, false, &blocknr) < 0)
-		return;
-
-	alias = page_cache_find(backing, blocknr);
-	if (!alias)
-		return;
-
-
-	alias->uptodate = false;
-	page_cache_clear_dirty(alias);
+	list_for_each_safe (pos, next, &page_cache_associations) {
+		struct page_cache_assoc *assoc =
+			list_entry(pos, struct page_cache_assoc, mapping_node);
+		if (assoc->page != page)
+			continue;
+		list_del_init(&assoc->mapping_node);
+		kfree(assoc);
+	}
 }

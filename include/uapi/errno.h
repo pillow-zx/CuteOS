@@ -28,6 +28,7 @@
 #define ENOTTY	     25
 #define EFBIG	     27
 #define ENOSPC	     28
+#define ENODATA	     61
 #define ESPIPE	     29
 #define EROFS	     30
 #define EPIPE	     32

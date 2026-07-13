@@ -91,7 +91,7 @@ High-level directory responsibilities:
 - `fs/ext2/`: ext2 filesystem implementation and private on-disk structures.
 - `fs/pipe.c`: pipe file operations.
 - `block/`: block-device abstraction, 4 KiB page cache, dirty tracking,
-  inode/raw block alias handling, writeback, and virtio-blk.
+  physical page cache, logical associations, writeback, and virtio-blk.
 - `drivers/`: console, UART, and virtio MMIO definitions.
 - `syscall/`: Linux riscv64 ABI boundary and thin handlers that decode trap
   frame arguments, copy userspace data, and delegate to subsystems.
@@ -327,12 +327,20 @@ Important distinction:
 - `inode->i_pages` caches file logical blocks.
 - `block_device_pages(dev)` caches disk physical blocks.
 
-`page_mapping` is the page-cache naming domain. The page cache key is always
-`(mapping, index)`, not a global disk block number. ext2 inode mappings set a
-`backing` raw block-device mapping so writeback can refresh or invalidate
-resident raw-block aliases.
+`page_mapping` is a logical-to-physical resolver. The authoritative page-cache
+key is `(dev_t, physical block)`, not a mapping address. Inode mappings resolve
+logical file blocks and may return `-ENODATA` for sparse holes; they do not
+perform device I/O. File data and ext2 metadata sharing a physical block observe
+the same page immediately, without a second alias page.
 
-Dirty state is tracked both globally and per mapping. `page_cache_wb_thread()`
+The page cache owns physical reads, writes, dirty state, writeback, eviction,
+and hidden logical associations. A shared file mapping pins its physical page
+until unmap; private mappings copy data and do not retain a cache pin. Writeback
+failure preserves page data and dirty state for retry.
+
+Dirty state is tracked in one global page-cache list. Mapping-scoped sync
+filters that list through logical associations, while global writeback may
+aggregate physically contiguous pages across mappings. `page_cache_wb_thread()`
 uses `worker_run_periodic(5, ...)` to call `page_cache_sync_all()` in the
 background. Explicit fsync, msync, truncate, and inode sync paths use the same
 page-cache synchronization machinery.
@@ -505,7 +513,8 @@ Start reading:
 4. The faulting address is checked against VMAs and access permissions.
 5. Anonymous mappings allocate zero pages lazily.
 6. File-backed mappings read inode page-cache pages; private mappings copy,
-   shared mappings map the page-cache page.
+   shared mappings map the page-cache page. A writable shared mapping creates
+   a page-cache backing page for a sparse hole on its first file fault.
 7. Valid faults install a user PTE and flush the page TLB entry.
 8. Invalid user faults force `SIGSEGV`.
 
@@ -541,13 +550,15 @@ Start reading:
 ### Page Cache Writeback Flow
 
 1. A filesystem or MM path marks an inode page dirty.
-2. Dirty pages enter both global and per-mapping dirty lists.
+2. Dirty pages enter the global physical-page dirty list; logical associations
+   are used to select pages for inode-scoped sync.
 3. fsync/msync/truncate may call mapping or inode sync directly.
 4. The background writeback thread periodically calls `page_cache_sync_all()`.
-5. `page_cache_wb_run()` clusters logically and physically contiguous dirty
-   pages from one mapping.
-6. `mapping->ops->writepages()` writes data through the block-device backend.
-7. raw block aliases are refreshed or invalidated when needed.
+5. `page_cache_wb_run()` clusters physically contiguous dirty pages on one
+   device, applying a mapping filter for inode-scoped synchronization.
+6. page-cache writes physical dirty pages through the block-device backend.
+7. no alias refresh or invalidation is needed because the physical page is
+   authoritative for every logical association.
 
 Start reading:
 
@@ -556,7 +567,7 @@ Start reading:
 - `block/page_cache.c`
 - `block/page_cache_dirty.c`
 - `block/page_cache_writeback.c`
-- `block/page_cache_alias.c`
+- `block/page_cache_alias.c` (internal logical association index)
 - `fs/ext2/file.c`
 
 ## Important APIs
@@ -742,10 +753,10 @@ Common entry points:
 - `register_block_device(bdev)`
 - `lookup_block_device(dev)`
 - `block_device_pages(dev)`
-- `page_cache_get_page(mapping, index, create, &created)`
-- `page_cache_read_page(mapping, index)`
+- `page_cache_get(dev, block, flags)`
+- `page_cache_get_mapping(mapping, index, flags, &error)`
 - `page_cache_get_block(dev, block)`
-- `page_cache_grab_file_page(inode, index, create, &created)`
+- `page_cache_get_block(dev, block)`
 - `page_cache_put_page(page)`
 - `page_cache_mark_dirty(page)`
 - `page_cache_sync_page(page)`

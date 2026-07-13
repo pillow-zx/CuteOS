@@ -13,6 +13,7 @@
 #include <kernel/vfs.h>
 #include <kernel/page.h>
 #include <kernel/pgtable.h>
+#include <kernel/page_cache.h>
 
 #include "../../fs/ext2/ext2.h"
 #include "../../mm/internal.h"
@@ -57,9 +58,8 @@ static inline int mm_test_read_raw_file_page(struct file *file, uint32_t index,
 	bdev = lookup_block_device(file->f_inode->i_sb->s_dev);
 	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->read_sectors)
 		return -ENXIO;
-
-	return bdev->bd_ops->read_sectors(bdev, buf, pblock * BLOCK_SECTORS,
-					  BLOCK_SECTORS);
+	return bdev->bd_ops->read_sectors(bdev, buf,
+					 pblock * BLOCK_SECTORS, BLOCK_SECTORS);
 }
 
 static inline int mm_test_count_vmas(struct mm_struct *mm)

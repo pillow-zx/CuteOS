@@ -82,6 +82,7 @@ int test_mm_vma_mprotect_enospc_preserves_layout(void);
 int test_mm_madvise_supported_hints_are_noop(void);
 int test_mm_move_user_pages_preserves_resident_page(void);
 int test_mm_msync_shared_mapping_writes_back(void);
+int test_mm_sparse_shared_mapping_writes_back(void);
 int test_mm_exec_file_segment_faults_lazily(void);
 int test_mm_exec_file_segment_zero_fills_tail(void);
 int test_mm_exec_file_segment_split_keeps_offset(void);
@@ -140,6 +141,8 @@ int test_page_cache_block_zero_writeback(void);
 int test_page_cache_metadata_eviction(void);
 
 int test_page_cache_dirty_write_visibility(void);
+int test_page_cache_physical_key_identity(void);
+int test_page_cache_writeback_retry(void);
 int test_page_cache_fsync_inode_scope(void);
 int test_vfs_datasync_metadata_policy(void);
 int test_page_cache_datasync_skips_pure_inode_metadata(void);

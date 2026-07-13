@@ -41,7 +41,7 @@ int test_page_cache_metadata_basic(void)
 		for (uint32_t i = 0; i < BLOCK_SIZE; i++)
 			data[i] = (uint8_t)(i * 5u + 0x51u);
 
-		ret = page_cache_sync_block(page);
+		ret = page_cache_sync_page(page);
 		TEST_ASSERT_EQ(ret, 0);
 
 		memset(disk_buf, 0, sizeof(disk_buf));
@@ -73,7 +73,7 @@ int test_page_cache_metadata_errors(void)
 		page = page_cache_get_block(MKDEV(9, 0), 0);
 		TEST_ASSERT_NULL(page);
 
-		ret = page_cache_sync_block(NULL);
+		ret = page_cache_sync_page(NULL);
 		TEST_ASSERT_EQ(ret, -EINVAL);
 	}
 	TEST_END("page cache metadata: error paths");

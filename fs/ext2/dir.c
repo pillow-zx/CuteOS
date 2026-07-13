@@ -1,11 +1,24 @@
-#include "ext2.h"
-
 #include <kernel/errno.h>
 #include <kernel/page_cache.h>
 #include <kernel/slab.h>
 #include <kernel/vfs.h>
 
+#include "ext2.h"
+
 #define EXT2_DIR_REC_LEN(name_len) (((name_len) + 8 + 3) & ~3u)
+
+static __always_inline int ext2_sync_dir_page(struct page_cache *page)
+{
+	return page_cache_sync_page(page) < 0 ? -EIO : 0;
+}
+
+static __always_inline struct page_cache *
+ext2_read_inode_page(struct inode *inode, uint32_t lblock)
+{
+	return inode ? page_cache_get_mapping(&inode->i_pages, lblock,
+					      PAGE_CACHE_READ, NULL)
+		     : NULL;
+}
 
 static uint8_t ext2_file_type(uint16_t mode)
 {
@@ -35,7 +48,6 @@ static bool ext2_match(struct ext2_dir_entry_2 *de, const char *name,
 		return false;
 	return memcmp(de->name, name, namelen) == 0;
 }
-
 static void ext2_dirent_init(struct ext2_dir_entry_2 *de, uint32_t ino,
 			     uint16_t rec_len, const char *name, size_t namelen,
 			     uint8_t type)
@@ -47,23 +59,13 @@ static void ext2_dirent_init(struct ext2_dir_entry_2 *de, uint32_t ino,
 	memcpy(de->name, name, namelen);
 }
 
-static int ext2_sync_dir_page(struct page_cache *page)
-{
-	return page_cache_sync_page(page) < 0 ? -EIO : 0;
-}
-
-static struct page_cache *ext2_read_inode_page(struct inode *inode,
-					       uint32_t lblock)
-{
-	return inode ? page_cache_read_page(&inode->i_pages, lblock) : NULL;
-}
-
 static struct page_cache *ext2_new_inode_page(struct inode *inode,
 					      uint32_t lblock)
 {
 	struct page_cache *page;
 
-	page = page_cache_grab_file_page(inode, lblock, true, NULL);
+	page = page_cache_get_mapping(&inode->i_pages, lblock,
+				      PAGE_CACHE_CREATE, NULL);
 	if (!page)
 		return NULL;
 
@@ -819,7 +821,6 @@ static int ext2_rename(struct inode *old_dir, struct dentry *old_dentry,
 	if (new_inode == old_inode)
 		return 0;
 
-
 	if (new_inode) {
 		new_is_dir = (new_inode->i_mode & EXT2_S_IFMT) == EXT2_S_IFDIR;
 
@@ -899,15 +900,15 @@ rollback_new:
 }
 
 const struct inode_operations ext2_dir_inode_operations = {
-	.lookup   = ext2_lookup,
-	.create   = ext2_create,
-	.symlink  = ext2_symlink,
-	.link	  = ext2_link,
-	.unlink   = ext2_unlink,
-	.mkdir    = ext2_mkdir,
-	.rmdir    = ext2_rmdir,
+	.lookup = ext2_lookup,
+	.create = ext2_create,
+	.symlink = ext2_symlink,
+	.link = ext2_link,
+	.unlink = ext2_unlink,
+	.mkdir = ext2_mkdir,
+	.rmdir = ext2_rmdir,
 	.truncate = ext2_truncate_inode,
-	.rename   = ext2_rename,
+	.rename = ext2_rename,
 };
 
 const struct file_operations ext2_dir_operations = {

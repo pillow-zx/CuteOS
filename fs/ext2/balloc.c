@@ -1,21 +1,27 @@
-#include "ext2.h"
-
 #include <kernel/errno.h>
 #include <kernel/page_cache.h>
 
-static bool bitmap_test_bit(uint8_t *bitmap, uint32_t bit)
+#include "ext2.h"
+
+static __always_inline bool bitmap_test_bit(uint8_t *bitmap, uint32_t bit)
 {
 	return !!(bitmap[bit / 8] & (uint8_t)(1u << (bit % 8)));
 }
 
-static void bitmap_set_bit(uint8_t *bitmap, uint32_t bit)
+static __always_inline void bitmap_set_bit(uint8_t *bitmap, uint32_t bit)
 {
 	bitmap[bit / 8] |= (uint8_t)(1u << (bit % 8));
 }
 
-static void bitmap_clear_bit(uint8_t *bitmap, uint32_t bit)
+static __always_inline void bitmap_clear_bit(uint8_t *bitmap, uint32_t bit)
 {
 	bitmap[bit / 8] &= (uint8_t)~(1u << (bit % 8));
+}
+
+static __always_inline uint32_t ext2_group_first_block(struct ext2_sb_info *sbi,
+						       uint32_t group)
+{
+	return sbi->s_first_data_block + group * sbi->s_blocks_per_group;
 }
 
 static int ext2_sync_super(struct super_block *sb)
@@ -31,7 +37,7 @@ static int ext2_sync_super(struct super_block *sb)
 
 	memcpy(page_cache_data(page) + super_off, &sbi->s_es,
 	       sizeof(sbi->s_es));
-	ret = page_cache_sync_block(page);
+	ret = page_cache_sync_page(page);
 	page_cache_put_page(page);
 	return ret;
 }
@@ -40,8 +46,8 @@ static int ext2_sync_group_desc(struct super_block *sb, uint32_t group)
 {
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
 	uint32_t desc_per_block = BLOCK_SIZE / sizeof(struct ext2_group_desc);
-	uint32_t block =
-		EXT2_BGDT_BLOCK(sbi->s_first_data_block) + group / desc_per_block;
+	uint32_t block = EXT2_BGDT_BLOCK(sbi->s_first_data_block) +
+			 group / desc_per_block;
 	uint32_t offset =
 		(group % desc_per_block) * sizeof(struct ext2_group_desc);
 	struct page_cache *page = page_cache_get_block(sb->s_dev, block);
@@ -52,14 +58,9 @@ static int ext2_sync_group_desc(struct super_block *sb, uint32_t group)
 
 	memcpy(page_cache_data(page) + offset, &sbi->s_group_desc[group],
 	       sizeof(struct ext2_group_desc));
-	ret = page_cache_sync_block(page);
+	ret = page_cache_sync_page(page);
 	page_cache_put_page(page);
 	return ret;
-}
-
-static uint32_t ext2_group_first_block(struct ext2_sb_info *sbi, uint32_t group)
-{
-	return sbi->s_first_data_block + group * sbi->s_blocks_per_group;
 }
 
 static uint32_t ext2_group_blocks(struct ext2_sb_info *sbi, uint32_t group)
@@ -75,12 +76,14 @@ static uint32_t ext2_group_blocks(struct ext2_sb_info *sbi, uint32_t group)
 static void ext2_zero_block(struct super_block *sb, uint32_t block)
 {
 	struct page_cache *page = page_cache_get_block(sb->s_dev, block);
+	int sync_ret;
 
 	if (!page)
 		return;
 
 	memset(page_cache_data(page), 0, BLOCK_SIZE);
-	page_cache_sync_block(page);
+	sync_ret = page_cache_sync_page(page);
+	(void)sync_ret;
 	page_cache_put_page(page);
 }
 
@@ -116,9 +119,11 @@ uint32_t ext2_alloc_block(struct inode *inode)
 
 			uint32_t block =
 				ext2_group_first_block(sbi, group) + bit;
+			int sync_ret;
 
 			bitmap_set_bit(data, bit);
-			page_cache_sync_block(page);
+			sync_ret = page_cache_sync_page(page);
+			(void)sync_ret;
 			page_cache_put_page(page);
 
 			gd->bg_free_blocks_count--;
@@ -142,6 +147,7 @@ void ext2_free_block(struct super_block *sb, uint32_t block)
 	uint32_t bit;
 	struct page_cache *page;
 	uint8_t *data;
+	int sync_ret;
 
 	if (block < sbi->s_first_data_block ||
 	    block >= sbi->s_es.s_blocks_count)
@@ -160,7 +166,8 @@ void ext2_free_block(struct super_block *sb, uint32_t block)
 
 	if (bitmap_test_bit(data, bit)) {
 		bitmap_clear_bit(data, bit);
-		page_cache_sync_block(page);
+		sync_ret = page_cache_sync_page(page);
+		(void)sync_ret;
 		sbi->s_group_desc[group].bg_free_blocks_count++;
 		sbi->s_es.s_free_blocks_count++;
 		ext2_sync_group_desc(sb, group);
@@ -193,9 +200,11 @@ uint32_t ext2_alloc_inode(struct super_block *sb, uint16_t mode)
 
 			uint32_t ino =
 				group * sbi->s_inodes_per_group + bit + 1;
+			int sync_ret;
 
 			bitmap_set_bit(data, bit);
-			page_cache_sync_block(page);
+			sync_ret = page_cache_sync_page(page);
+			(void)sync_ret;
 			page_cache_put_page(page);
 
 			gd->bg_free_inodes_count--;
@@ -220,6 +229,7 @@ void ext2_free_inode(struct super_block *sb, uint32_t ino)
 	uint32_t bit;
 	struct page_cache *page;
 	uint8_t *data;
+	int sync_ret;
 
 	if (!ino || ino > sbi->s_es.s_inodes_count)
 		return;
@@ -237,7 +247,8 @@ void ext2_free_inode(struct super_block *sb, uint32_t ino)
 
 	if (bitmap_test_bit(data, bit)) {
 		bitmap_clear_bit(data, bit);
-		page_cache_sync_block(page);
+		sync_ret = page_cache_sync_page(page);
+		(void)sync_ret;
 		sbi->s_group_desc[group].bg_free_inodes_count++;
 		sbi->s_es.s_free_inodes_count++;
 		ext2_sync_group_desc(sb, group);

@@ -58,6 +58,7 @@ static struct virtio_blk_dev vblk_dev;
 
 #ifdef KERNEL_SELFTEST
 static struct virtio_blk_test_stats vblk_test_stats;
+static int vblk_test_write_error;
 #endif
 
 static int virtio_blk_read_sectors(struct block_device *bdev, void *buf,
@@ -80,7 +81,6 @@ static void vblk_setup_queue(uintptr_t base)
 {
 	uint32_t qnum_max;
 
-
 	virtio_mmio_write(base, VIRTIO_MMIO_QUEUE_SEL, 0);
 
 	qnum_max = virtio_mmio_read(base, VIRTIO_MMIO_QUEUE_NUM_MAX);
@@ -88,19 +88,16 @@ static void vblk_setup_queue(uintptr_t base)
 		panic("virtio-blk: queue too small (max=%u, need=%u)\n",
 		      qnum_max, VBLK_QSIZE);
 
-
 	memset(&vblk_desc, 0, sizeof(vblk_desc));
 	memset(&vblk_avail, 0, sizeof(vblk_avail));
 	memset(&vblk_used, 0, sizeof(vblk_used));
 
 	virtio_mmio_write(base, VIRTIO_MMIO_QUEUE_NUM, VBLK_QSIZE);
 
-
 	virtio_mmio_write64(base, VIRTIO_MMIO_QUEUE_DESC_LOW, __pa(vblk_desc));
 	virtio_mmio_write64(base, VIRTIO_MMIO_QUEUE_AVAIL_LOW,
 			    __pa(&vblk_avail));
 	virtio_mmio_write64(base, VIRTIO_MMIO_QUEUE_USED_LOW, __pa(&vblk_used));
-
 
 	virtio_mmio_write(base, VIRTIO_MMIO_QUEUE_READY, 1);
 }
@@ -109,16 +106,12 @@ static void vblk_negotiate_features(vaddr_t base)
 {
 	uint32_t status;
 
-
-
-
 	virtio_mmio_write(base, VIRTIO_MMIO_DRIVER_FEATURES_SEL, 0);
 	virtio_mmio_write(base, VIRTIO_MMIO_DRIVER_FEATURES, 0);
 
 	virtio_mmio_write(base, VIRTIO_MMIO_DRIVER_FEATURES_SEL, 1);
 	virtio_mmio_write(base, VIRTIO_MMIO_DRIVER_FEATURES,
 			  1u << (VIRTIO_F_VERSION_1 - 32));
-
 
 	status = VIRTIO_CONFIG_S_ACKNOWLEDGE | VIRTIO_CONFIG_S_DRIVER |
 		 VIRTIO_CONFIG_S_FEATURES_OK;
@@ -137,19 +130,16 @@ static void vblk_build_req(uintptr_t buf_addr, uint64_t sector, uint32_t nsec,
 	vblk_req.hdr.sector = sector;
 	vblk_req.status = 0xff;
 
-
 	vblk_desc[0].addr = __pa(&vblk_req.hdr);
 	vblk_desc[0].len = sizeof(vblk_req.hdr);
 	vblk_desc[0].flags = VRING_DESC_F_NEXT;
 	vblk_desc[0].next = 1;
-
 
 	vblk_desc[1].addr = __pa(buf_addr);
 	vblk_desc[1].len = (uint32_t)nsec * SECTOR_SIZE;
 	vblk_desc[1].flags =
 		VRING_DESC_F_NEXT | (write ? 0 : VRING_DESC_F_WRITE);
 	vblk_desc[1].next = 2;
-
 
 	vblk_desc[2].addr = __pa(&vblk_req.status);
 	vblk_desc[2].len = sizeof(vblk_req.status);
@@ -162,14 +152,11 @@ static int vblk_submit_and_wait(vaddr_t base, uint16_t expected)
 	volatile uint16_t *used_idx = (volatile uint16_t *)&vblk_used.idx;
 	uint32_t spins = 0;
 
-
 	vblk_avail.ring[vblk_avail.idx % VBLK_QSIZE] = 0;
 	virtio_wmb();
 	vblk_avail.idx = expected;
 
-
 	virtio_mmio_write(base, VIRTIO_MMIO_QUEUE_NOTIFY, 0);
-
 
 	while (*used_idx != expected) {
 		if (++spins > VBLK_POLL_SPIN_LIMIT)
@@ -179,19 +166,17 @@ static int vblk_submit_and_wait(vaddr_t base, uint16_t expected)
 	}
 	virtio_rmb();
 
-
 	if (vblk_req.status != VIRTIO_BLK_S_OK)
 		return -EIO;
 
 	return 0;
 }
 
-static int virtio_blk_rw(struct block_device *bdev, bool write, uintptr_t buf_addr,
-			 uint64_t sector, uint32_t nsec)
+static int virtio_blk_rw(struct block_device *bdev, bool write,
+			 uintptr_t buf_addr, uint64_t sector, uint32_t nsec)
 {
 	struct virtio_blk_dev *vd = bdev->bd_private;
 	uint16_t expected;
-
 
 	if (nsec == 0 || nsec > VBLK_MAX_SECTORS)
 		return -EINVAL;
@@ -199,6 +184,12 @@ static int virtio_blk_rw(struct block_device *bdev, bool write, uintptr_t buf_ad
 		return -EINVAL;
 
 #ifdef KERNEL_SELFTEST
+	if (write && vblk_test_write_error) {
+		int error = vblk_test_write_error;
+
+		vblk_test_write_error = 0;
+		return error;
+	}
 	if (write) {
 		vblk_test_stats.write_reqs++;
 		vblk_test_stats.last_write_nsec = nsec;
@@ -232,7 +223,6 @@ void virtio_blk_init(void)
 	uint32_t magic, version, cap_lo, cap_hi;
 	uint32_t status;
 
-
 	magic = virtio_mmio_read(base, VIRTIO_MMIO_MAGIC_VALUE);
 	if (magic != VIRTIO_MMIO_MAGIC)
 		panic("virtio-blk: bad magic 0x%x at 0x%lx (expected 0x%x)\n",
@@ -244,36 +234,27 @@ void virtio_blk_init(void)
 		      "modern=2)\n",
 		      version);
 
-
 	vblk_status_set(base, 0);
 
-
 	vblk_status_set(base, VIRTIO_CONFIG_S_ACKNOWLEDGE);
-
 
 	vblk_status_set(base,
 			VIRTIO_CONFIG_S_ACKNOWLEDGE | VIRTIO_CONFIG_S_DRIVER);
 
-
 	vblk_negotiate_features(base);
-
 
 	status = VIRTIO_CONFIG_S_ACKNOWLEDGE | VIRTIO_CONFIG_S_DRIVER |
 		 VIRTIO_CONFIG_S_FEATURES_OK | VIRTIO_CONFIG_S_DRIVER_OK;
 	vblk_status_set(base, status);
 
-
 	vblk_setup_queue(base);
-
 
 	cap_lo = virtio_mmio_read(base, VIRTIO_MMIO_CONFIG);
 	cap_hi = virtio_mmio_read(base, VIRTIO_MMIO_CONFIG + 4);
 	vblk_dev.mmio_base = base;
 	vblk_dev.capacity = (uint64_t)cap_lo | ((uint64_t)cap_hi << 32);
 
-
 	vblk_bdev.bd_sectors = vblk_dev.capacity;
-
 
 	register_block_device(&vblk_bdev);
 
@@ -294,5 +275,10 @@ void virtio_blk_test_get_stats(struct virtio_blk_test_stats *stats)
 		return;
 
 	*stats = vblk_test_stats;
+}
+
+void virtio_blk_test_fail_next_write(int error)
+{
+	vblk_test_write_error = error;
 }
 #endif

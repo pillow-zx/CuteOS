@@ -1,5 +1,3 @@
-#include "ext2.h"
-
 #include <kernel/blkdev.h>
 #include <kernel/errno.h>
 #include <kernel/page_cache.h>
@@ -9,9 +7,11 @@
 #include <kernel/vmalloc.h>
 #include <kernel/vfs.h>
 
-#define EXT2_FEATURE_COMPAT_SUPPORTED	   0
-#define EXT2_FEATURE_INCOMPAT_SUPPORTED	   EXT2_FEATURE_INCOMPAT_FILETYPE
-#define EXT2_FEATURE_RO_COMPAT_SUPPORTED   EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER
+#include "ext2.h"
+
+#define EXT2_FEATURE_COMPAT_SUPPORTED	 0
+#define EXT2_FEATURE_INCOMPAT_SUPPORTED	 EXT2_FEATURE_INCOMPAT_FILETYPE
+#define EXT2_FEATURE_RO_COMPAT_SUPPORTED EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER
 
 static int ext2_probe(dev_t dev);
 static int ext2_mount(struct file_system_type *fs_type, dev_t dev,

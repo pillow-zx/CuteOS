@@ -45,6 +45,7 @@ struct virtio_blk_test_stats {
 
 void virtio_blk_test_reset_stats(void);
 void virtio_blk_test_get_stats(struct virtio_blk_test_stats *stats);
+void virtio_blk_test_fail_next_write(int error);
 #endif
 
 #endif

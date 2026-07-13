@@ -1,22 +1,22 @@
-#include "ext2.h"
-
 #include <kernel/blkdev.h>
 #include <kernel/errno.h>
 #include <kernel/page_cache.h>
 #include <kernel/slab.h>
 #include <kernel/stat.h>
 
-static inline uint32_t ext2_encode_dev(dev_t dev)
+#include "ext2.h"
+
+static __always_inline uint32_t ext2_encode_dev(dev_t dev)
 {
 	return (MAJOR(dev) << 8) | (dev & 0xff);
 }
 
-static inline int ext2_sync_metadata_page(struct page_cache *page)
+static __always_inline int ext2_sync_metadata_page(struct page_cache *page)
 {
-	return page_cache_sync_block(page) < 0 ? -EIO : 0;
+	return page_cache_sync_page(page);
 }
 
-static inline dev_t ext2_decode_dev(uint32_t raw)
+static __always_inline dev_t ext2_decode_dev(uint32_t raw)
 {
 	uint32_t major = (raw >> 8) & 0xff;
 	uint32_t minor = raw & 0xff;
@@ -234,10 +234,10 @@ static int ext2_zero_truncate_tail(struct inode *inode, uint64_t size)
 	if (!pblock)
 		return 0;
 
-	page = page_cache_read_page(&inode->i_pages, lblock);
+	page = page_cache_get_mapping(&inode->i_pages, lblock, PAGE_CACHE_READ,
+				      NULL);
 	if (!page)
 		return -EIO;
-
 
 	memset(page_cache_data(page) + offset, 0, BLOCK_SIZE - offset);
 	page_cache_mark_dirty(page);
@@ -258,31 +258,21 @@ static int ext2_zero_extend_tail(struct inode *inode, uint64_t old_size)
 
 	if (!inode || old_size == 0 || offset == 0)
 		return 0;
-	if (!inode->i_pages.ops || !inode->i_pages.ops->readpage)
-		return 0;
 
 	lblock = (uint32_t)(old_size / BLOCK_SIZE);
 	pblock = ext2_bmap_readonly(inode, lblock);
 	if (!pblock)
 		return 0;
 
-	page = page_cache_read_page(&inode->i_pages, lblock);
+	page = page_cache_get_mapping(&inode->i_pages, lblock, PAGE_CACHE_READ,
+				      NULL);
 	if (!page)
 		return -EIO;
-
 
 	memset(page_cache_data(page) + offset, 0, BLOCK_SIZE - offset);
 	page_cache_mark_dirty(page);
 	page_cache_put_page(page);
 	return 0;
-}
-
-static struct page_mapping *ext2_inode_backing(struct inode *inode)
-{
-	if (!inode || !inode->i_sb)
-		return NULL;
-
-	return block_device_pages(inode->i_sb->s_dev);
 }
 
 void ext2_init_inode_ops(struct inode *inode)
@@ -292,20 +282,18 @@ void ext2_init_inode_ops(struct inode *inode)
 
 	inode->i_op = NULL;
 	inode->i_fop = NULL;
+	inode->i_pages.dev = inode->i_sb ? inode->i_sb->s_dev : 0;
 	inode->i_pages.ops = NULL;
-	inode->i_pages.backing = NULL;
 
 	switch (inode->i_mode & EXT2_S_IFMT) {
 	case EXT2_S_IFDIR:
 		inode->i_op = &ext2_dir_inode_operations;
 		inode->i_fop = &ext2_dir_operations;
-		inode->i_pages.ops = &ext2_inode_aops;
-		inode->i_pages.backing = ext2_inode_backing(inode);
+		inode->i_pages.ops = &ext2_inode_mapping_ops;
 		break;
 	case EXT2_S_IFLNK:
 		inode->i_op = &ext2_symlink_inode_operations;
-		inode->i_pages.ops = &ext2_inode_aops;
-		inode->i_pages.backing = ext2_inode_backing(inode);
+		inode->i_pages.ops = &ext2_inode_mapping_ops;
 		break;
 	case EXT2_S_IFCHR:
 	case EXT2_S_IFBLK:
@@ -314,8 +302,7 @@ void ext2_init_inode_ops(struct inode *inode)
 	default:
 		inode->i_op = &ext2_file_inode_operations;
 		inode->i_fop = &ext2_file_operations;
-		inode->i_pages.ops = &ext2_inode_aops;
-		inode->i_pages.backing = ext2_inode_backing(inode);
+		inode->i_pages.ops = &ext2_inode_mapping_ops;
 		break;
 	}
 }
@@ -361,7 +348,8 @@ static int ext2_readlink(struct inode *inode, char *buf, size_t size)
 
 		if (!ext2_bmap_readonly(inode, 0))
 			return -EIO;
-		page = page_cache_read_page(&inode->i_pages, 0);
+		page = page_cache_get_mapping(&inode->i_pages, 0,
+					      PAGE_CACHE_READ, NULL);
 		if (!page)
 			return -EIO;
 		if (len > BLOCK_SIZE)
@@ -510,7 +498,8 @@ int ext2_datasync_inode(struct inode *inode)
 	if (!inode || !inode->i_sb || !inode->i_private)
 		return -EINVAL;
 
-	/* Allocation metadata and file size changes are written at mutation time. */
+	/* Allocation metadata and file size changes are written at mutation
+	 * time. */
 	return 0;
 }
 
@@ -571,17 +560,16 @@ static int ext2_ind_bmap(struct inode *inode, uint32_t ind_block,
 static int ext2_read_block_words(struct super_block *sb, uint32_t block,
 				 uint32_t *words)
 {
-	struct block_device *bdev;
+	struct page_cache *page;
 
 	if (!sb || !words || !block)
 		return -EINVAL;
-
-	bdev = lookup_block_device(sb->s_dev);
-	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->read_sectors)
-		return -ENXIO;
-
-	return bdev->bd_ops->read_sectors(bdev, words, block * BLOCK_SECTORS,
-					  BLOCK_SECTORS);
+	page = page_cache_get_block(sb->s_dev, block);
+	if (!page)
+		return -EIO;
+	memcpy(words, page_cache_data(page), BLOCK_SIZE);
+	page_cache_put_page(page);
+	return 0;
 }
 
 static uint32_t ext2_ind_bmap_readonly(struct super_block *sb,
@@ -596,7 +584,8 @@ static uint32_t ext2_ind_bmap_readonly(struct super_block *sb,
 
 	mapping = block_device_pages(sb->s_dev);
 	if (mapping) {
-		page = page_cache_get_page(mapping, ind_block, false, NULL);
+		page = page_cache_get_mapping(mapping, ind_block,
+					      PAGE_CACHE_READ, NULL);
 		if (page) {
 			if (page_cache_is_uptodate(page))
 				block = ext2_block_words(page)[index];
@@ -674,8 +663,8 @@ int ext2_bmap(struct inode *inode, uint32_t block, bool create,
 					return ret;
 			}
 		}
-		return ext2_ind_bmap(inode, raw->i_block[EXT2_IND_BLOCK],
-				     block, create, mapped);
+		return ext2_ind_bmap(inode, raw->i_block[EXT2_IND_BLOCK], block,
+				     create, mapped);
 	}
 
 	block -= ptrs;

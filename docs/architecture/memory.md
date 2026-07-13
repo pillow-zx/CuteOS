@@ -45,7 +45,7 @@ flowchart TD
 - `mm/internal.h` 只给 `mm/` 内部使用。
 - syscall 层只能调用 `include/kernel/mm.h` 暴露的函数。
 - 架构页表操作通过 `include/kernel/pgtable.h`/`arch/pgtable.h` 完成。
-- 文件页由 VFS inode 的 `page_mapping` 管理，mm 不解释 ext2 块布局。
+- 文件页由 VFS inode 的 logical `page_mapping` 管理，mm 不解释 ext2 块布局；缺页时通过 resolver 获取 physical page-cache 页。
 
 ## 物理页分配：buddy
 
@@ -348,5 +348,5 @@ bool user_map_reserved_overlaps(vaddr_t start, vaddr_t end);
 - VMA 数组容量有限，任何会分裂 VMA 的操作都必须先计算槽位需求。
 - mm 外部不要直接访问 `struct vm_area_struct`。
 - uaccess 失败必须返回 `-EFAULT` 或未复制字节数，不应让内核崩溃。
-- file-backed mapping 的数据一致性依赖 inode page cache，不应绕过 VFS/page cache 读磁盘。
+- file-backed mapping 的数据一致性依赖 physical page cache，不应绕过 VFS/page cache 读磁盘。shared mapping 持有 cache pin 直到 unmap，private mapping 复制后不长期 pin。
 - 释放页时必须区分匿名页、shared page cache 页和非 DRAM 页框。

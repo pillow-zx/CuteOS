@@ -13,7 +13,7 @@
 - `block/page_cache.c`：缓存页生命周期、LRU、hash。
 - `block/page_cache_dirty.c`：dirty list。
 - `block/page_cache_writeback.c`：同步和聚合写回。
-- `block/page_cache_alias.c`：inode mapping 与 raw block mapping 的别名一致性。
+- `block/page_cache_alias.c`：logical mapping 与 physical page 的内部关联索引。
 - `block/virtio_blk.c`：QEMU virtio-blk modern MMIO 驱动。
 
 文件系统只能通过 block device/page cache 发起 I/O；驱动只实现扇区读写，不知道 VFS 或 ext2。
@@ -26,7 +26,7 @@
 flowchart TB
     VFS["VFS / ext2"]
     InodeMap["inode page_mapping<br/>file logical blocks"]
-    PageCache["page cache<br/>(mapping, index)"]
+    PageCache["page cache<br/>(dev, physical block)"]
     Backing["block device page_mapping<br/>physical blocks"]
     Blkdev["block_device<br/>read/write sectors"]
     Virtio["virtio-blk MMIO<br/>polling queue"]
@@ -34,7 +34,7 @@ flowchart TB
 
     VFS --> InodeMap --> PageCache
     PageCache -->|"writeback"| Blkdev
-    InodeMap -->|"backing alias"| Backing --> PageCache
+    InodeMap --> Backing --> PageCache
     Blkdev --> Virtio --> Disk
 ```
 
@@ -81,23 +81,19 @@ page_mapping_init(&bdev->bd_pages, bdev, &block_mapping_aops, NULL);
 
 块设备 mapping 的 index 是 4 KiB 物理块号。其 ops：
 
-- `readpage()`：把 block index 转换为 `index * BLOCK_SECTORS`，调用驱动读扇区。
-- `map_block()`：逻辑块号就是物理块号。
-- `writepages()`：写连续物理块。
+- `resolve()`：逻辑块号就是物理块号；实际扇区 I/O 由 page-cache 集中执行。
 
 ext2 metadata 通过 `page_cache_get_block(dev, block)` 使用这个 mapping。
 
 ## page_mapping 抽象
 
-`page_mapping` 是 page cache 的命名域：
+`page_mapping` 是 logical-to-physical resolver；page-cache 的唯一物理身份是 `(dev_t, physical block)`：
 
 ```c
 struct page_mapping {
     void *host;
+    dev_t dev;
     const struct page_mapping_ops *ops;
-    struct page_mapping *backing;
-    struct list_head pages;
-    struct list_head dirty_pages;
 };
 ```
 
@@ -105,15 +101,9 @@ struct page_mapping {
 
 ```c
 struct page_mapping_ops {
-    int (*readpage)(struct page_mapping *mapping,
-                    uint64_t index, void *data);
-    int (*map_block)(struct page_mapping *mapping,
-                     uint64_t index, bool create,
-                     uint32_t *block);
-    int (*writepages)(struct page_mapping *mapping,
-                      uint64_t start_index,
-                      uint32_t nr_pages,
-                      const void *data);
+    int (*resolve)(struct page_mapping *mapping,
+                   uint64_t index, bool create,
+                   uint64_t *block);
 };
 ```
 
@@ -124,15 +114,12 @@ struct page_mapping_ops {
 | inode `i_pages` | `struct inode` | 文件逻辑块号 |
 | block device `bd_pages` | `struct block_device` | 磁盘物理块号 |
 
-page cache 只看 `(mapping, index)`，不解释 ext2 块树。
+page cache 只看 `(dev_t, physical block)`；mapping 只解释 ext2 logical block tree。关联、dirty、引用和回收细节隐藏在 page-cache implementation。
 
 ## page_cache 对象
 
-`struct page_cache` 包含：
-
-- `owner`：所属 mapping。
-- `index`：mapping 内索引。
-- `data`：4 KiB 数据页。
+`struct page_cache` 的公开接口只暴露数据和同步操作；设备号、物理块号、
+引用计数、dirty/writeback 状态以及关联索引均为实现细节。
 - `refcount`
 - `uptodate`
 - `dirty`
@@ -147,24 +134,20 @@ page cache 只看 `(mapping, index)`，不解释 ext2 块树。
 #define PAGE_CACHE_NR_PAGES 512U
 ```
 
-缓存 key 的 hash 混合 mapping 指针和 index，保证不同 inode 的逻辑块 0、块设备物理块 0 不冲突。
+缓存 key 的 hash 混合设备号和物理块号；同一 `(dev_t, block)` 永远只有一个 authoritative page。
 
 ## page cache API
 
 公共 API：
 
 ```c
-struct page_cache *page_cache_get_page(struct page_mapping *mapping,
-                                       uint64_t index,
-                                       bool create,
-                                       bool *created);
-struct page_cache *page_cache_read_page(struct page_mapping *mapping,
-                                        uint64_t index);
+struct page_cache *page_cache_get(dev_t dev, uint64_t block,
+                                  uint32_t flags);
+struct page_cache *page_cache_get_mapping(struct page_mapping *mapping,
+                                          uint64_t index,
+                                          uint32_t flags,
+                                          int *error);
 struct page_cache *page_cache_get_block(dev_t dev, uint64_t block);
-struct page_cache *page_cache_grab_file_page(struct inode *inode,
-                                             uint64_t index,
-                                             bool create,
-                                             bool *created);
 void page_cache_put_page(struct page_cache *page);
 uint8_t *page_cache_data(struct page_cache *page);
 void page_cache_mark_dirty(struct page_cache *page);
@@ -176,7 +159,7 @@ void page_cache_truncate_mapping(struct page_mapping *mapping, uint64_t size);
 void page_cache_invalidate_mapping(struct page_mapping *mapping);
 ```
 
-`page_cache_get_page(create=true)` 只创建未 uptodate 的空页。需要有效内容时应使用 `page_cache_read_page()`，它会调用 mapping `readpage()`。
+`PAGE_CACHE_CREATE` 控制是否允许创建物理页，`PAGE_CACHE_READ` 请求设备读入内容。mapping 只解析 logical block；它不执行设备 I/O。
 
 调用者拿到 page 后必须 `page_cache_put_page()`。
 
@@ -192,10 +175,12 @@ page cache 满 512 页时：
 
 ## dirty list
 
-dirty 状态同时维护两个链表：
+dirty 状态维护一个全局链表：
 
 - 全局 `dirty_pages`：后台 writeback 使用。
-- `mapping->dirty_pages`：fsync/msync/truncate 这类局部同步使用。
+
+局部 fsync 通过 logical association 过滤该链表，不会把其他 mapping 的
+dirty page 一并写回；全局同步才允许跨 mapping 聚合物理连续页。
 
 `page_cache_mark_dirty()` 也会把页面标记为 uptodate。dirty non-uptodate 页会导致未定义数据写回，因此被禁止。
 
@@ -206,48 +191,46 @@ dirty 状态同时维护两个链表：
 ```mermaid
 flowchart TD
     Dirty["dirty page"]
-    Map["mapping->ops->map_block()"]
-    Cluster{"next pages<br/>logical + physical contiguous?"}
+    Cluster{"next physical blocks contiguous?"}
     Buffer["copy pages to wb_buf"]
-    Write["mapping->ops->writepages()"]
-    Alias["page_cache_alias_refresh()"]
+    Write["block-device backend"]
     Clean["clear dirty<br/>uptodate"]
 
-    Dirty --> Map --> Cluster
+    Dirty --> Cluster
     Cluster -->|"yes, up to 32 pages"| Buffer
     Cluster -->|"no"| Buffer
-    Buffer --> Write --> Alias --> Clean
+    Buffer --> Write --> Clean
 ```
 
 1. 设置 `writeback=true`。
-2. 调用 `mapping->ops->writepages(mapping, page->index, 1, page->data)`。
-3. 成功后清 dirty，设置 uptodate。
-4. 通过 `map_block()` 找到底层物理块，刷新 raw block alias。
+2. 通过物理页的 `(dev_t, block)` 身份调用 block-device backend。
+3. 成功后清 dirty；失败时保留 data 和 dirty 以便重试。
 
-`page_cache_wb_run(start)` 做保守聚合：
+`page_cache_wb_run(start, mapping)` 做保守聚合：
 
-- 从同一 mapping 起始页开始。
-- 收集逻辑 index 连续的 dirty 页。
-- 要求 `map_block()` 得到的物理块也连续。
+- 从同一设备的物理块开始。
+- 收集物理块号连续的 dirty 页。
+- 如果 `mapping` 非空，只收集同一 logical mapping 关联的页面；
+  `page_cache_sync_all()` 传入空 mapping，才允许跨 mapping 聚合。
 - 最多写入 32 页，受 `PAGE_CACHE_WB_ORDER=5` 分配的缓冲限制。
-- 调用一次 `writepages()` 写连续范围。
+- 调用一次 block-device backend 写连续范围。
 
 后台线程 `page_cache_wb_thread()` 通过 `worker_run_periodic(5, ...)` 每 5 秒调用 `page_cache_sync_all()`。
 
-## raw block alias 一致性
+## logical association 一致性
 
-同一个磁盘块可能有两个缓存名字：
+同一个物理页可以有多个隐藏的逻辑关联：
 
-- ext2 inode mapping：文件/目录逻辑块，是权威副本。
-- block device mapping：物理块 raw view，用于 metadata 或调试读取。
+- ext2 inode mapping：文件/目录 logical block resolver。
+- block device mapping：物理块 raw resolver，用于 metadata 或调试读取。
 
-`page_mapping.backing` 表示上层 mapping 的底层 raw block 命名域。ext2 inode mapping 的 backing 指向对应 block device mapping。
+inode logical mapping 与 raw physical mapping 通过同一个 `(dev_t, block)` page 共享数据。
 
-`page_cache_alias_refresh(mapping, blocknr, data)` 在 inode 页写回成功后，如果 raw block alias 已经驻留，则更新其数据并清 dirty。
+写回成功后无需刷新第二份 page，因为不存在第二份 authoritative page。
 
-`page_cache_alias_invalidate(page)` 在上层 page drop 时，让 raw alias 变成 non-uptodate，下一次 raw 读取会重新从设备读。
+mapping 解除只移除内部关联；物理页生命周期由 page-cache 引用、dirty 和 writeback 状态决定。
 
-这避免引入复杂反向索引，同时保证已驻留 raw alias 不长期陈旧。
+这避免引入双缓存一致性协议，同时保证所有已驻留关联立即观察到相同数据。
 
 ## virtio-blk 驱动
 
@@ -342,7 +325,7 @@ vfs_mount_root(ROOT_DEV)
 ## 设计约束
 
 - 文件系统不能直接调用 virtio MMIO，只能通过 block device operations。
-- page cache key 必须始终是 `(mapping, index)`，不要退回全局 block number key。
-- inode 数据页是文件/目录内容的权威副本；raw block cache 只是物理视图。
-- dirty list 的全局和 per-mapping 链表必须同步维护。
+- page cache key 必须始终是 `(dev_t, physical block)`；logical mapping 只负责解析。
+- inode 与 raw block 访问共享同一个 physical authoritative page。
+- dirty list 只维护全局链表；mapping 关联索引必须与 page 生命周期同步维护。
 - virtio-blk 当前是轮询单请求模型，引入中断或多请求队列需要重新设计同步和 buffer 生命周期。

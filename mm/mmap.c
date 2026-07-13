@@ -166,8 +166,9 @@ static struct page_cache *vma_page_cache_get(const struct vm_area_struct *vma,
 	if (!vma || !vma->vm_file || !vma->vm_file->f_inode)
 		return NULL;
 
-	return page_cache_get_page(&vma->vm_file->f_inode->i_pages,
-				   vma_page_index(vma, va), false, NULL);
+	return page_cache_get_mapping(&vma->vm_file->f_inode->i_pages,
+				      vma_page_index(vma, va),
+				      PAGE_CACHE_READ, NULL);
 }
 
 static void vma_mark_shared_page_dirty(const struct vm_area_struct *vma,
@@ -187,6 +188,21 @@ static void vma_mark_shared_page_dirty(const struct vm_area_struct *vma,
 	page_cache_put_page(page);
 }
 
+static void release_shared_pte_page(paddr_t pa, bool writable)
+{
+	struct page_cache *page = page_cache_get_data(__va(pa));
+
+	if (!page) {
+		if (mm_owns_page_frame(pa))
+			free_page(__va(pa), 0);
+		return;
+	}
+	if (writable)
+		page_cache_mark_dirty(page);
+	page_cache_put_page(page);
+	page_cache_put_page(page);
+}
+
 void mm_unmap_user_pages_locked(struct mm_struct *mm,
 				const struct vm_area_struct *vma,
 				uintptr_t start, uintptr_t end)
@@ -198,14 +214,9 @@ void mm_unmap_user_pages_locked(struct mm_struct *mm,
 			continue;
 
 		if (vma && vma->vm_file && vma->vm_shared) {
-			struct page_cache *page;
+			paddr_t pa = pte_phys_addr(*pte);
 
-			vma_mark_shared_page_dirty(vma, va);
-			page = vma_page_cache_get(vma, va);
-			if (page) {
-				page_cache_put_page(page);
-				page_cache_put_page(page);
-			}
+			release_shared_pte_page(pa, vma->vm_flags & VM_WRITE);
 		} else {
 			paddr_t pa = pte_phys_addr(*pte);
 

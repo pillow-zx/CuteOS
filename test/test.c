@@ -79,6 +79,7 @@ static const struct ktest_case vma_cases[] = {
 	KTEST_CASE(test_mm_madvise_supported_hints_are_noop),
 	KTEST_CASE(test_mm_move_user_pages_preserves_resident_page),
 	KTEST_CASE(test_mm_msync_shared_mapping_writes_back),
+	KTEST_CASE(test_mm_sparse_shared_mapping_writes_back),
 };
 
 static const struct ktest_case exec_mapping_cases[] = {
@@ -213,6 +214,8 @@ static const struct ktest_case page_cache_metadata_cases[] = {
 
 static const struct ktest_case page_cache_cases[] = {
 	KTEST_CASE(test_page_cache_dirty_write_visibility),
+	KTEST_CASE(test_page_cache_physical_key_identity),
+	KTEST_CASE(test_page_cache_writeback_retry),
 	KTEST_CASE(test_page_cache_fsync_inode_scope),
 	KTEST_CASE(test_vfs_datasync_metadata_policy),
 	KTEST_CASE(test_page_cache_datasync_skips_pure_inode_metadata),

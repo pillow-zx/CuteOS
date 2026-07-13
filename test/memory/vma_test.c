@@ -553,3 +553,64 @@ cleanup:
 
 	return __test_ret;
 }
+
+int test_mm_sparse_shared_mapping_writes_back(void)
+{
+	static uint8_t raw[PAGE_SIZE];
+	struct mm_struct *mm = NULL;
+	struct file *file = NULL;
+	uintptr_t base = MM_TEST_BASE + 12 * MM_TEST_GAP;
+	uint8_t marker = 0x7d;
+	int fd = -1;
+
+	(void)vfs_unlink_at_path(NULL, "/mm_sparse_shared_test", 0);
+
+	TEST_BEGIN("mm: sparse shared mapping writes back");
+	{
+		pte_t *pte;
+		uint8_t *mapped;
+
+		fd = vfs_open("/mm_sparse_shared_test",
+			      O_RDWR | O_CREAT | O_TRUNC, 0644);
+		TEST_ASSERT(fd >= 0);
+		file = fd_get(fd);
+		TEST_ASSERT_NOT_NULL(file);
+		file->f_pos = PAGE_SIZE;
+		TEST_ASSERT_EQ(vfs_write(file, (const char *)&marker, 1), 1);
+		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
+		TEST_ASSERT_EQ(mm_test_read_raw_file_page(file, 0, raw), -ENOENT);
+
+		mm = mm_test_alloc();
+		TEST_ASSERT_NOT_NULL(mm);
+		TEST_ASSERT_EQ(mm_mmap_file(mm, base, PAGE_SIZE,
+					    PROT_READ | PROT_WRITE,
+					    MAP_SHARED | MAP_FIXED, fd, 0),
+				       (ssize_t)base);
+		TEST_ASSERT_EQ(fault_in_user_range(mm, base, PAGE_SIZE,
+						   USER_FAULT_READ), 0);
+		pte = pagetable_walk(mm->pgd, base, false);
+		TEST_ASSERT(pte && pte_is_user_page(*pte));
+		mapped = (uint8_t *)__va(pte_phys_addr(*pte));
+		for (size_t i = 0; i < PAGE_SIZE; i++)
+			TEST_ASSERT_EQ(mapped[i], 0);
+
+		mapped[37] = marker;
+		TEST_ASSERT_EQ(mm_msync(mm, base, PAGE_SIZE, MS_SYNC), 0);
+		TEST_ASSERT_EQ(mm_test_read_raw_file_page(file, 0, raw), 0);
+		TEST_ASSERT_EQ(raw[37], marker);
+	}
+	TEST_END("mm: sparse shared mapping writes back");
+	goto cleanup;
+fail:
+	TEST_FAIL("mm: sparse shared mapping writes back", "see above");
+cleanup:
+	if (mm)
+		mm_destroy(mm);
+	if (file)
+		file_put(file);
+	if (fd >= 0)
+		fd_close(fd);
+	(void)vfs_unlink_at_path(NULL, "/mm_sparse_shared_test", 0);
+
+	return __test_ret;
+}

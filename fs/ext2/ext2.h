@@ -18,7 +18,7 @@
 #define EXT2_NAME_LEN		 255
 
 #define EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER 0x0001
-#define EXT2_FEATURE_INCOMPAT_FILETYPE      0x0002
+#define EXT2_FEATURE_INCOMPAT_FILETYPE	    0x0002
 
 #define EXT2_SUPER_OFFSET		  1024u
 #define EXT2_BGDT_BLOCK(first_data_block) ((first_data_block) + 1u)
@@ -160,24 +160,24 @@ extern const struct inode_operations ext2_dir_inode_operations;
 extern const struct inode_operations ext2_symlink_inode_operations;
 extern const struct file_operations ext2_dir_operations;
 extern const struct file_operations ext2_file_operations;
-extern const struct page_mapping_ops ext2_inode_aops;
+extern const struct page_mapping_ops ext2_inode_mapping_ops;
 
-static inline struct ext2_sb_info *EXT2_SB(struct super_block *sb)
+static __always_inline struct ext2_sb_info *EXT2_SB(struct super_block *sb)
 {
 	return (struct ext2_sb_info *)sb->s_private;
 }
 
-static inline struct ext2_inode_info *EXT2_I(struct inode *inode)
+static __always_inline struct ext2_inode_info *EXT2_I(struct inode *inode)
 {
 	return (struct ext2_inode_info *)inode->i_private;
 }
 
-static inline uint32_t ext2_super_blocknr(uint32_t block_size)
+static __always_inline uint32_t ext2_super_blocknr(uint32_t block_size)
 {
 	return EXT2_SUPER_OFFSET / block_size;
 }
 
-static inline uint32_t ext2_super_offset(uint32_t block_size)
+static __always_inline uint32_t ext2_super_offset(uint32_t block_size)
 {
 	return EXT2_SUPER_OFFSET % block_size;
 }

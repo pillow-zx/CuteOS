@@ -96,12 +96,43 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		struct page_cache *file_page;
 		uint64_t page_index;
 		pgprot_t pte_flags;
+		int mapping_error = 0;
 
 		page_index = vma_page_index(vma, page_addr);
-		file_page = page_cache_read_page(
-			&vma->vm_file->f_inode->i_pages, page_index);
-		if (!file_page)
-			return -EIO;
+		file_page = page_cache_get_mapping(
+			&vma->vm_file->f_inode->i_pages, page_index,
+			PAGE_CACHE_READ |
+			((vma->vm_shared && (vma->vm_flags & VM_WRITE)) ?
+				 PAGE_CACHE_CREATE : 0),
+			&mapping_error);
+		if (!file_page && mapping_error != -ENODATA)
+			return mapping_error ? mapping_error : -EIO;
+
+		if (!file_page) {
+			void *zero_page = get_free_page(0);
+			int ret;
+
+			if (!zero_page)
+				return -ENOMEM;
+			memset(zero_page, 0, PAGE_SIZE);
+			if (page_addr < vma->vm_start)
+				memset(zero_page, 0, vma->vm_start - page_addr);
+			if (page_addr + PAGE_SIZE > vma->vm_end) {
+				uintptr_t keep = vma->vm_end - page_addr;
+
+				memset((uint8_t *)zero_page + keep, 0,
+				       PAGE_SIZE - keep);
+			}
+			ret = map_page(mm->pgd, page_addr,
+				       __pa((uintptr_t)zero_page),
+				       vma_flags_to_pte(vma->vm_flags));
+			if (ret < 0) {
+				free_page(zero_page, 0);
+				return ret;
+			}
+			flush_tlb_page(page_addr);
+			return 0;
+		}
 
 		pte_flags = vma_flags_to_pte(vma->vm_flags);
 		if (vma->vm_shared) {
@@ -114,6 +145,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 				return ret;
 			}
 			flush_tlb_page(page_addr);
+			/* The PTE owns the cache reference until unmap. */
 			return 0;
 		}
 

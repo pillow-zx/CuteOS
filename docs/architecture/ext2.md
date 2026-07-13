@@ -129,7 +129,7 @@ offset = byte_offset % BLOCK_SIZE
 
 - mode/uid/gid/nlink/size/blocks/timestamps
 - 设备特殊文件的 `i_rdev`
-- `i_op/i_fop/i_pages.ops/i_pages.backing`
+- `i_op/i_fop/i_pages.ops/i_pages.dev`
 
 `ext2_write_inode()` 反向把 VFS inode 状态写回 raw inode，并同步 metadata page。
 
@@ -146,7 +146,8 @@ offset = byte_offset % BLOCK_SIZE
 
 目录和块后备 symlink 在 page cache 看来都是 inode 数据页。设备特殊文件不通过 inode page cache 暴露数据。
 
-`inode->i_pages.backing` 指向底层块设备 mapping，用于 page cache raw block alias coherency。
+`inode->i_pages.ops` 只负责 logical block 到 physical block 的解析与分配；
+page-cache 负责实际物理 I/O 和唯一 authoritative page。
 
 ## 文件数据路径
 
@@ -168,7 +169,7 @@ flowchart LR
 
 1. 根据 `pos/count` 限制到 `inode->i_size`。
 2. 按文件逻辑块号 `lblock = pos / BLOCK_SIZE` 循环。
-3. `page_cache_read_page(&inode->i_pages, lblock)`。
+3. 通过 `page_cache_get_mapping(&inode->i_pages, lblock, PAGE_CACHE_READ, &error)` 获取物理页。
 4. 从 page cache 数据拷贝到调用者缓冲区。
 
 写入：

@@ -82,16 +82,15 @@ rseq_area_aligned(const struct rseq *area)
 
 static int __must_check __nonnull(1) rseq_write_initial_area(struct rseq *area)
 {
-	struct rseq init = {
-		.cpu_id_start = RSEQ_SINGLE_CPU_ID,
-		.cpu_id = RSEQ_SINGLE_CPU_ID,
-		.rseq_cs = 0,
-		.flags = 0,
-		.node_id = RSEQ_SINGLE_NODE_ID,
-		.mm_cid = RSEQ_SINGLE_MM_CID,
-	};
+	unsigned int zero = 0;
+	unsigned long rseq_cs = 0;
 
-	if (copy_to_user(area, &init, sizeof(init)) != 0)
+	if (copy_to_user(&area->cpu_id_start, &zero, sizeof(zero)) != 0 ||
+	    copy_to_user(&area->cpu_id, &zero, sizeof(zero)) != 0 ||
+	    copy_to_user(&area->rseq_cs, &rseq_cs, sizeof(rseq_cs)) != 0 ||
+	    copy_to_user(&area->flags, &zero, sizeof(zero)) != 0 ||
+	    copy_to_user(&area->node_id, &zero, sizeof(zero)) != 0 ||
+	    copy_to_user(&area->mm_cid, &zero, sizeof(zero)) != 0)
 		return -EFAULT;
 
 	return 0;

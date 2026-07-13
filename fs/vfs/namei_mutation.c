@@ -268,6 +268,8 @@ int vfs_unlink_at_path(const struct path *base, const char *path, int flags)
 							    dentry);
 	}
 
+	if (ret == 0)
+		dcache_invalidate(dentry);
 	dput(dentry);
 	path_put(&parent_path);
 	return ret;
