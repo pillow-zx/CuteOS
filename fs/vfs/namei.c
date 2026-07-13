@@ -6,6 +6,7 @@
 #include <kernel/errno.h>
 #include <kernel/buddy.h>
 #include <kernel/fs_struct.h>
+#include <kernel/fdtable.h>
 #include <kernel/stat.h>
 #include <kernel/task.h>
 #include <kernel/vfs.h>
@@ -45,6 +46,99 @@ static bool path_is_root(const struct path *path)
 {
 	return path && path->mnt && path->mnt->mnt_is_root &&
 	       path->dentry == path->mnt->mnt_root;
+}
+
+static int at_base_path(int dfd, const char *path, struct path *res)
+{
+	struct file *file;
+
+	if (!res)
+		return -EINVAL;
+	res->mnt = NULL;
+	res->dentry = NULL;
+	if (!path)
+		return -EFAULT;
+	if (path[0] == '/' || dfd == AT_FDCWD)
+		return 0;
+
+	file = fd_get(dfd);
+	if (!file)
+		return -EBADF;
+	if (!file->f_path.dentry || !file->f_path.mnt || !file->f_inode ||
+	    !S_ISDIR(file->f_inode->i_mode)) {
+		file_put(file);
+		return -ENOTDIR;
+	}
+
+	*res = file->f_path;
+	path_get(res);
+	file_put(file);
+	return 0;
+}
+
+int vfs_at_base_path(int dfd, const char *path, struct path *res)
+{
+	return at_base_path(dfd, path, res);
+}
+
+void vfs_at_lookup_put(struct vfs_at_lookup_result *res)
+{
+	if (!res)
+		return;
+	path_put(&res->path);
+	file_put(res->file);
+	memset(res, 0, sizeof(*res));
+}
+
+int vfs_at_lookup(int dfd, const char *path, int at_flags,
+		  uint32_t lookup_flags, struct vfs_at_lookup_result *res)
+{
+	struct path base = {};
+	struct file *file;
+	int ret;
+
+	if (!res)
+		return -EINVAL;
+	memset(res, 0, sizeof(*res));
+
+	if (at_flags & AT_EMPTY_PATH && (!path || !*path)) {
+		if (dfd == AT_FDCWD) {
+			ret = fs_get_cwd_path(task_fs(current_task()), &res->path);
+			if (ret < 0)
+				return ret;
+			res->inode = res->path.dentry ? res->path.dentry->d_inode :
+				NULL;
+		} else {
+			file = fd_get(dfd);
+			if (!file)
+				return -EBADF;
+			res->file = file;
+			res->inode = file->f_inode;
+		}
+		if (!res->inode) {
+			vfs_at_lookup_put(res);
+			return -ENOENT;
+		}
+		res->empty_path = true;
+		return 0;
+	}
+
+	if (!path || !*path)
+		return -ENOENT;
+	ret = at_base_path(dfd, path, &base);
+	if (ret < 0)
+		return ret;
+	ret = path_lookupat_path(base.dentry ? &base : NULL, path,
+					lookup_flags, &res->path);
+	path_put(&base);
+	if (ret < 0)
+		return ret;
+	res->inode = res->path.dentry ? res->path.dentry->d_inode : NULL;
+	if (!res->inode) {
+		vfs_at_lookup_put(res);
+		return -ENOENT;
+	}
+	return 0;
 }
 
 int vfs_getcwd_path(const struct path *cwd, char *buf, size_t size)

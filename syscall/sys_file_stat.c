@@ -47,7 +47,8 @@ ssize_t sys_newfstatat(struct trap_frame *tf)
 	const char *upath = (const char *)syscall_arg(tf, 1);
 	struct stat *ustat = (struct stat *)syscall_arg(tf, 2);
 	int flags = (int)syscall_arg(tf, 3);
-	struct sys_at_lookup_result lookup __cleanup_with(sys_at_lookup) = {};
+	struct vfs_at_lookup_result lookup __cleanup_with(vfs_at_lookup) = {};
+	char *path __cleanup_with(page0) = NULL;
 	struct stat st;
 	int ret;
 
@@ -56,9 +57,12 @@ ssize_t sys_newfstatat(struct trap_frame *tf)
 	if (flags & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW))
 		return -EINVAL;
 
-	ret = sys_at_lookup(&lookup, dfd, upath, flags,
+	ret = copy_user_path_at_lookup(&path, upath, flags, true);
+	if (ret < 0)
+		return ret;
+	ret = vfs_at_lookup(dfd, path, flags,
 			    (flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0,
-			    true);
+			    &lookup);
 	if (ret < 0)
 		return ret;
 
@@ -119,7 +123,8 @@ ssize_t sys_statx(struct trap_frame *tf)
 	int flags = (int)syscall_arg(tf, 2);
 	uint32_t mask = (uint32_t)syscall_arg(tf, 3);
 	struct statx *ustatx = (struct statx *)syscall_arg(tf, 4);
-	struct sys_at_lookup_result lookup __cleanup_with(sys_at_lookup) = {};
+	struct vfs_at_lookup_result lookup __cleanup_with(vfs_at_lookup) = {};
+	char *path __cleanup_with(page0) = NULL;
 	struct stat st;
 	struct statx stx;
 	int ret;
@@ -136,9 +141,12 @@ ssize_t sys_statx(struct trap_frame *tf)
 	    (flags & AT_STATX_SYNC_TYPE) != 0)
 		return -EINVAL;
 
-	ret = sys_at_lookup(&lookup, dfd, upath, flags,
+	ret = copy_user_path_at_lookup(&path, upath, flags, true);
+	if (ret < 0)
+		return ret;
+	ret = vfs_at_lookup(dfd, path, flags,
 			    (flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0,
-			    true);
+			    &lookup);
 	if (ret < 0)
 		return ret;
 
@@ -167,7 +175,7 @@ ssize_t sys_statfs64(struct trap_frame *tf)
 	const char *upath = (const char *)syscall_arg(tf, 0);
 	struct statfs64 *ubuf = (struct statfs64 *)syscall_arg(tf, 1);
 	char *path __cleanup_with(page0) = NULL;
-	struct path found __cleanup_with(path) = {};
+	struct vfs_at_lookup_result found __cleanup_with(vfs_at_lookup) = {};
 	struct statfs64 st;
 	int ret;
 
@@ -178,13 +186,13 @@ ssize_t sys_statfs64(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	ret = path_lookupat_path(NULL, path, 0, &found);
+	ret = vfs_at_lookup(AT_FDCWD, path, 0, 0, &found);
 	if (ret < 0)
 		return ret;
-	if (!found.mnt || !found.mnt->mnt_sb)
+	if (!found.path.mnt || !found.path.mnt->mnt_sb)
 		return -EINVAL;
 
-	ret = vfs_statfs(found.mnt->mnt_sb, &st);
+	ret = vfs_statfs(found.path.mnt->mnt_sb, &st);
 	if (ret < 0)
 		return ret;
 	if (copy_to_user(ubuf, &st, sizeof(st)) != 0)

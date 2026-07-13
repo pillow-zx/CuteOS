@@ -87,14 +87,15 @@ High-level directory responsibilities:
   uaccess, and special user mappings.
 - `fs/vfs/`: VFS objects, path lookup, mounts, dentries, inodes, open files,
   fdtable, cwd/root/umask state, character-device routing, read/write,
-  metadata mutation, poll, and ioctl routing.
+  metadata mutation, poll, ioctl routing, and at-path lookup ownership.
 - `fs/ext2/`: ext2 filesystem implementation and private on-disk structures.
 - `fs/pipe.c`: pipe file operations.
 - `block/`: block-device abstraction, 4 KiB page cache, dirty tracking,
   physical page cache, logical associations, writeback, and virtio-blk.
 - `drivers/`: console, UART, and virtio MMIO definitions.
 - `syscall/`: Linux riscv64 ABI boundary and thin handlers that decode trap
-  frame arguments, copy userspace data, and delegate to subsystems.
+  frame arguments, copy userspace data, translate flags/errno, and delegate
+  path resolution and lifetime management to VFS.
 - `include/kernel/`: internal kernel APIs.
 - `arch/riscv/include/asm/`: CPU and assembly contracts such as CSR access,
   PTE bit layout, trap-frame layout, context-switch layout, and offsets used by

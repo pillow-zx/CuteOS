@@ -7,6 +7,13 @@
 
 #include <kernel/fs.h>
 
+struct vfs_at_lookup_result {
+	struct path path;
+	struct file *file;
+	struct inode *inode;
+	bool empty_path;
+};
+
 struct inode *__must_check inode_alloc(struct super_block *sb, uint64_t ino);
 struct inode *__must_check iget(struct super_block *sb, uint64_t ino);
 void igrab(struct inode *inode);
@@ -40,6 +47,12 @@ int __must_check path_lookupat_path(const struct path *base, const char *path,
 int __must_check path_parent_lookupat_path(const struct path *base,
 					   const char *path, char *name,
 					   size_t *namelen, struct path *res);
+int __must_check vfs_at_lookup(int dfd, const char *path, int at_flags,
+				       uint32_t lookup_flags,
+				       struct vfs_at_lookup_result *res);
+void vfs_at_lookup_put(struct vfs_at_lookup_result *res);
+int __must_check vfs_at_base_path(int dfd, const char *path,
+					 struct path *res);
 int __must_check vfs_init_inode_owner(struct inode *inode);
 int __must_check vfs_inode_permission(struct inode *inode, uint32_t mask);
 int __must_check vfs_readlink(struct dentry *dentry, char *buf, size_t size);

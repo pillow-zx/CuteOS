@@ -290,6 +290,17 @@ int path_parent_lookupat_path(const struct path *base,
 
 相对路径从 base 或当前任务 `fs_struct.cwd` 开始；绝对路径从当前任务 root 开始。
 
+syscall 的 `*at` 起点解析由 VFS 的 at-path module 统一负责。syscall 先将
+user path 复制为 kernel string，随后调用 `vfs_at_base_path()` 或
+`vfs_at_lookup()`；VFS 不接收 user pointer。前者为 open 和 mutation 操作
+返回一个带引用的 base path，后者返回 `struct vfs_at_lookup_result`。
+
+`vfs_at_lookup_result` 持有普通 lookup 的 `path`，或 `AT_EMPTY_PATH` fd 的
+`file` 引用，并通过 `vfs_at_lookup_put()` 统一释放。`inode` 是 owner path/file
+有效期内的稳定视图，不单独增加 inode 引用。`AT_FDCWD`、dirfd、cwd/root 和
+`AT_EMPTY_PATH` 的起点策略属于 VFS；纯 `path_lookupat_path()` 只负责已持有
+base path 的路径 walk。
+
 解析规则：
 
 - 连续 `/` 被跳过。

@@ -94,12 +94,12 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | 37 | `linkat` | B | 支持 `AT_SYMLINK_FOLLOW` | 跨挂载、目录硬链接限制 | 明确 errno 表 |
 | 39 | `umount2` | C | 单 namespace VFS unmount；拒绝所有非零 flag；root/busy mount 返回 `-EBUSY` | 无 lazy/force/no-follow、namespace 语义 | 保持探测安全最小模型 |
 | 40 | `mount` | C | 单 namespace、显式 `ext2`、block-device source 到 directory target，`flags == 0` | 无 bind/remount/move/propagation/read-only、无 fs_context | 保持探测安全最小模型 |
-| 48 | `faccessat` | B | 权限检查通过 VFS | real/effective id 差异浅 | 与 cred 模型一起加深 |
+| 48 | `faccessat` | B | 权限检查通过 VFS；AT_FDCWD、dirfd 和 lookup result 生命周期由 VFS 统一管理 | real/effective id 差异浅 | 与 cred 模型一起加深 |
 | 49 | `chdir` | A | path lookup 后切 cwd | mount namespace 不存在 | 保持 |
 | 56 | `openat` | A | dirfd/path/flags/umask/VFS open | flag 组合仍需持续补 | 用 busybox/coreutils trace 补缺口 |
 | 61 | `getdents64` | A | readdir 转 linux dirent64 | d_type 准确性依赖 FS | 增加多 chunk 目录测试 |
-| 78 | `readlinkat` | A | nofollow 读取 symlink | `/proc/self/fd` 不存在 | 保持 |
-| 88 | `utimensat` | B | 支持 NOW/OMIT、nofollow/empty path | 权限和 ctime 细节浅 | 加权限/ctime 测试 |
+| 78 | `readlinkat` | A | nofollow 读取 symlink；at-path 起点和 result 生命周期由 VFS 统一管理 | `/proc/self/fd` 不存在 | 保持 |
+| 88 | `utimensat` | B | 支持 NOW/OMIT、nofollow/empty path；at-path 生命周期由 VFS 统一管理 | 权限和 ctime 细节浅 | 加权限/ctime 测试 |
 | 276 | `renameat2` | B | 支持 `RENAME_NOREPLACE` | exchange/whiteout 不支持 | 文档化 flag policy |
 | 439 | `faccessat2` | B | 支持 `AT_EACCESS/EMPTY_PATH/NOFOLLOW` | cred 语义浅 | 和权限模型一起推进 |
 
@@ -129,9 +129,14 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | ---: | --- | --- | --- | --- | --- |
 | 43 | `statfs64` | B | VFS statfs；ext2 字段见下表 | 只有 ext2 声明完整字段；mount flags 固定 0 | 新 FS 按字段表声明 |
 | 44 | `fstatfs64` | B | fd -> mount superblock statfs；语义同路径 statfs | 同 statfs64 | 同 statfs64 |
-| 79 | `newfstatat` | A | 支持 empty path/nofollow | inode 属性完整度依赖 FS | 补 uid/gid/nsec 测试 |
+| 79 | `newfstatat` | A | 支持 empty path/nofollow；AT_FDCWD、dirfd 和 result ownership 由 VFS 统一管理 | inode 属性完整度依赖 FS | 补 uid/gid/nsec 测试 |
 | 80 | `fstat` | A | fd stat | 同 newfstatat | 保持 |
 | 291 | `statx` | B | 从 VFS stat 转换真实 `STATX_BASIC_STATS`；扩展请求 probe-safe | btime、mount id、DIO alignment、attribute mask 缺失且不置位 | 有真实 backing state 后逐项增加 |
+
+上述 at-path syscall 的 ABI 语义保持不变；用户路径仍由 syscall 层复制，
+但 AT_FDCWD、dirfd、AT_EMPTY_PATH 及 lookup result 的引用生命周期统一由
+VFS 管理。回归重点包括有效/无效 dirfd、非目录 dirfd、empty path、NULL path、
+nofollow 和非法用户地址。
 
 ### `statx` mask 支持表
 

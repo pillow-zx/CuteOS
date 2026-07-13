@@ -62,10 +62,14 @@ static uint8_t vfs_type_to_dirent(uint8_t type)
 static int sys_faccessat_path(int dfd, const char *upath, int mode, int flags,
 			      uint32_t lookup_flags)
 {
-	struct sys_at_lookup_result lookup __cleanup_with(sys_at_lookup) = {};
+	struct vfs_at_lookup_result lookup __cleanup_with(vfs_at_lookup) = {};
+	char *path __cleanup_with(page0) = NULL;
 	int ret;
 
-	ret = sys_at_lookup(&lookup, dfd, upath, flags, lookup_flags, false);
+	ret = copy_user_path_at_lookup(&path, upath, flags, false);
+	if (ret < 0)
+		return ret;
+	ret = vfs_at_lookup(dfd, path, flags, lookup_flags, &lookup);
 	if (ret < 0)
 		return ret;
 
@@ -166,18 +170,18 @@ ssize_t sys_chdir(struct trap_frame *tf)
 {
 	const char *upath = (const char *)syscall_arg(tf, 0);
 	char *path __cleanup_with(page0) = NULL;
-	struct path found __cleanup_with(path) = {};
+	struct vfs_at_lookup_result found __cleanup_with(vfs_at_lookup) = {};
 	int ret;
 
 	ret = copy_user_path(&path, upath);
 	if (ret < 0)
 		return ret;
 
-	ret = path_lookupat_path(NULL, path, 0, &found);
+	ret = vfs_at_lookup(AT_FDCWD, path, 0, 0, &found);
 	if (ret < 0)
 		return ret;
 
-	ret = vfs_chdir_path(&found);
+	ret = vfs_chdir_path(&found.path);
 	return ret;
 }
 
@@ -323,8 +327,7 @@ ssize_t sys_readlinkat(struct trap_frame *tf)
 	char *path __cleanup_with(page0) = NULL;
 	char *link __cleanup_with(page0) = NULL;
 	size_t link_size;
-	struct path base __cleanup_with(path) = {};
-	struct path found __cleanup_with(path) = {};
+	struct vfs_at_lookup_result found __cleanup_with(vfs_at_lookup) = {};
 	int len;
 	int ret;
 
@@ -334,12 +337,12 @@ ssize_t sys_readlinkat(struct trap_frame *tf)
 		return -EFAULT;
 
 
-	ret = copy_user_path_at(dfd, upath, &path, &base);
+	ret = copy_user_path(&path, upath);
 	if (ret < 0)
 		return ret;
 
-	ret = path_lookupat_path(base.dentry ? &base : NULL, path,
-				 LOOKUP_NOFOLLOW, &found);
+	ret = vfs_at_lookup(dfd, path, 0, LOOKUP_NOFOLLOW,
+				    &found);
 	if (ret < 0)
 		return ret;
 
@@ -348,7 +351,7 @@ ssize_t sys_readlinkat(struct trap_frame *tf)
 	if (!link)
 		return -ENOMEM;
 
-	len = vfs_readlink(found.dentry, link, link_size);
+	len = vfs_readlink(found.path.dentry, link, link_size);
 	if (len < 0)
 		return len;
 
@@ -405,28 +408,27 @@ ssize_t sys_linkat(struct trap_frame *tf)
 	int flags = (int)syscall_arg(tf, 4);
 	char *oldpath __cleanup_with(page0) = NULL;
 	char *newpath __cleanup_with(page0) = NULL;
-	struct path old_base __cleanup_with(path) = {};
 	struct path new_base __cleanup_with(path) = {};
-	struct path old_path_found __cleanup_with(path) = {};
+	struct vfs_at_lookup_result old_path_found
+		__cleanup_with(vfs_at_lookup) = {};
 	int ret;
 
 	if (flags & ~AT_SYMLINK_FOLLOW)
 		return -EINVAL;
 
-	ret = copy_user_path_at(olddfd, uoldpath, &oldpath, &old_base);
+	ret = copy_user_path(&oldpath, uoldpath);
 	if (ret < 0)
 		return ret;
-	ret = path_lookupat_path(old_base.dentry ? &old_base : NULL, oldpath,
-				 (flags & AT_SYMLINK_FOLLOW) ? 0
-							     : LOOKUP_NOFOLLOW,
-				 &old_path_found);
+	ret = vfs_at_lookup(olddfd, oldpath, 0,
+				    (flags & AT_SYMLINK_FOLLOW) ? 0 : LOOKUP_NOFOLLOW,
+				    &old_path_found);
 	if (ret < 0)
 		return ret;
 
 	ret = copy_user_path_at(newdfd, unewpath, &newpath, &new_base);
 	if (ret < 0)
 		return ret;
-	ret = vfs_link_at_path(old_path_found.dentry,
+	ret = vfs_link_at_path(old_path_found.path.dentry,
 			       new_base.dentry ? &new_base : NULL, newpath);
 	return ret;
 }
@@ -601,7 +603,8 @@ ssize_t sys_utimensat(struct trap_frame *tf)
 	int flags = (int)syscall_arg(tf, 3);
 	struct timespec ktimes[2];
 	bool set_time[2];
-	struct sys_at_lookup_result lookup __cleanup_with(sys_at_lookup) = {};
+	struct vfs_at_lookup_result lookup __cleanup_with(vfs_at_lookup) = {};
+	char *path __cleanup_with(page0) = NULL;
 	int ret;
 
 	if (flags & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW))
@@ -611,9 +614,12 @@ ssize_t sys_utimensat(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	ret = sys_at_lookup(&lookup, dfd, upath, flags,
+	ret = copy_user_path_at_lookup(&path, upath, flags, true);
+	if (ret < 0)
+		return ret;
+	ret = vfs_at_lookup(dfd, path, flags,
 			    (flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0,
-			    true);
+			    &lookup);
 	if (ret < 0)
 		return ret;
 
