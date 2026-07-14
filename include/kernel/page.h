@@ -16,19 +16,19 @@
  * @def PG_RESERVED
  * @brief Physical page is reserved and unavailable to general allocators.
  */
-#define PG_RESERVED 0
+constexpr uint32_t PG_RESERVED = 0;
 
 /**
  * @def PG_SLAB
  * @brief Physical page is owned by the slab allocator.
  */
-#define PG_SLAB 1
+constexpr uint32_t PG_SLAB = 1;
 
 /**
  * @def PG_BUDDY
  * @brief Physical page is currently managed by the buddy allocator.
  */
-#define PG_BUDDY 2
+constexpr uint32_t PG_BUDDY = 2;
 
 /**
  * @struct page
@@ -47,25 +47,25 @@ struct page {
 	struct list_head lru;
 };
 
-static __always_inline __must_check __pure
+static inline __must_check __pure
 	__nonnull(1) bool page_test_flag(const struct page *page, uint32_t flag)
 {
 	return test_bit(page->flags, flag);
 }
 
-static __always_inline __nonnull(1) void page_set_flag(struct page *page,
+static inline __nonnull(1) void page_set_flag(struct page *page,
 						       uint32_t flag)
 {
 	set_bit(page->flags, flag);
 }
 
-static __always_inline __nonnull(1) void page_clear_flag(struct page *page,
+static inline __nonnull(1) void page_clear_flag(struct page *page,
 							 uint32_t flag)
 {
 	clr_bit(page->flags, flag);
 }
 
-static __always_inline __must_check void *bootmem_end(void)
+static inline __must_check void *bootmem_end(void)
 {
 	return arch_bootmem_end();
 }

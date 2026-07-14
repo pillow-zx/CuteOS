@@ -13,6 +13,7 @@ USER_ARCH_FLAGS = -march=rv64gc -mabi=lp64 -mcmodel=medany
 USER_CFLAGS   = $(USER_ARCH_FLAGS)
 USER_CFLAGS  += -ffreestanding -nostdlib -nostdinc -fno-builtin
 USER_CFLAGS  += -Wall -Werror
+USER_CFLAGS  += -std=gnu23
 USER_CFLAGS  += -I user/libc/minimal/include
 USER_CFLAGS  += -I include
 USER_CFLAGS  += -include include/generated/autoconf.h

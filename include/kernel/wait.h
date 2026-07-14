@@ -11,14 +11,14 @@
 #include <kernel/spinlock.h>
 #include <kernel/types.h>
 
-#define WAIT_OUTCOME_EVENT   1u
-#define WAIT_OUTCOME_SIGNAL  2u
-#define WAIT_OUTCOME_TIMEOUT 3u
+constexpr uint32_t WAIT_OUTCOME_EVENT = 1u;
+constexpr uint32_t WAIT_OUTCOME_SIGNAL = 2u;
+constexpr uint32_t WAIT_OUTCOME_TIMEOUT = 3u;
 
-#define WAIT_FLAG_INTERRUPTIBLE 0x01u
-#define WAIT_FLAG_MASK		WAIT_FLAG_INTERRUPTIBLE
+constexpr uint32_t WAIT_FLAG_INTERRUPTIBLE = 0x01u;
+constexpr uint32_t WAIT_FLAG_MASK = WAIT_FLAG_INTERRUPTIBLE;
 
-#define WAIT_SESSION_MAX_CHANNELS 64u
+constexpr uint32_t WAIT_SESSION_MAX_CHANNELS = 64u;
 
 typedef uint32_t wait_outcome_t;
 typedef uint32_t wait_flags_t;
@@ -68,12 +68,12 @@ struct wait_request {
 	uint32_t channel_limit;
 };
 
-static __always_inline struct wait_deadline wait_deadline_none(void)
+static inline struct wait_deadline wait_deadline_none(void)
 {
 	return (struct wait_deadline){.active = false, .expires = 0};
 }
 
-static __always_inline struct wait_deadline wait_deadline_at(uint64_t expires)
+static inline struct wait_deadline wait_deadline_at(uint64_t expires)
 {
 	return (struct wait_deadline){.active = true, .expires = expires};
 }

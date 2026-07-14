@@ -9,12 +9,12 @@
 #include <kernel/compiler.h>
 #include <arch/cpu.h>
 
-#define NR_CPUS CONFIG_QEMU_CPUS
+constexpr uint32_t NR_CPUS = CONFIG_QEMU_CPUS;
 
-#define CPU_OFFLINE 0u
-#define CPU_BOOTING 1u
-#define CPU_ONLINE  2u
-#define CPU_PARKED  3u
+constexpr uint32_t CPU_OFFLINE = 0u;
+constexpr uint32_t CPU_BOOTING = 1u;
+constexpr uint32_t CPU_ONLINE = 2u;
+constexpr uint32_t CPU_PARKED = 3u;
 
 struct task_struct;
 

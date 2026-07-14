@@ -51,7 +51,7 @@ KSYMS_OBJ =
 OBJS        = $(OBJS_NOKSYMS)
 endif
 
-all: $(KERNEL)
+all: check-gcc-version $(KERNEL)
 
 TEST_OUTROOT ?= build/test
 TEST_KERNEL = $(TEST_OUTROOT)/kernel/$(KERNEL_NAME)
@@ -88,7 +88,7 @@ $(KERNEL_NAME): $(KERNEL)
 
 $(KERNEL_NAME).img: $(KERNEL_IMG)
 
-$(KERNEL): $(OBJS) kernel.ld
+$(KERNEL): check-gcc-version $(OBJS) kernel.ld
 	$(Q)mkdir -p $(dir $@)
 	$(QUIET_LD)
 	$(Q)$(KERNEL_LD) $(KERNEL_LDFLAGS) $(KERNEL_LD_SCRIPT) -o $@ $(OBJS)
@@ -157,21 +157,34 @@ check-qemu-version:
 		exit 1; \
 	fi
 
-qemu: check-qemu-version $(KERNEL) $(KERNEL_IMG)
+check-gcc-version:
+	@if case "$(GCC_MAJOR)" in \
+		''|*[!0-9]*) false ;; \
+		*) [ "$(GCC_MAJOR)" -ge "$(MIN_GCC_MAJOR)" ] ;; \
+	esac; then :; else \
+		echo "ERROR: $(CC) version $(GCC_VERSION) is unsupported; need GCC >= $(MIN_GCC_MAJOR)."; \
+		exit 1; \
+	fi
+
+MIN_GCC_MAJOR = 15
+GCC_VERSION = $(shell $(CC) -dumpfullversion -dumpversion 2>/dev/null)
+GCC_MAJOR = $(word 1,$(subst ., ,$(GCC_VERSION)))
+
+qemu: check-gcc-version check-qemu-version $(KERNEL) $(KERNEL_IMG)
 	$(QEMU) $(QEMUOPTS)
 
-test: check-qemu-version
+test: check-gcc-version check-qemu-version
 	$(Q)rm -f $(TEST_KERNEL_IMG)
 	$(Q)$(MAKE) KERNEL_SELFTEST=1 OUTROOT=$(TEST_OUTROOT) all $(KERNEL_NAME).img
 	$(Q)scripts/run_kernel_tests.sh \
 		"$(QEMU)" "$(TEST_KERNEL)" "$(TEST_KERNEL_IMG)" \
 		"$(CONFIG_DRAM_SIZE_MB)" "$(CPUS)"
 
-qemu-gdb: $(KERNEL) $(KERNEL_IMG) .gdbinit
+qemu-gdb: check-gcc-version $(KERNEL) $(KERNEL_IMG) .gdbinit
 	@echo "*** Now run 'gdb' in another window (target remote :$(GDBPORT))." 1>&2
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
 
-$(KERNEL_IMG): $(USER_ELFS) $(MKIMG) $(AUTO_CONF)
+$(KERNEL_IMG): check-gcc-version $(USER_ELFS) $(MKIMG) $(AUTO_CONF)
 	$(Q)mkdir -p $(dir $@)
 	$(QUIET_FSIMG)
 	$(Q)MKIMG_SIZE_MB=$(CONFIG_ROOTFS_IMAGE_SIZE_MB) $(MKIMG) $@ $(USER_INIT_ELF) $(USER_SH_ELF) $(filter-out $(USER_INIT_ELF) $(USER_SH_ELF),$(USER_ELFS))
@@ -278,7 +291,7 @@ endif
 ANALYZE_KERNEL_TARGETS = $(addprefix $(ANALYZE_OUT)/kernel/, \
 			 $(ANALYZE_KERNEL_SRCS:.c=.analyze))
 
-analyze: analyze-kernel
+analyze: check-gcc-version analyze-kernel
 
 analyze-kernel: $(ANALYZE_KERNEL_TARGETS)
 
@@ -302,7 +315,9 @@ sym: $(KERNEL)
 	$(QUIET_SYM)
 	$(Q)$(OBJDUMP) -t $(KERNEL) | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $(KERNEL).sym
 
-user: $(USER_ELFS)
+$(USER_ELFS): check-gcc-version
+
+user: check-gcc-version $(USER_ELFS)
 
 clean-user:
 	$(Q)rm -rf $(USER_OUTROOT)
@@ -316,7 +331,7 @@ clean: clean-user
 
 FORCE:
 
-.PHONY: all help qemu test qemu-gdb check-qemu-version clean clean-user FORCE
+.PHONY: all help qemu test qemu-gdb check-gcc-version check-qemu-version clean clean-user FORCE
 .PHONY: user format analyze analyze-kernel analyze-user asm sym tags gtags
 .PHONY: $(KERNEL_NAME) $(KERNEL_NAME).img
 .PHONY: print-gdbport print-toolprefix

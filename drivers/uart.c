@@ -5,12 +5,12 @@
 #include <drivers/uart.h>
 #include <kernel/tools.h>
 
-static __always_inline void uart_write_reg(int reg, uint8_t val)
+static void uart_write_reg(int reg, uint8_t val)
 {
 	MMIO_WRITE(uint8_t, UART_BASE + reg, val);
 }
 
-static __always_inline uint8_t uart_read_reg(int reg)
+static uint8_t uart_read_reg(int reg)
 {
 	return MMIO_READ(uint8_t, UART_BASE + reg);
 }

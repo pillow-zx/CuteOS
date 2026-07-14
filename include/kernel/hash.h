@@ -54,26 +54,26 @@ struct hash_table {
 		.bits = (hash_bits),                                           \
 	}
 
-static __always_inline void hash_table_init(struct hash_table *table)
+static inline void hash_table_init(struct hash_table *table)
 {
 	for (uint32_t i = 0; i < HASH_TABLE_SIZE(table->bits); i++)
 		INIT_LIST_HEAD(&table->buckets[i]);
 }
 
-static __always_inline struct list_head *
+static inline struct list_head *
 hash_table_bucket(struct hash_table *table, uint64_t hash)
 {
 	return &table->buckets[(uint32_t)hash &
 			       (HASH_TABLE_SIZE(table->bits) - 1u)];
 }
 
-static __always_inline void
+static inline void
 hash_table_add(struct hash_table *table, uint64_t hash, struct list_head *node)
 {
 	list_add(node, hash_table_bucket(table, hash));
 }
 
-static __always_inline void hash_table_del(struct list_head *node)
+static inline void hash_table_del(struct list_head *node)
 {
 	list_del(node);
 }

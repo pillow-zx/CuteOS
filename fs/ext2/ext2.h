@@ -162,22 +162,22 @@ extern const struct file_operations ext2_dir_operations;
 extern const struct file_operations ext2_file_operations;
 extern const struct page_mapping_ops ext2_inode_mapping_ops;
 
-static __always_inline struct ext2_sb_info *EXT2_SB(struct super_block *sb)
+static inline struct ext2_sb_info *EXT2_SB(struct super_block *sb)
 {
 	return (struct ext2_sb_info *)sb->s_private;
 }
 
-static __always_inline struct ext2_inode_info *EXT2_I(struct inode *inode)
+static inline struct ext2_inode_info *EXT2_I(struct inode *inode)
 {
 	return (struct ext2_inode_info *)inode->i_private;
 }
 
-static __always_inline uint32_t ext2_super_blocknr(uint32_t block_size)
+static inline uint32_t ext2_super_blocknr(uint32_t block_size)
 {
 	return EXT2_SUPER_OFFSET / block_size;
 }
 
-static __always_inline uint32_t ext2_super_offset(uint32_t block_size)
+static inline uint32_t ext2_super_offset(uint32_t block_size)
 {
 	return EXT2_SUPER_OFFSET % block_size;
 }

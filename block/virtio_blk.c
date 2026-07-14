@@ -10,11 +10,11 @@
 #include <kernel/tools.h>
 #include <kernel/page.h>
 
-#define VBLK_QSIZE 8
+constexpr uint32_t VBLK_QSIZE = 8;
 
-#define VBLK_MAX_SECTORS 256u
+constexpr uint32_t VBLK_MAX_SECTORS = 256u;
 
-#define VBLK_POLL_SPIN_LIMIT 100000000u
+constexpr uint32_t VBLK_POLL_SPIN_LIMIT = 100000000u;
 
 struct vblk_avail {
 	uint16_t flags;
@@ -40,12 +40,12 @@ struct virtio_blk_dev {
 	uint64_t capacity;
 };
 
-static __always_inline void vblk_status_set(vaddr_t base, uint32_t bits)
+static void vblk_status_set(vaddr_t base, uint32_t bits)
 {
 	virtio_mmio_write(base, VIRTIO_MMIO_STATUS, bits);
 }
 
-static __always_inline uint32_t vblk_status_get(vaddr_t base)
+static uint32_t vblk_status_get(vaddr_t base)
 {
 	return virtio_mmio_read(base, VIRTIO_MMIO_STATUS);
 }

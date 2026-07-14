@@ -13,13 +13,13 @@
  * @def PID_MAX
  * @brief Highest allocatable PID/TID in the current teaching kernel.
  */
-#define PID_MAX	  255
+constexpr pid_t PID_MAX = 255;
 
 /**
  * @def PID_COUNT
  * @brief Number of entries in the PID lookup table, including PID 0.
  */
-#define PID_COUNT 256
+constexpr size_t PID_COUNT = 256;
 
 /**
  * @brief Initialize PID allocator state.

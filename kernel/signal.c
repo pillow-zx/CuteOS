@@ -25,11 +25,11 @@ static void *trampoline_page;
 static_assert(SYS_rt_sigreturn >= 0 && SYS_rt_sigreturn < 2048,
 	      "SYS_sigreturn must fit in a RISC-V addi immediate");
 
-#define RISCV_REG_ZERO 0
-#define RISCV_REG_A7   17
-#define RISCV_OP_IMM   0x13
-#define RISCV_ECALL    0x00000073
-#define RISCV_J_SELF   0x0000006f
+constexpr uint32_t RISCV_REG_ZERO = 0;
+constexpr uint32_t RISCV_REG_A7 = 17;
+constexpr uint32_t RISCV_OP_IMM = 0x13;
+constexpr uint32_t RISCV_ECALL = 0x00000073;
+constexpr uint32_t RISCV_J_SELF = 0x0000006f;
 
 #define RISCV_ADDI(rd, rs1, imm)                                               \
 	((((uint32_t)(imm) & 0xfff) << 20) | ((uint32_t)(rs1) << 15) |         \
@@ -56,12 +56,12 @@ static bool signal_is_fatal_default(int sig)
 	}
 }
 
-__always_inline bool signal_is_catchable(int sig)
+bool signal_is_catchable(int sig)
 {
 	return sig != SIGKILL && sig != SIGSTOP;
 }
 
-__always_inline uint64_t unblockable_mask(void)
+uint64_t unblockable_mask(void)
 {
 	return signal_mask(SIGKILL) | signal_mask(SIGSTOP);
 }

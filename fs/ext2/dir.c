@@ -7,12 +7,12 @@
 
 #define EXT2_DIR_REC_LEN(name_len) (((name_len) + 8 + 3) & ~3u)
 
-static __always_inline int ext2_sync_dir_page(struct page_cache *page)
+static int ext2_sync_dir_page(struct page_cache *page)
 {
 	return page_cache_sync_page(page) < 0 ? -EIO : 0;
 }
 
-static __always_inline struct page_cache *
+static struct page_cache *
 ext2_read_inode_page(struct inode *inode, uint32_t lblock)
 {
 	return inode ? page_cache_get_mapping(&inode->i_pages, lblock,

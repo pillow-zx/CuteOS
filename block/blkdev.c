@@ -3,7 +3,7 @@
 #include <kernel/blkdev.h>
 #include <kernel/errno.h>
 
-#define NR_BLOCK_DEVICES 32
+constexpr size_t NR_BLOCK_DEVICES = 32;
 
 static struct block_device *dev_table[NR_BLOCK_DEVICES];
 

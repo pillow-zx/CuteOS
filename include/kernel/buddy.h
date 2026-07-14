@@ -16,7 +16,7 @@
  * @def MAX_ORDER
  * @brief Highest buddy order managed by the physical page allocator.
  */
-#define MAX_ORDER 9
+constexpr uint32_t MAX_ORDER = 9;
 
 /**
  * @struct free_area

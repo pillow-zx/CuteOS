@@ -28,7 +28,7 @@ void *kmalloc(size_t size) __must_check __malloc __alloc_size(1);
  * @param size per size of requirement obj
  * @return Allocated objects, or NULL
  */
-static __always_inline void *__must_check kmalloc_array(size_t n, size_t size)
+static inline void *__must_check kmalloc_array(size_t n, size_t size)
 {
 	size_t bytes;
 
@@ -52,7 +52,7 @@ CLEANUP_DEFINE(kfree, void *, if (_T) kfree(_T));
  * @param size Requested object size in bytes.
  * @return Zero-filled object, or NULL.
  */
-static __always_inline void *__must_check __malloc __alloc_size(1)
+static inline void *__must_check __malloc __alloc_size(1)
 	kzalloc(size_t size)
 {
 	void *ptr = kmalloc(size);

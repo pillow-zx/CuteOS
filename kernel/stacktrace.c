@@ -4,7 +4,7 @@
 #include <kernel/task.h>
 #include <kernel/types.h>
 
-#define STACKTRACE_MAX_DEPTH 16
+constexpr uint32_t STACKTRACE_MAX_DEPTH = 16;
 
 extern char boot_stack[];
 extern char boot_stack_top[];

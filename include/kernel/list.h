@@ -43,13 +43,13 @@ struct list_head {
  */
 #define LIST_HEAD_STATIC(name) static struct list_head name = LIST_HEAD_INIT(name)
 
-static __always_inline void INIT_LIST_HEAD(struct list_head *list)
+static inline void INIT_LIST_HEAD(struct list_head *list)
 {
 	list->prev = list;
 	list->next = list;
 }
 
-static __always_inline void __list_add(struct list_head *new_node,
+static inline void __list_add(struct list_head *new_node,
 				       struct list_head *prev,
 				       struct list_head *next)
 {
@@ -59,53 +59,53 @@ static __always_inline void __list_add(struct list_head *new_node,
 	prev->next = new_node;
 }
 
-static __always_inline void list_add(struct list_head *new_node,
+static inline void list_add(struct list_head *new_node,
 				     struct list_head *head)
 {
 	__list_add(new_node, head, head->next);
 }
 
-static __always_inline void list_add_tail(struct list_head *new_node,
+static inline void list_add_tail(struct list_head *new_node,
 					  struct list_head *head)
 {
 	__list_add(new_node, head->prev, head);
 }
 
-static __always_inline void __list_del(struct list_head *prev,
+static inline void __list_del(struct list_head *prev,
 				       struct list_head *next)
 {
 	next->prev = prev;
 	prev->next = next;
 }
 
-static __always_inline void list_del(struct list_head *entry)
+static inline void list_del(struct list_head *entry)
 {
 	__list_del(entry->prev, entry->next);
 	entry->prev = nullptr;
 	entry->next = nullptr;
 }
 
-static __always_inline void list_del_init(struct list_head *entry)
+static inline void list_del_init(struct list_head *entry)
 {
 	__list_del(entry->prev, entry->next);
 	INIT_LIST_HEAD(entry);
 }
 
-static __always_inline void list_move(struct list_head *list,
+static inline void list_move(struct list_head *list,
 				      struct list_head *head)
 {
 	__list_del(list->prev, list->next);
 	list_add(list, head);
 }
 
-static __always_inline void list_move_tail(struct list_head *list,
+static inline void list_move_tail(struct list_head *list,
 					   struct list_head *head)
 {
 	__list_del(list->prev, list->next);
 	list_add_tail(list, head);
 }
 
-static __always_inline __must_check __pure bool
+static inline __must_check __pure bool
 list_empty(const struct list_head *head)
 {
 	return head->next == head;
@@ -158,8 +158,8 @@ list_empty(const struct list_head *head)
  * node back to its owner with @ref list_entry.
  */
 #define list_for_each_entry(pos, head, member)                                 \
-	for (pos = list_entry((head)->next, type_of(*pos), member);            \
+	for (pos = list_entry((head)->next, typeof(*pos), member);             \
 	     &pos->member != (head);                                           \
-	     pos = list_entry(pos->member.next, type_of(*pos), member))
+	     pos = list_entry(pos->member.next, typeof(*pos), member))
 
 #endif

@@ -25,31 +25,31 @@ enum rseq_restart_event {
 	RSEQ_RESTART_ON_SIGNAL,
 };
 
-static __always_inline __must_check __pure struct rseq *
+static __must_check __pure struct rseq *
 rseq_task_area(const struct task_struct *task)
 {
 	return task ? task->rseq.area : NULL;
 }
 
-static __always_inline __must_check __pure uint32_t
+static __must_check __pure uint32_t
 rseq_task_len(const struct task_struct *task)
 {
 	return task ? task->rseq.len : 0;
 }
 
-static __always_inline __must_check __pure uint32_t
+static __must_check __pure uint32_t
 rseq_task_sig(const struct task_struct *task)
 {
 	return task ? task->rseq.sig : 0;
 }
 
-static __always_inline __must_check __pure uint8_t
+static __must_check __pure uint8_t
 rseq_task_need_update(const struct task_struct *task)
 {
 	return task ? task->rseq.need_update : 0;
 }
 
-static __always_inline void rseq_task_set(struct task_struct *task,
+static void rseq_task_set(struct task_struct *task,
 					  struct rseq *area, uint32_t len,
 					  uint32_t sig)
 {
@@ -62,19 +62,19 @@ static __always_inline void rseq_task_set(struct task_struct *task,
 	task->rseq.need_update = 0;
 }
 
-static __always_inline void rseq_task_clear(struct task_struct *task)
+static void rseq_task_clear(struct task_struct *task)
 {
 	rseq_task_set(task, NULL, 0, 0);
 }
 
-static __always_inline void rseq_task_set_need_update(struct task_struct *task,
+static void rseq_task_set_need_update(struct task_struct *task,
 						      uint8_t val)
 {
 	if (task)
 		task->rseq.need_update = val;
 }
 
-static __always_inline __must_check __pure bool
+static __must_check __pure bool
 rseq_area_aligned(const struct rseq *area)
 {
 	return IS_ALIGNED((uintptr_t)area, RSEQ_ORIG_SIZE);

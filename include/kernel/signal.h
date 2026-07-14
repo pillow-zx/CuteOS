@@ -58,7 +58,7 @@ struct signal_struct {
  * @def SIGNAL_TRAMPOLINE_ADDR
  * @brief Fixed user virtual address of the signal trampoline mapping.
  */
-#define SIGNAL_TRAMPOLINE_ADDR (USER_STACK_GUARD_BASE - PAGE_SIZE)
+constexpr vaddr_t SIGNAL_TRAMPOLINE_ADDR = USER_STACK_GUARD_BASE - PAGE_SIZE;
 
 /**
  * @struct signal_frame
@@ -80,120 +80,120 @@ static_assert(sizeof(struct rt_sigframe) == 1088,
 
 struct task_struct;
 
-static __always_inline __must_check __pure struct signal_struct *
+static inline __must_check __pure struct signal_struct *
 task_signal_state(struct task_struct *task)
 {
 	return task ? task->resources.signal : NULL;
 }
 
-static __always_inline __must_check __pure struct sighand_struct *
+static inline __must_check __pure struct sighand_struct *
 task_sighand(struct task_struct *task)
 {
 	return task ? task->resources.sighand : NULL;
 }
 
-static __always_inline void task_set_sighand(struct task_struct *task,
+static inline void task_set_sighand(struct task_struct *task,
 					     struct sighand_struct *sighand)
 {
 	if (task)
 		task->resources.sighand = sighand;
 }
 
-static __always_inline void task_set_signal_state(struct task_struct *task,
+static inline void task_set_signal_state(struct task_struct *task,
 						  struct signal_struct *signal)
 {
 	if (task)
 		task->resources.signal = signal;
 }
 
-static __always_inline __must_check __pure uint64_t
+static inline __must_check __pure uint64_t
 task_blocked_mask(const struct task_struct *task)
 {
 	return task ? task->sigctx.blocked : 0;
 }
 
-static __always_inline void task_set_blocked_mask(struct task_struct *task,
+static inline void task_set_blocked_mask(struct task_struct *task,
 						  uint64_t mask)
 {
 	if (task)
 		task->sigctx.blocked = mask;
 }
 
-static __always_inline void task_or_blocked_mask(struct task_struct *task,
+static inline void task_or_blocked_mask(struct task_struct *task,
 						 uint64_t mask)
 {
 	if (task)
 		task->sigctx.blocked |= mask;
 }
 
-static __always_inline void task_and_blocked_mask(struct task_struct *task,
+static inline void task_and_blocked_mask(struct task_struct *task,
 						  uint64_t mask)
 {
 	if (task)
 		task->sigctx.blocked &= mask;
 }
 
-static __always_inline __must_check __pure uint64_t
+static inline __must_check __pure uint64_t
 task_pending_mask(const struct task_struct *task)
 {
 	return task ? task->sigctx.pending : 0;
 }
 
-static __always_inline void task_set_pending_mask(struct task_struct *task,
+static inline void task_set_pending_mask(struct task_struct *task,
 						  uint64_t mask)
 {
 	if (task)
 		task->sigctx.pending = mask;
 }
 
-static __always_inline void task_or_pending_mask(struct task_struct *task,
+static inline void task_or_pending_mask(struct task_struct *task,
 						 uint64_t mask)
 {
 	if (task)
 		task->sigctx.pending |= mask;
 }
 
-static __always_inline void task_and_pending_mask(struct task_struct *task,
+static inline void task_and_pending_mask(struct task_struct *task,
 						  uint64_t mask)
 {
 	if (task)
 		task->sigctx.pending &= mask;
 }
 
-static __always_inline __must_check __pure uint64_t
+static inline __must_check __pure uint64_t
 task_in_handler_mask(const struct task_struct *task)
 {
 	return task ? task->sigctx.in_handler : 0;
 }
 
-static __always_inline void task_set_in_handler_mask(struct task_struct *task,
+static inline void task_set_in_handler_mask(struct task_struct *task,
 						     uint64_t mask)
 {
 	if (task)
 		task->sigctx.in_handler = mask;
 }
 
-static __always_inline void task_or_in_handler_mask(struct task_struct *task,
+static inline void task_or_in_handler_mask(struct task_struct *task,
 						    uint64_t mask)
 {
 	if (task)
 		task->sigctx.in_handler |= mask;
 }
 
-static __always_inline void task_and_in_handler_mask(struct task_struct *task,
+static inline void task_and_in_handler_mask(struct task_struct *task,
 						     uint64_t mask)
 {
 	if (task)
 		task->sigctx.in_handler &= mask;
 }
 
-static __always_inline __must_check __pure __nonnull(1) __returns_nonnull
+static inline __must_check __pure __nonnull(1) __returns_nonnull
 	struct stack_t *task_altstack(struct task_struct *task)
 {
 	return &task->sigctx.sas;
 }
 
-static __always_inline __must_check __pure struct stack_t *
+static inline __must_check __pure struct stack_t *
 task_altstack_safe(struct task_struct *task)
 {
 	return task ? task_altstack(task) : NULL;

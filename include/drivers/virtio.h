@@ -13,13 +13,13 @@
  * @def VIRTIO_MMIO_BASE
  * @brief QEMU virt base address of the first virtio MMIO transport.
  */
-#define VIRTIO_MMIO_BASE 0x10001000UL
+constexpr uintptr_t VIRTIO_MMIO_BASE = 0x10001000UL;
 
 /**
  * @def VIRTIO_MMIO_MAGIC
  * @brief Little-endian "virt" magic value exposed by virtio MMIO devices.
  */
-#define VIRTIO_MMIO_MAGIC 0x74726976u
+constexpr uint32_t VIRTIO_MMIO_MAGIC = 0x74726976u;
 
 /** @def VIRTIO_MMIO_MAGIC_VALUE Magic register offset. */
 #define VIRTIO_MMIO_MAGIC_VALUE		0x000

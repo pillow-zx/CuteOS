@@ -7,7 +7,7 @@
 #include <kernel/errno.h>
 #include <kernel/worker.h>
 
-#define PAGE_CACHE_WB_MAX 32
+constexpr uint32_t PAGE_CACHE_WB_MAX = 32;
 
 static uint8_t *wb_buf;
 static uint32_t wb_pages;

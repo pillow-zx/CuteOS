@@ -11,10 +11,10 @@
 
 static void (*console_putc)(int ch);
 
-#define PRINTK_BUF_SIZE 1024
+constexpr size_t PRINTK_BUF_SIZE = 1024;
 static char printk_buf[PRINTK_BUF_SIZE];
 
-#define PRINTK_LOG_BUF_SIZE 4096
+constexpr size_t PRINTK_LOG_BUF_SIZE = 4096;
 
 static void console_write(const char *s)
 {

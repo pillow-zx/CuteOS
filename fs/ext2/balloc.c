@@ -3,22 +3,22 @@
 
 #include "ext2.h"
 
-static __always_inline bool bitmap_test_bit(uint8_t *bitmap, uint32_t bit)
+static bool bitmap_test_bit(uint8_t *bitmap, uint32_t bit)
 {
 	return !!(bitmap[bit / 8] & (uint8_t)(1u << (bit % 8)));
 }
 
-static __always_inline void bitmap_set_bit(uint8_t *bitmap, uint32_t bit)
+static void bitmap_set_bit(uint8_t *bitmap, uint32_t bit)
 {
 	bitmap[bit / 8] |= (uint8_t)(1u << (bit % 8));
 }
 
-static __always_inline void bitmap_clear_bit(uint8_t *bitmap, uint32_t bit)
+static void bitmap_clear_bit(uint8_t *bitmap, uint32_t bit)
 {
 	bitmap[bit / 8] &= (uint8_t)~(1u << (bit % 8));
 }
 
-static __always_inline uint32_t ext2_group_first_block(struct ext2_sb_info *sbi,
+static uint32_t ext2_group_first_block(struct ext2_sb_info *sbi,
 						       uint32_t group)
 {
 	return sbi->s_first_data_block + group * sbi->s_blocks_per_group;

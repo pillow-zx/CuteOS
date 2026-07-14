@@ -56,7 +56,7 @@
  * @brief Compile-time check that an expression has an exact type.
  */
 #define typecheck(type, expr)                                                  \
-	statement_expr(type __dummy; type_of(expr) __dummy2;                   \
+	statement_expr(type __dummy; typeof(expr) __dummy2;                    \
 		       (void)(&__dummy == &__dummy2); 1;)
 
 /**
@@ -93,7 +93,7 @@
 				      same_type(*(ptr), void),                 \
 			      "pointer type mismatch in container_of()");      \
 		_Generic((ptr),                                                \
-			const type_of(*(ptr)) *: (const type *)((              \
+			const typeof(*(ptr)) *: (const type *)((               \
 				const void *)((const char *)(ptr) -            \
 					      offsetof(type, member))),        \
 			default: ((                                            \
@@ -101,10 +101,10 @@
 						 offsetof(type, member)))));)
 
 /**
- * @def constexpr
+ * @def is_constexpr
  * @brief Test whether an expression is known constant to the compiler.
  */
-#define constexpr(expr) constant_p(expr)
+#define is_constexpr(expr) constant_p(expr)
 
 /**
  * @def IS_POWER_OF_2

@@ -9,7 +9,7 @@
 #include <kernel/task.h>
 #include <kernel/trap.h>
 
-#define SINGLE_CPU_AFFINITY_MASK 1UL
+constexpr uint64_t SINGLE_CPU_AFFINITY_MASK = 1ULL;
 
 static struct task_struct *affinity_target_task(pid_t pid)
 {

@@ -72,7 +72,7 @@ void switch_to(struct context *prev, struct context *next);
  * @param tf User ecall trap frame.
  * @return Register a7, interpreted as the syscall number.
  */
-static __always_inline __must_check __pure __nonnull(1) size_t
+static inline __must_check __pure __nonnull(1) size_t
 	syscall_nr(const struct trap_frame *tf)
 {
 	return tf->a7;
@@ -84,7 +84,7 @@ static __always_inline __must_check __pure __nonnull(1) size_t
  * @param nr Argument index in the range 0..5.
  * @return Registers a0..a5 according to the Linux riscv64 syscall ABI.
  */
-static __always_inline __must_check __pure __nonnull(1) size_t
+static inline __must_check __pure __nonnull(1) size_t
 	syscall_arg(const struct trap_frame *tf, uint32_t nr)
 {
 	switch (nr) {
@@ -110,7 +110,7 @@ static __always_inline __must_check __pure __nonnull(1) size_t
  * @param tf User ecall trap frame.
  * @param ret Signed syscall return value, including negative errno.
  */
-static __always_inline __nonnull(1) void
+static inline __nonnull(1) void
 syscall_set_return(struct trap_frame *tf, ssize_t ret)
 {
 	tf->a0 = (size_t)ret;
@@ -121,7 +121,7 @@ syscall_set_return(struct trap_frame *tf, ssize_t ret)
  * @param tf Trap frame.
  * @return Saved sp value.
  */
-static __always_inline __must_check __pure __nonnull(1) uintptr_t
+static inline __must_check __pure __nonnull(1) uintptr_t
 	trap_user_sp(const struct trap_frame *tf)
 {
 	return tf->sp;
@@ -132,7 +132,7 @@ static __always_inline __must_check __pure __nonnull(1) uintptr_t
  * @param tf Trap frame.
  * @return Saved sepc value.
  */
-static __always_inline __must_check __pure __nonnull(1) uintptr_t
+static inline __must_check __pure __nonnull(1) uintptr_t
 	trap_user_pc(const struct trap_frame *tf)
 {
 	return tf->sepc;
@@ -143,7 +143,7 @@ static __always_inline __must_check __pure __nonnull(1) uintptr_t
  * @param tf Page-fault or access-fault trap frame.
  * @return Saved stval value.
  */
-static __always_inline __must_check __pure __nonnull(1) uintptr_t
+static inline __must_check __pure __nonnull(1) uintptr_t
 	trap_fault_addr(const struct trap_frame *tf)
 {
 	return tf->stval;
@@ -154,7 +154,7 @@ static __always_inline __must_check __pure __nonnull(1) uintptr_t
  * @param tf Trap frame.
  * @return True when SSTATUS_SPP is clear.
  */
-static __always_inline __must_check __pure
+static inline __must_check __pure
 	__nonnull(1) bool trap_frame_from_user(const struct trap_frame *tf)
 {
 	return (tf->sstatus & SSTATUS_SPP) == 0;
@@ -165,7 +165,7 @@ static __always_inline __must_check __pure
  * @param tf Trap frame.
  * @return Raw scause, including SCAUSE_IRQ_FLAG for interrupts.
  */
-static __always_inline __must_check __pure __nonnull(1) uintptr_t
+static inline __must_check __pure __nonnull(1) uintptr_t
 	trap_frame_cause(const struct trap_frame *tf)
 {
 	return tf->scause;
@@ -176,7 +176,7 @@ static __always_inline __must_check __pure __nonnull(1) uintptr_t
  * @param tf Trap frame.
  * @return Raw sstatus value.
  */
-static __always_inline __must_check __pure __nonnull(1) uintptr_t
+static inline __must_check __pure __nonnull(1) uintptr_t
 	trap_status(const struct trap_frame *tf)
 {
 	return tf->sstatus;
@@ -187,7 +187,7 @@ static __always_inline __must_check __pure __nonnull(1) uintptr_t
  * @param tf Trap frame.
  * @param status Raw sstatus value to restore on trap return.
  */
-static __always_inline __nonnull(1) void
+static inline __nonnull(1) void
 trap_set_status(struct trap_frame *tf, uintptr_t status)
 {
 	tf->sstatus = status;
@@ -198,7 +198,7 @@ trap_set_status(struct trap_frame *tf, uintptr_t status)
  * @param tf Trap frame.
  * @param bytes Number of bytes to add to sepc.
  */
-static __always_inline __nonnull(1) void
+static inline __nonnull(1) void
 trap_advance_pc(struct trap_frame *tf, uintptr_t bytes)
 {
 	tf->sepc += bytes;
@@ -209,7 +209,7 @@ trap_advance_pc(struct trap_frame *tf, uintptr_t bytes)
  * @param tf Trap frame whose scause encodes the fault.
  * @return Read, write, or execute access class for MM fault handling.
  */
-static __always_inline __must_check __pure __nonnull(1) enum trap_access_type
+static inline __must_check __pure __nonnull(1) enum trap_access_type
 	trap_fault_access(const struct trap_frame *tf)
 {
 	switch (tf->scause & ~SCAUSE_IRQ_FLAG) {
@@ -230,7 +230,7 @@ static __always_inline __must_check __pure __nonnull(1) enum trap_access_type
  * @param tf Trap frame whose scause encodes the fault.
  * @return Static string used in diagnostics.
  */
-static __always_inline __must_check __pure __nonnull(1) const
+static inline __must_check __pure __nonnull(1) const
 	char *trap_fault_name(const struct trap_frame *tf)
 {
 	switch (tf->scause & ~SCAUSE_IRQ_FLAG) {
@@ -252,7 +252,7 @@ static __always_inline __must_check __pure __nonnull(1) const
  * @param tf Trap frame.
  * @param sp User stack pointer to restore.
  */
-static __always_inline __nonnull(1) void
+static inline __nonnull(1) void
 trap_set_user_sp(struct trap_frame *tf, uintptr_t sp)
 {
 	tf->sp = sp;
@@ -263,7 +263,7 @@ trap_set_user_sp(struct trap_frame *tf, uintptr_t sp)
  * @param tf Trap frame.
  * @param pc User PC to restore.
  */
-static __always_inline __nonnull(1) void
+static inline __nonnull(1) void
 trap_set_user_pc(struct trap_frame *tf, uintptr_t pc)
 {
 	tf->sepc = pc;
@@ -274,7 +274,7 @@ trap_set_user_pc(struct trap_frame *tf, uintptr_t pc)
  * @param tf Trap frame.
  * @param value Value written to a0.
  */
-static __always_inline __nonnull(1) void
+static inline __nonnull(1) void
 trap_set_arg0(struct trap_frame *tf, uintptr_t value)
 {
 	tf->a0 = value;
@@ -285,7 +285,7 @@ trap_set_arg0(struct trap_frame *tf, uintptr_t value)
  * @param tf Trap frame.
  * @param pc Supervisor PC to restore through sret.
  */
-static __always_inline __nonnull(1) void
+static inline __nonnull(1) void
 trap_set_kernel_return(struct trap_frame *tf, uintptr_t pc)
 {
 	tf->sepc = pc;
@@ -298,7 +298,7 @@ trap_set_kernel_return(struct trap_frame *tf, uintptr_t pc)
  * @param pc Kernel-thread entry function address.
  * @param arg0 First argument passed in a0.
  */
-static __always_inline __nonnull(1) void
+static inline __nonnull(1) void
 trap_set_kernel_thread_frame(struct trap_frame *tf, uintptr_t pc, uintptr_t arg0)
 {
 	memset(tf, 0, sizeof(*tf));
@@ -312,7 +312,7 @@ trap_set_kernel_thread_frame(struct trap_frame *tf, uintptr_t pc, uintptr_t arg0
  * @param dst Destination child trap frame.
  * @param src Source parent trap frame.
  */
-static __always_inline __nonnull(1, 2) void
+static inline __nonnull(1, 2) void
 trap_clone_frame(struct trap_frame *dst, const struct trap_frame *src)
 {
 	memcpy(dst, src, sizeof(*dst));
@@ -322,7 +322,7 @@ trap_clone_frame(struct trap_frame *dst, const struct trap_frame *src)
  * @brief Set clone/fork child return value to zero.
  * @param tf Child trap frame.
  */
-static __always_inline __nonnull(1) void
+static inline __nonnull(1) void
 trap_set_clone_return(struct trap_frame *tf)
 {
 	tf->a0 = 0;
@@ -333,7 +333,7 @@ trap_set_clone_return(struct trap_frame *tf)
  * @param tf Trap frame.
  * @param tls New tp value.
  */
-static __always_inline __nonnull(1) void
+static inline __nonnull(1) void
 trap_set_tls(struct trap_frame *tf, uintptr_t tls)
 {
 	tf->tp = tls;
@@ -347,7 +347,7 @@ trap_set_tls(struct trap_frame *tf, uintptr_t tls)
  * @param sp User signal-frame stack pointer.
  * @param arg0 Signal number argument placed in a0.
  */
-static __always_inline __nonnull(1) void trap_setup_signal_handler(
+static inline __nonnull(1) void trap_setup_signal_handler(
 	struct trap_frame *tf, uintptr_t handler, uintptr_t restorer,
 	uintptr_t sp, uintptr_t arg0, uintptr_t arg1, uintptr_t arg2)
 {
@@ -364,7 +364,7 @@ static __always_inline __nonnull(1) void trap_setup_signal_handler(
  * @param tf Trap frame.
  * @return Current a0 value.
  */
-static __always_inline __must_check __pure __nonnull(1) uintptr_t
+static inline __must_check __pure __nonnull(1) uintptr_t
 	trap_return_value(const struct trap_frame *tf)
 {
 	return tf->a0;
@@ -376,7 +376,7 @@ static __always_inline __must_check __pure __nonnull(1) uintptr_t
  * @param pc User entry PC.
  * @param sp User stack pointer.
  */
-static __always_inline __nonnull(1) void
+static inline __nonnull(1) void
 trap_setup_user_return(struct trap_frame *tf, uintptr_t pc, uintptr_t sp)
 {
 	tf->sepc = pc;
@@ -385,17 +385,17 @@ trap_setup_user_return(struct trap_frame *tf, uintptr_t pc, uintptr_t sp)
 }
 
 #ifdef KERNEL_SELFTEST
-static __always_inline __must_check __const size_t trap_frame_size(void)
+static inline __must_check __const size_t trap_frame_size(void)
 {
 	return sizeof(struct trap_frame);
 }
 
-static __always_inline __must_check __const size_t trap_context_size(void)
+static inline __must_check __const size_t trap_context_size(void)
 {
 	return sizeof(struct context);
 }
 
-static __always_inline __must_check __pure __nonnull(1) uintptr_t
+static inline __must_check __pure __nonnull(1) uintptr_t
 	trap_test_reg(const struct trap_frame *tf, uint32_t reg)
 {
 	const size_t *regs = (const size_t *)tf;

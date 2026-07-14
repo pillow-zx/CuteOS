@@ -97,7 +97,7 @@ LIB_OBJS
 内核编译参数由 `scripts/flags.mk` 定义。核心约束包括：
 
 - 架构：`-march=rv64gc -mabi=lp64 -mcmodel=medany`
-- 标准：`-std=gnu17`
+- 标准：`-std=gnu23`
 - freestanding：`-ffreestanding -fno-common -nostdlib -nostdinc`
 - 非 PIE：`-fno-pie -no-pie`
 - include 路径：`include` 和 `arch/riscv/include`

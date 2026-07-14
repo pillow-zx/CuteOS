@@ -18,7 +18,7 @@ void pid_init(void)
 
 	bitmap_set(&pid_map, 0);
 
-	pr_info("pid: bitmap initialized (%d PIDs, 0 reserved for idle)\n",
+	pr_info("pid: bitmap initialized (%zu PIDs, 0 reserved for idle)\n",
 		PID_COUNT);
 }
 

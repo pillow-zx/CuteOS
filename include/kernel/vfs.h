@@ -35,12 +35,12 @@ void dcache_init(void);
 
 extern struct dentry *root_dentry;
 
-#define LOOKUP_NOFOLLOW 0x0001
-#define LOOKUP_NO_MOUNT 0x0002
+constexpr uint32_t LOOKUP_NOFOLLOW = 0x0001;
+constexpr uint32_t LOOKUP_NO_MOUNT = 0x0002;
 
-#define VFS_MAY_EXEC  0x1
-#define VFS_MAY_WRITE 0x2
-#define VFS_MAY_READ  0x4
+constexpr uint32_t VFS_MAY_EXEC = 0x1;
+constexpr uint32_t VFS_MAY_WRITE = 0x2;
+constexpr uint32_t VFS_MAY_READ = 0x4;
 
 int __must_check path_lookupat_path(const struct path *base, const char *path,
 				    uint32_t flags, struct path *res);

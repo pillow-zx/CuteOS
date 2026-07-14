@@ -14,7 +14,7 @@
 #include <kernel/types.h>
 #include <kernel/wait.h>
 
-#define USEC_PER_SEC 1000000UL
+constexpr uint64_t USEC_PER_SEC = 1000000ULL;
 
 static struct {
 	spinlock_t lock;

@@ -13,7 +13,7 @@
  * @def SCHED_MLFQ_LEVELS
  * @brief Number of runqueue levels in the single-core MLFQ scheduler.
  */
-#define SCHED_MLFQ_LEVELS 4
+constexpr uint8_t SCHED_MLFQ_LEVELS = 4;
 
 /**
  * @brief Initialize scheduler queues and policy state.
@@ -66,17 +66,17 @@ void sched_wake_task(struct task_struct *task);
  */
 void sched_dequeue(struct task_struct *task);
 
-static __always_inline void preempt_disable(void)
+static inline void preempt_disable(void)
 {
 	cpu_inc_preempt_count(current_cpu());
 }
 
-static __always_inline void preempt_enable(void)
+static inline void preempt_enable(void)
 {
 	cpu_dec_preempt_count(current_cpu());
 }
 
-static __always_inline bool preemptible(void)
+static inline bool preemptible(void)
 {
 	return cpu_preempt_count(current_cpu()) == 0;
 }

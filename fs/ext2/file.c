@@ -4,7 +4,7 @@
 
 #include "ext2.h"
 
-static __always_inline bool ext2_file_index_valid(uint64_t index)
+static bool ext2_file_index_valid(uint64_t index)
 {
 	return index <= EXT2_MAX_FILE_INDEX;
 }

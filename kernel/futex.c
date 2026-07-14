@@ -8,8 +8,8 @@
 #include <kernel/processor.h>
 #include <kernel/uaccess_arch.h>
 
-#define FUTEX_BUCKETS	  32
-#define ROBUST_LIST_LIMIT 2048
+constexpr int32_t FUTEX_BUCKETS = 32;
+constexpr int32_t ROBUST_LIST_LIMIT = 2048;
 
 struct futex_key {
 	struct mm_struct *mm;

@@ -14,43 +14,43 @@
  * @def DRAM_BASE
  * @brief Physical base address of QEMU virt DRAM.
  */
-#define DRAM_BASE 0x80000000
+constexpr paddr_t DRAM_BASE = 0x80000000;
 
 /**
  * @def DRAM_SIZE
  * @brief Configured DRAM size in bytes.
  */
-#define DRAM_SIZE ((uint64_t)CONFIG_DRAM_SIZE_MB << 20)
+constexpr uint64_t DRAM_SIZE = (uint64_t)CONFIG_DRAM_SIZE_MB << 20;
 
 /**
  * @def TASK_SIZE
  * @brief Highest user virtual address plus one for the current Sv39 policy.
  */
-#define TASK_SIZE	      0x80000000UL
+constexpr vaddr_t TASK_SIZE = 0x80000000UL;
 
 /**
  * @def USER_STACK_TOP
  * @brief Exclusive top of the initial user stack region.
  */
-#define USER_STACK_TOP	      TASK_SIZE
+constexpr vaddr_t USER_STACK_TOP = TASK_SIZE;
 
 /**
  * @def USER_STACK_BASE
  * @brief Base of the initial mapped user stack page.
  */
-#define USER_STACK_BASE	      (USER_STACK_TOP - PAGE_SIZE)
+constexpr vaddr_t USER_STACK_BASE = USER_STACK_TOP - PAGE_SIZE;
 
 /**
  * @def USER_STACK_GUARD_BASE
  * @brief Base of the guard page below the initial user stack.
  */
-#define USER_STACK_GUARD_BASE (USER_STACK_BASE - PAGE_SIZE)
+constexpr vaddr_t USER_STACK_GUARD_BASE = USER_STACK_BASE - PAGE_SIZE;
 
 /**
  * @def KERNEL_VBASE
  * @brief High-half virtual base of the kernel direct map.
  */
-#define KERNEL_VBASE 0xFFFFFFC000000000
+constexpr vaddr_t KERNEL_VBASE = 0xFFFFFFC000000000;
 
 /**
  * @def __pa

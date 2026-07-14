@@ -32,7 +32,6 @@ typedef signed long		ssize_t;
 typedef unsigned long           usize;
 typedef signed long             isize;
 
-typedef _Bool			bool;
 typedef int64_t			loff_t;
 typedef int32_t			pid_t;
 typedef uint32_t		uid_t;
@@ -42,13 +41,7 @@ typedef uint32_t		dev_t;
 typedef uintptr_t		paddr_t;
 typedef uintptr_t		vaddr_t;
 
-enum {
-	false = 0,
-	true = 1,
-};
-
 #define NULL	                ((void *)0)
-#define nullptr                 ((void *)0)
 
 #define INT8_MIN                (-1 - 0x7f)
 #define INT16_MIN               (-1 - 0x7fff)

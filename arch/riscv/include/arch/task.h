@@ -16,11 +16,11 @@
 /** @def ARCH_KSTACK_ORDER
  * @brief Buddy allocation order for one kernel stack.
  */
-#define ARCH_KSTACK_ORDER 1
+constexpr uint32_t ARCH_KSTACK_ORDER = 1;
 /** @def ARCH_KSTACK_SIZE
  * @brief Kernel stack size in bytes for each task.
  */
-#define ARCH_KSTACK_SIZE  (PAGE_SIZE << ARCH_KSTACK_ORDER)
+constexpr size_t ARCH_KSTACK_SIZE = PAGE_SIZE << ARCH_KSTACK_ORDER;
 
 /**
  * @struct task_arch_state

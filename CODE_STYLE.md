@@ -27,6 +27,11 @@ and semantics even when that conflicts with cosmetic style preferences.
 This document is intentionally conservative. It is not a license for wide
 style-only churn or large refactors.
 
+The project uses GNU C23 (`-std=gnu23`) and requires GCC 15 or newer. Use C23
+keywords directly; do not redefine `bool`, `true`, `false`, `nullptr`,
+`static_assert`, `alignof`, `auto`, `typeof`, or `constexpr`. GNU attributes
+remain wrapped by the project compiler-attribute headers.
+
 ## 1. Core Principles
 
 - Follow `.clang-format` for mechanical formatting.
@@ -1061,3 +1066,17 @@ When a style rule conflicts with:
 
 prefer the technically correct result, and document the exception if it is not
 obvious.
+
+## Compile-Time Invariants
+
+The kernel is compiled as GNU C23 (`-std=gnu23`). Use a typed `constexpr`
+object for internal, translation-unit or header constants whose value is part
+of the C language model: sizes, limits, bit masks, register offsets, state
+values, and derived constants. This preserves type checking and makes the
+constant usable in integer constant expressions.
+
+Keep a macro when its value must be visible to the preprocessor or assembler,
+when it is part of the user-space/UAPI compatibility surface, for include
+Guards, configuration symbols, conditional compilation, stringification,
+function-like expansion, or static initializers that require macro syntax.
+Avoid changing ABI-visible definitions one side at a time.

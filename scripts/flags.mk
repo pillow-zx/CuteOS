@@ -17,7 +17,7 @@ ASFLAGS = -march=rv64gc -mabi=lp64
 CFLAGS += -Wall -Werror
 CFLAGS += -Wno-unknown-attributes
 CFLAGS += -Wno-main
-CFLAGS += -std=gnu17
+CFLAGS += -std=gnu23
 CFLAGS += -I include
 CFLAGS += -I arch/riscv/include
 ASFLAGS += -I include

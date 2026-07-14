@@ -30,34 +30,34 @@ struct wait_session;
  * @def VFS_NAME_MAX
  * @brief Maximum single path-component length accepted by VFS.
  */
-#define VFS_NAME_MAX 255
+constexpr size_t VFS_NAME_MAX = 255;
 
 /**
  * @def VFS_PATH_MAX
  * @brief Maximum absolute or relative path string length copied from userspace.
  */
-#define VFS_PATH_MAX 4096
+constexpr size_t VFS_PATH_MAX = 4096;
 
 /** @def KERN_STDIN Kernel-reserved stdin file descriptor number. */
-#define KERN_STDIN 0
+constexpr int32_t KERN_STDIN = 0;
 
 /** @def KERN_STDOUT Kernel-reserved stdout file descriptor number. */
-#define KERN_STDOUT 1
+constexpr int32_t KERN_STDOUT = 1;
 
 /** @def KERN_STDERR Kernel-reserved stderr file descriptor number. */
-#define KERN_STDERR 2
+constexpr int32_t KERN_STDERR = 2;
 
 /**
  * @def NR_OPEN
  * @brief Per-task fdtable size and poll/select descriptor ceiling.
  */
-#define NR_OPEN 32
+constexpr int32_t NR_OPEN = 32;
 
 /** @def FMODE_READ File object permits read operations. */
-#define FMODE_READ 0x1
+constexpr uint32_t FMODE_READ = 0x1;
 
 /** @def FMODE_WRITE File object permits write operations. */
-#define FMODE_WRITE 0x2
+constexpr uint32_t FMODE_WRITE = 0x2;
 
 /**
  * @typedef filldir_t
@@ -483,97 +483,97 @@ int __must_check vfs_ioctl(struct file *file, uint64_t cmd, uint64_t arg);
 int __must_check vfs_getcwd_path(const struct path *cwd, char *buf,
 				 size_t size);
 
-static __always_inline __must_check __pure uint64_t
+static inline __must_check __pure uint64_t
 vfs_inode_size(const struct inode *inode)
 {
 	return inode ? inode->i_size : 0;
 }
 
-static __always_inline __must_check __pure uint64_t
+static inline __must_check __pure uint64_t
 vfs_inode_blocks(const struct inode *inode)
 {
 	return inode ? inode->i_blocks : 0;
 }
 
-static __always_inline __must_check __pure uint64_t
+static inline __must_check __pure uint64_t
 vfs_inode_number(const struct inode *inode)
 {
 	return inode ? inode->i_ino : 0;
 }
 
-static __always_inline __must_check __pure uint32_t
+static inline __must_check __pure uint32_t
 vfs_inode_mode(const struct inode *inode)
 {
 	return inode ? inode->i_mode : 0;
 }
 
-static __always_inline __must_check __pure dev_t
+static inline __must_check __pure dev_t
 vfs_inode_rdev(const struct inode *inode)
 {
 	return inode ? inode->i_rdev : 0;
 }
 
-static __always_inline __must_check __pure uint32_t
+static inline __must_check __pure uint32_t
 vfs_inode_uid(const struct inode *inode)
 {
 	return inode ? inode->i_uid : 0;
 }
 
-static __always_inline __must_check __pure uint32_t
+static inline __must_check __pure uint32_t
 vfs_inode_gid(const struct inode *inode)
 {
 	return inode ? inode->i_gid : 0;
 }
 
-static __always_inline __must_check __pure uint32_t
+static inline __must_check __pure uint32_t
 vfs_inode_nlink(const struct inode *inode)
 {
 	return inode ? inode->i_nlink : 0;
 }
 
-static __always_inline __must_check __pure int64_t
+static inline __must_check __pure int64_t
 vfs_inode_atime_sec(const struct inode *inode)
 {
 	return inode ? inode->i_atime_sec : 0;
 }
 
-static __always_inline __must_check __pure int64_t
+static inline __must_check __pure int64_t
 vfs_inode_mtime_sec(const struct inode *inode)
 {
 	return inode ? inode->i_mtime_sec : 0;
 }
 
-static __always_inline __must_check __pure int64_t
+static inline __must_check __pure int64_t
 vfs_inode_ctime_sec(const struct inode *inode)
 {
 	return inode ? inode->i_ctime_sec : 0;
 }
 
-static __always_inline __must_check __pure dev_t
+static inline __must_check __pure dev_t
 vfs_inode_dev(const struct inode *inode)
 {
 	return inode && inode->i_sb ? inode->i_sb->s_dev : 0;
 }
 
-static __always_inline __must_check __pure struct inode *
+static inline __must_check __pure struct inode *
 vfs_dentry_inode(struct dentry *dentry)
 {
 	return dentry ? dentry->d_inode : NULL;
 }
 
-static __always_inline __must_check __pure struct dentry *
+static inline __must_check __pure struct dentry *
 vfs_dentry_parent(struct dentry *dentry)
 {
 	return dentry ? dentry->d_parent : NULL;
 }
 
-static __always_inline __must_check __pure const char *
+static inline __must_check __pure const char *
 vfs_dentry_name(struct dentry *dentry)
 {
 	return dentry ? dentry->d_name : NULL;
 }
 
-static __always_inline __must_check __pure size_t
+static inline __must_check __pure size_t
 vfs_dentry_namelen(struct dentry *dentry)
 {
 	return dentry ? dentry->d_namelen : 0;

@@ -129,8 +129,9 @@ smp_test task_test time_test
 
 需要本机有 RISC-V 交叉工具链、QEMU 和 ext2 镜像工具：
 
-- `riscv64-linux-gnu-*`、`riscv64-unknown-elf-*` 等任一可用工具链；
-  也可以通过 `TOOLPREFIX=` 手动指定。
+- RISC-V GCC 15 或更高版本，例如 `riscv64-linux-gnu-gcc` 或
+  `riscv64-unknown-elf-gcc`；内核和用户态均以 `-std=gnu23` 构建。
+  也可以通过 `TOOLPREFIX=` 手动指定工具链前缀；`make` 会检查 GCC 版本。
 - QEMU `qemu-system-riscv64`，版本至少 7.2。
 - `mkfs.ext2` 和 `debugfs`，通常来自 `e2fsprogs`。
 - `bc`，用于 Makefile 检查 QEMU 版本。

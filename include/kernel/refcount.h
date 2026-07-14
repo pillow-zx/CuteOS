@@ -4,7 +4,7 @@
 #include <kernel/atomic.h>
 #include <kernel/printk.h>
 
-#define REFCOUNT_MAX INT32_MAX
+constexpr int32_t REFCOUNT_MAX = INT32_MAX;
 
 typedef struct {
 	atomic_t refs;
@@ -12,20 +12,20 @@ typedef struct {
 
 #define REFCOUNT_INIT(n) {.refs = ATOMIC_INIT(n)}
 
-static __always_inline void refcount_set(refcount_t *ref, int value)
+static inline void refcount_set(refcount_t *ref, int value)
 {
 	BUG_ON(!ref);
 	BUG_ON(value < 0);
 	atomic_set(&ref->refs, value);
 }
 
-static __always_inline int refcount_read(const refcount_t *ref)
+static inline int refcount_read(const refcount_t *ref)
 {
 	BUG_ON(!ref);
 	return atomic_read(&ref->refs);
 }
 
-static __always_inline bool refcount_inc_not_zero(refcount_t *ref)
+static inline bool refcount_inc_not_zero(refcount_t *ref)
 {
 	int old;
 
@@ -41,12 +41,12 @@ static __always_inline bool refcount_inc_not_zero(refcount_t *ref)
 	return true;
 }
 
-static __always_inline void refcount_inc(refcount_t *ref)
+static inline void refcount_inc(refcount_t *ref)
 {
 	BUG_ON(!refcount_inc_not_zero(ref));
 }
 
-static __always_inline void refcount_inc_allow_zero(refcount_t *ref)
+static inline void refcount_inc_allow_zero(refcount_t *ref)
 {
 	int old;
 
@@ -58,7 +58,7 @@ static __always_inline void refcount_inc_allow_zero(refcount_t *ref)
 	} while (atomic_cmpxchg(&ref->refs, old, old + 1) != old);
 }
 
-static __always_inline bool refcount_dec_and_test(refcount_t *ref)
+static inline bool refcount_dec_and_test(refcount_t *ref)
 {
 	int old;
 
@@ -71,7 +71,7 @@ static __always_inline bool refcount_dec_and_test(refcount_t *ref)
 	return old == 1;
 }
 
-static __always_inline bool refcount_dec_if_positive(refcount_t *ref)
+static inline bool refcount_dec_if_positive(refcount_t *ref)
 {
 	int old;
 

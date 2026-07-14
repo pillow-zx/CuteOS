@@ -10,7 +10,7 @@
 #include <arch/trap.h>
 #include <asm/csr.h>
 
-static __always_inline __must_check __pure uintptr_t
+static __must_check __pure uintptr_t
 arch_task_satp_or_kernel(const struct task_struct *task)
 {
 	uint64_t satp = task_address_space_satp(task);

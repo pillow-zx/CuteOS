@@ -17,17 +17,17 @@
 
 static_assert(same_type(&local_irq_save, (irq_flags_t (*)(void))0),
 	      "arch irq header must expose local_irq_save()");
-static_assert(same_type(type_of(pgprot_user(true, true, true)), pgprot_t),
+static_assert(same_type(typeof(pgprot_user(true, true, true)), pgprot_t),
 	      "arch pgtable header must expose pgprot_user()");
 static_assert(same_type(&pagetable_use_buddy, (void (*)(void))0),
 	      "arch pgtable header must expose pagetable_use_buddy()");
 static_assert(same_type(&map_page,
 			(int (*)(pte_t *, uintptr_t, uintptr_t, uint64_t))0),
 	      "arch pgtable header must expose map_page()");
-static_assert(same_type(type_of(trap_user_sp((const struct trap_frame *)0)),
+static_assert(same_type(typeof(trap_user_sp((const struct trap_frame *)0)),
 			uintptr_t),
 	      "arch trap header must expose trap_user_sp()");
-static_assert(same_type(type_of(syscall_nr((const struct trap_frame *)0)),
+static_assert(same_type(typeof(syscall_nr((const struct trap_frame *)0)),
 			size_t),
 	      "arch trap header must expose syscall_nr()");
 static_assert(same_type(&user_access_begin, (bool (*)(void))0),

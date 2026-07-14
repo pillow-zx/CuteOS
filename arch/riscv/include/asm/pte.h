@@ -124,7 +124,7 @@ typedef uint64_t pte_t;
  * @param pte Raw Sv39 page-table entry.
  * @return True when PTE_V is set.
  */
-static __always_inline __must_check __pure bool asm_pte_present(pte_t pte)
+static inline __must_check __pure bool asm_pte_present(pte_t pte)
 {
 	return (pte & PTE_V) != 0;
 }
@@ -134,7 +134,7 @@ static __always_inline __must_check __pure bool asm_pte_present(pte_t pte)
  * @param pte Raw Sv39 page-table entry.
  * @return True for a user leaf with a non-zero physical page number.
  */
-static __always_inline __must_check __pure bool asm_pte_user_page(pte_t pte)
+static inline __must_check __pure bool asm_pte_user_page(pte_t pte)
 {
 	return (pte & PTE_U) != 0 && PTE_TO_PA(pte) != 0;
 }
@@ -144,7 +144,7 @@ static __always_inline __must_check __pure bool asm_pte_user_page(pte_t pte)
  * @param pte Raw Sv39 page-table entry.
  * @return True when any of R/W/X is set.
  */
-static __always_inline __must_check __pure bool asm_pte_leaf(pte_t pte)
+static inline __must_check __pure bool asm_pte_leaf(pte_t pte)
 {
 	return (pte & (PTE_R | PTE_W | PTE_X)) != 0;
 }
@@ -154,7 +154,7 @@ static __always_inline __must_check __pure bool asm_pte_leaf(pte_t pte)
  * @param pte Raw Sv39 page-table entry.
  * @return Page-aligned physical byte address.
  */
-static __always_inline __must_check __pure paddr_t asm_pte_to_pa(pte_t pte)
+static inline __must_check __pure paddr_t asm_pte_to_pa(pte_t pte)
 {
 	return PTE_TO_PA(pte);
 }

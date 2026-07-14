@@ -6,17 +6,17 @@
 
 #include "ext2.h"
 
-static __always_inline uint32_t ext2_encode_dev(dev_t dev)
+static uint32_t ext2_encode_dev(dev_t dev)
 {
 	return (MAJOR(dev) << 8) | (dev & 0xff);
 }
 
-static __always_inline int ext2_sync_metadata_page(struct page_cache *page)
+static int ext2_sync_metadata_page(struct page_cache *page)
 {
 	return page_cache_sync_page(page);
 }
 
-static __always_inline dev_t ext2_decode_dev(uint32_t raw)
+static dev_t ext2_decode_dev(uint32_t raw)
 {
 	uint32_t major = (raw >> 8) & 0xff;
 	uint32_t minor = raw & 0xff;

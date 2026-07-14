@@ -9,8 +9,8 @@
 #include <kernel/list.h>
 #include <kernel/slab.h>
 
-#define PAGE_CACHE_HASH_BITS 7
-#define PAGE_CACHE_NR_PAGES  512U
+constexpr uint32_t PAGE_CACHE_HASH_BITS = 7;
+constexpr uint32_t PAGE_CACHE_NR_PAGES = 512U;
 
 HASH_TABLE_DECLARE_STATIC(page_cache_hashtable, PAGE_CACHE_HASH_BITS);
 LIST_HEAD_STATIC(page_cache_lru);
@@ -20,7 +20,7 @@ DEFINE_SPINLOCK(page_cache_lock);
 static uint32_t page_cache_pages;
 static bool page_cache_ready;
 
-static __always_inline uint32_t page_cache_hash(dev_t dev, uint64_t block)
+static uint32_t page_cache_hash(dev_t dev, uint64_t block)
 {
 	return (uint32_t)(dev ^ block ^ (block >> PAGE_CACHE_HASH_BITS));
 }

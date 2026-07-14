@@ -13,19 +13,19 @@
  * @def HZ
  * @brief Scheduler/accounting ticks per second.
  */
-#define HZ 100UL
+constexpr uint64_t HZ = 100ULL;
 
 /**
  * @def MTIME_FREQ
  * @brief QEMU virt mtime frequency in ticks per second.
  */
-#define MTIME_FREQ 10000000UL
+constexpr uint64_t MTIME_FREQ = 10000000ULL;
 
 /**
  * @def CLOCKS_PER_TICK
  * @brief Number of mtime ticks in one scheduler tick.
  */
-#define CLOCKS_PER_TICK (MTIME_FREQ / HZ)
+constexpr uint64_t CLOCKS_PER_TICK = MTIME_FREQ / HZ;
 
 /**
  * @brief Global scheduler tick count.

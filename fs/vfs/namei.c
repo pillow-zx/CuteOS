@@ -361,7 +361,7 @@ static int follow_symlink(const struct path *dir, struct path *link,
 		free_page(target, 0);
 		return len;
 	}
-	if (len == 0 || len >= VFS_PATH_MAX - 1) {
+	if (len == 0 || (size_t)len >= VFS_PATH_MAX - 1) {
 		free_page(target, 0);
 		return len == 0 ? -ENOENT : -ENAMETOOLONG;
 	}

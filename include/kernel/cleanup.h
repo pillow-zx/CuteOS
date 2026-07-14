@@ -59,7 +59,7 @@ __cleanup_must_check(const volatile void *val)
  * @param p Pointer lvalue to read and set to NULL.
  */
 #define cleanup_take_ptr(p)                                                    \
-	((type_of(p))__cleanup_must_check(                                     \
+	((typeof(p))__cleanup_must_check(                                      \
 		(const volatile void *)__get_and_null(p, NULL)))
 
 /**

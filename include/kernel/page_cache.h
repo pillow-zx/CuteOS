@@ -8,8 +8,8 @@
 #include <kernel/types.h>
 #include <kernel/vfs.h>
 
-#define PAGE_CACHE_READ   (1u << 0)
-#define PAGE_CACHE_CREATE (1u << 1)
+constexpr uint32_t PAGE_CACHE_READ = 1u << 0;
+constexpr uint32_t PAGE_CACHE_CREATE = 1u << 1;
 
 struct page_cache;
 

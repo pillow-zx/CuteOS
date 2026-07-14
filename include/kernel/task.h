@@ -19,55 +19,55 @@
  * @def TASK_RUNNING
  * @brief task is runnable or currently executing on the single CPU.
  */
-#define TASK_RUNNING 0x00u
+constexpr uint32_t TASK_RUNNING = 0x00u;
 
 /**
  * @def TASK_UNINTERRUPTIBLE
  * @brief task sleeps until an explicit wakeup, ignoring pending signals.
  */
-#define TASK_UNINTERRUPTIBLE 0x01u
+constexpr uint32_t TASK_UNINTERRUPTIBLE = 0x01u;
 
 /**
  * @def TASK_INTERRUPTIBLE
  * @brief task sleeps until wakeup or signal delivery makes it runnable.
  */
-#define TASK_INTERRUPTIBLE 0x02u
+constexpr uint32_t TASK_INTERRUPTIBLE = 0x02u;
 
 /**
  * @def TASK_ZOMBIE
  * @brief task has exited and keeps waitable exit status for its parent.
  */
-#define TASK_ZOMBIE 0x04u
+constexpr uint32_t TASK_ZOMBIE = 0x04u;
 
 /**
  * @def TASK_DEAD
  * @brief task resources have been released and the task is no longer runnable.
  */
-#define TASK_DEAD 0x08u
+constexpr uint32_t TASK_DEAD = 0x08u;
 
 /**
  * @def TASK_STOPPED
  * @brief task is stopped by job-control style state, not eligible to run.
  */
-#define TASK_STOPPED 0x10u
+constexpr uint32_t TASK_STOPPED = 0x10u;
 
 /**
  * @def TASK_ANY_SLEEP
  * @brief Mask matching both interruptible and uninterruptible sleep states.
  */
-#define TASK_ANY_SLEEP (TASK_UNINTERRUPTIBLE | TASK_INTERRUPTIBLE)
+constexpr uint32_t TASK_ANY_SLEEP = TASK_UNINTERRUPTIBLE | TASK_INTERRUPTIBLE;
 
 /**
  * @def KSTACK_ORDER
  * @brief Architecture-selected allocation order for every task kernel stack.
  */
-#define KSTACK_ORDER ARCH_KSTACK_ORDER
+constexpr uint32_t KSTACK_ORDER = ARCH_KSTACK_ORDER;
 
 /**
  * @def KSTACK_SIZE
  * @brief Size in bytes of the per-task kernel stack.
  */
-#define KSTACK_SIZE ARCH_KSTACK_SIZE
+constexpr size_t KSTACK_SIZE = ARCH_KSTACK_SIZE;
 
 struct files_struct;
 struct fs_struct;
@@ -269,7 +269,7 @@ extern struct task_struct *init_task;
  * @param task Task to inspect, or NULL.
  * @return The task mm, or NULL for NULL/kernel-only tasks.
  */
-static __always_inline __must_check __pure struct mm_struct *
+static inline __must_check __pure struct mm_struct *
 task_mm(struct task_struct *task)
 {
 	return task ? task->resources.mm : NULL;
@@ -286,13 +286,13 @@ static inline void task_set_mm(struct task_struct *task, struct mm_struct *mm)
 		task->resources.mm = mm;
 }
 
-static __always_inline __must_check __pure
+static inline __must_check __pure
 	__nonnull(1) struct files_struct *task_files(struct task_struct *task)
 {
 	return task->resources.files;
 }
 
-static __always_inline __must_check __pure struct files_struct *
+static inline __must_check __pure struct files_struct *
 task_files_safe(struct task_struct *task)
 {
 	return task ? task_files(task) : NULL;
@@ -305,32 +305,32 @@ static inline void task_set_files(struct task_struct *task,
 		task->resources.files = files;
 }
 
-static __always_inline __must_check __pure struct fs_struct *
+static inline __must_check __pure struct fs_struct *
 task_fs(struct task_struct *task)
 {
 	return task ? task->resources.fs : NULL;
 }
 
-static __always_inline void task_set_fs(struct task_struct *task,
+static inline void task_set_fs(struct task_struct *task,
 					struct fs_struct *fs)
 {
 	if (task)
 		task->resources.fs = fs;
 }
 
-static __always_inline __must_check __pure __nonnull(1) uid_t
+static inline __must_check __pure __nonnull(1) uid_t
 	task_uid(const struct task_struct *task)
 {
 	return task->resources.uid;
 }
 
-static __always_inline __must_check __pure __nonnull(1) gid_t
+static inline __must_check __pure __nonnull(1) gid_t
 	task_gid(const struct task_struct *task)
 {
 	return task->resources.gid;
 }
 
-static __always_inline __must_check __pure __nonnull(1) pid_t
+static inline __must_check __pure __nonnull(1) pid_t
 	task_pid(const struct task_struct *task)
 {
 	return task->ids.pid;
@@ -341,7 +341,7 @@ static __always_inline __must_check __pure __nonnull(1) pid_t
  * @param task Non-NULL task.
  * @return Thread-group id; equal to the group leader pid.
  */
-static __always_inline __must_check __pure __nonnull(1) pid_t
+static inline __must_check __pure __nonnull(1) pid_t
 	task_tgid(const struct task_struct *task)
 {
 	return task->ids.tgid;
@@ -352,7 +352,7 @@ static __always_inline __must_check __pure __nonnull(1) pid_t
  * @param task Non-NULL task.
  * @return Process-group id used by getpgid/setpgid paths.
  */
-static __always_inline __must_check __pure __nonnull(1) pid_t
+static inline __must_check __pure __nonnull(1) pid_t
 	task_pgid(const struct task_struct *task)
 {
 	return task->ids.pgid;
@@ -363,7 +363,7 @@ static __always_inline __must_check __pure __nonnull(1) pid_t
  * @param task Non-NULL task.
  * @return Session id used by getsid/setsid and controlling tty paths.
  */
-static __always_inline __must_check __pure __nonnull(1) pid_t
+static inline __must_check __pure __nonnull(1) pid_t
 	task_sid(const struct task_struct *task)
 {
 	return task->ids.sid;
@@ -374,7 +374,7 @@ static __always_inline __must_check __pure __nonnull(1) pid_t
  * @param task Non-NULL task to update.
  * @param pgid New process-group id.
  */
-static __always_inline __nonnull(1) void task_set_pgid(struct task_struct *task,
+static inline __nonnull(1) void task_set_pgid(struct task_struct *task,
 						       pid_t pgid)
 {
 	task->ids.pgid = pgid;
@@ -385,115 +385,115 @@ static __always_inline __nonnull(1) void task_set_pgid(struct task_struct *task,
  * @param task Non-NULL task to update.
  * @param sid New session id.
  */
-static __always_inline __nonnull(1) void task_set_sid(struct task_struct *task,
+static inline __nonnull(1) void task_set_sid(struct task_struct *task,
 						      pid_t sid)
 {
 	task->ids.sid = sid;
 }
 
-static __always_inline void task_set_uid(struct task_struct *task, uid_t uid)
+static inline void task_set_uid(struct task_struct *task, uid_t uid)
 {
 	BUG_ON(!task);
 	task->resources.uid = uid;
 }
 
-static __always_inline void task_set_gid(struct task_struct *task, gid_t gid)
+static inline void task_set_gid(struct task_struct *task, gid_t gid)
 {
 	BUG_ON(!task);
 	task->resources.gid = gid;
 }
 
-static __always_inline __must_check __pure __nonnull(1) uint32_t
+static inline __must_check __pure __nonnull(1) uint32_t
 	task_state(const struct task_struct *task)
 {
 	return task->lifecycle.state;
 }
 
-static __always_inline __must_check __pure uint32_t
+static inline __must_check __pure uint32_t
 task_state_safe(const struct task_struct *task)
 {
 	return task ? task_state(task) : TASK_DEAD;
 }
 
-static __always_inline void task_set_state(struct task_struct *task,
+static inline void task_set_state(struct task_struct *task,
 					   uint32_t state)
 {
 	if (task)
 		task->lifecycle.state = state;
 }
 
-static __always_inline void task_mark_running(struct task_struct *task)
+static inline void task_mark_running(struct task_struct *task)
 {
 	task_set_state(task, TASK_RUNNING);
 }
 
-static __always_inline void
+static inline void
 task_mark_interruptible_sleep(struct task_struct *task)
 {
 	task_set_state(task, TASK_INTERRUPTIBLE);
 }
 
-static __always_inline void
+static inline void
 task_mark_uninterruptible_sleep(struct task_struct *task)
 {
 	task_set_state(task, TASK_UNINTERRUPTIBLE);
 }
 
-static __always_inline void task_mark_stopped(struct task_struct *task)
+static inline void task_mark_stopped(struct task_struct *task)
 {
 	task_set_state(task, TASK_STOPPED);
 }
 
-static __always_inline __must_check __pure __nonnull(1)
+static inline __must_check __pure __nonnull(1)
 struct task_struct *task_group_leader(struct task_struct *task)
 {
 	return task->ids.group_leader;
 }
 
-static __always_inline __must_check __pure struct task_struct *
+static inline __must_check __pure struct task_struct *
 task_group_leader_safe(struct task_struct *task)
 {
 	return task ? task_group_leader(task) : NULL;
 }
 
-static __always_inline __must_check __pure struct task_struct *
+static inline __must_check __pure struct task_struct *
 task_parent(struct task_struct *task)
 {
 	return task ? task->links.parent : NULL;
 }
 
-static __always_inline __must_check __pure __nonnull(1) __returns_nonnull
+static inline __must_check __pure __nonnull(1) __returns_nonnull
 	struct list_head *task_children(struct task_struct *task)
 {
 	return &task->links.children;
 }
 
-static __always_inline __must_check __pure struct list_head *
+static inline __must_check __pure struct list_head *
 task_children_safe(struct task_struct *task)
 {
 	return task ? task_children(task) : NULL;
 }
 
-static __always_inline __must_check __pure struct wait_channel *
+static inline __must_check __pure struct wait_channel *
 task_wait_child_queue(struct task_struct *task)
 {
 	return task ? &task->links.wait_child_queue : NULL;
 }
 
-static __always_inline __must_check __pure bool
+static inline __must_check __pure bool
 task_has_parent_link(const struct task_struct *task)
 {
 	return task && !list_empty(&task->links.sibling);
 }
 
-static __always_inline void task_set_parent(struct task_struct *task,
+static inline void task_set_parent(struct task_struct *task,
 					    struct task_struct *parent)
 {
 	if (task)
 		task->links.parent = parent;
 }
 
-static __always_inline void task_link_child(struct task_struct *parent,
+static inline void task_link_child(struct task_struct *parent,
 					    struct task_struct *child)
 {
 	if (!parent || !child)
@@ -502,7 +502,7 @@ static __always_inline void task_link_child(struct task_struct *parent,
 	list_add_tail(&child->links.sibling, &parent->links.children);
 }
 
-static __always_inline void task_unlink_child(struct task_struct *task)
+static inline void task_unlink_child(struct task_struct *task)
 {
 	if (!task || list_empty(&task->links.sibling))
 		return;
@@ -522,19 +522,19 @@ static __always_inline void task_unlink_child(struct task_struct *task)
 #define task_for_each_child(pos, parent)                                       \
 	list_for_each_entry (pos, task_children(parent), links.sibling)
 
-static __always_inline __must_check __pure struct list_head *
+static inline __must_check __pure struct list_head *
 task_thread_group(struct task_struct *task)
 {
 	return task ? &task->links.thread_group : NULL;
 }
 
-static __always_inline __must_check __pure struct list_head *
+static inline __must_check __pure struct list_head *
 task_thread_node(struct task_struct *task)
 {
 	return task ? &task->links.thread_node : NULL;
 }
 
-static __always_inline void task_link_thread(struct task_struct *leader,
+static inline void task_link_thread(struct task_struct *leader,
 					     struct task_struct *thread)
 {
 	if (!leader || !thread)
@@ -542,70 +542,70 @@ static __always_inline void task_link_thread(struct task_struct *leader,
 	list_add_tail(&thread->links.thread_node, &leader->links.thread_group);
 }
 
-static __always_inline void task_unlink_thread(struct task_struct *task)
+static inline void task_unlink_thread(struct task_struct *task)
 {
 	if (!task || list_empty(&task->links.thread_node))
 		return;
 	list_del_init(&task->links.thread_node);
 }
 
-static __always_inline __must_check __pure uint64_t
+static inline __must_check __pure uint64_t
 task_user_ticks(const struct task_struct *task)
 {
 	return task ? task->cputime.utime_ticks : 0;
 }
 
-static __always_inline __must_check __pure uint64_t
+static inline __must_check __pure uint64_t
 task_system_ticks(const struct task_struct *task)
 {
 	return task ? task->cputime.stime_ticks : 0;
 }
 
-static __always_inline __must_check __pure int
+static inline __must_check __pure int
 task_exit_code(struct task_struct *task)
 {
 	return task ? task->lifecycle.exit_code : 0;
 }
 
-static __always_inline void task_set_exit_code(struct task_struct *task,
+static inline void task_set_exit_code(struct task_struct *task,
 					       int code)
 {
 	if (task)
 		task->lifecycle.exit_code = code;
 }
 
-static __always_inline __must_check __pure int
+static inline __must_check __pure int
 task_exit_signal(struct task_struct *task)
 {
 	return task ? task->lifecycle.exit_signal : 0;
 }
 
-static __always_inline void task_set_exit_signal(struct task_struct *task,
+static inline void task_set_exit_signal(struct task_struct *task,
 						 int sig)
 {
 	if (task)
 		task->lifecycle.exit_signal = sig;
 }
 
-static __always_inline __must_check __pure struct list_head *
+static inline __must_check __pure struct list_head *
 task_run_list(struct task_struct *task)
 {
 	return task ? &task->sched.run_list : NULL;
 }
 
-static __always_inline __must_check __pure bool
+static inline __must_check __pure bool
 task_is_queued(struct task_struct *task)
 {
 	return task && !list_empty(&task->sched.run_list);
 }
 
-static __always_inline __must_check __pure uint8_t
+static inline __must_check __pure uint8_t
 task_need_resched(struct task_struct *task)
 {
 	return task ? task->sched.need_resched : 0;
 }
 
-static __always_inline void task_set_need_resched(struct task_struct *task,
+static inline void task_set_need_resched(struct task_struct *task,
 						  uint8_t val)
 {
 	if (task)

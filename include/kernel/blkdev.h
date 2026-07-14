@@ -15,25 +15,25 @@
  * @def SECTOR_SIZE
  * @brief Block-device ABI sector size in bytes.
  */
-#define SECTOR_SIZE 512u
+constexpr uint32_t SECTOR_SIZE = 512u;
 
 /**
  * @def SECTOR_SHIFT
  * @brief log2(SECTOR_SIZE), used for byte/sector conversion.
  */
-#define SECTOR_SHIFT 9
+constexpr uint32_t SECTOR_SHIFT = 9;
 
 /**
  * @def BLOCK_SIZE
  * @brief Kernel page-cache block size in bytes.
  */
-#define BLOCK_SIZE 4096u
+constexpr uint32_t BLOCK_SIZE = 4096u;
 
 /**
  * @def BLOCK_SECTORS
  * @brief Number of 512-byte sectors contained in one 4 KiB cache block.
  */
-#define BLOCK_SECTORS (BLOCK_SIZE / SECTOR_SIZE)
+constexpr uint32_t BLOCK_SECTORS = BLOCK_SIZE / SECTOR_SIZE;
 
 struct block_device;
 

@@ -94,7 +94,7 @@ void buddy_init(void)
 	}
 
 
-	for (int i = 0; i <= MAX_ORDER; i++) {
+	for (uint32_t i = 0; i <= MAX_ORDER; i++) {
 		INIT_LIST_HEAD(&free_area[i].free_list);
 		free_area[i].nr_free = 0;
 	}

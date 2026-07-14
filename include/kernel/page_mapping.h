@@ -22,7 +22,7 @@ struct page_mapping {
 	const struct page_mapping_ops *ops;
 };
 
-static __always_inline void
+static inline void
 page_mapping_init(struct page_mapping *mapping, void *host, dev_t dev,
 		  const struct page_mapping_ops *ops)
 {

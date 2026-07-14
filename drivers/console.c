@@ -13,12 +13,12 @@
 #include <uapi/signal.h>
 #include <uapi/tty.h>
 
-#define CONSOLE_INPUT_SIZE 256
+constexpr size_t CONSOLE_INPUT_SIZE = 256;
 
-#define TTY_INPUT_CONTINUE 0
-#define TTY_INPUT_READY	   1
-#define TTY_INPUT_EOF	   2
-#define TTY_INPUT_SIGNAL   3
+constexpr int32_t TTY_INPUT_CONTINUE = 0;
+constexpr int32_t TTY_INPUT_READY = 1;
+constexpr int32_t TTY_INPUT_EOF = 2;
+constexpr int32_t TTY_INPUT_SIGNAL = 3;
 
 typedef void (*console_emit_fn)(char ch, void *ctx);
 

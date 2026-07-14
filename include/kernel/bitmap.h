@@ -13,7 +13,7 @@
  * @def BITMAP_WORD_BITS
  * @brief Number of bits represented by one uintptr_t bitmap word.
  */
-#define BITMAP_WORD_BITS ((size_t)(sizeof(uintptr_t) * 8U))
+constexpr size_t BITMAP_WORD_BITS = sizeof(uintptr_t) * 8U;
 
 /**
  * @def BITMAP_WORDS
@@ -65,40 +65,40 @@ struct bitmap {
 		.nwords = BITMAP_WORDS(n),                                     \
 	}
 
-static __always_inline size_t bitmap_word_index(size_t bit)
+static inline size_t bitmap_word_index(size_t bit)
 {
 	return bit / BITMAP_WORD_BITS;
 }
 
-static __always_inline size_t bitmap_word_offset(size_t bit)
+static inline size_t bitmap_word_offset(size_t bit)
 {
 	return bit % BITMAP_WORD_BITS;
 }
 
-static __always_inline uintptr_t bitmap_tail_mask(size_t nbits)
+static inline uintptr_t bitmap_tail_mask(size_t nbits)
 {
 	const size_t tail = nbits % BITMAP_WORD_BITS;
 
 	return tail == 0 ? ~0UL : (1UL << tail) - 1UL;
 }
 
-static __always_inline void bitmap_zero(struct bitmap *map)
+static inline void bitmap_zero(struct bitmap *map)
 {
 	for (size_t i = 0; i < map->nwords; i++)
 		map->words[i] = 0UL;
 }
 
-static __always_inline void bitmap_set(struct bitmap *map, size_t bit)
+static inline void bitmap_set(struct bitmap *map, size_t bit)
 {
 	map->words[bitmap_word_index(bit)] |= 1UL << bitmap_word_offset(bit);
 }
 
-static __always_inline void bitmap_clear(struct bitmap *map, size_t bit)
+static inline void bitmap_clear(struct bitmap *map, size_t bit)
 {
 	map->words[bitmap_word_index(bit)] &= ~(1UL << bitmap_word_offset(bit));
 }
 
-static __always_inline bool bitmap_test(const struct bitmap *map, size_t bit)
+static inline bool bitmap_test(const struct bitmap *map, size_t bit)
 {
 	return !!(map->words[bitmap_word_index(bit)] &
 		  (1UL << bitmap_word_offset(bit)));

@@ -49,7 +49,7 @@ struct ktimer {
  * @def ITIMER_COUNT
  * @brief Number of Linux interval timer slots per signal_struct.
  */
-#define ITIMER_COUNT 3
+constexpr uint32_t ITIMER_COUNT = 3;
 
 /**
  * @struct itimer_state
@@ -72,7 +72,7 @@ struct itimer_state {
  * @def POSIX_TIMER_COUNT
  * @brief Maximum number of POSIX timers per signal_struct.
  */
-#define POSIX_TIMER_COUNT 32
+constexpr int32_t POSIX_TIMER_COUNT = 32;
 
 /**
  * @struct posix_timer
@@ -120,29 +120,29 @@ struct posix_timer_table {
 	struct posix_timer *timers[POSIX_TIMER_COUNT];
 };
 
-static __always_inline __must_check __pure bool clock_id_supported(int clock_id)
+static inline __must_check __pure bool clock_id_supported(int clock_id)
 {
 	return clock_id == CLOCK_REALTIME || clock_id == CLOCK_MONOTONIC ||
 	       clock_id == CLOCK_BOOTTIME;
 }
 
-static __always_inline __must_check __pure bool itimer_which_valid(int which)
+static inline __must_check __pure bool itimer_which_valid(int which)
 {
 	return which == ITIMER_REAL || which == ITIMER_VIRTUAL ||
 	       which == ITIMER_PROF;
 }
 
-static __always_inline __must_check __pure size_t itimer_which_index(int which)
+static inline __must_check __pure size_t itimer_which_index(int which)
 {
 	return (size_t)which;
 }
 
-static __always_inline __must_check __pure bool posix_timer_id_valid(timer_t id)
+static inline __must_check __pure bool posix_timer_id_valid(timer_t id)
 {
 	return id >= 0 && id < POSIX_TIMER_COUNT;
 }
 
-static __always_inline __nonnull(1, 2) __access_no_size(read_only, 1)
+static inline __nonnull(1, 2) __access_no_size(read_only, 1)
 	__access_no_size(write_only, 2) void
 	itimer_state_value(const struct itimer_state *state,
 			   struct itimerval *value)
@@ -150,20 +150,20 @@ static __always_inline __nonnull(1, 2) __access_no_size(read_only, 1)
 	*value = state->value;
 }
 
-static __always_inline __must_check __pure __nonnull(1)
+static inline __must_check __pure __nonnull(1)
 __access_no_size(read_only, 1) bool ktimer_active(const struct ktimer *timer)
 {
 	return timer->active;
 }
 
-static __always_inline __must_check __pure __nonnull(1)
+static inline __must_check __pure __nonnull(1)
 __access_no_size(read_only, 1) bool ktimer_expired(const struct ktimer *timer,
 						   uint64_t now)
 {
 	return timer->active && timer->expires <= now;
 }
 
-static __always_inline __must_check __pure __nonnull(1)
+static inline __must_check __pure __nonnull(1)
 	__access_no_size(read_only, 1) uint64_t
 	ktimer_remaining(const struct ktimer *timer, uint64_t now)
 {
