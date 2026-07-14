@@ -35,7 +35,7 @@ especially under `/usr/riscv64-linux-gnu/include/asm/*.h` and related
 
 ## Code Style Expectations
 
-- C standard: `gnu17`.
+- C standard: `gnu23`.
 - Formatting: tabs, width 8, 80-column formatting; follow `.clang-format`,
   `.editorconfig`, and `CODE_STYLE.md`.
 - Types: prefer fixed-width integer and kernel-defined types where practical.

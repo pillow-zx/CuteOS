@@ -13,7 +13,7 @@
 #include <kernel/wait.h>
 #include <kernel/page.h>
 
-#define PIPE_SIZE PAGE_SIZE
+constexpr uint32_t PIPE_SIZE = PAGE_SIZE;
 
 struct pipe_buffer {
 	spinlock_t lock;

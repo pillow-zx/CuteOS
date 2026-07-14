@@ -9,6 +9,65 @@
 #include <kernel/compiler.h>
 
 /**
+ * @def CONCAT
+ * @brief Concatenate two preprocessor tokens after expanding their arguments.
+ *
+ * The extra expansion layer lets a macro argument expand before it is joined
+ * with the other token. This is required by IFDEF() and IFNDEF() when they
+ * form the internal property token for a boolean configuration macro.
+ */
+#define __CONCAT_RAW(a, b) a##b
+#define CONCAT(a, b) __CONCAT_RAW(a, b)
+
+#define __CHOOSE2ND(a, b, ...)		      b
+#define __MUX_WITH_COMMA(contain_comma, a, b) __CHOOSE2ND(contain_comma a, b)
+#define __MUX_MACRO_PROPERTY(p, macro, a, b)                                   \
+	__MUX_WITH_COMMA(CONCAT(p, macro), a, b)
+
+#define __P_DEF_0 X,
+#define __P_DEF_1 X,
+
+#define __MUXDEF(macro, x, y)  __MUX_MACRO_PROPERTY(__P_DEF_, macro, x, y)
+#define __MUXNDEF(macro, x, y) __MUX_MACRO_PROPERTY(__P_DEF_, macro, y, x)
+
+#define __IGNORE(...)
+#define __KEEP(...) __VA_ARGS__
+
+/**
+ * @def IFDEF
+ * @brief Keep tokens only when a boolean macro expands to 0 or 1.
+ * @param macro Object-like boolean macro to test.
+ * @param ... Tokens retained when @p macro is defined to 0 or 1.
+ *
+ * This is a token-selection macro, not an equivalent of the preprocessor
+ * #ifdef directive. The tested macro must expand to exactly 0 or 1; an
+ * undefined macro and any other expansion select the empty branch.
+ *
+ * IFDEF() concatenates __P_DEF_ with the expanded value of @p macro. The
+ * matching __P_DEF_0 or __P_DEF_1 placeholder expands to `X,`, while an
+ * undefined property token does not contain a comma. __MUX_WITH_COMMA()
+ * places that result before __KEEP and __IGNORE; the comma changes how
+ * __CHOOSE2ND() parses its arguments, selecting __KEEP for 0 or 1 and
+ * __IGNORE otherwise. The selected variadic macro either emits or discards
+ * the supplied tokens.
+ */
+#define IFDEF(macro, ...)  __MUXDEF(macro, __KEEP, __IGNORE)(__VA_ARGS__)
+
+/**
+ * @def IFNDEF
+ * @brief Keep tokens unless a boolean macro expands to 0 or 1.
+ * @param macro Object-like boolean macro to test.
+ * @param ... Tokens retained when @p macro is undefined or has another value.
+ *
+ * This is the inverse of IFDEF(). It uses the same comma-producing
+ * __P_DEF_0 and __P_DEF_1 placeholders, but reverses the __KEEP and
+ * __IGNORE branches before the selected variadic macro consumes the tokens.
+ * Consequently, @p macro must follow the same exact 0-or-1 constraint as
+ * IFDEF().
+ */
+#define IFNDEF(macro, ...) __MUXNDEF(macro, __KEEP, __IGNORE)(__VA_ARGS__)
+
+/**
  * @def MMIO_READ
  * @brief Perform a volatile typed load from an MMIO address.
  */

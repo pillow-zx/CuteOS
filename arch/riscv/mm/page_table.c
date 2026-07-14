@@ -124,7 +124,6 @@ static int pt_walk_create(pte_t *root, vaddr_t va, pte_t **out)
 
 pte_t *pagetable_lookup(pte_t *root, vaddr_t va)
 {
-
 	int idx2 = (va >> 30) & 0x1FF;
 	pte_t *l2e = &root[idx2];
 
@@ -132,7 +131,6 @@ pte_t *pagetable_lookup(pte_t *root, vaddr_t va)
 		return NULL;
 	if (pte_is_leaf(*l2e))
 		return NULL;
-
 
 	pte_t *l1 = (pte_t *)__va(PTE_TO_PA(*l2e));
 	int idx1 = (va >> 21) & 0x1FF;
@@ -142,7 +140,6 @@ pte_t *pagetable_lookup(pte_t *root, vaddr_t va)
 		return NULL;
 	if (pte_is_leaf(*l1e))
 		return NULL;
-
 
 	pte_t *l0 = (pte_t *)__va(PTE_TO_PA(*l1e));
 	int idx0 = (va >> 12) & 0x1FF;
@@ -207,17 +204,15 @@ void pagetable_write_current(uintptr_t va, uintptr_t pa, pte_t perm)
 void pagetable_init(void)
 {
 	extern char _end[];
+	paddr_t end_addr;
+	pte_t *root = nullptr;
 
-
-	paddr_t end_addr = (paddr_t)_end;
+	end_addr = (paddr_t)_end;
 	early_alloc_ptr = (char *)ALIGN_UP(end_addr, PAGE_SIZE);
-
 
 	pt_alloc = early_alloc_page;
 
-
-	pte_t *root = (pte_t *)early_alloc_page();
-
+	root = (pte_t *)early_alloc_page();
 
 	pr_info("page_table: mapping %dMB DRAM with 4KB pages...\n",
 		(int)(DRAM_SIZE >> 20));
@@ -228,14 +223,11 @@ void pagetable_init(void)
 		BUG_ON(map_page(root, va, pa, PTE_KERN_RWX) < 0);
 	}
 
-
 	int idx_high = ((KERNEL_VBASE + DRAM_BASE) >> 30) & 0x1FF;
 	int idx_id = (DRAM_BASE >> 30) & 0x1FF;
 	root[idx_id] = root[idx_high];
 
-
 	root[0] = PA_TO_PTE(0UL) | PTE_KERN_RW;
-
 
 	paddr_t root_pa = __pa((uintptr_t)root);
 	uintptr_t satp_val = SATP_MODE_SV39 | (root_pa >> PAGE_SHIFT);

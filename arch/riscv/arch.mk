@@ -12,4 +12,6 @@ ARCH_OBJS = \
 	arch/riscv/sbi.o               \
 	arch/riscv/mm/page_table.o     \
 	arch/riscv/mm/user_map.o       \
-	arch/riscv/mm/tlb.o
+	arch/riscv/mm/tlb.o	       \
+	arch/riscv/lib/softfloat.o     \
+	arch/riscv/lib/string.o	       \
