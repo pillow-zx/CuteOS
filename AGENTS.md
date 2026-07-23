@@ -23,10 +23,8 @@ Use these files to build project understanding:
 
 - `docs/architecture/*`: architecture overview and details.
 - `CONTEXT.md`: architecture map, subsystem boundaries, stable entry points.
-- `CODE_STYLE.md`: coding style and ABI/style precedence.
 - `SYSCALL.md`: syscall maturity, semantics, known gaps, and priorities.
 - `README.md`: build, run, and user-facing project overview.
-- `TODO.md`: postponed work and priority context.
 - `Makefile`: build, QEMU, formatting, and image targets.
 
 For syscall or ABI tasks, also inspect the relevant Linux riscv64/uapi headers,
@@ -37,7 +35,7 @@ especially under `/usr/riscv64-linux-gnu/include/asm/*.h` and related
 
 - C standard: `gnu23`.
 - Formatting: tabs, width 8, 80-column formatting; follow `.clang-format`,
-  `.editorconfig`, and `CODE_STYLE.md`.
+  `.editorconfig`.
 - Types: prefer fixed-width integer and kernel-defined types where practical.
 - Conventions: follow existing directory hierarchy, naming patterns, and
   negative-errno conventions.
@@ -131,9 +129,7 @@ Typical targets:
 - `docs/architecture/*`: ong-term persistent detailed architecture documentation
 - `CONTEXT.md` for architecture or boundary changes.
 - `SYSCALL.md` for syscall behavior, maturity, gaps, or ABI semantics.
-- `CODE_STYLE.md` for style or convention changes.
 - `README.md` for user-facing build, run, or capability changes.
-- `TODO.md` for deferred follow-up work.
 
 ## File Organization
 

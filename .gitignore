@@ -86,11 +86,9 @@
 !Makefile
 !README.md
 !AGENTS.md
-!CODE_STYLE.md
 !CONTEXT.md
 !SYSCALL.md
 !Doxyfile
-!TODO.md
 !.agents/skills/**/*
 !mkimg.sh
 !kernel.ld
