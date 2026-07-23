@@ -63,6 +63,7 @@ static int futex_copy_absolute_timeout(const struct timespec *utimeout,
  * SYSCALL_SUPPORT(B): futex
  * Current: supports FUTEX_WAIT/FUTEX_WAKE, WAIT_BITSET/WAKE_BITSET, PRIVATE
  * aliases, realtime option on wait ops, and robust-list exit wakeups.
+ * A timeout-free FUTEX_WAIT is replayed after an SA_RESTART handler returns.
  * Unsupported errno: requeue, PI, and unknown ops return -ENOSYS from
  * kernel_futex().
  * Future: add requeue and PI ops only by pthread/libc demand.

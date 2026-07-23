@@ -14,6 +14,7 @@
 #include <kernel/sched.h>
 #include <kernel/signal.h>
 #include <kernel/task.h>
+#include <kernel/syscall.h>
 #include <kernel/wait.h>
 #include <kernel/processor.h>
 #include <kernel/pgtable.h>
@@ -158,6 +159,7 @@ static void __nonnull(1)
 
 	detach_task_queues(task);
 	wait_cancel_task(task);
+	restart_clear(task);
 
 	task_set_exit_code(task, code);
 	futex_exit_robust_list(task);

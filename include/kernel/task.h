@@ -76,6 +76,7 @@ struct sighand_struct;
 struct signal_struct;
 struct robust_list_head;
 struct task_struct;
+struct signal_frame_state;
 
 /**
  * @struct task_identity
@@ -162,7 +163,7 @@ struct task_resources {
  * @par Fields
  * - @c blocked: Linux signal mask; bit n represents signal n+1.
  * - @c pending: Per-thread pending signal mask.
- * - @c in_handler: Signals currently executing a handler.
+ * - @c signal_frames: Signal-owned LIFO state for active user frames.
  * - @c restore_mask: Signal mask restored after a temporary wait mask.
  * - @c restore_mask_pending: Whether restore_mask must be consumed.
  * - @c sas: sigaltstack state copied to/from userspace ABI.
@@ -174,13 +175,30 @@ struct task_signal_context {
 	uint64_t blocked;
 	uint64_t pending;
 	siginfo_t pending_info[NSIG];
-	uint64_t in_handler;
+	struct signal_frame_state *signal_frames;
 	uint64_t restore_mask;
 	bool restore_mask_pending;
 	struct stack_t sas;
 	int *clear_child_tid;
 	struct robust_list_head *robust_list;
 	size_t robust_list_len;
+};
+
+/**
+ * @struct restart_context
+ * @brief Dispatcher-owned user context for an interrupted syscall restart.
+ *
+ * A valid context is retained only while a restartable syscall has returned
+ * -EINTR and is awaiting signal delivery.  The signal module consumes it
+ * through the syscall restart interface; no syscall handler rewrites the
+ * trap frame itself.
+ */
+struct restart_context {
+	uintptr_t pc;
+	uintptr_t args[6];
+	uintptr_t nr;
+	bool valid;
+	bool restartable;
 };
 
 /**
@@ -238,6 +256,7 @@ struct task_cputime {
  * - @c links: Parent/child and thread-group intrusive links.
  * - @c resources: MM, fd, fs, signal, and credential refs.
  * - @c sigctx: Per-thread signal/futex ABI state.
+ * - @c restart: Dispatcher-owned interrupted-syscall context.
  * - @c rseq: Restartable sequences registration.
  * - @c sched: Scheduler queueing and tick state.
  * - @c cputime: CPU time charged to this task.
@@ -251,6 +270,7 @@ struct task_struct {
 	struct task_links links;
 	struct task_resources resources;
 	struct task_signal_context sigctx;
+	struct restart_context restart;
 	struct rseq_task_context rseq;
 	struct task_sched_entity sched;
 	struct task_cputime cputime;

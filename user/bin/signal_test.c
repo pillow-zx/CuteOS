@@ -8,6 +8,8 @@
 
 #define ALT_STACK_SIZE (SIGSTKSZ * 2)
 #define PAGE_SIZE      4096UL
+#define RESTART_PIPE_SIZE    4096
+#define RESTART_PARTIAL_SIZE 8192
 
 static char *alt_base;
 static volatile int handler_ran;
@@ -17,6 +19,12 @@ static volatile int handler_change_denied;
 static volatile int flag_handler_count;
 static volatile int flag_handler_depth;
 static volatile int flag_handler_max_depth;
+static volatile int siginfo_handler_count;
+static volatile int siginfo_handler_valid;
+static volatile int restart_handler_count;
+static volatile int restart_futex_word;
+static char restart_pipe_fill[RESTART_PARTIAL_SIZE];
+static int restart_sync_fd = -1;
 
 struct test_trap_frame {
 	unsigned long sepc;
@@ -62,6 +70,182 @@ static void handler_check_stack(int sig)
 	disabled.ss_size = 0;
 	if (sigaltstack(&disabled, NULL) == -1)
 		handler_change_denied = 1;
+}
+
+static void restart_handler(int sig)
+{
+	if (sig == SIGUSR2) {
+		restart_handler_count++;
+		if (restart_sync_fd >= 0)
+			write(restart_sync_fd, "s", 1);
+	}
+}
+
+static void restart_futex_handler(int sig)
+{
+	restart_handler(sig);
+	restart_futex_word = 1;
+}
+
+static int install_restart_handler(bool restart, void (*handler)(int))
+{
+	struct sigaction sa = {0};
+
+	sa.sa_handler = handler;
+	sa.sa_flags = restart ? SA_RESTART : 0;
+	return sigaction(SIGUSR2, &sa, NULL);
+}
+
+static int wait_restart_child(long child)
+{
+	int status = 0;
+
+	if (wait4(child, &status, 0, NULL) != child || status != 0) {
+		printf("FAIL: restart child wait/status\n");
+		return 1;
+	}
+	return 0;
+}
+
+static int test_read_signal_restart(bool restart)
+{
+	int fds[2];
+	int sync_fds[2];
+	char byte = 0;
+	long parent_tid = gettid();
+	long child;
+	long ret;
+
+	restart_handler_count = 0;
+	if (install_restart_handler(restart, restart_handler) != 0 ||
+	    pipe(fds) != 0 || pipe(sync_fds) != 0)
+		return 1;
+	restart_sync_fd = sync_fds[1];
+	child = fork();
+	if (child == 0) {
+		tkill(parent_tid, SIGUSR2);
+		read(sync_fds[0], &byte, 1);
+		write(fds[1], "r", 1);
+		exit(0);
+	}
+	if (child < 0) {
+		restart_sync_fd = -1;
+		return 1;
+	}
+	ret = read(fds[0], &byte, 1);
+	restart_sync_fd = -1;
+	if (wait_restart_child(child))
+		return 1;
+	if (restart)
+		return ret != 1 || byte != 'r' || restart_handler_count != 1;
+	return ret != -EINTR || restart_handler_count != 1;
+}
+
+static int test_write_signal_restart(bool restart)
+{
+	int fds[2];
+	char byte = 0;
+	long parent_tid = gettid();
+	long child;
+	long ret;
+
+	restart_handler_count = 0;
+	if (install_restart_handler(restart, restart_handler) != 0 ||
+	    pipe(fds) != 0 ||
+		write(fds[1], restart_pipe_fill, RESTART_PIPE_SIZE) !=
+			RESTART_PIPE_SIZE)
+		return 1;
+	child = fork();
+	if (child == 0) {
+		tkill(parent_tid, SIGUSR2);
+		yield();
+		read(fds[0], &byte, 1);
+		exit(0);
+	}
+	if (child < 0)
+		return 1;
+	ret = write(fds[1], "w", 1);
+	if (wait_restart_child(child))
+		return 1;
+	if (restart)
+		return ret != 1 || restart_handler_count != 1;
+	return ret != -EINTR || restart_handler_count != 1;
+}
+
+static int test_wait4_signal_restart(bool restart)
+{
+	long parent_tid = gettid();
+	long child;
+	long ret;
+	int status = 0;
+
+	restart_handler_count = 0;
+	if (install_restart_handler(restart, restart_handler) != 0)
+		return 1;
+	child = fork();
+	if (child == 0) {
+		tkill(parent_tid, SIGUSR2);
+		yield();
+		exit(0);
+	}
+	if (child < 0)
+		return 1;
+	ret = wait4(child, &status, 0, NULL);
+	if (!restart && ret == -EINTR)
+		ret = wait4(child, &status, 0, NULL);
+	if (ret != child || status != 0 || restart_handler_count != 1)
+		return 1;
+	return 0;
+}
+
+static int test_futex_signal_restart(bool restart)
+{
+	long parent_tid = gettid();
+	long child;
+	long ret;
+
+	restart_handler_count = 0;
+	restart_futex_word = 0;
+	if (install_restart_handler(restart, restart_futex_handler) != 0)
+		return 1;
+	child = fork();
+	if (child == 0) {
+		tkill(parent_tid, SIGUSR2);
+		yield();
+		exit(0);
+	}
+	if (child < 0)
+		return 1;
+	ret = futex((int *)&restart_futex_word, FUTEX_WAIT, 0, NULL, NULL, 0);
+	if (wait_restart_child(child))
+		return 1;
+	if (restart)
+		return ret != -EAGAIN || restart_handler_count != 1;
+	return ret != -EINTR || restart_handler_count != 1;
+}
+
+static int test_partial_write_signal(void)
+{
+	int fds[2];
+	long parent_tid = gettid();
+	long child;
+	long ret;
+
+	restart_handler_count = 0;
+	if (install_restart_handler(true, restart_handler) != 0 || pipe(fds) != 0)
+		return 1;
+	child = fork();
+	if (child == 0) {
+		tkill(parent_tid, SIGUSR2);
+		yield();
+		exit(0);
+	}
+	if (child < 0)
+		return 1;
+	ret = write(fds[1], restart_pipe_fill, RESTART_PARTIAL_SIZE);
+	if (wait_restart_child(child))
+		return 1;
+	return ret != RESTART_PIPE_SIZE || restart_handler_count != 1;
 }
 
 static int test_install_altstack(void)
@@ -284,25 +468,6 @@ static __attribute__((naked, noreturn, used)) void sigreturn_bad_sp_fault(void)
 			 "1: j 1b\n");
 }
 
-static __attribute__((naked, noreturn, used)) void
-sigreturn_check_unblockable_mask(void)
-{
-	__asm__ volatile("addi sp, sp, -16\n"
-			 "li a0, 0\n"
-			 "li a1, 0\n"
-			 "mv a2, sp\n"
-			 "li a3, 8\n"
-			 "li a7, 135\n"
-			 "ecall\n"
-			 "ld t0, 0(sp)\n"
-			 "li t1, 0x40100\n"
-			 "and t0, t0, t1\n"
-			 "snez a0, t0\n"
-			 "li a7, 93\n"
-			 "ecall\n"
-			 "1: j 1b\n");
-}
-
 static int signal_expect_child_status(const char *name, long child,
 				      int want)
 {
@@ -372,24 +537,31 @@ static int test_sigreturn_rejects_privileged_status(void)
 					  SIGNAL_EXIT_CODE(SIGSEGV) << 8);
 }
 
+static void sigreturn_mask_handler(int sig, siginfo_t *info, void *context)
+{
+	struct ucontext *uc = context;
+
+	if (sig == SIGUSR1 && info && info->si_signo == SIGUSR1 && uc)
+		uc->uc_sigmask = ~0UL;
+}
+
 static int test_sigreturn_unblocks_kill_and_stop(void)
 {
-	struct test_signal_frame frame;
-	unsigned long sp;
-	long child = fork();
+	struct sigaction sa = {0};
+	unsigned long mask = 0;
 
-	if (child == 0) {
-		memset(&frame, 0, sizeof(frame));
-		__asm__ volatile("mv %0, sp" : "=r"(sp));
-		frame.tf.sepc = (unsigned long)sigreturn_check_unblockable_mask;
-		frame.tf.sp = sp;
-		frame.blocked = ~0UL;
-		frame.sig = SIGUSR1;
-		sigreturn_from_frame(&frame);
+	sa.sa_sigaction = sigreturn_mask_handler;
+	sa.sa_flags = SA_SIGINFO;
+	if (sigaction(SIGUSR1, &sa, NULL) != 0 || raise(SIGUSR1) != 0)
+		return 1;
+	if (sigprocmask(SIG_SETMASK, NULL, &mask) != 0)
+		return 1;
+	if (mask & ((1UL << (SIGKILL - 1)) | (1UL << (SIGSTOP - 1)))) {
+		printf("FAIL: sigreturn restored unblockable mask=0x%lx\n", mask);
+		return 1;
 	}
 
-	return signal_expect_child_status("sigreturn unblockable mask", child,
-					  0);
+	return 0;
 }
 
 static int test_sigreturn_preserves_invalid_64bit_pc(void)
@@ -440,6 +612,14 @@ static void usr1_handler(int sig)
 		usr1_count++;
 }
 
+static void siginfo_handler(int sig, siginfo_t *info, void *context)
+{
+	siginfo_handler_count++;
+	if (sig == SIGUSR1 && info && info->si_signo == SIGUSR1 &&
+	    info->si_code == SI_USER && context)
+		siginfo_handler_valid = 1;
+}
+
 static int signal_expect_ret(const char *name, long got, long want)
 {
 	if (got != want) {
@@ -486,9 +666,19 @@ static int test_sigaction_flag_policy(void)
 	failed += signal_expect_ret("supported action flags preserved",
 				    old.sa_flags, sa.sa_flags);
 
+	memset(&sa, 0, sizeof(sa));
+	siginfo_handler_count = 0;
+	siginfo_handler_valid = 0;
+	sa.sa_sigaction = siginfo_handler;
 	sa.sa_flags = SA_SIGINFO;
-	failed += signal_expect_ret("reject SA_SIGINFO",
-				    sigaction(SIGUSR1, &sa, NULL), -EINVAL);
+	failed += signal_expect_ret("install SA_SIGINFO",
+				    sigaction(SIGUSR1, &sa, NULL), 0);
+	failed += signal_expect_ret("deliver SA_SIGINFO", raise(SIGUSR1), 0);
+	if (siginfo_handler_count != 1 || !siginfo_handler_valid) {
+		printf("FAIL: SA_SIGINFO count=%d valid=%d\n",
+		       siginfo_handler_count, siginfo_handler_valid);
+		failed++;
+	}
 	sa.sa_flags = SA_NOCLDSTOP;
 	failed += signal_expect_ret("reject SA_NOCLDSTOP",
 				    sigaction(SIGUSR1, &sa, NULL), -EINVAL);
@@ -661,6 +851,24 @@ int main(void)
 	report_group("invalid altstack flags", test_invalid_flags(), &failed);
 	report_group("tkill self signal", test_tkill_self_signal(), &failed);
 	report_group("tkill error paths", test_tkill_errors(), &failed);
+	report_group("read without SA_RESTART",
+		     test_read_signal_restart(false), &failed);
+	report_group("read with SA_RESTART", test_read_signal_restart(true),
+		     &failed);
+	report_group("write without SA_RESTART",
+		     test_write_signal_restart(false), &failed);
+	report_group("write with SA_RESTART", test_write_signal_restart(true),
+		     &failed);
+	report_group("partial write preserves count", test_partial_write_signal(),
+		     &failed);
+	report_group("wait4 without SA_RESTART",
+		     test_wait4_signal_restart(false), &failed);
+	report_group("wait4 with SA_RESTART", test_wait4_signal_restart(true),
+		     &failed);
+	report_group("futex without SA_RESTART",
+		     test_futex_signal_restart(false), &failed);
+	report_group("futex with SA_RESTART", test_futex_signal_restart(true),
+		     &failed);
 	report_group("sigaction flag policy", test_sigaction_flag_policy(),
 		     &failed);
 	report_group("SA_NODEFER", test_sa_nodefer(), &failed);

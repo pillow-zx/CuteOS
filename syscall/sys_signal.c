@@ -170,10 +170,10 @@ ssize_t sys_sigprocmask(struct trap_frame *tf)
 
 /*
  * SYSCALL_SUPPORT(B): rt_sigreturn
- * Current: restores the user context from the signal frame at user sp.
- * Unsupported errno: invalid or inaccessible frames return existing
- * do_sigreturn errors such as -EFAULT or -EINVAL.
- * Future: continue illegal-frame and restart-safety coverage.
+ * Current: restores the current kernel-tracked user signal frame. Nested
+ * handlers return in LIFO order; unmatched or invalid frames terminate with
+ * SIGSEGV.
+ * Future: continue architecture-state and restart-safety coverage.
  */
 ssize_t sys_sigreturn(struct trap_frame *tf)
 {

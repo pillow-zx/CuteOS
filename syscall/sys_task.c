@@ -64,7 +64,8 @@ abort:
 
 /*
  * SYSCALL_SUPPORT(B): wait4
- * Current: waits for pid -1 or a positive pid and can return rusage.
+ * Current: waits for pid -1 or a positive pid and can return rusage;
+ * SA_RESTART replays an interrupted wait after its handler returns.
  * Unsupported errno: pid 0, pid < -1, and nonzero options return -EINVAL;
  * no wait target returns -ECHILD.
  * Future: add pgrp waits and WNOHANG/WUNTRACED-style option semantics.

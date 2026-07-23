@@ -65,10 +65,9 @@ constexpr vaddr_t SIGNAL_TRAMPOLINE_ADDR = USER_STACK_GUARD_BASE - PAGE_SIZE;
  * @brief Kernel-built user stack frame consumed by rt_sigreturn.
  *
  * @par Fields
- * - @c state: Architecture trap-frame payload.
- * - @c blocked: Signal mask to restore on sigreturn.
- * - @c sig: Delivered signal number.
- * - @c on_altstack: Whether delivery entered an alternate stack.
+ * The signal module records only this frame's user stack address and signal
+ * number in a kernel-owned LIFO chain.  The user frame remains the source of
+ * restored registers, mask, and alternate-stack state.
  */
 struct rt_sigframe {
 	siginfo_t info;
@@ -160,33 +159,6 @@ static inline void task_and_pending_mask(struct task_struct *task,
 		task->sigctx.pending &= mask;
 }
 
-static inline __must_check __pure uint64_t
-task_in_handler_mask(const struct task_struct *task)
-{
-	return task ? task->sigctx.in_handler : 0;
-}
-
-static inline void task_set_in_handler_mask(struct task_struct *task,
-						     uint64_t mask)
-{
-	if (task)
-		task->sigctx.in_handler = mask;
-}
-
-static inline void task_or_in_handler_mask(struct task_struct *task,
-						    uint64_t mask)
-{
-	if (task)
-		task->sigctx.in_handler |= mask;
-}
-
-static inline void task_and_in_handler_mask(struct task_struct *task,
-						     uint64_t mask)
-{
-	if (task)
-		task->sigctx.in_handler &= mask;
-}
-
 static inline __must_check __pure __nonnull(1) __returns_nonnull
 	struct stack_t *task_altstack(struct task_struct *task)
 {
@@ -209,9 +181,6 @@ void signal_unblock_mask(struct task_struct *task, uint64_t mask);
 void signal_set_blocked_mask(struct task_struct *task, uint64_t mask);
 void signal_mark_pending(struct task_struct *task, uint64_t mask);
 void signal_clear_pending(struct task_struct *task, uint64_t mask);
-void signal_enter_handler(struct task_struct *task, int sig);
-void signal_leave_handler(struct task_struct *task, int sig);
-void signal_clear_handlers(struct task_struct *task);
 /**
  * @brief Restore a temporary wait mask after the next user signal delivery.
  * @param task Task returning from an interruptible masked wait.
@@ -234,6 +203,13 @@ int signals_init(struct task_struct *task);
 int signals_clone(struct task_struct *child, bool share_sighand,
 		  bool share_signal, bool disable_altstack);
 void signals_release(struct task_struct *task);
+/**
+ * @brief Discard all active signal-frame validation records for a task.
+ * @param task Task whose signal-frame chain is cleared.
+ *
+ * This is used when an address space is replaced and during signal teardown.
+ */
+void signal_clear_frames(struct task_struct *task);
 /**
  * @brief Deliver one pending signal before returning to userspace.
  * @param tf User trap frame to rewrite for handler entry.
@@ -300,7 +276,7 @@ int do_sigprocmask(int how, const uint64_t *set, uint64_t *oldset);
 /**
  * @brief Restore a userspace context from a signal frame.
  * @param tf Current syscall trap frame.
- * @param sp User stack pointer pointing at signal_frame.
+ * @param sp User stack pointer pointing at the current frame-stack top.
  * @return Does not return normally to the syscall ABI on success.
  */
 int do_sigreturn(struct trap_frame *tf, uintptr_t sp);

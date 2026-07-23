@@ -208,7 +208,7 @@ static ssize_t write_user_buffer_pos(struct file *file, const void *buf,
 
 		ret = vfs_write_pos(file, kbuf, chunk, pos);
 		if (ret < 0)
-			return ret;
+			return done ? (ssize_t)done : ret;
 		if (ret == 0)
 			break;
 
@@ -293,6 +293,12 @@ static ssize_t rw_iovec(struct file *file, const struct iovec *uiov,
 	return total;
 }
 
+/*
+ * SYSCALL_SUPPORT(A): write
+ * Current: VFS write with Linux riscv64 SA_RESTART replay after an
+ * interruptible wait returns -EINTR; a positive partial count is preserved.
+ * Future: keep partial-write and SIGPIPE restart boundaries under pipe tests.
+ */
 ssize_t sys_write(struct trap_frame *tf)
 {
 	int fd = (int)syscall_arg(tf, 0);
@@ -308,6 +314,12 @@ ssize_t sys_write(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(A): read
+ * Current: VFS read with Linux riscv64 SA_RESTART replay after an
+ * interruptible wait returns -EINTR; a positive partial count is preserved.
+ * Future: keep partial-read restart boundaries under pipe tests.
+ */
 ssize_t sys_read(struct trap_frame *tf)
 {
 	int fd = (int)syscall_arg(tf, 0);

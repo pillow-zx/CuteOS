@@ -14,6 +14,7 @@
 #include <kernel/signal.h>
 #include <kernel/slab.h>
 #include <kernel/task.h>
+#include <kernel/syscall.h>
 #include <kernel/vfs.h>
 #include <uapi/mman.h>
 #include <kernel/processor.h>
@@ -574,6 +575,8 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 
 
 	install_exec_mm(mm, tf, entry, sp);
+	signal_clear_frames(current_task());
+	restart_clear(current_task());
 	rseq_execve(current_task());
 
 

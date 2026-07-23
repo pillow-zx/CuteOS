@@ -13,6 +13,7 @@
 #include <kernel/signal.h>
 #include <kernel/slab.h>
 #include <kernel/task.h>
+#include <kernel/syscall.h>
 #include <kernel/user_map.h>
 #include <uapi/syscall.h>
 #include <kernel/processor.h>
@@ -21,6 +22,12 @@
 #include <kernel/trap.h>
 
 static void *trampoline_page;
+
+struct signal_frame_state {
+	uintptr_t sp;
+	int sig;
+	struct signal_frame_state *previous;
+};
 
 static_assert(SYS_rt_sigreturn >= 0 && SYS_rt_sigreturn < 2048,
 	      "SYS_sigreturn must fit in a RISC-V addi immediate");
@@ -34,6 +41,86 @@ constexpr uint32_t RISCV_J_SELF = 0x0000006f;
 #define RISCV_ADDI(rd, rs1, imm)                                               \
 	((((uint32_t)(imm) & 0xfff) << 20) | ((uint32_t)(rs1) << 15) |         \
 	 ((uint32_t)(rd) << 7) | RISCV_OP_IMM)
+
+static struct signal_frame_state *signal_frame_top(struct task_struct *task)
+{
+	return task ? task->sigctx.signal_frames : NULL;
+}
+
+void signal_clear_frames(struct task_struct *task)
+{
+	struct signal_frame_state *state;
+
+	if (!task)
+		return;
+
+	state = signal_frame_top(task);
+	while (state) {
+		struct signal_frame_state *previous = state->previous;
+
+		kfree(state);
+		state = previous;
+	}
+	task->sigctx.signal_frames = NULL;
+}
+
+static int signal_frame_clone(struct task_struct *child,
+			      const struct task_struct *parent)
+{
+	const struct signal_frame_state *source;
+	struct signal_frame_state **destination = &child->sigctx.signal_frames;
+
+	for (source = signal_frame_top((struct task_struct *)parent); source;
+	     source = source->previous) {
+		struct signal_frame_state *copy = kmalloc(sizeof(*copy));
+
+		if (!copy) {
+			signal_clear_frames(child);
+			return -ENOMEM;
+		}
+		copy->sp = source->sp;
+		copy->sig = source->sig;
+		copy->previous = NULL;
+		*destination = copy;
+		destination = &copy->previous;
+	}
+
+	return 0;
+}
+
+static int signal_frame_push(struct task_struct *task, uintptr_t sp, int sig)
+{
+	struct signal_frame_state *state = kmalloc(sizeof(*state));
+
+	if (!state)
+		return -ENOMEM;
+	state->sp = sp;
+	state->sig = sig;
+	state->previous = signal_frame_top(task);
+	task->sigctx.signal_frames = state;
+	return 0;
+}
+
+static void signal_frame_pop(struct task_struct *task)
+{
+	struct signal_frame_state *state = signal_frame_top(task);
+
+	BUG_ON(!state);
+	task->sigctx.signal_frames = state->previous;
+	kfree(state);
+}
+
+static bool signal_frame_contains(const struct task_struct *task, int sig)
+{
+	const struct signal_frame_state *state =
+		signal_frame_top((struct task_struct *)task);
+
+	for (; state; state = state->previous) {
+		if (state->sig == sig)
+			return true;
+	}
+	return false;
+}
 
 bool signal_is_valid(int sig)
 {
@@ -188,7 +275,7 @@ int signals_init(struct task_struct *task)
 
 	signal_set_blocked_mask(task, 0);
 	signal_clear_pending(task, ~0UL);
-	signal_clear_handlers(task);
+	signal_clear_frames(task);
 	task->sigctx.restore_mask = 0;
 	task->sigctx.restore_mask_pending = false;
 	reset_task_altstack(task);
@@ -206,7 +293,7 @@ void signals_release(struct task_struct *task)
 	task_set_signal_state(task, NULL);
 	signal_set_blocked_mask(task, 0);
 	signal_clear_pending(task, ~0UL);
-	signal_clear_handlers(task);
+	signal_clear_frames(task);
 	task->sigctx.restore_mask = 0;
 	task->sigctx.restore_mask_pending = false;
 	reset_task_altstack(task);
@@ -264,9 +351,15 @@ int signals_clone(struct task_struct *child, bool share_sighand,
 	task_set_signal_state(child, signal);
 	signal_set_blocked_mask(child, signal_blocked_mask(current_task()));
 	signal_clear_pending(child, ~0UL);
-	signal_clear_handlers(child);
+	signal_clear_frames(child);
 	child->sigctx.restore_mask = 0;
 	child->sigctx.restore_mask_pending = false;
+	if (!share_signal) {
+		int ret = signal_frame_clone(child, current_task());
+
+		if (ret < 0)
+			return ret;
+	}
 	if (current_task() && !disable_altstack) {
 		struct stack_t *child_sas = task_altstack(child);
 
@@ -341,27 +434,6 @@ void signal_clear_pending(struct task_struct *task, uint64_t mask)
 			       sizeof(task->sigctx.pending_info[sig]));
 	}
 	task_and_pending_mask(task, ~mask);
-}
-
-void signal_enter_handler(struct task_struct *task, int sig)
-{
-	if (!signal_is_valid(sig))
-		return;
-
-	task_or_in_handler_mask(task, signal_mask(sig));
-}
-
-void signal_leave_handler(struct task_struct *task, int sig)
-{
-	if (!signal_is_valid(sig))
-		return;
-
-	task_and_in_handler_mask(task, ~signal_mask(sig));
-}
-
-void signal_clear_handlers(struct task_struct *task)
-{
-	task_set_in_handler_mask(task, 0);
 }
 
 void signal_defer_mask_restore(struct task_struct *task, uint64_t mask)
@@ -547,7 +619,7 @@ int force_signal_info(int sig, const siginfo_t *info, struct task_struct *task)
 	if (!task)
 		return -ESRCH;
 
-	if (task_in_handler_mask(task) & signal_mask(sig)) {
+	if (signal_frame_contains(task, sig)) {
 		if (task == current_task())
 			do_exit(SIGNAL_EXIT_CODE(sig));
 		return 0;
@@ -736,7 +808,8 @@ static int setup_signal_frame(struct trap_frame *tf, int sig,
 	if (!(action->sa_flags & SA_NODEFER))
 		signal_block_mask(current_task(), signal_mask(sig));
 	signal_block_mask(current_task(), action->sa_mask);
-	signal_enter_handler(current_task(), sig);
+	if (signal_frame_push(current_task(), sp, sig) < 0)
+		return -ENOMEM;
 
 	trap_setup_signal_handler(tf, (uintptr_t)action->sa_handler,
 				  SIGNAL_TRAMPOLINE_ADDR, sp, (uintptr_t)sig,
@@ -856,6 +929,9 @@ void do_signal(struct trap_frame *tf)
 			signal_clear_pending(current_task(), mask);
 		}
 
+		if (handler == SIG_IGN || handler == SIG_DFL)
+			(void)restart_for_signal(current_task(), tf, false);
+
 		if (sig == SIGCONT) {
 			if (handler == SIG_DFL || handler == SIG_IGN)
 				continue;
@@ -883,6 +959,8 @@ void do_signal(struct trap_frame *tf)
 
 		if (rseq_signal_deliver(tf) < 0)
 			do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+		(void)restart_for_signal(
+			current_task(), tf, (action.sa_flags & SA_RESTART) != 0);
 		if (setup_signal_frame(tf, sig, &info, &action) < 0)
 			do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 		return;
@@ -1060,13 +1138,14 @@ int do_sigreturn(struct trap_frame *tf, uintptr_t sp)
 	struct rt_sigframe frame;
 	struct rt_sigframe *user_frame = (struct rt_sigframe *)sp;
 	const unsigned char *fp_state;
+	struct signal_frame_state *state = signal_frame_top(current_task());
+
+	if (!state || state->sp != sp)
+		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 
 	if (copy_from_user(&frame, user_frame, sizeof(frame)) != 0)
 		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
-	if (!signal_is_valid(frame.info.si_signo))
-		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
-	if (!(task_in_handler_mask(current_task()) &
-	      signal_mask(frame.info.si_signo)))
+	if (frame.info.si_signo != state->sig)
 		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 	if (frame.uc.uc_flags != 0 || frame.uc.uc_link != NULL)
 		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
@@ -1093,7 +1172,7 @@ int do_sigreturn(struct trap_frame *tf, uintptr_t sp)
 
 	signal_restore_user_regs(tf, &frame.uc.uc_mcontext.sc_regs);
 	signal_set_blocked_mask(current_task(), frame.uc.uc_sigmask);
-	signal_leave_handler(current_task(), frame.info.si_signo);
+	signal_frame_pop(current_task());
 	*task_altstack(current_task()) = frame.uc.uc_stack;
 	task_set_trap_frame(current_task(), tf);
 	return (ssize_t)trap_return_value(tf);
