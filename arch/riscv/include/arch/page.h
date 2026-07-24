@@ -36,9 +36,18 @@ constexpr vaddr_t USER_STACK_TOP = TASK_SIZE;
 
 /**
  * @def USER_STACK_BASE
- * @brief Base of the initial mapped user stack page.
+ * @brief Size of the fixed initial user stack mapping.
  */
-constexpr vaddr_t USER_STACK_BASE = USER_STACK_TOP - PAGE_SIZE;
+constexpr size_t USER_STACK_SIZE = 64 * 1024;
+
+static_assert(USER_STACK_SIZE % PAGE_SIZE == 0,
+	      "user stack size must be page aligned");
+
+/**
+ * @def USER_STACK_BASE
+ * @brief Base of the fixed initial user stack mapping.
+ */
+constexpr vaddr_t USER_STACK_BASE = USER_STACK_TOP - USER_STACK_SIZE;
 
 /**
  * @def USER_STACK_GUARD_BASE

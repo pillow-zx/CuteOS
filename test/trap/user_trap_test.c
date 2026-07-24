@@ -11,6 +11,7 @@
 #include <kernel/trap.h>
 #include <kernel/processor.h>
 #include <kernel/mm.h>
+#include <kernel/vmalloc.h>
 #include <kernel/signal.h>
 #include <uapi/mman.h>
 
@@ -206,10 +207,10 @@ int test_trap_user_return_task_setup(void)
 
 		code_page = get_free_page(0);
 		TEST_ASSERT_NOT_NULL(code_page);
-		stack_page = get_free_page(0);
+		stack_page = vmalloc(USER_STACK_SIZE);
 		TEST_ASSERT_NOT_NULL(stack_page);
 
-		memset(stack_page, 0, PAGE_SIZE);
+		memset(stack_page, 0, USER_STACK_SIZE);
 
 		stub_size = (size_t)(user_trap_test_end - user_trap_test_start);
 		TEST_ASSERT(stub_size > 0);
@@ -223,7 +224,10 @@ int test_trap_user_return_task_setup(void)
 		TEST_ASSERT_EQ(mm_map_page(mm, code_va, code_page,
 					   PROT_READ | PROT_EXEC),
 			       0);
-		TEST_ASSERT_EQ(mm_add_stack(mm, stack_page), 0);
+		TEST_ASSERT_EQ(mm_add_stack(mm, stack_page, USER_STACK_SIZE),
+			       0);
+		vfree(stack_page);
+		stack_page = NULL;
 		user_pc = code_va;
 		user_sp = USER_STACK_TOP;
 
@@ -302,6 +306,6 @@ cleanup:
 	if (code_page && !mm)
 		free_page(code_page, 0);
 	if (stack_page && !mm)
-		free_page(stack_page, 0);
+		vfree(stack_page);
 	return __test_ret;
 }

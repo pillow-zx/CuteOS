@@ -9,6 +9,7 @@ KERNEL_OBJS = \
 	kernel/fork.o           \
 	kernel/futex.o          \
 	kernel/rseq.o           \
+	kernel/random.o         \
 	kernel/user_return.o    \
 	kernel/exec.o           \
 	kernel/exit.o           \

@@ -32,10 +32,14 @@
 !user/
 !user/bin/
 !user/init/
+!user/busybox
 !user/libc/
 !user/libc/minimal/
 !user/libc/minimal/include/
 !user/libc/minimal/src/
+!user/libc/musl
+!user/runtime/
+!user/runtime/**
 
 
 
@@ -73,6 +77,8 @@
 !sched/*.h
 !user/**/*.c
 !user/**/*.h
+!user/**/*.in
+!user/**/*.zig
 !user/Makefile
 !user/start.S
 !user/user.ld

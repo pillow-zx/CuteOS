@@ -190,12 +190,14 @@ int mm_map_segment(struct mm_struct *mm, uintptr_t start,
 int mm_map_file_segment(struct mm_struct *mm, struct file *file,
                         uintptr_t start, uintptr_t end, int prot,
                         uint64_t file_offset);
-int mm_add_stack(struct mm_struct *mm, void *stack_page);
+int mm_add_stack(struct mm_struct *mm, const void *stack, size_t stack_size);
 int mm_finalize(struct mm_struct *mm, uintptr_t first_vaddr,
                 uintptr_t last_end);
 ```
 
-`kernel/exec.c` 读取 ELF PT_LOAD，按 segment 权限转换为 Linux `PROT_*`，并通过这些 API 创建代码、数据、BSS 和用户栈映射。
+`kernel/exec.c` 读取 ELF PT_LOAD，按 segment 权限转换为 Linux `PROT_*`，并通过这些 API 创建代码、数据、BSS 和用户栈映射。初始栈固定为
+64 KiB；`mm_add_stack()` 从临时栈镜像逐页复制并取得映射页的所有权。栈下方
+保留一页 guard，当前不支持 grow-down fault 扩展。
 
 ## mmap/brk 系列 API
 

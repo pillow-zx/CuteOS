@@ -8,8 +8,8 @@
 #include <uapi/signal.h>
 
 #define PAGE_SIZE	      4096UL
-#define USER_STACK_GUARD_BASE 0x7FFFE000UL
-#define USER_STACK_BASE	      0x7FFFF000UL
+#define USER_STACK_GUARD_BASE 0x7FFEF000UL
+#define USER_STACK_BASE	      0x7FFF0000UL
 
 #define MMAP_TEST_FILE "/mmap_file_test"
 

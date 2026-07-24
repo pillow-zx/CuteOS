@@ -42,6 +42,14 @@ Portability is not a separate roadmap stage. New code must keep architecture
 mechanism behind narrow `arch/` seams and keep generic policy free of RISC-V
 CSR, trap-frame, page-table, SBI, or platform-MMIO knowledge.
 
+## Project Language
+
+**User-space profile** is the mutually exclusive userspace composition chosen
+for a system image. The Minimal profile exercises project programs and their
+minimal libc; the BusyBox profile keeps the project init while using static
+musl BusyBox commands. Avoid calling this a global libc selection, because
+independently linked static programs may use different libc implementations.
+
 ## Current Runtime Model
 
 These are current facts, not goals:

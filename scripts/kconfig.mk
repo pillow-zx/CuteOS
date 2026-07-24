@@ -2,6 +2,7 @@
 
 KCONFIG       := Kconfig
 DEFCONFIG     := configs/cuteos_defconfig
+BUSYBOX_DEFCONFIG := configs/cuteos_busybox_defconfig
 DOT_CONFIG    := .config
 AUTO_CONF     := include/config/auto.conf
 AUTO_CONF_CMD := include/config/auto.conf.cmd
@@ -10,10 +11,11 @@ AUTOCONF_H    := include/generated/autoconf.h
 KCONFIG_DIR  := tools/kconfig
 CONF         := $(KCONFIG_DIR)/build/conf
 MCONF        := $(KCONFIG_DIR)/build/mconf
-KCONFIG_SRCS := $(KCONFIG) arch/riscv/Kconfig fs/Kconfig kernel/Kconfig
+KCONFIG_SRCS := $(KCONFIG) arch/riscv/Kconfig fs/Kconfig kernel/Kconfig \
+		user/Kconfig
 KCONFIG_SILENT := -s
 
-KCONFIG_SKIP_GOALS := clean clean-user help print-gdbport print-toolprefix format defconfig
+KCONFIG_SKIP_GOALS := clean clean-user help print-gdbport print-toolprefix format defconfig busybox_defconfig
 ifneq ($(strip $(MAKECMDGOALS)),)
 ifneq ($(filter-out $(KCONFIG_SKIP_GOALS),$(MAKECMDGOALS)),)
 KCONFIG_NEED_CONFIG := 1
@@ -48,8 +50,13 @@ defconfig: $(CONF) $(DEFCONFIG) $(KCONFIG_SRCS)
 	$(Q)$(CONF) $(KCONFIG_SILENT) --olddefconfig $(KCONFIG)
 	$(Q)$(CONF) $(KCONFIG_SILENT) --syncconfig $(KCONFIG)
 
+busybox_defconfig: $(CONF) $(BUSYBOX_DEFCONFIG) $(KCONFIG_SRCS)
+	$(Q)cp $(BUSYBOX_DEFCONFIG) $(DOT_CONFIG)
+	$(Q)$(CONF) $(KCONFIG_SILENT) --olddefconfig $(KCONFIG)
+	$(Q)$(CONF) $(KCONFIG_SILENT) --syncconfig $(KCONFIG)
+
 menuconfig: $(MCONF) $(CONF) $(DOT_CONFIG)
 	$(Q)$(MCONF) $(KCONFIG)
 	$(Q)$(CONF) $(KCONFIG_SILENT) --syncconfig $(KCONFIG)
 
-.PHONY: syncconfig defconfig menuconfig
+.PHONY: syncconfig defconfig busybox_defconfig menuconfig

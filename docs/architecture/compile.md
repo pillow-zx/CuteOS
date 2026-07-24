@@ -14,9 +14,10 @@ flowchart TD
     Flags["scripts/flags.mk<br/>CFLAGS / ASFLAGS / LDFLAGS"]
     Lists["filelist.mk<br/>per-directory *.mk"]
     KernelObjs["kernel object groups"]
-    UserObjs["user/user.mk<br/>user ELFs"]
+    UserObjs["user/user.mk<br/>selected user-space profile"]
+    Rootfs["build/user/rootfs<br/>staged rootfs"]
     Link["kernel.ld<br/>link cuteos ELF"]
-    Image["rootfs image<br/>mkimg + user ELFs"]
+    Image["rootfs image<br/>mkimg + staged rootfs"]
     Qemu["QEMU virt<br/>-kernel cuteos + virtio-blk image"]
 
     Config --> Kconfig --> Auto
@@ -25,7 +26,7 @@ flowchart TD
     Flags --> KernelObjs
     Flags --> UserObjs
     Lists --> KernelObjs --> Link
-    UserObjs --> Image
+    UserObjs --> Rootfs --> Image
     Link --> Qemu
     Image --> Qemu
 ```
@@ -177,18 +178,27 @@ arch/riscv/mm/tlb.o
 
 内核和用户态编译都预包含 `include/generated/autoconf.h`。因此构建配置可以影响内核对象和用户测试程序。
 
-`KCONFIG_SKIP_GOALS` 让 `clean`、`help`、`format`、`defconfig` 等目标不强制要求已有配置。
+`KCONFIG_SKIP_GOALS` 让 `clean`、`help`、`format`、`defconfig`、
+`busybox_defconfig` 等目标不强制要求已有配置。
 
 ## 用户态构建
 
-用户程序构建由 `user/user.mk` 管理，并在顶层 `Makefile` 中引入。用户态工具链也使用 riscv64 gcc/ld，但编译参数独立于内核：
+用户程序构建由 `user/user.mk` 管理，并在顶层 `Makefile` 中引入。Kconfig
+提供两个互斥 profile：
 
-- `-march=rv64gc -mabi=lp64 -mcmodel=medany`
+- `USERSPACE_MINIMAL`：使用项目 minimal libc 构建 `/init`、内置 shell、命令和
+  ABI 测试程序。这是默认 profile。
+- `USERSPACE_BUSYBOX`：只保留 minimal-libc `/init`，使用项目构建的静态 musl
+  构建 BusyBox 1.37.0；BusyBox 提供 `/bin/sh` 和选定 applet。
+
+项目 minimal 用户程序继续使用 riscv64 gcc/ld，编译参数独立于内核：
+
+- `-march=rv64imac_zicsr_zifencei -mabi=lp64 -mcmodel=medany`
 - `-ffreestanding -nostdlib -nostdinc -fno-builtin`
 - include：`user/libc/minimal/include` 和 `include`
 - 链接脚本：`user/user.ld`
 
-用户 ELF 列表包括：
+Minimal profile 的用户 ELF 列表包括：
 
 - `USER_INIT_ELF = build/.../user/init/init.elf`
 - `USER_SH_ELF = build/.../user/init/sh.elf`
@@ -206,6 +216,24 @@ arch/riscv/mm/tlb.o
 
 内核 exec loader 按用户 ELF 的 PT_LOAD 权限映射用户页。用户链接脚本的分段设计避免 text/data 被合并成单个 RWE 段。
 
+BusyBox profile 的外部构建分为三个深模块：
+
+1. `user/libc/musl.mk` out-of-tree 构建 musl `v1.2.6` sysroot，固定
+   `rv64imac_zicsr_zifencei/lp64`、static 和 non-PIE。用户态明确禁止
+   RISC-V F/D ISA 扩展；所有浮点运算必须降低为 compiler-rt soft-float
+   builtins，不能依赖内核保存浮点寄存器状态。
+2. `user/runtime/runtime.mk` 调用 Zig 0.16+ 的 `build-lib -fcompiler-rt`，生成
+   soft-float `libcompiler_rt.a`。它只提供 GCC 工具链缺失的 compiler builtins，
+   不提供另一套 libc。
+3. `user/busybox.mk` 使用 BusyBox 自己的 Kbuild 与项目
+   `configs/busybox_defconfig`，通过项目 musl crt/libc 和 compiler-rt 链接。
+
+项目 musl GCC specs 明确移除主机 `lp64d` 的 `crtbegin/crtend/libgcc`，只使用
+项目 musl crt 与 Zig 生成的 strict-`lp64` compiler runtime。最终 BusyBox
+必须是 static、non-PIE、soft-float `ET_EXEC`，且 ELF ISA attributes 不得声明
+F/D 扩展。`scripts/check-user-elf.sh` 在链接后强制检查这些约束；该约束是长期
+用户 ABI，不是临时构建限制。
+
 ## 内核产物
 
 默认目标 `all` 构建 `$(OUTDIR)/cuteos`。链接后生成两个辅助文件：
@@ -221,12 +249,19 @@ arch/riscv/mm/tlb.o
 
 ## 根文件系统镜像
 
-`$(KERNEL_IMG)` 由 `$(MKIMG)` 生成，输入是用户 ELF：
+`user/rootfs.mk` 先将所选 profile 安装到 `$(USER_OUTROOT)/rootfs`。该 staged
+目录是 rootfs 装配 Interface：minimal profile 安装项目 ELF；BusyBox profile
+安装项目 `/init`、BusyBox 本体和 applet symlink。
+
+`$(KERNEL_IMG)` 再由 `$(MKIMG)` 将 staged rootfs 转换为 ext2：
 
 ```make
 MKIMG_SIZE_MB=$(CONFIG_ROOTFS_IMAGE_SIZE_MB) $(MKIMG) \
-    $@ $(USER_INIT_ELF) $(USER_SH_ELF) ...
+    $@ $(USER_ROOTFS)
 ```
+
+`mkimg.sh` 不理解 libc、init、shell 或 applet，只处理完整目录树并补充不能由
+普通用户在 host staging 目录创建的 `/dev/console` 和 `/dev/null` 设备节点。
 
 QEMU 启动时使用：
 
@@ -261,6 +296,8 @@ QEMU 启动时使用：
 - 顶层 `Makefile` 负责聚合和最终产物。
 - 每个源码目录负责声明自己的对象列表。
 - `scripts/flags.mk` 负责全局编译/链接约束。
+- `user/user.mk` 负责选择用户态 profile；Musl、BusyBox、compiler-rt 和 rootfs
+  各自在自己的 `.mk` 内拥有实现。
 - `kernel.ld` 和 `user/user.ld` 分别定义内核与用户 ABI 布局。
 - Kconfig 只通过生成头和 `auto.conf` 影响编译，不应在源码中硬编码可配置项的替代路径。
 

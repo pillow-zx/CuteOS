@@ -9,7 +9,7 @@ PAGE_SIZE = 0x1000;
 
 PHDRS
 {
-    text   PT_LOAD FLAGS(5);
+    text   PT_LOAD FILEHDR PHDRS FLAGS(5);
     rodata PT_LOAD FLAGS(4);
     data   PT_LOAD FLAGS(6);
     stack  PT_GNU_STACK FLAGS(6);

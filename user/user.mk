@@ -7,8 +7,11 @@ USER_AR       = $(shell if command -v $(TOOLPREFIX)gcc-ar >/dev/null 2>&1; \
 USER_RANLIB   = $(shell if command -v $(TOOLPREFIX)gcc-ranlib >/dev/null 2>&1; \
 		 then echo $(TOOLPREFIX)gcc-ranlib; else echo $(TOOLPREFIX)ranlib; fi)
 USER_OBJCOPY  = $(TOOLPREFIX)objcopy
+USER_READELF  = $(TOOLPREFIX)readelf
 
-USER_ARCH_FLAGS = -march=rv64gc -mabi=lp64 -mcmodel=medany
+USER_ARCH_FLAGS = -march=rv64imac_zicsr_zifencei -mabi=lp64 \
+		  -mcmodel=medany
+USER_ELF_CHECK = scripts/check-user-elf.sh
 
 USER_CFLAGS   = $(USER_ARCH_FLAGS)
 USER_CFLAGS  += -ffreestanding -nostdlib -nostdinc -fno-builtin
@@ -67,7 +70,7 @@ endif
 USER_OUTROOT = $(OUTROOT)/user
 USER_OUT     = $(USER_OUTROOT)
 
-USER_CRT_OBJS  = $(USER_OUT)/start.o
+USER_CRT_OBJS = $(USER_OUT)/start.o
 
 include user/libc/minimal/libc.mk
 
@@ -77,7 +80,6 @@ USER_BIN_SRCS  = $(sort $(wildcard user/bin/*.c))
 USER_BIN_NAMES = $(basename $(notdir $(USER_BIN_SRCS)))
 USER_BIN_ELFS  = $(addprefix $(USER_OUT)/bin/, \
 		 $(addsuffix .elf,$(USER_BIN_NAMES)))
-USER_ELFS      = $(USER_INIT_ELF) $(USER_SH_ELF) $(USER_BIN_ELFS)
 
 USER_INIT_OBJS = $(USER_CRT_OBJS) $(USER_OUT)/init/init.o
 USER_SH_OBJS   = $(USER_CRT_OBJS) $(USER_OUT)/init/shell.o
@@ -95,11 +97,24 @@ $(USER_OUT)/%.o: user/%.c $(AUTOCONF_H)
 $(USER_INIT_ELF): $(USER_INIT_OBJS) $(USER_LIBC_OBJS) user/user.ld
 	$(QUIET_LD)
 	$(Q)$(USER_LD) $(USER_LDFLAGS) $(USER_LD_SCRIPT) -o $@ $(filter %.o,$^)
+	$(Q)$(USER_ELF_CHECK) $(USER_READELF) $@
 
 $(USER_SH_ELF): $(USER_SH_OBJS) $(USER_LIBC_OBJS) user/user.ld
 	$(QUIET_LD)
 	$(Q)$(USER_LD) $(USER_LDFLAGS) $(USER_LD_SCRIPT) -o $@ $(filter %.o,$^)
+	$(Q)$(USER_ELF_CHECK) $(USER_READELF) $@
 
 $(USER_OUT)/bin/%.elf: $(USER_CRT_OBJS) $(USER_OUT)/bin/%.o $(USER_LIBC_OBJS) user/user.ld
 	$(QUIET_LD)
 	$(Q)$(USER_LD) $(USER_LDFLAGS) $(USER_LD_SCRIPT) -o $@ $(filter %.o,$^)
+	$(Q)$(USER_ELF_CHECK) $(USER_READELF) $@
+
+ifeq ($(CONFIG_USERSPACE_BUSYBOX),y)
+include user/libc/musl.mk
+include user/busybox.mk
+USER_ELFS = $(USER_INIT_ELF) $(BUSYBOX_ELF)
+else
+USER_ELFS = $(USER_INIT_ELF) $(USER_SH_ELF) $(USER_BIN_ELFS)
+endif
+
+include user/rootfs.mk

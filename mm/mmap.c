@@ -167,8 +167,8 @@ static struct page_cache *vma_page_cache_get(const struct vm_area_struct *vma,
 		return NULL;
 
 	return page_cache_get_mapping(&vma->vm_file->f_inode->i_pages,
-				      vma_page_index(vma, va),
-				      PAGE_CACHE_READ, NULL);
+				      vma_page_index(vma, va), PAGE_CACHE_READ,
+				      NULL);
 }
 
 static void vma_mark_shared_page_dirty(const struct vm_area_struct *vma,
@@ -1273,12 +1273,14 @@ out:
 	return ret;
 }
 
-int mm_add_stack(struct mm_struct *mm, void *stack_page)
+int mm_add_stack(struct mm_struct *mm, const void *stack, size_t stack_size)
 {
 	struct vm_area_struct *vma;
+	uintptr_t stack_start;
+	size_t mapped_size = 0;
 	int ret = 0;
 
-	if (!mm || !stack_page)
+	if (!mm || !stack || stack_size != USER_STACK_SIZE)
 		return -EINVAL;
 
 	mm_lock(mm);
@@ -1293,15 +1295,34 @@ int mm_add_stack(struct mm_struct *mm, void *stack_page)
 		goto out;
 	}
 
-	vma->vm_start = USER_STACK_BASE;
+	stack_start = USER_STACK_TOP - stack_size;
+	vma->vm_start = stack_start;
 	vma->vm_end = USER_STACK_TOP;
 	vma->vm_flags = VM_READ | VM_WRITE;
 	vma->vm_type = VMA_STACK;
 	vma->used = true;
-	ret = map_page(mm->pgd, USER_STACK_BASE, __pa((uintptr_t)stack_page),
-		       pgprot_user(true, true, false));
-	if (ret < 0)
+	for (size_t offset = 0; offset < stack_size; offset += PAGE_SIZE) {
+		void *page = get_free_page(0);
+
+		if (!page) {
+			ret = -ENOMEM;
+			break;
+		}
+		memcpy(page, (const uint8_t *)stack + offset, PAGE_SIZE);
+		ret = map_page(mm->pgd, stack_start + offset,
+			       __pa((uintptr_t)page),
+			       pgprot_user(true, true, false));
+		if (ret < 0) {
+			free_page(page, 0);
+			break;
+		}
+		mapped_size += PAGE_SIZE;
+	}
+	if (ret < 0) {
+		mm_unmap_user_pages_locked(mm, vma, stack_start,
+					   stack_start + mapped_size);
 		vma->used = false;
+	}
 out:
 	mm_unlock(mm);
 	return ret;

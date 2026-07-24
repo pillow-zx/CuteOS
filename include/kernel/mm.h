@@ -57,7 +57,8 @@ int __must_check mm_map_segment(struct mm_struct *mm, uintptr_t start,
 int __must_check mm_map_file_segment(struct mm_struct *mm, struct file *file,
 				     uintptr_t start, uintptr_t end, int prot,
 				     uint64_t file_offset);
-int __must_check mm_add_stack(struct mm_struct *mm, void *stack_page);
+int __must_check mm_add_stack(struct mm_struct *mm, const void *stack,
+			      size_t stack_size);
 int __must_check mm_finalize(struct mm_struct *mm, uintptr_t first_vaddr,
 			     uintptr_t last_end);
 
@@ -107,10 +108,10 @@ int __must_check mm_munmap(struct mm_struct *mm, uintptr_t addr, size_t length);
 
 int __must_check mm_madvise(struct mm_struct *mm, uintptr_t addr, size_t len,
 			    int advice);
-int __must_check __nonnull(1) mm_mlock(struct mm_struct *mm, uintptr_t addr,
-				       size_t len);
-int __must_check __nonnull(1) mm_munlock(struct mm_struct *mm, uintptr_t addr,
-					 size_t len);
+int __must_check __nonnull(1)
+	mm_mlock(struct mm_struct *mm, uintptr_t addr, size_t len);
+int __must_check __nonnull(1)
+	mm_munlock(struct mm_struct *mm, uintptr_t addr, size_t len);
 
 /**
  * @brief Change VMA and resident PTE permissions for a user range.
@@ -176,8 +177,8 @@ size_t __must_check copy_from_user(void *to, const void *from, size_t n)
  * @return String length excluding NUL, or a negative errno.
  */
 ssize_t __must_check strncpy_from_user(char *dst, const char *src,
-				       size_t maxlen)
-__access(write_only, 1, 3) __access(read_only, 2, 3);
+				       size_t maxlen) __access(write_only, 1, 3)
+	__access(read_only, 2, 3);
 
 /**
  * @brief Resolve a user instruction/load/store page fault.

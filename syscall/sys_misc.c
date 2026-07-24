@@ -10,6 +10,7 @@
 #include <kernel/mm.h>
 #include <kernel/pid.h>
 #include <kernel/resource.h>
+#include <kernel/random.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <kernel/signal.h>
@@ -81,8 +82,7 @@ ssize_t sys_setuid(struct trap_frame *tf)
 {
 	uint32_t uid = (uint32_t)syscall_arg(tf, 0);
 
-	if (task_uid(current_task()) != 0 &&
-	    task_uid(current_task()) != uid)
+	if (task_uid(current_task()) != 0 && task_uid(current_task()) != uid)
 		return -EPERM;
 
 	task_set_uid(current_task(), uid);
@@ -100,8 +100,7 @@ ssize_t sys_setgid(struct trap_frame *tf)
 {
 	uint32_t gid = (uint32_t)syscall_arg(tf, 0);
 
-	if (task_gid(current_task()) != 0 &&
-	    task_gid(current_task()) != gid)
+	if (task_gid(current_task()) != 0 && task_gid(current_task()) != gid)
 		return -EPERM;
 
 	task_set_gid(current_task(), gid);
@@ -153,7 +152,6 @@ ssize_t sys_setgroups(struct trap_frame *tf)
 	    copy_from_user(&group, groups, sizeof(group)) == 0 && group == 0)
 		return 0;
 
-
 	return -EPERM;
 }
 
@@ -202,7 +200,8 @@ ssize_t sys_prlimit64(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);
 	int resource = (int)syscall_arg(tf, 1);
-	const struct rlimit64 *unew = (const struct rlimit64 *)syscall_arg(tf, 2);
+	const struct rlimit64 *unew =
+		(const struct rlimit64 *)syscall_arg(tf, 2);
 	struct rlimit64 *uold = (struct rlimit64 *)syscall_arg(tf, 3);
 	struct task_struct *task;
 	struct signal_struct *signal;
@@ -278,23 +277,6 @@ ssize_t sys_getrusage(struct trap_frame *tf)
 	return 0;
 }
 
-static uint64_t random_state;
-
-static uint64_t random_next_u64(void)
-{
-	uint64_t x = random_state;
-
-	if (x == 0)
-		x = arch_timer_now() ^ ((uintptr_t)current_task() << 17) ^
-		    0x9e3779b97f4a7c15ULL;
-
-	x ^= x << 13;
-	x ^= x >> 7;
-	x ^= x << 17;
-	random_state = x;
-	return x;
-}
-
 /*
  * SYSCALL_SUPPORT(C): getrandom
  * Current: returns bytes from a weak xorshift/mtime-seeded generator.
@@ -322,14 +304,7 @@ ssize_t sys_getrandom(struct trap_frame *tf)
 
 		if (n > sizeof(chunk))
 			n = sizeof(chunk);
-		for (size_t i = 0; i < n; i++) {
-			if ((i & 7) == 0) {
-				uint64_t r = random_next_u64();
-
-				memcpy(chunk + i, &r,
-				       n - i < sizeof(r) ? n - i : sizeof(r));
-			}
-		}
+		weak_random_bytes(chunk, n);
 		if (copy_to_user(ubuf + done, chunk, n) != 0)
 			return done ? (ssize_t)done : -EFAULT;
 		done += n;

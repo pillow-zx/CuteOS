@@ -61,6 +61,7 @@ help:
 	@printf 'CuteOS build usage:\n'
 	@printf '  make                         Build kernel ELF using .config\n'
 	@printf '  make defconfig               Reset .config from configs/cuteos_defconfig\n'
+	@printf '  make busybox_defconfig       Select the static musl BusyBox profile\n'
 	@printf '  make menuconfig              Configure build options\n'
 	@printf '  make qemu                    Build image and boot QEMU\n'
 	@printf '  make test                    Build and run kernel self-test regression suite\n'
@@ -184,10 +185,10 @@ qemu-gdb: check-gcc-version $(KERNEL) $(KERNEL_IMG) .gdbinit
 	@echo "*** Now run 'gdb' in another window (target remote :$(GDBPORT))." 1>&2
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
 
-$(KERNEL_IMG): check-gcc-version $(USER_ELFS) $(MKIMG) $(AUTO_CONF)
+$(KERNEL_IMG): check-gcc-version $(USER_ROOTFS_STAMP) $(MKIMG) $(AUTO_CONF)
 	$(Q)mkdir -p $(dir $@)
 	$(QUIET_FSIMG)
-	$(Q)MKIMG_SIZE_MB=$(CONFIG_ROOTFS_IMAGE_SIZE_MB) $(MKIMG) $@ $(USER_INIT_ELF) $(USER_SH_ELF) $(filter-out $(USER_INIT_ELF) $(USER_SH_ELF),$(USER_ELFS))
+	$(Q)MKIMG_SIZE_MB=$(CONFIG_ROOTFS_IMAGE_SIZE_MB) $(MKIMG) $@ $(USER_ROOTFS)
 
 print-gdbport:
 	@echo $(GDBPORT)

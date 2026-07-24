@@ -18,6 +18,9 @@ ifeq ($(V),1)
   QUIET_FSIMG :=
   QUIET_AR :=
   QUIET_RANLIB :=
+  QUIET_MUSL :=
+  QUIET_BUSYBOX :=
+  QUIET_ROOTFS :=
   QUIET_ANALYZE :=
 else
   Q := @
@@ -30,5 +33,8 @@ else
   QUIET_FSIMG = @echo '  FSIMG   $@'
   QUIET_AR = @echo '  AR      $@'
   QUIET_RANLIB = @echo '  RANLIB  $@'
+  QUIET_MUSL = @echo '  MUSL    $@'
+  QUIET_BUSYBOX = @echo '  BUSYBOX $@'
+  QUIET_ROOTFS = @echo '  ROOTFS  $@'
   QUIET_ANALYZE = @echo '  ANALYZE $<'
 endif

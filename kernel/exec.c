@@ -10,12 +10,15 @@
 #include <kernel/fs.h>
 #include <kernel/mm.h>
 #include <kernel/printk.h>
+#include <kernel/random.h>
 #include <kernel/rseq.h>
 #include <kernel/signal.h>
 #include <kernel/slab.h>
 #include <kernel/task.h>
 #include <kernel/syscall.h>
 #include <kernel/vfs.h>
+#include <kernel/vmalloc.h>
+#include <uapi/auxvec.h>
 #include <uapi/mman.h>
 #include <kernel/processor.h>
 #include <kernel/page.h>
@@ -36,6 +39,11 @@ struct elf_load_layout {
 	vaddr_t first_vaddr;
 	vaddr_t last_end;
 	bool loaded_segment;
+};
+
+struct elf_auxv {
+	uintptr_t type;
+	uintptr_t value;
 };
 
 static int elf_flags_to_prot(uint32_t p_flags)
@@ -107,35 +115,57 @@ static int read_exec_image(struct exec_image *image, uint64_t offset, void *buf,
 	return 0;
 }
 
-static void *stack_sp_to_kernel(void *stack_page, vaddr_t sp)
+static void *stack_sp_to_kernel(void *stack, vaddr_t sp)
 {
-	return (uint8_t *)stack_page + (sp - USER_STACK_BASE);
+	return (uint8_t *)stack + (sp - USER_STACK_BASE);
 }
 
-static int push_user_string(void *stack_page, uintptr_t *sp, const char *src,
-			    uintptr_t *user_ptr)
+static int push_user_bytes(void *stack, uintptr_t *sp, const void *src,
+			   size_t len, uintptr_t *user_ptr)
 {
-	size_t len = strlen(src) + 1;
-
 	if (*sp < USER_STACK_BASE + len)
 		return -E2BIG;
 
 	*sp -= len;
-	memcpy(stack_sp_to_kernel(stack_page, *sp), src, len);
+	memcpy(stack_sp_to_kernel(stack, *sp), src, len);
 	*user_ptr = *sp;
 	return 0;
 }
 
-static int setup_user_stack(struct mm_struct *mm,
-			    const struct exec_args_envp *args, vaddr_t *sp_out)
+static int push_user_string(void *stack, uintptr_t *sp, const char *src,
+			    uintptr_t *user_ptr)
 {
-	static_assert(USER_STACK_TOP - USER_STACK_BASE == PAGE_SIZE,
-		      "setup_user_stack assumes a single mapped stack page");
+	return push_user_bytes(stack, sp, src, strlen(src) + 1, user_ptr);
+}
 
-	void *stack_page = get_free_page(0);
-	if (!stack_page)
+static int setup_user_stack(struct mm_struct *mm,
+			    const struct exec_args_envp *args, const char *path,
+			    const Elf64_Ehdr *ehdr, vaddr_t phdr_addr,
+			    vaddr_t *sp_out)
+{
+	void *stack = vmalloc(USER_STACK_SIZE);
+	uintptr_t random_ptr;
+	uintptr_t execfn_ptr;
+	uint8_t random_bytes[16];
+	struct elf_auxv auxv[] = {
+		{AT_PHDR, phdr_addr},
+		{AT_PHENT, sizeof(Elf64_Phdr)},
+		{AT_PHNUM, ehdr->e_phnum},
+		{AT_PAGESZ, PAGE_SIZE},
+		{AT_ENTRY, ehdr->e_entry},
+		{AT_UID, task_uid(current_task())},
+		{AT_EUID, task_uid(current_task())},
+		{AT_GID, task_gid(current_task())},
+		{AT_EGID, task_gid(current_task())},
+		{AT_SECURE, 0},
+		{AT_RANDOM, 0},
+		{AT_EXECFN, 0},
+		{AT_NULL, 0},
+	};
+
+	if (!stack)
 		return -ENOMEM;
-	memset(stack_page, 0, PAGE_SIZE);
+	memset(stack, 0, USER_STACK_SIZE);
 
 	uintptr_t user_argv[EXEC_MAX_ARGS + 1];
 	uintptr_t user_envp[EXEC_MAX_ENVS + 1];
@@ -143,48 +173,63 @@ static int setup_user_stack(struct mm_struct *mm,
 	int ret;
 
 	for (int i = args->envc - 1; i >= 0; i--) {
-		ret = push_user_string(stack_page, &sp, args->envp[i],
+		ret = push_user_string(stack, &sp, args->envp[i],
 				       &user_envp[i]);
 		if (ret < 0)
-			return ret;
+			goto out;
 	}
 	user_envp[args->envc] = 0;
 
 	for (int i = args->argc - 1; i >= 0; i--) {
-		ret = push_user_string(stack_page, &sp, args->argv[i],
+		ret = push_user_string(stack, &sp, args->argv[i],
 				       &user_argv[i]);
 		if (ret < 0)
-			return ret;
+			goto out;
 	}
 	user_argv[args->argc] = 0;
+	weak_random_bytes(random_bytes, sizeof(random_bytes));
+	ret = push_user_bytes(stack, &sp, random_bytes, sizeof(random_bytes),
+			      &random_ptr);
+	if (ret < 0)
+		goto out;
+	ret = push_user_string(stack, &sp, path, &execfn_ptr);
+	if (ret < 0)
+		goto out;
+	auxv[10].value = random_ptr;
+	auxv[11].value = execfn_ptr;
 
 	sp &= ~(uintptr_t)0xf;
 
 	size_t argv_bytes = (size_t)(args->argc + 1) * sizeof(uintptr_t);
 	size_t envp_bytes = (size_t)(args->envc + 1) * sizeof(uintptr_t);
-	size_t frame_bytes = sizeof(uintptr_t) + argv_bytes + envp_bytes;
+	size_t auxv_bytes = sizeof(auxv);
+	size_t frame_bytes =
+		sizeof(uintptr_t) + argv_bytes + envp_bytes + auxv_bytes;
 	size_t padding = frame_bytes & 0xf ? 16 - (frame_bytes & 0xf) : 0;
 
 	if (sp < USER_STACK_BASE + frame_bytes + padding)
-		return -E2BIG;
+		goto too_big;
 
 	sp -= frame_bytes + padding;
 
-	uint8_t *frame = stack_sp_to_kernel(stack_page, sp);
+	uint8_t *frame = stack_sp_to_kernel(stack, sp);
 	uintptr_t argc = (uintptr_t)args->argc;
 
 	memcpy(frame, &argc, sizeof(argc));
 	memcpy(frame + sizeof(uintptr_t), user_argv, argv_bytes);
 	memcpy(frame + sizeof(uintptr_t) + argv_bytes, user_envp, envp_bytes);
+	memcpy(frame + sizeof(uintptr_t) + argv_bytes + envp_bytes, auxv,
+	       auxv_bytes);
 
 	*sp_out = sp;
-	ret = mm_add_stack(mm, stack_page);
-	if (ret < 0) {
-		free_page(stack_page, 0);
-		return ret;
-	}
+	ret = mm_add_stack(mm, stack, USER_STACK_SIZE);
+out:
+	vfree(stack);
+	return ret;
 
-	return 0;
+too_big:
+	ret = -E2BIG;
+	goto out;
 }
 
 static int read_elf_header(struct exec_image *image, Elf64_Ehdr *ehdr)
@@ -258,6 +303,49 @@ static void free_elf_phdr_table(struct elf_phdr_table *table)
 	kfree(table->entries);
 	table->entries = NULL;
 	table->count = 0;
+}
+
+static int elf_user_phdr_addr(const Elf64_Ehdr *ehdr,
+			      const struct elf_phdr_table *phdrs,
+			      vaddr_t *phdr_addr)
+{
+	uint64_t phdr_bytes = (uint64_t)ehdr->e_phnum * sizeof(Elf64_Phdr);
+
+	for (int i = 0; i < phdrs->count; i++) {
+		const Elf64_Phdr *ph = &phdrs->entries[i];
+		uint64_t offset;
+		uint64_t address;
+
+		if (ph->p_type != PT_LOAD || ehdr->e_phoff < ph->p_offset)
+			continue;
+		offset = ehdr->e_phoff - ph->p_offset;
+		if (offset > ph->p_filesz || phdr_bytes > ph->p_filesz - offset)
+			continue;
+		address = ph->p_vaddr + offset;
+		if (address < ph->p_vaddr || address > USER_STACK_BASE ||
+		    phdr_bytes > USER_STACK_BASE - address)
+			return -ENOEXEC;
+
+		*phdr_addr = (vaddr_t)address;
+		return 0;
+	}
+
+	return -ENOEXEC;
+}
+
+static int validate_elf_program_headers(const struct elf_phdr_table *phdrs)
+{
+	for (int i = 0; i < phdrs->count; i++) {
+		switch (phdrs->entries[i].p_type) {
+		case PT_INTERP:
+		case PT_DYNAMIC:
+			return -ENOEXEC;
+		default:
+			break;
+		}
+	}
+
+	return 0;
 }
 
 static int create_exec_mm(struct mm_struct **mm_out)
@@ -442,7 +530,8 @@ static int load_elf_segments(struct exec_image *image,
 }
 
 static int finish_exec_mm(struct mm_struct *mm,
-			  const struct exec_args_envp *args,
+			  const struct exec_args_envp *args, const char *path,
+			  const Elf64_Ehdr *ehdr, vaddr_t phdr_addr,
 			  struct elf_load_layout *layout, vaddr_t *sp_out)
 {
 	int ret;
@@ -452,12 +541,12 @@ static int finish_exec_mm(struct mm_struct *mm,
 	ret = mm_finalize(mm, layout->first_vaddr, layout->last_end);
 	if (ret < 0)
 		return ret;
-	ret = setup_user_stack(mm, args, sp_out);
+	ret = setup_user_stack(mm, args, path, ehdr, phdr_addr, sp_out);
 	return ret;
 }
 
 static int load_elf_file(struct exec_image *image,
-			 const struct exec_args_envp *args,
+			 const struct exec_args_envp *args, const char *path,
 			 struct mm_struct **mm_out, vaddr_t *entry_out,
 			 vaddr_t *sp_out)
 {
@@ -466,6 +555,7 @@ static int load_elf_file(struct exec_image *image,
 	struct elf_load_layout layout = {0};
 	struct mm_struct *mm = NULL;
 	vaddr_t user_sp = 0;
+	vaddr_t phdr_addr = 0;
 	int ret;
 
 	*mm_out = NULL;
@@ -479,6 +569,12 @@ static int load_elf_file(struct exec_image *image,
 	ret = read_elf_phdr_table(image, &ehdr, &phdrs);
 	if (ret < 0)
 		return ret;
+	ret = validate_elf_program_headers(&phdrs);
+	if (ret < 0)
+		goto fail;
+	ret = elf_user_phdr_addr(&ehdr, &phdrs, &phdr_addr);
+	if (ret < 0)
+		goto fail;
 
 	ret = create_exec_mm(&mm);
 	if (ret < 0)
@@ -486,7 +582,8 @@ static int load_elf_file(struct exec_image *image,
 	ret = load_elf_segments(image, &phdrs, mm, &layout);
 	if (ret < 0)
 		goto fail;
-	ret = finish_exec_mm(mm, args, &layout, &user_sp);
+	ret = finish_exec_mm(mm, args, path, &ehdr, phdr_addr, &layout,
+			     &user_sp);
 	if (ret < 0)
 		goto fail;
 
@@ -568,23 +665,20 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 	struct mm_struct *mm;
 	vaddr_t entry;
 	vaddr_t sp;
-	ret = load_elf_file(&image, args, &mm, &entry, &sp);
+	ret = load_elf_file(&image, args, path, &mm, &entry, &sp);
 	close_exec_image(&image);
 	if (ret < 0)
 		return ret;
-
 
 	install_exec_mm(mm, tf, entry, sp);
 	signal_clear_frames(current_task());
 	restart_clear(current_task());
 	rseq_execve(current_task());
 
-
 	struct signal_struct *signal = task_signal_state(current_task());
 
 	if (signal)
 		posix_timer_table_clear(&signal->posix_timers);
-
 
 	files_close_on_exec(task_files_safe(current_task()));
 

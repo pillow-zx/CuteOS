@@ -9,3 +9,4 @@ endmenu
 source "kernel/Kconfig"
 source "arch/riscv/Kconfig"
 source "fs/Kconfig"
+source "user/Kconfig"

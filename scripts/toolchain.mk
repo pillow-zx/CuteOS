@@ -24,4 +24,4 @@ OBJDUMP  = $(TOOLPREFIX)objdump
 AR       = $(TOOLPREFIX)ar
 QEMU     = qemu-system-riscv64
 MKIMG    = ./mkimg.sh
-
+ZIG      ?= zig

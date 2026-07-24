@@ -1,0 +1,30 @@
+menu "User space"
+
+choice
+	prompt "User-space profile"
+	default USERSPACE_MINIMAL
+
+config USERSPACE_MINIMAL
+	bool "Minimal libc user space"
+	help
+	  Build the project init, shell, commands, and ABI test programs with
+	  the project minimal libc.
+
+config USERSPACE_BUSYBOX
+	bool "BusyBox user space (musl)"
+	select USER_LIBC_MUSL
+	select USER_BUSYBOX
+	help
+	  Keep the project minimal-libc init as PID 1 and use a static musl
+	  BusyBox for /bin/sh and user commands.
+
+endchoice
+
+config USER_LIBC_MUSL
+	bool
+
+config USER_BUSYBOX
+	bool
+	depends on USER_LIBC_MUSL
+
+endmenu
