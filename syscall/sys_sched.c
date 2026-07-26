@@ -11,11 +11,14 @@
 
 constexpr uint64_t SINGLE_CPU_AFFINITY_MASK = 1ULL;
 
-static struct task_struct *affinity_target_task(pid_t pid)
+static struct task_struct *affinity_target_task(pid_t pid, bool *put_task)
 {
-	if (pid == 0)
+	if (pid == 0) {
+		*put_task = false;
 		return current_task();
+	}
 
+	*put_task = true;
 	return task_find_thread(pid);
 }
 
@@ -34,6 +37,8 @@ ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 	unsigned long mask = 0;
 	size_t copy_size;
 	struct task_struct *task;
+	bool put_task;
+	ssize_t ret = 0;
 
 	if (pid < 0)
 		return -ESRCH;
@@ -42,21 +47,30 @@ ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 	if (!umask)
 		return -EFAULT;
 
-	task = affinity_target_task(pid);
+	task = affinity_target_task(pid, &put_task);
 	if (!task)
 		return -ESRCH;
 	if (task != current_task() && current_task() &&
 	    task_uid(current_task()) != 0 &&
-	    task_uid(current_task()) != task_uid(task))
-		return -EPERM;
+	    task_uid(current_task()) != task_uid(task)) {
+		ret = -EPERM;
+		goto out;
+	}
 
 	copy_size = cpusetsize < sizeof(mask) ? cpusetsize : sizeof(mask);
-	if (copy_from_user(&mask, umask, copy_size) != 0)
-		return -EFAULT;
-	if ((mask & SINGLE_CPU_AFFINITY_MASK) == 0)
-		return -EINVAL;
+	if (copy_from_user(&mask, umask, copy_size) != 0) {
+		ret = -EFAULT;
+		goto out;
+	}
+	if ((mask & SINGLE_CPU_AFFINITY_MASK) == 0) {
+		ret = -EINVAL;
+		goto out;
+	}
 
-	return 0;
+out:
+	if (put_task)
+		task_put(task);
+	return ret;
 }
 
 /*
@@ -73,6 +87,8 @@ ssize_t sys_sched_getaffinity(struct trap_frame *tf)
 	unsigned long *umask = (unsigned long *)syscall_arg(tf, 2);
 	unsigned long mask = SINGLE_CPU_AFFINITY_MASK;
 	struct task_struct *task;
+	bool put_task;
+	ssize_t ret;
 
 	if (pid < 0)
 		return -ESRCH;
@@ -81,14 +97,17 @@ ssize_t sys_sched_getaffinity(struct trap_frame *tf)
 	if (!umask)
 		return -EFAULT;
 
-	task = affinity_target_task(pid);
+	task = affinity_target_task(pid, &put_task);
 	if (!task)
 		return -ESRCH;
 
-	if (copy_to_user(umask, &mask, sizeof(mask)) != 0)
-		return -EFAULT;
+	ret = copy_to_user(umask, &mask, sizeof(mask)) != 0
+		      ? -EFAULT
+		      : (ssize_t)sizeof(mask);
+	if (put_task)
+		task_put(task);
 
-	return (ssize_t)sizeof(mask);
+	return ret;
 }
 
 ssize_t sys_sched_yield(struct trap_frame *tf)

@@ -209,3 +209,42 @@ int test_task_free_null(void)
 
 	return __test_ret;
 }
+
+int test_task_publish_lookup_lifetime(void)
+{
+	struct task_struct *task = NULL;
+	struct task_struct *lookup = NULL;
+	pid_t pid = -1;
+	bool published = false;
+
+	TEST_BEGIN("task: publish lookup lifetime");
+	{
+		task = task_alloc();
+		TEST_ASSERT_NOT_NULL(task);
+		pid = task_pid(task);
+		TEST_ASSERT_NULL(task_find_thread(pid));
+
+		task_publish(task);
+		published = true;
+		lookup = task_find_thread(pid);
+		TEST_ASSERT_EQ(lookup, task);
+
+		task_unpublish(task);
+		published = false;
+		TEST_ASSERT_NULL(task_find_thread(pid));
+	}
+	TEST_END("task: publish lookup lifetime");
+	goto cleanup;
+fail:
+	TEST_FAIL("task: publish lookup lifetime", "see above");
+cleanup:
+	if (lookup)
+		task_put(lookup);
+	if (task) {
+		if (published)
+			task_unpublish(task);
+		task_put(task);
+	}
+
+	return __test_ret;
+}

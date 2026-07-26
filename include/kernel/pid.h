@@ -7,7 +7,6 @@
 #define _CUTEOS_KERNEL_PID_H
 
 #include <kernel/types.h>
-#include <kernel/task.h>
 
 /**
  * @def PID_MAX
@@ -38,14 +37,6 @@ int32_t __must_check alloc_pid(void);
  */
 void free_pid(pid_t pid);
 
-/**
- * @brief Attach a task to a PID lookup slot.
- * @param pid PID/TID.
- * @param task Task owning the id.
- */
-void pid_attach_task(pid_t pid, struct task_struct *task);
-void pid_detach_task(pid_t pid, const struct task_struct *task);
-struct task_struct *__must_check __pure pid_task(pid_t pid);
-uint16_t __must_check __pure pid_count_tasks(void);
+uint16_t __must_check pid_count_tasks(void);
 
 #endif

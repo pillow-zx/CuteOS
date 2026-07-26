@@ -54,17 +54,11 @@ pid_t kernel_clone_commit(struct kernel_clone *clone);
 void kernel_clone_abort(struct kernel_clone *clone);
 
 /**
- * @brief Implement syscall-level clone from a parent trap frame.
- * @param tf Parent user trap frame.
- * @param flags Linux clone flags.
- * @param child_stack Optional userspace child stack pointer.
- * @param parent_tid Optional userspace parent_tid pointer.
- * @param tls Optional TLS value.
- * @param child_tid Optional userspace child_tid pointer.
- * @return Child TID in parent, or a negative errno.
+ * @brief Complete a vfork child after it releases its pre-exec mm.
+ * @param task Task that may own an active vfork completion.
+ *
+ * The operation is idempotent. It has no effect for ordinary clone children.
  */
-ssize_t kernel_clone_from_frame(struct trap_frame *tf, unsigned long flags,
-				uintptr_t child_stack, int *parent_tid,
-				uintptr_t tls, int *child_tid);
+void kernel_clone_complete_vfork(struct task_struct *task);
 
 #endif

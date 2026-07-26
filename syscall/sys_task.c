@@ -23,10 +23,10 @@ static int sys_write_tid(int *uaddr, pid_t tid)
 
 /*
  * SYSCALL_SUPPORT(B): clone
- * Current: supports fork-like clone and a thread subset through kernel_clone;
- * see SYSCALL.md for the clone flag support table.
- * Unsupported errno: namespace, vfork, parent, io, and invalid flag
- * combinations return -EINVAL.
+ * Current: supports fork-like clone, a thread subset, and non-thread vfork
+ * through kernel_clone; see SYSCALL.md for the clone flag support table.
+ * Unsupported errno: namespace, parent, io, CLONE_VFORK | CLONE_THREAD, and
+ * invalid flag combinations return -EINVAL.
  * Future: extend only when a concrete runtime needs a rejected flag.
  */
 ssize_t sys_clone(struct trap_frame *tf)
@@ -64,11 +64,12 @@ abort:
 
 /*
  * SYSCALL_SUPPORT(B): wait4
- * Current: waits for pid -1 or a positive pid and can return rusage;
- * SA_RESTART replays an interrupted wait after its handler returns.
- * Unsupported errno: pid 0, pid < -1, and nonzero options return -EINVAL;
- * no wait target returns -ECHILD.
- * Future: add pgrp waits and WNOHANG/WUNTRACED-style option semantics.
+ * Current: waits for pid -1 or a positive pid, supports WNOHANG, and can
+ * return rusage; SA_RESTART replays an interrupted blocking wait after its
+ * handler returns.
+ * Unsupported errno: pid 0, pid < -1, and options other than WNOHANG return
+ * -EINVAL; no wait target returns -ECHILD.
+ * Future: add pgrp waits and WUNTRACED/WCONTINUED-style option semantics.
  */
 ssize_t sys_wait4(struct trap_frame *tf)
 {
@@ -81,14 +82,15 @@ ssize_t sys_wait4(struct trap_frame *tf)
 
 	if (pid != -1 && pid <= 0)
 		return -EINVAL;
+	ret = kernel_wait4(pid, options, &result);
+	if (ret < 0)
+		return ret;
+	if (result.pid == 0)
+		return 0;
 	if (wstatus && !access_ok(wstatus, sizeof(*wstatus)))
 		return -EFAULT;
 	if (urusage && !access_ok(urusage, sizeof(*urusage)))
 		return -EFAULT;
-
-	ret = kernel_wait4(pid, options, &result);
-	if (ret < 0)
-		return ret;
 
 	if (wstatus &&
 	    copy_to_user(wstatus, &result.status, sizeof(result.status)) != 0)

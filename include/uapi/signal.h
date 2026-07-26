@@ -26,6 +26,7 @@
 #define SIGCHLD 17
 #define SIGCONT 18
 #define SIGSTOP 19
+#define SIGTSTP 20
 #define SIGSYS	31
 
 #define NSIG 32

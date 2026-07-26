@@ -1,153 +1,345 @@
 /*
- * kernel/tty.c - 最小 TTY/session 策略 helper
+ * kernel/tty.c - single-console terminal state and process attachments
  */
 
 #include <kernel/errno.h>
-#include <kernel/signal.h>
+#include <kernel/list.h>
+#include <kernel/slab.h>
+#include <kernel/sync.h>
 #include <kernel/task.h>
 #include <kernel/tty.h>
-#include <uapi/signal.h>
 
-static pid_t console_session;
-static pid_t console_foreground_pgid;
+#include "tty_internal.h"
 
-static struct task_struct *tty_current_leader(void)
+struct tty_endpoint {
+	mutex_t lock;
+	pid_t session;
+	pid_t foreground_pgid;
+	struct list_head attachments;
+};
+
+struct tty_process_attachment {
+	pid_t leader_pid;
+	pid_t session;
+	struct list_head node;
+};
+
+static struct tty_endpoint console_tty = {
+	.lock = MUTEX_INIT(console_tty.lock),
+	.attachments = LIST_HEAD_INIT(console_tty.attachments),
+};
+
+static struct task_struct *tty_task_leader(struct task_struct *task)
 {
-	struct task_struct *leader;
-
-	if (!current_task())
-		return NULL;
-
-	leader = task_group_leader(current_task());
-	if (leader)
-		return leader;
-	return current_task();
+	return task_group_leader_safe(task);
 }
 
-static bool tty_console_has_owner(void)
+static struct tty_process_attachment *
+tty_find_attachment_locked(struct tty_endpoint *tty, pid_t leader_pid)
 {
-	if (console_session <= 0)
-		return false;
-	if (!task_sid_exists(console_session)) {
-		console_session = 0;
-		console_foreground_pgid = 0;
-		return false;
-	}
+	struct tty_process_attachment *attachment;
 
+	list_for_each_entry (attachment, &tty->attachments, node) {
+		if (attachment->leader_pid == leader_pid)
+			return attachment;
+	}
+	return NULL;
+}
+
+static void tty_ctty_state_clear(struct tty_ctty_state *state)
+{
+	if (!state)
+		return;
+	state->sid = 0;
+	state->foreground_pgid = 0;
+}
+
+static void tty_ctty_state_set_locked(struct tty_endpoint *tty,
+				      struct tty_ctty_state *state)
+{
+	if (!state)
+		return;
+	state->sid = tty->session;
+	state->foreground_pgid = tty->foreground_pgid;
+}
+
+static bool tty_has_owner_locked(const struct tty_endpoint *tty)
+{
+	return tty->session > 0;
+}
+
+static bool tty_ctty_owned_by_locked(struct tty_endpoint *tty,
+				     struct task_struct *task, pid_t sid)
+{
+	struct task_struct *leader = tty_task_leader(task);
+	struct tty_process_attachment *attachment;
+
+	if (!leader || sid <= 0 || !tty_has_owner_locked(tty) ||
+	    tty->session != sid)
+		return false;
+	attachment = tty_find_attachment_locked(tty, task_pid(leader));
+	return attachment && attachment->session == sid;
+}
+
+static void
+tty_move_attachment_locked(struct tty_process_attachment *attachment,
+			   struct list_head *released)
+{
+	list_del_init(&attachment->node);
+	list_add_tail(&attachment->node, released);
+}
+
+static void tty_free_attachments(struct list_head *released)
+{
+	struct list_head *pos;
+	struct list_head *next;
+
+	list_for_each_safe (pos, next, released) {
+		struct tty_process_attachment *attachment =
+			list_entry(pos, struct tty_process_attachment, node);
+
+		list_del_init(&attachment->node);
+		kfree(attachment);
+	}
+}
+
+static bool tty_detach_session_locked(struct tty_endpoint *tty,
+				      struct tty_ctty_state *detached,
+				      struct list_head *released)
+{
+	struct list_head *pos;
+	struct list_head *next;
+
+	if (!tty_has_owner_locked(tty))
+		return false;
+	tty_ctty_state_set_locked(tty, detached);
+	list_for_each_safe (pos, next, &tty->attachments) {
+		struct tty_process_attachment *attachment =
+			list_entry(pos, struct tty_process_attachment, node);
+
+		tty_move_attachment_locked(attachment, released);
+	}
+	tty->session = 0;
+	tty->foreground_pgid = 0;
 	return true;
 }
 
-static bool tty_console_owned_by_current(void)
+void tty_console_endpoint_init(void)
 {
-	if (!current_task())
-		return false;
-	if (!tty_console_has_owner())
-		return false;
-
-	return task_sid(current_task()) == console_session;
+	mutex_init(&console_tty.lock);
+	console_tty.session = 0;
+	console_tty.foreground_pgid = 0;
+	INIT_LIST_HEAD(&console_tty.attachments);
 }
 
-void tty_console_init_session(struct task_struct *task)
+struct tty_endpoint *tty_console_endpoint(void)
 {
-	struct task_struct *leader = task_group_leader_safe(task);
+	return &console_tty;
+}
 
+int tty_ctty_clone_attachment(struct task_struct *parent,
+			      struct task_struct *child)
+{
+	struct task_struct *parent_leader = tty_task_leader(parent);
+	struct task_struct *child_leader = tty_task_leader(child);
+	struct tty_process_attachment *parent_attachment;
+	struct tty_process_attachment *child_attachment;
+	pid_t session;
+
+	if (!parent_leader || !child_leader)
+		return -ESRCH;
+
+	mutex_lock(&console_tty.lock);
+	parent_attachment = tty_find_attachment_locked(&console_tty,
+						       task_pid(parent_leader));
+	if (!parent_attachment) {
+		mutex_unlock(&console_tty.lock);
+		return 0;
+	}
+	session = parent_attachment->session;
+	mutex_unlock(&console_tty.lock);
+
+	child_attachment = kzalloc(sizeof(*child_attachment));
+	if (!child_attachment)
+		return -ENOMEM;
+	INIT_LIST_HEAD(&child_attachment->node);
+
+	mutex_lock(&console_tty.lock);
+	parent_attachment = tty_find_attachment_locked(&console_tty,
+						       task_pid(parent_leader));
+	if (parent_attachment && parent_attachment->session == session) {
+		BUG_ON(tty_find_attachment_locked(&console_tty,
+						  task_pid(child_leader)));
+		child_attachment->leader_pid = task_pid(child_leader);
+		child_attachment->session = session;
+		list_add_tail(&child_attachment->node,
+			      &console_tty.attachments);
+		child_attachment = NULL;
+	}
+	mutex_unlock(&console_tty.lock);
+
+	kfree(child_attachment);
+	return 0;
+}
+
+void tty_ctty_remove_task(struct task_struct *task, pid_t sid,
+			  enum tty_ctty_remove_scope scope,
+			  struct tty_ctty_state *detached)
+{
+	LIST_HEAD(released);
+	struct task_struct *leader = tty_task_leader(task);
+	struct tty_process_attachment *attachment;
+
+	tty_ctty_state_clear(detached);
 	if (!leader)
 		return;
 
-	console_session = task_sid(leader);
-	console_foreground_pgid = task_pgid(leader);
+	mutex_lock(&console_tty.lock);
+	attachment = tty_find_attachment_locked(&console_tty, task_pid(leader));
+	if (scope == TTY_CTTY_REVOKE_SESSION && console_tty.session == sid) {
+		(void)tty_detach_session_locked(&console_tty, detached,
+						&released);
+	} else if (attachment && attachment->session == sid) {
+		tty_move_attachment_locked(attachment, &released);
+	}
+	mutex_unlock(&console_tty.lock);
+	tty_free_attachments(&released);
 }
 
-int tty_console_acquire(int steal)
+bool tty_ctty_has_owner(struct tty_endpoint *tty, struct tty_ctty_state *state)
 {
-	struct task_struct *leader = tty_current_leader();
+	bool has_owner;
 
-	if (!leader)
-		return -ESRCH;
-	if (task_sid(leader) != task_pid(leader))
-		return -EPERM;
-	if (tty_console_has_owner() && console_session != task_sid(leader)) {
-		if (steal != 1)
-			return -EPERM;
-		return -EPERM;
+	if (!tty) {
+		tty_ctty_state_clear(state);
+		return false;
 	}
 
-	console_session = task_sid(leader);
-	console_foreground_pgid = task_pgid(leader);
-	return 0;
+	mutex_lock(&tty->lock);
+	has_owner = tty_has_owner_locked(tty);
+	if (has_owner)
+		tty_ctty_state_set_locked(tty, state);
+	else
+		tty_ctty_state_clear(state);
+	mutex_unlock(&tty->lock);
+	return has_owner;
 }
 
-int tty_console_release(void)
+int tty_ctty_claim(struct tty_endpoint *tty, struct task_struct *task,
+		   pid_t sid, pid_t pgid, bool steal,
+		   struct tty_ctty_state *displaced)
 {
-	pid_t old_foreground;
-	bool was_leader;
+	LIST_HEAD(released);
+	struct task_struct *leader = tty_task_leader(task);
+	struct tty_process_attachment *attachment;
+	struct tty_process_attachment *fresh;
+	int ret = 0;
 
-	if (!current_task())
-		return -ESRCH;
-	if (!tty_console_owned_by_current())
-		return -ENOTTY;
+	if (!tty || !leader || sid <= 0 || pgid <= 0)
+		return -EINVAL;
 
-	old_foreground = console_foreground_pgid;
-	was_leader = task_sid(current_task()) == task_pid(tty_current_leader());
-	console_session = 0;
-	console_foreground_pgid = 0;
+	fresh = kzalloc(sizeof(*fresh));
+	if (!fresh)
+		return -ENOMEM;
+	INIT_LIST_HEAD(&fresh->node);
+	tty_ctty_state_clear(displaced);
 
-	if (was_leader && old_foreground > 0) {
-		(void)send_pgrp_signal(SIGHUP, old_foreground);
-		(void)send_pgrp_signal(SIGCONT, old_foreground);
+	mutex_lock(&tty->lock);
+	if (tty_has_owner_locked(tty) && tty->session != sid) {
+		if (!steal) {
+			ret = -EBUSY;
+			goto out;
+		}
+		(void)tty_detach_session_locked(tty, displaced, &released);
 	}
-
-	return 0;
+	attachment = tty_find_attachment_locked(tty, task_pid(leader));
+	if (!attachment) {
+		fresh->leader_pid = task_pid(leader);
+		fresh->session = sid;
+		list_add_tail(&fresh->node, &tty->attachments);
+		attachment = fresh;
+		fresh = NULL;
+	}
+	attachment->session = sid;
+	tty->session = sid;
+	tty->foreground_pgid = pgid;
+out:
+	mutex_unlock(&tty->lock);
+	tty_free_attachments(&released);
+	kfree(fresh);
+	return ret;
 }
 
-int tty_console_get_foreground_pgid(pid_t *pgid)
+bool tty_ctty_owned_by(struct tty_endpoint *tty, struct task_struct *task,
+		       pid_t sid)
 {
-	if (!pgid)
-		return -EINVAL;
-	if (!tty_console_owned_by_current())
-		return -ENOTTY;
+	bool owned;
 
-	*pgid = console_foreground_pgid;
-	return 0;
+	if (!tty)
+		return false;
+	mutex_lock(&tty->lock);
+	owned = tty_ctty_owned_by_locked(tty, task, sid);
+	mutex_unlock(&tty->lock);
+	return owned;
 }
 
-int tty_console_set_foreground_pgid(pid_t pgid)
+int tty_ctty_get_foreground_pgid(struct tty_endpoint *tty,
+				 struct task_struct *task, pid_t sid,
+				 pid_t *pgid)
 {
-	if (!tty_console_owned_by_current())
-		return -ENOTTY;
-	if (pgid <= 0)
-		return -EINVAL;
-	if (!task_pgid_in_session(pgid, console_session))
-		return -EPERM;
+	int ret = 0;
 
-	console_foreground_pgid = pgid;
-	return 0;
+	if (!tty || !pgid)
+		return -EINVAL;
+
+	mutex_lock(&tty->lock);
+	if (!tty_ctty_owned_by_locked(tty, task, sid))
+		ret = -ENOTTY;
+	else
+		*pgid = tty->foreground_pgid;
+	mutex_unlock(&tty->lock);
+	return ret;
 }
 
-int tty_console_get_sid(pid_t *sid)
+int tty_ctty_set_foreground_pgid(struct tty_endpoint *tty,
+				 struct task_struct *task, pid_t sid,
+				 pid_t pgid)
 {
-	if (!sid)
-		return -EINVAL;
-	if (!tty_console_owned_by_current())
-		return -ENOTTY;
+	int ret = 0;
 
-	*sid = console_session;
-	return 0;
+	if (!tty)
+		return -EINVAL;
+
+	mutex_lock(&tty->lock);
+	if (!tty_ctty_owned_by_locked(tty, task, sid))
+		ret = -ENOTTY;
+	else
+		tty->foreground_pgid = pgid;
+	mutex_unlock(&tty->lock);
+	return ret;
 }
 
-int tty_deliver_signal(int sig)
+int tty_ctty_snapshot_foreground(struct tty_endpoint *tty,
+				 struct tty_ctty_state *state)
 {
-	struct task_struct *target;
+	int ret = 0;
 
-	if (!signal_is_valid(sig))
+	if (!tty || !state)
 		return -EINVAL;
 
-	if (console_foreground_pgid > 0)
-		return send_pgrp_signal(sig, console_foreground_pgid);
+	mutex_lock(&tty->lock);
+	if (!tty_has_owner_locked(tty))
+		ret = -ESRCH;
+	else
+		tty_ctty_state_set_locked(tty, state);
+	mutex_unlock(&tty->lock);
+	return ret;
+}
 
-	target = tty_current_leader();
-	if (!target)
-		return -ESRCH;
-
-	return send_group_signal(sig, target);
+void tty_ctty_clear_foreground_if(pid_t sid, pid_t pgid)
+{
+	mutex_lock(&console_tty.lock);
+	if (console_tty.session == sid && console_tty.foreground_pgid == pgid)
+		console_tty.foreground_pgid = 0;
+	mutex_unlock(&console_tty.lock);
 }

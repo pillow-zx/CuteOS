@@ -12,7 +12,8 @@ cuteOS 是一个面向 RISC-V 64 QEMU `virt` 平台的教学/实验 Unix-like �
 - CPU：只启动 hart 0，`NR_CPUS` 结构保留但在线 CPU 为 1。
 - 内核抢占：非抢占内核。timer tick 只在安全点触发调度。
 - 用户抢占：用户态返回 trap 时可根据 `need_resched` 切换。
-- I/O：UART 和 virtio-blk 都以轮询为主。
+- I/O：UART 和 virtio-blk 都以轮询为主；TTY console 无输入时通过通用等待模块按
+  tick 休眠，避免内核态 UART busy-wait 饿死其它任务。
 - 文件系统：virtio-blk major 8 minor 0 是启动根块设备；VFS 在启动时探测
   已注册文件系统类型并挂载匹配的根文件系统，当前构建镜像为 ext2。
 - 用户 ABI：系统调用号、结构布局和 errno 以 Linux riscv64/uapi 语义为边界。
@@ -33,7 +34,7 @@ flowchart TB
     VFS["fs/vfs<br/>path / fd / inode / file / mount"]
     Ext2["fs/ext2<br/>磁盘格式与 inode/block 映射"]
     Block["block<br/>blkdev / page cache / virtio-blk"]
-    Drivers["drivers<br/>UART / console / virtio MMIO"]
+    Drivers["drivers<br/>UART / virtio MMIO"]
     Arch["arch/riscv<br/>boot / trap / pgtable / switch / timer"]
     HW["QEMU virt + OpenSBI"]
 
@@ -79,7 +80,7 @@ block
   块设备注册、page cache、writeback、virtio-blk
 
 drivers
-  UART、console、virtio MMIO 基础定义
+  UART、virtio MMIO transport
 
 lib
   基础字符串、列表、位操作、哈希等内核工具
@@ -106,8 +107,8 @@ OpenSBI
   -> virtio-blk 注册块设备
   -> VFS 探测并挂载 rootfs
   -> kernel_thread(init_process)
-  -> exec_user_path("/bin/init")
-  -> 用户态 /bin/init
+  -> exec_user_path("/sbin/init")
+  -> 用户态 BusyBox /sbin/init
 ```
 
 启动期先使用 SBI console 输出，正式页表和 UART MMIO 初始化后切换到轮询 UART console。内存分配从 early bump allocator 过渡到 buddy，再到 slab/vmalloc。

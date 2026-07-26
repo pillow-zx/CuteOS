@@ -51,7 +51,8 @@ void release_task(struct task_struct *task);
  * @param pid pid selector accepted by the current implementation.
  * @param options Linux wait options.
  * @param result Output result; finalized by kernel_wait4_finish().
- * @return Child pid, 0 for WNOHANG no-child-ready, or a negative errno.
+ * @return 0 when @p result was filled (including a WNOHANG empty result), or
+ * a negative errno.
  */
 int kernel_wait4(pid_t pid, int options, struct wait4_result *result);
 

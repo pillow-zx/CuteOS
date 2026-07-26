@@ -11,17 +11,15 @@
 
 /*
  * SYSCALL_SUPPORT(B): kill
- * Current: delivers to a positive pid.
- * Unsupported errno: pid <= 0 returns -EINVAL; missing target returns -ESRCH.
- * Future: add pid 0, -1, process-group, and permission semantics.
+ * Current: delivers to a positive pid or all eligible processes for pid -1.
+ * Unsupported errno: pid 0 and pid < -1 return -EINVAL; a missing target set
+ * returns -ESRCH.
+ * Future: add pid 0, process-group, and permission semantics.
  */
 ssize_t sys_kill(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);
 	int sig = (int)syscall_arg(tf, 1);
-
-	if (pid <= 0)
-		return -EINVAL;
 
 	return do_kill(pid, sig);
 }
@@ -103,7 +101,8 @@ ssize_t sys_sigaltstack(struct trap_frame *tf)
 ssize_t sys_sigaction(struct trap_frame *tf)
 {
 	int sig = (int)syscall_arg(tf, 0);
-	const struct sigaction *act = (const struct sigaction *)syscall_arg(tf, 1);
+	const struct sigaction *act =
+		(const struct sigaction *)syscall_arg(tf, 1);
 	struct sigaction *oldact = (struct sigaction *)syscall_arg(tf, 2);
 	size_t sigsetsize = (size_t)syscall_arg(tf, 3);
 	struct sigaction kact;
@@ -166,6 +165,40 @@ ssize_t sys_sigprocmask(struct trap_frame *tf)
 	if (copy_from_user(&newset, set, sizeof(newset)) != 0)
 		return -EFAULT;
 	return do_sigprocmask(how, &newset, NULL);
+}
+
+/*
+ * SYSCALL_SUPPORT(B): rt_sigtimedwait
+ * Current: consumes thread-private or shared standard signals, waits with an
+ * optional relative timeout, returns siginfo, and is interrupted by an
+ * unrelated deliverable signal.
+ * Unsupported: real-time signals 32..64 and queued duplicate instances.
+ * Future: extend the signal model only when a real workload needs RT signals.
+ */
+ssize_t sys_sigtimedwait(struct trap_frame *tf)
+{
+	const uint64_t *uset = (const uint64_t *)syscall_arg(tf, 0);
+	siginfo_t *uinfo = (siginfo_t *)syscall_arg(tf, 1);
+	const struct timespec *utimeout =
+		(const struct timespec *)syscall_arg(tf, 2);
+	size_t sigsetsize = (size_t)syscall_arg(tf, 3);
+	struct timespec timeout;
+	siginfo_t info;
+	uint64_t set;
+	int ret;
+
+	if (sigsetsize != sizeof(uint64_t))
+		return -EINVAL;
+	if (copy_from_user(&set, uset, sizeof(set)) != 0)
+		return -EFAULT;
+	if (utimeout &&
+	    copy_from_user(&timeout, utimeout, sizeof(timeout)) != 0)
+		return -EFAULT;
+
+	ret = signal_wait_pending(set, utimeout ? &timeout : NULL, &info);
+	if (ret > 0 && uinfo && copy_to_user(uinfo, &info, sizeof(info)) != 0)
+		return -EFAULT;
+	return ret;
 }
 
 /*

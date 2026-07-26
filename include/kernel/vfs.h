@@ -48,11 +48,10 @@ int __must_check path_parent_lookupat_path(const struct path *base,
 					   const char *path, char *name,
 					   size_t *namelen, struct path *res);
 int __must_check vfs_at_lookup(int dfd, const char *path, int at_flags,
-				       uint32_t lookup_flags,
-				       struct vfs_at_lookup_result *res);
+			       uint32_t lookup_flags,
+			       struct vfs_at_lookup_result *res);
 void vfs_at_lookup_put(struct vfs_at_lookup_result *res);
-int __must_check vfs_at_base_path(int dfd, const char *path,
-					 struct path *res);
+int __must_check vfs_at_base_path(int dfd, const char *path, struct path *res);
 int __must_check vfs_init_inode_owner(struct inode *inode);
 int __must_check vfs_inode_permission(struct inode *inode, uint32_t mask);
 int __must_check vfs_readlink(struct dentry *dentry, char *buf, size_t size);
@@ -81,6 +80,7 @@ void path_put(struct path *path);
 int __must_check vfs_root_path(struct path *path);
 int __must_check vfs_path_from_dentry(struct dentry *dentry, struct path *path);
 int __must_check vfs_mount_root(dev_t dev);
+int __must_check vfs_sync_all(void);
 int __must_check vfs_mount(const char *source, const char *target,
 			   const char *type, unsigned long flags,
 			   const void *data);

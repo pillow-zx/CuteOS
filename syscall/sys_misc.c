@@ -18,8 +18,11 @@
 #include <uapi/random.h>
 #include <uapi/sysinfo.h>
 #include <uapi/utsname.h>
-#include <kernel/page.h>
+#include <kernel/printk.h>
+#include <kernel/reboot.h>
 #include <kernel/trap.h>
+#include <kernel/vfs.h>
+#include <uapi/reboot.h>
 
 #define GRND_VALID_FLAGS (GRND_NONBLOCK | GRND_RANDOM | GRND_INSECURE)
 
@@ -41,6 +44,62 @@ static void uts_copy(char dst[UTS_FIELD_LEN], const char *src)
 	size_t len = strnlen(src, UTS_FIELD_LEN - 1);
 	memcpy(dst, src, len);
 	dst[len] = '\0';
+}
+
+/*
+ * SYSCALL_SUPPORT(B): sync
+ * Current: synchronously writes all dirty page-cache data and reports success,
+ * matching Linux sync(2)'s lack of an error result.
+ * Unsupported: no per-superblock writeback accounting or error reporting.
+ * Future: preserve the syscall contract as writeback grows more asynchronous.
+ */
+ssize_t sys_sync(struct trap_frame *tf)
+{
+	int ret;
+
+	(void)tf;
+	ret = vfs_sync_all();
+	if (ret < 0)
+		pr_warn("sync: VFS writeback failed (%d)\n", ret);
+	return 0;
+}
+
+static bool reboot_magic2_valid(unsigned int magic)
+{
+	return magic == LINUX_REBOOT_MAGIC2 || magic == LINUX_REBOOT_MAGIC2A ||
+	       magic == LINUX_REBOOT_MAGIC2B || magic == LINUX_REBOOT_MAGIC2C;
+}
+
+/*
+ * SYSCALL_SUPPORT(B): reboot
+ * Current: validates Linux magic values, maps commands to the kernel reboot
+ * service, and leaves authorization and platform dispatch to that service.
+ * Unsupported errno: other commands return -EINVAL.
+ * Future: add restart2 only when boot-command storage exists.
+ */
+ssize_t sys_reboot(struct trap_frame *tf)
+{
+	unsigned int magic1 = (unsigned int)syscall_arg(tf, 0);
+	unsigned int magic2 = (unsigned int)syscall_arg(tf, 1);
+	unsigned int command = (unsigned int)syscall_arg(tf, 2);
+
+	if (magic1 != LINUX_REBOOT_MAGIC1 || !reboot_magic2_valid(magic2))
+		return -EINVAL;
+
+	switch (command) {
+	case LINUX_REBOOT_CMD_CAD_OFF:
+		return kernel_reboot(KERNEL_REBOOT_CAD_OFF);
+	case LINUX_REBOOT_CMD_CAD_ON:
+		return kernel_reboot(KERNEL_REBOOT_CAD_ON);
+	case LINUX_REBOOT_CMD_RESTART:
+		return kernel_reboot(KERNEL_REBOOT_RESTART);
+	case LINUX_REBOOT_CMD_HALT:
+		return kernel_reboot(KERNEL_REBOOT_HALT);
+	case LINUX_REBOOT_CMD_POWER_OFF:
+		return kernel_reboot(KERNEL_REBOOT_POWER_OFF);
+	default:
+		return -EINVAL;
+	}
 }
 
 ssize_t sys_uname(struct trap_frame *tf)
@@ -206,6 +265,8 @@ ssize_t sys_prlimit64(struct trap_frame *tf)
 	struct task_struct *task;
 	struct signal_struct *signal;
 	struct rlimit64 new_limit;
+	bool put_task = false;
+	ssize_t ret = 0;
 
 	if (resource < 0 || resource >= RLIM_NLIMITS)
 		return -EINVAL;
@@ -216,22 +277,31 @@ ssize_t sys_prlimit64(struct trap_frame *tf)
 		task = current_task();
 	} else {
 		task = task_find_group_leader(pid);
+		put_task = true;
 		if (!task)
 			return -ESRCH;
 		if (!current_task() ||
-		    task_tgid(task) != task_tgid(current_task()))
-			return -EPERM;
+		    task_tgid(task) != task_tgid(current_task())) {
+			ret = -EPERM;
+			goto out;
+		}
 	}
 
 	signal = task_signal_state(task);
-	if (!signal)
-		return -ESRCH;
+	if (!signal) {
+		ret = -ESRCH;
+		goto out;
+	}
 
 	if (unew) {
-		if (copy_from_user(&new_limit, unew, sizeof(new_limit)) != 0)
-			return -EFAULT;
-		if (new_limit.rlim_cur > new_limit.rlim_max)
-			return -EINVAL;
+		if (copy_from_user(&new_limit, unew, sizeof(new_limit)) != 0) {
+			ret = -EFAULT;
+			goto out;
+		}
+		if (new_limit.rlim_cur > new_limit.rlim_max) {
+			ret = -EINVAL;
+			goto out;
+		}
 	}
 
 	mutex_lock(&signal->lock);
@@ -239,15 +309,20 @@ ssize_t sys_prlimit64(struct trap_frame *tf)
 		struct rlimit64 old = signal->rlimits[resource];
 
 		mutex_unlock(&signal->lock);
-		if (copy_to_user(uold, &old, sizeof(old)) != 0)
-			return -EFAULT;
+		if (copy_to_user(uold, &old, sizeof(old)) != 0) {
+			ret = -EFAULT;
+			goto out;
+		}
 		mutex_lock(&signal->lock);
 	}
 	if (unew)
 		signal->rlimits[resource] = new_limit;
 	mutex_unlock(&signal->lock);
 
-	return 0;
+out:
+	if (put_task)
+		task_put(task);
+	return ret;
 }
 
 /*

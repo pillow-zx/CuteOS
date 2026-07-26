@@ -193,12 +193,14 @@ int send_group_signal(int sig, struct task_struct *leader);
 int send_group_signal_info(int sig, const siginfo_t *info,
 			   struct task_struct *leader);
 int send_pgrp_signal(int sig, pid_t pgid);
+int send_session_pgrp_signal(int sig, pid_t pgid, pid_t sid);
 int send_current_signal(int sig);
 int force_signal(int sig, struct task_struct *task);
 int force_signal_info(int sig, const siginfo_t *info, struct task_struct *task);
 int signal_pending_info(const struct task_struct *task, int sig,
 			siginfo_t *info);
 bool signal_pending(struct task_struct *task);
+bool signal_fatal_pending(struct task_struct *task);
 int signals_init(struct task_struct *task);
 int signals_clone(struct task_struct *child, bool share_sighand,
 		  bool share_signal, bool disable_altstack);
@@ -272,6 +274,19 @@ int do_sigaction(int sig, const struct sigaction *act,
  * @return 0 on success, or a negative errno.
  */
 int do_sigprocmask(int how, const uint64_t *set, uint64_t *oldset);
+
+/**
+ * @brief Synchronously consume or wait for a pending signal in a set.
+ * @param set Signals accepted by the wait.
+ * @param timeout Optional relative timeout; NULL waits indefinitely.
+ * @param info Consumed signal information.
+ * @return Signal number on success, or a negative errno.
+ */
+int __must_check __nonnull(3) __access_no_size(read_only, 2)
+	__access_no_size(write_only, 3)
+		signal_wait_pending(uint64_t set,
+				    const struct timespec *timeout,
+				    siginfo_t *info);
 
 /**
  * @brief Restore a userspace context from a signal frame.

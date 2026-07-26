@@ -11,9 +11,12 @@
 #include <kernel/printk.h>
 #include <kernel/rseq.h>
 #include <kernel/sched.h>
+#include <kernel/session.h>
 #include <kernel/signal.h>
 #include <kernel/task.h>
 #include <uapi/sched.h>
+
+#include "task_internal.h"
 
 constexpr uint64_t CLONE_EXIT_SIGNAL_MASK = 0xffULL;
 
@@ -22,16 +25,15 @@ constexpr uint64_t KNOWN_CLONE_FLAGS =
 	CLONE_SIGHAND | CLONE_PIDFD | CLONE_PTRACE | CLONE_VFORK |
 	CLONE_PARENT | CLONE_THREAD | CLONE_NEWNS | CLONE_SYSVSEM |
 	CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID |
-	CLONE_DETACHED | CLONE_UNTRACED | CLONE_CHILD_SETTID |
-	CLONE_NEWCGROUP | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWUSER |
-	CLONE_NEWPID | CLONE_NEWNET | CLONE_IO | CLONE_CLEAR_SIGHAND |
-	CLONE_INTO_CGROUP;
+	CLONE_DETACHED | CLONE_UNTRACED | CLONE_CHILD_SETTID | CLONE_NEWCGROUP |
+	CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWUSER | CLONE_NEWPID |
+	CLONE_NEWNET | CLONE_IO | CLONE_CLEAR_SIGHAND | CLONE_INTO_CGROUP;
 
 constexpr uint64_t UNSUPPORTED_CLONE_FLAGS =
-	CLONE_NEWTIME | CLONE_PIDFD | CLONE_PTRACE | CLONE_VFORK |
-	CLONE_PARENT | CLONE_NEWNS | CLONE_NEWCGROUP | CLONE_NEWUTS |
-	CLONE_NEWIPC | CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNET |
-	CLONE_IO | CLONE_CLEAR_SIGHAND | CLONE_INTO_CGROUP;
+	CLONE_NEWTIME | CLONE_PIDFD | CLONE_PTRACE | CLONE_PARENT |
+	CLONE_NEWNS | CLONE_NEWCGROUP | CLONE_NEWUTS | CLONE_NEWIPC |
+	CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNET | CLONE_IO |
+	CLONE_CLEAR_SIGHAND | CLONE_INTO_CGROUP;
 
 constexpr uint64_t THREAD_ONLY_CLONE_FLAGS =
 	CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_SETTLS;
@@ -51,10 +53,13 @@ static int validate_clone_flags(unsigned long flags, uintptr_t child_stack)
 		return -EINVAL;
 	if ((flags & CLONE_SIGHAND) && !(flags & CLONE_VM))
 		return -EINVAL;
+	if ((flags & CLONE_VFORK) && (flags & CLONE_THREAD))
+		return -EINVAL;
 
 	if ((flags & CLONE_VM) && child_stack == 0)
 		return -EINVAL;
-	if ((flags & CLONE_VM) && !(flags & CLONE_SIGHAND))
+	if ((flags & CLONE_VM) && !(flags & CLONE_SIGHAND) &&
+	    !(flags & CLONE_VFORK))
 		return -EINVAL;
 	if ((flags & CLONE_THREAD) && !(flags & CLONE_VM))
 		return -EINVAL;
@@ -79,6 +84,7 @@ static void child_cleanup(struct task_struct *child)
 	if (!child)
 		return;
 
+	session_process_abort(child);
 	close_files(child);
 	exit_fs(child);
 	signals_release(child);
@@ -137,8 +143,6 @@ static void clone_setup_task_links(struct task_struct *child,
 				   unsigned long flags)
 {
 	child->lifecycle.exit_signal = (int)(flags & CLONE_EXIT_SIGNAL_MASK);
-	task_set_pgid(child, task_pgid(current_task()));
-	task_set_sid(child, task_sid(current_task()));
 	if (clone_wants_thread(flags)) {
 		struct task_struct *leader = task_group_leader(current_task());
 
@@ -164,6 +168,49 @@ static void clone_link_task(struct task_struct *child, unsigned long flags)
 		list_add(&child->links.sibling, task_children(current_task()));
 }
 
+static void clone_setup_vfork(struct task_struct *child, unsigned long flags)
+{
+	if (!(flags & CLONE_VFORK))
+		return;
+
+	child->vfork.lock.locked = 0;
+	wait_channel_init(&child->vfork.completion_wait);
+	child->vfork.active = true;
+	child->vfork.completed = false;
+}
+
+static int clone_vfork_probe(struct wait_session *session, void *arg)
+{
+	struct task_vfork_context *vfork = arg;
+	irq_flags_t flags;
+	int ret = 0;
+
+	spin_lock_irqsave(&vfork->lock, &flags);
+	if (vfork->completed)
+		ret = 1;
+	else
+		ret = wait_session_watch(session, &vfork->completion_wait);
+	spin_unlock_irqrestore(&vfork->lock, flags);
+	return ret;
+}
+
+static void clone_wait_for_vfork(struct task_struct *child)
+{
+	const struct wait_deadline deadline = wait_deadline_none();
+	struct wait_request source = {
+		.kind = WAIT_KIND_GENERIC,
+		.check = clone_vfork_probe,
+		.arg = &child->vfork,
+		.channel_limit = 1,
+	};
+	wait_outcome_t outcome;
+	int ret;
+
+	ret = wait_for(&source, WAIT_FLAG_KILLABLE, &deadline, &outcome);
+	BUG_ON(ret < 0);
+	BUG_ON(outcome != WAIT_OUTCOME_EVENT && outcome != WAIT_OUTCOME_SIGNAL);
+}
+
 int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
 			 uintptr_t child_stack, uintptr_t tls,
 			 int *clear_child_tid, struct kernel_clone *clone)
@@ -182,6 +229,7 @@ int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
 	child = task_alloc();
 	if (!child)
 		return -ENOMEM;
+	task_inherit_process_role(child, current_task());
 
 	ret = clone_setup_mm(child, flags);
 	if (ret < 0) {
@@ -202,6 +250,13 @@ int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
 
 	rseq_clone(child, current_task(), flags);
 	clone_setup_task_links(child, flags);
+	ret = session_process_clone_prepare(child, current_task(),
+					    clone_wants_thread(flags));
+	if (ret < 0) {
+		child_cleanup(child);
+		return ret;
+	}
+	clone_setup_vfork(child, flags);
 	clone->task = child;
 	clone->flags = flags;
 	clone->pid = task_pid(child);
@@ -211,14 +266,19 @@ int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
 pid_t kernel_clone_commit(struct kernel_clone *clone)
 {
 	struct task_struct *child;
+	bool wait_for_vfork;
 
 	if (!clone || !clone->task)
 		return -EINVAL;
 
 	child = clone->task;
+	wait_for_vfork = (clone->flags & CLONE_VFORK) != 0;
 	clone_link_task(child, clone->flags);
+	task_publish(child);
 	sched_enqueue(child);
 	clone->task = NULL;
+	if (wait_for_vfork)
+		clone_wait_for_vfork(child);
 	return clone->pid;
 }
 
@@ -231,19 +291,23 @@ void kernel_clone_abort(struct kernel_clone *clone)
 	clone->task = NULL;
 }
 
-ssize_t kernel_clone_from_frame(struct trap_frame *tf, unsigned long flags,
-				uintptr_t child_stack, int *parent_tid,
-				uintptr_t tls, int *child_tid)
+void kernel_clone_complete_vfork(struct task_struct *task)
 {
-	struct kernel_clone clone;
-	int ret;
+	struct task_vfork_context *vfork;
+	irq_flags_t flags;
+	bool wake = false;
 
-	(void)parent_tid;
-	(void)child_tid;
+	if (!task || !task->vfork.active)
+		return;
+	vfork = &task->vfork;
 
-	ret = kernel_clone_prepare(tf, flags, child_stack, tls, NULL, &clone);
-	if (ret < 0)
-		return ret;
+	spin_lock_irqsave(&vfork->lock, &flags);
+	if (!vfork->completed) {
+		vfork->completed = true;
+		wake = true;
+	}
+	spin_unlock_irqrestore(&vfork->lock, flags);
 
-	return kernel_clone_commit(&clone);
+	if (wake)
+		wait_channel_wake_all(&vfork->completion_wait);
 }

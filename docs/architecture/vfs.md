@@ -416,9 +416,32 @@ int vfs_register_chrdev(dev_t dev,
 const struct file_operations *vfs_chrdev_fops(dev_t dev);
 ```
 
-`console_chrdev_init()` 注册 `/dev/console` 使用的 file operations。ext2 中设备特殊文件的 `i_rdev` 通过 VFS 找到对应字符设备 fops。
+`tty_console_init()` 由 TTY module 注册 `/dev/console` 的 file operations。ext2 中设备特殊文件的 `i_rdev` 通过 VFS 找到对应字符设备 fops。
 
-terminal/tty 行为在 `kernel/tty.c` 和 console driver 中实现，VFS 只负责把 open/read/write/ioctl 路由到 file operations。当前 `/dev/console` 是 single-console 模型：console fops 支持 termios、winsize、controlling tty、foreground process group 和 session id 相关 ioctl；完整 pty、serial、后台读写、orphaned process group 和 hangup 语义仍不属于 VFS。
+terminal/tty 行为在 `kernel/tty.c` 和 `kernel/tty_console.c` 中实现，VFS 只负责把
+open/read/write/ioctl 路由到 file operations。当前 `/dev/console` 同时是系统
+console 和唯一 UART terminal；这是相对 Linux“系统 console 不必等于某个唯一
+terminal”的明确兼容偏差。
+
+console fops 支持 termios、winsize、controlling TTY、foreground process group
+和 session id 相关 ioctl。TTY module 以线程组 leader PID 为键管理唯一 console 的
+controlling-TTY attachment、terminal session owner 和 foreground PGID，并以自己的
+mutex 串行化状态转换。attachment 不保存 task 反向指针，也不进入
+`task_resources`；SID/PGID 的读写属于 task/process module，跨 subsystem 读取通过
+其受锁 snapshot interface 完成。TTY 在锁内快照
+foreground `(SID, PGID)`，在锁外让 signal module 以 lifecycle-pinned PID lookup
+投递信号，因此 VFS/file 不复制这两类策略状态，signal module 也不保存 terminal
+指针。完整 pty、额外 serial terminal、`/dev/tty`、后台读写限制、orphaned process
+group 和完整 hangup 规则仍不属于当前模型。
+
+UART 仍是 polling transport。PID 1 创建后，TTY module 启动一个普通内核线程；它通过
+`wait_for()` 的一个 tick deadline 醒来，drain UART 并在 TTY-owned 受锁输入状态中
+执行 termios 行规程、echo 和前台进程组信号投递；`VSUSP` 会投递 `SIGTSTP`。
+时钟中断只执行通用 timer/wakeup，
+不直接访问 UART 或运行 TTY 策略。TTY console `read()` 和 `poll()` 都以该输入状态的
+同一个 wait channel 作为 readiness source：canonical 模式须有完整 record 或 EOF，
+noncanonical 模式须至少有一个缓冲字节。当前交互输入的可见延迟上界约为一个 10ms
+scheduler tick；高吞吐串口流仍受 polling 周期与 UART FIFO 限制。
 
 ## poll
 

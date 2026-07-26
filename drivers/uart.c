@@ -44,9 +44,9 @@ void uart_putc(int ch)
 	uart_write_reg(UART_THR, (uint8_t)ch);
 }
 
-int uart_getc(void)
+int uart_try_getc(void)
 {
-	while (!(uart_read_reg(UART_LSR) & UART_LSR_DR))
-		;
+	if (!(uart_read_reg(UART_LSR) & UART_LSR_DR))
+		return -1;
 	return uart_read_reg(UART_RBR);
 }

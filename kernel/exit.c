@@ -5,6 +5,7 @@
 #include <kernel/exit.h>
 #include <kernel/errno.h>
 #include <kernel/fdtable.h>
+#include <kernel/fork.h>
 #include <kernel/futex.h>
 #include <kernel/fs_struct.h>
 #include <kernel/list.h>
@@ -12,12 +13,14 @@
 #include <kernel/printk.h>
 #include <kernel/resource.h>
 #include <kernel/sched.h>
+#include <kernel/session.h>
 #include <kernel/signal.h>
 #include <kernel/task.h>
 #include <kernel/syscall.h>
 #include <kernel/wait.h>
 #include <kernel/processor.h>
 #include <kernel/pgtable.h>
+#include <uapi/wait.h>
 
 #define WEXITCODE(code) ((code) << 8)
 
@@ -87,7 +90,8 @@ static int wait4_probe(struct wait_session *session, void *arg)
 	if (!has_wait_target(pid) || find_waitable_child(pid))
 		return 1;
 
-	ret = wait_session_watch(session, task_wait_child_queue(current_task()));
+	ret = wait_session_watch(session,
+				 task_wait_child_queue(current_task()));
 	if (ret < 0)
 		return ret;
 
@@ -109,7 +113,8 @@ static void reparent_children(struct task_struct *dead)
 			      &child->links.parent->links.children);
 
 		if (child->lifecycle.state == TASK_ZOMBIE)
-			wait_channel_wake_one(&child->links.parent->links.wait_child_queue);
+			wait_channel_wake_one(
+				&child->links.parent->links.wait_child_queue);
 	}
 }
 
@@ -166,8 +171,10 @@ static void __nonnull(1)
 	clear_child_tid(task);
 	close_files(task);
 	exit_fs(task);
+	session_process_exit(task);
 	signals_release(task);
 	release_task_mm(task);
+	kernel_clone_complete_vfork(task);
 
 	if (task_is_group_leader(task))
 		reparent_children(task);
@@ -193,7 +200,8 @@ static void __nonnull(1)
 		info.si_status = code;
 		send_signal_info(task->lifecycle.exit_signal, &info,
 				 task->links.parent);
-		wait_channel_wake_one(&task->links.parent->links.wait_child_queue);
+		wait_channel_wake_one(
+			&task->links.parent->links.wait_child_queue);
 	}
 }
 
@@ -298,7 +306,8 @@ void release_task(struct task_struct *task)
 	if (!list_empty(&task->sched.run_list))
 		sched_dequeue(task);
 	task_set_state(task, TASK_DEAD);
-	task_free(task);
+	task_unpublish(task);
+	task_put(task);
 }
 
 int kernel_wait4(pid_t pid, int options, struct wait4_result *result)
@@ -316,10 +325,11 @@ int kernel_wait4(pid_t pid, int options, struct wait4_result *result)
 
 	if (pid != (pid_t)-1 && pid <= 0)
 		return -EINVAL;
-	if (options != 0)
+	if (options & ~WNOHANG)
 		return -EINVAL;
 	if (!result)
 		return -EINVAL;
+	memset(result, 0, sizeof(*result));
 
 	while (true) {
 		if (!has_wait_target(pid))
@@ -327,8 +337,10 @@ int kernel_wait4(pid_t pid, int options, struct wait4_result *result)
 
 		struct task_struct *child = find_waitable_child(pid);
 		if (!child) {
-			int ret = wait_for(&source, 0, &deadline,
-						&outcome);
+			if (options & WNOHANG)
+				return 0;
+
+			int ret = wait_for(&source, 0, &deadline, &outcome);
 			if (ret < 0)
 				return ret;
 			BUG_ON(outcome != WAIT_OUTCOME_EVENT);

@@ -45,10 +45,10 @@ CSR、页表、trap、timer、IPI 与平台设备访问留在 `arch/` 或明确�
 ## 当前能力与边界
 
 系统已具备 OpenSBI 启动、virtio-blk/ext2 根文件系统、VFS、进程和线程子集、
-信号、futex、匿名及文件映射、poll/epoll 兼容入口，以及内置 shell、命令和
-用户态测试程序。
+信号、futex、匿名及文件映射、poll/epoll 兼容入口，以及静态 musl BusyBox
+用户态。
 
-`include/kernel/syscall_table.h` 当前安装 110 个 Linux riscv64 syscall
+`include/kernel/syscall_table.h` 当前安装 115 个 Linux riscv64 syscall
 入口。入口存在不等于完整 Linux 兼容；[SYSCALL.md](SYSCALL.md) 的 A/B/C/D
 矩阵才是支持承诺和后续优先级的来源。
 
@@ -58,36 +58,30 @@ CSR、页表、trap、timer、IPI 与平台设备访问留在 `arch/` 或明确�
 
 ## 快速开始
 
-需要 RISC-V GCC 15+、QEMU 7.2+、`e2fsprogs` 和 `bc`。BusyBox profile
-额外要求 Zig 0.16+，用于生成严格 `lp64` 的 compiler-rt builtins。可通过
-`TOOLPREFIX=<prefix>` 指定交叉工具链。
+需要 RISC-V GCC 15+、QEMU 7.2+、`e2fsprogs`、`bc` 和 Zig 0.16+。Zig 用于
+生成严格 `lp64` 的 compiler-rt builtins。可通过 `TOOLPREFIX=<prefix>` 指定
+交叉工具链。
 
 ```sh
 make defconfig
 make qemu
 ```
 
-默认 profile 使用项目 minimal libc、内置 shell、命令和 ABI 测试程序。要使用
-静态 musl BusyBox：
-
-```sh
-make busybox_defconfig
-make qemu
-```
-
-BusyBox profile 仍由项目 minimal-libc `/init` 作为 PID 1，只将 `/bin/sh` 和
-用户命令切换为 BusyBox。两种 profile 都只生成 static、non-PIE、soft-float
-`lp64` ELF。用户态 ISA 固定为 `rv64imac_zicsr_zifencei`，禁止生成 F/D 指令；
-浮点需求由 Zig compiler-rt soft-float builtins 处理。动态链接、PIE 和用户 FPU
-上下文不属于当前运行时路线。
+用户态固定为静态 musl BusyBox：其 `/sbin/init` 作为 PID 1，读取
+`/etc/inittab`，启动并监管交互式 `/bin/sh`，并安装 `kill`、`halt`、
+`poweroff`、`reboot` 以驱动完整 init 关机链路。用户态只生成 static、non-PIE、
+soft-float `lp64` ELF。用户态 ISA 固定为
+`rv64imac_zicsr_zifencei`，禁止生成 F/D 指令；浮点需求由 Zig compiler-rt
+soft-float builtins 处理。动态链接、PIE 和用户 FPU 上下文不属于当前运行时路线。
 
 QEMU 启动后进入串口 shell；使用 `Ctrl-a x` 退出。常用命令：
 
 | 命令 | 作用 |
 | --- | --- |
 | `make` | 构建内核 ELF |
-| `make user` | 构建用户态 ELF |
-| `make busybox_defconfig` | 选择静态 musl BusyBox 用户态 profile |
+| `make user` | 构建 BusyBox 用户态 ELF |
+| `make user-rootfs` | 构建 staged 用户态 rootfs |
+| `make user-image` | 构建包含 rootfs 的 ext2 镜像 |
 | `make qemu` | 构建镜像并启动 QEMU |
 | `make test` | 构建并运行内核自测回归套件 |
 | `make qemu-gdb` | 启动带 GDB stub 的 QEMU |
@@ -101,5 +95,5 @@ QEMU 启动后进入串口 shell；使用 `Ctrl-a x` 退出。常用命令：
 - `docs/architecture/`：boot、trap、调度、内存、VFS、block 和 ext2 的详细设计。
 - [AGENTS.md](AGENTS.md)：贡献和自动化修改规则。
 
-新增源文件必须进入相应 `*.mk` 对象列表。修改用户可见 ABI 时，须同步检查
+新增内核源文件必须进入 `scripts/kernel.mk` 的对象清单。修改用户可见 ABI 时，须同步检查
 `include/uapi/`、用户态镜像、Linux riscv64 头文件和相关测试。

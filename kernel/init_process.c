@@ -12,5 +12,10 @@ void init_process(void *arg)
 	(void)arg;
 	pr_info("init running (PID %d)\n", task_pid(current_task()));
 
-	exec_user_path("/bin/init");
+	exec_user_path("/sbin/init");
+}
+
+bool init_process_is_task(const struct task_struct *task)
+{
+	return task && init_task && task_tgid(task) == task_tgid(init_task);
 }

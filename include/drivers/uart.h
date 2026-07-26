@@ -28,6 +28,6 @@ constexpr uint32_t UART_FCR_CLR = 0x06;
 
 void uart_init(void);
 void uart_putc(int ch);
-int uart_getc(void);
+int uart_try_getc(void);
 
 #endif

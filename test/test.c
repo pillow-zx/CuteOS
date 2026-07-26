@@ -104,6 +104,7 @@ static const struct ktest_case task_cases[] = {
 	KTEST_CASE(test_task_multiple),
 	KTEST_CASE(test_task_process_tree),
 	KTEST_CASE(test_task_free_null),
+	KTEST_CASE(test_task_publish_lookup_lifetime),
 };
 
 static const struct ktest_case resource_cases[] = {
@@ -242,7 +243,25 @@ static const struct ktest_case syscall_compat_cases[] = {
 	KTEST_CASE(test_console_tty_line_discipline),
 	KTEST_CASE(test_tty_signal_delivery_policy),
 	KTEST_CASE(test_tty_console_job_control_policy),
+	KTEST_CASE(test_tty_controlling_terminal_is_explicit),
+	KTEST_CASE(test_tty_fork_inherits_controlling_terminal),
+	KTEST_CASE(test_tty_clone_release_drops_attachment),
+	KTEST_CASE(test_tty_process_exit_detaches_own_attachment),
+	KTEST_CASE(test_tty_setsid_detaches_controlling_terminal),
+	KTEST_CASE(test_tty_nonleader_detaches_only_itself),
+	KTEST_CASE(test_tty_leader_detaches_entire_session),
+	KTEST_CASE(test_tty_leader_release_signals_foreground_pgrp),
+	KTEST_CASE(test_tty_session_leader_exit_releases_console),
+	KTEST_CASE(test_tty_root_force_steals_console),
+	KTEST_CASE(test_tty_force_steal_signals_old_foreground_pgrp),
+	KTEST_CASE(test_tty_console_steal_requires_root_force),
+	KTEST_CASE(test_tty_stale_foreground_pgrp_gets_no_signal),
+	KTEST_CASE(test_tty_detach_does_not_signal_reused_foreground_pgrp),
+	KTEST_CASE(test_tty_empty_foreground_pgrp_is_cleared),
 	KTEST_CASE(test_signal_rt_sigsetsize_validation),
+	KTEST_CASE(test_init_signal_protection),
+	KTEST_CASE(test_kill_all_processes),
+	KTEST_CASE(test_shutdown_syscall_contract),
 	KTEST_CASE(test_root_statfs_fields),
 	KTEST_CASE(test_pipe2_file_alloc_failure_cleanup),
 };

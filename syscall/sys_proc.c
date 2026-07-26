@@ -5,6 +5,7 @@
 #include <kernel/errno.h>
 #include <kernel/syscall.h>
 #include <kernel/exit.h>
+#include <kernel/session.h>
 #include <kernel/task.h>
 #include <kernel/trap.h>
 
@@ -65,18 +66,28 @@ ssize_t sys_getpgid(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);
 	struct task_struct *task;
+	struct task_process_identity identity;
+	bool put_task = false;
+	int ret;
 
 	if (pid < 0)
 		return -ESRCH;
 
 	if (pid == 0)
 		task = current_task();
-	else
+	else {
 		task = task_find_group_leader((pid_t)pid);
+		put_task = true;
+	}
 	if (!task)
 		return -ESRCH;
 
-	return (ssize_t)task_pgid(task);
+	ret = task_process_snapshot(task, &identity);
+	if (put_task)
+		task_put(task);
+	if (ret < 0)
+		return ret;
+	return (ssize_t)identity.pgid;
 }
 
 /*
@@ -90,18 +101,28 @@ ssize_t sys_getsid(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);
 	struct task_struct *task;
+	struct task_process_identity identity;
+	bool put_task = false;
+	int ret;
 
 	if (pid < 0)
 		return -ESRCH;
 
 	if (pid == 0)
 		task = current_task();
-	else
+	else {
 		task = task_find_group_leader((pid_t)pid);
+		put_task = true;
+	}
 	if (!task)
 		return -ESRCH;
 
-	return (ssize_t)task_sid(task);
+	ret = task_process_snapshot(task, &identity);
+	if (put_task)
+		task_put(task);
+	if (ret < 0)
+		return ret;
+	return (ssize_t)identity.sid;
 }
 
 /*
@@ -114,20 +135,8 @@ ssize_t sys_getsid(struct trap_frame *tf)
  */
 ssize_t sys_setsid(struct trap_frame *tf)
 {
-	struct task_struct *self = task_group_leader(current_task());
-	pid_t sid;
-
 	(void)tf;
-	if (!self)
-		return -ESRCH;
-
-	sid = task_pid(self);
-	if (task_pgid_exists(sid))
-		return -EPERM;
-
-	task_set_sid_all(self, sid);
-	task_set_pgid_all(self, sid);
-	return (ssize_t)sid;
+	return session_process_setsid(current_task());
 }
 
 /*
@@ -143,35 +152,11 @@ ssize_t sys_setpgid(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);
 	long pgid = (long)syscall_arg(tf, 1);
-	struct task_struct *self;
-	struct task_struct *target;
-	pid_t new_pgid;
 
 	if (pid < 0 || pgid < 0)
 		return -EINVAL;
 
-	self = task_group_leader(current_task());
-	if (pid == 0)
-		target = self;
-	else
-		target = task_find_group_leader((pid_t)pid);
-	if (!target)
-		return -ESRCH;
-
-	if (target != self && task_parent(target) != self)
-		return -EPERM;
-	if (target != self && task_sid(target) != task_sid(self))
-		return -EPERM;
-	if (task_sid(target) == task_pid(target))
-		return -EPERM;
-
-	new_pgid = pgid == 0 ? task_pid(target) : (pid_t)pgid;
-	if (new_pgid != task_pid(target) &&
-	    !task_pgid_in_session(new_pgid, task_sid(target)))
-		return -EPERM;
-
-	task_set_pgid_all(target, new_pgid);
-	return 0;
+	return session_process_setpgid((pid_t)pid, (pid_t)pgid);
 }
 
 ssize_t sys_exit(struct trap_frame *tf)

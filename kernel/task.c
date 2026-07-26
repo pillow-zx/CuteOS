@@ -11,9 +11,19 @@
 #include <kernel/printk.h>
 #include <kernel/sched.h>
 #include <kernel/signal.h>
+#include <kernel/sync.h>
 #include <kernel/fdtable.h>
 #include <kernel/fs_struct.h>
 #include <kernel/vfs.h>
+
+#include "pid_internal.h"
+#include "task_internal.h"
+
+struct task_pgid_query {
+	pid_t pgid;
+	pid_t sid;
+	const struct task_struct *ignored;
+};
 
 struct task_struct idle_task;
 
@@ -21,6 +31,7 @@ struct cpu cpu_table[NR_CPUS];
 uint32_t nr_cpu_ids;
 
 struct task_struct *init_task;
+static DEFINE_MUTEX(process_lock);
 
 void cpu_boot_init(struct task_struct *idle)
 {
@@ -63,6 +74,7 @@ struct task_struct *task_alloc(void)
 	}
 
 	memset(task, 0, sizeof(struct task_struct));
+	refcount_set(&task->lifecycle.refs, 1);
 	task->ids.pid = (pid_t)pid;
 	task->lifecycle.state = TASK_RUNNING;
 	arch_task_init(task);
@@ -86,8 +98,6 @@ struct task_struct *task_alloc(void)
 	wait_channel_init(&task->links.wait_child_queue);
 
 	memset(kstack, 0, KSTACK_SIZE);
-
-	pid_attach_task(task->ids.pid, task);
 
 	return task;
 }
@@ -128,16 +138,12 @@ void task_release_resources(struct task_struct *task)
 	signals_release(task);
 }
 
-void task_free(struct task_struct *task)
+static void task_destroy(struct task_struct *task)
 {
-	if (!task)
-		return;
 	BUG_ON(task->active_wait);
-
-	pid_detach_task(task->ids.pid, task);
-	free_pid(task->ids.pid);
-
 	task_release_resources(task);
+
+	free_pid(task->ids.pid);
 
 	if (task_kernel_stack_safe(task)) {
 		free_page(task_kernel_stack(task), KSTACK_ORDER);
@@ -147,11 +153,54 @@ void task_free(struct task_struct *task)
 	kfree(task);
 }
 
+void task_free(struct task_struct *task)
+{
+	if (!task)
+		return;
+	BUG_ON(task->active_wait);
+	BUG_ON(task->lifecycle.published);
+	BUG_ON(refcount_read(&task->lifecycle.refs) != 1);
+
+	task_destroy(task);
+}
+
+void task_publish(struct task_struct *task)
+{
+	BUG_ON(refcount_read(&task->lifecycle.refs) <= 0);
+
+	pid_attach_task(task->ids.pid, task);
+}
+
+void task_unpublish(struct task_struct *task)
+{
+	pid_detach_task(task->ids.pid, task);
+}
+
+bool task_try_get_published(struct task_struct *task)
+{
+	if (!task->lifecycle.published)
+		return false;
+
+	return refcount_inc_not_zero(&task->lifecycle.refs);
+}
+
+void task_put(struct task_struct *task)
+{
+	if (!task || task == &idle_task)
+		return;
+
+	if (refcount_dec_and_test(&task->lifecycle.refs)) {
+		BUG_ON(task->lifecycle.published);
+		task_destroy(task);
+	}
+}
+
 void task_init(void)
 {
 	pid_init();
 
 	memset(&idle_task, 0, sizeof(struct task_struct));
+	refcount_set(&idle_task.lifecycle.refs, 1);
 	idle_task.ids.pid = 0;
 	idle_task.lifecycle.state = TASK_RUNNING;
 	arch_task_init(&idle_task);
@@ -173,7 +222,7 @@ void task_init(void)
 	INIT_LIST_HEAD(&idle_task.sched.run_list);
 	wait_channel_init(&idle_task.links.wait_child_queue);
 	BUG_ON(task_init_resources(&idle_task) < 0);
-	pid_attach_task(idle_task.ids.pid, &idle_task);
+	task_publish(&idle_task);
 
 	cpu_boot_init(&idle_task);
 	set_current_task(&idle_task);
@@ -198,6 +247,7 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 	task->links.parent = parent;
 	list_add_tail(&task->links.sibling, &parent->links.children);
 
+	task_publish(task);
 	sched_enqueue(task);
 
 	return task;
@@ -227,15 +277,17 @@ bool task_group_has_other_threads(const struct task_struct *task)
 
 struct task_struct *task_find_thread(pid_t tid)
 {
-	return pid_task(tid);
+	return pid_task_get(tid);
 }
 
 struct task_struct *task_find_group_leader(pid_t tgid)
 {
-	struct task_struct *task = pid_task(tgid);
+	struct task_struct *task = pid_task_get(tgid);
 
-	if (!task || !task_is_group_leader(task) || task->ids.tgid != tgid)
+	if (!task || !task_is_group_leader(task) || task->ids.tgid != tgid) {
+		task_put(task);
 		return NULL;
+	}
 
 	return task;
 }
@@ -245,60 +297,262 @@ bool task_in_thread_group(const struct task_struct *task, pid_t tgid)
 	return task && task->ids.tgid == tgid;
 }
 
-bool task_pgid_exists(pid_t pgid)
+bool task_is_user_process(const struct task_struct *task)
 {
-	for (pid_t pid = 1; pid <= PID_MAX; pid++) {
-		struct task_struct *task = pid_task(pid);
-
-		if (task && task_pgid(task) == pgid)
-			return true;
-	}
-
-	return false;
+	return task && task_is_group_leader(task) &&
+	       atomic_read_acquire(&task->lifecycle.user_process) != 0;
 }
 
-bool task_sid_exists(pid_t sid)
+void task_inherit_process_role(struct task_struct *child,
+			       const struct task_struct *parent)
 {
-	for (pid_t pid = 1; pid <= PID_MAX; pid++) {
-		struct task_struct *task = pid_task(pid);
-
-		if (task && task_sid(task) == sid)
-			return true;
-	}
-
-	return false;
+	BUG_ON(!child || !parent);
+	atomic_set_release(
+		&child->lifecycle.user_process,
+		atomic_read_acquire(&parent->lifecycle.user_process));
 }
 
-bool task_pgid_in_session(pid_t pgid, pid_t sid)
+void task_mark_user_process(struct task_struct *task)
 {
-	for (pid_t pid = 1; pid <= PID_MAX; pid++) {
-		struct task_struct *task = pid_task(pid);
-
-		if (task && task_pgid(task) == pgid && task_sid(task) == sid)
-			return true;
-	}
-
-	return false;
+	BUG_ON(!task);
+	atomic_set_release(&task->lifecycle.user_process, 1);
 }
 
-void __nonnull(1) task_set_pgid_all(struct task_struct *leader, pid_t pgid)
+static bool task_pgid_exists_visit(struct task_struct *task, void *arg)
+{
+	const struct task_pgid_query *query = arg;
+
+	return task->ids.pgid == query->pgid;
+}
+
+static bool task_pgid_exists_locked(pid_t pgid)
+{
+	struct task_pgid_query query = {
+		.pgid = pgid,
+	};
+
+	return pid_visit_published(task_pgid_exists_visit, &query);
+}
+
+static bool task_pgid_in_session_visit(struct task_struct *task, void *arg)
+{
+	const struct task_pgid_query *query = arg;
+
+	return task->ids.pgid == query->pgid && task->ids.sid == query->sid;
+}
+
+static bool task_pgid_in_session_locked(pid_t pgid, pid_t sid)
+{
+	struct task_pgid_query query = {
+		.pgid = pgid,
+		.sid = sid,
+	};
+
+	return pid_visit_published(task_pgid_in_session_visit, &query);
+}
+
+static bool task_pgid_live_member_visit(struct task_struct *task, void *arg)
+{
+	const struct task_pgid_query *query = arg;
+
+	return task != query->ignored && task->ids.pgid == query->pgid &&
+	       task->ids.sid == query->sid && task_state(task) != TASK_ZOMBIE &&
+	       task_state(task) != TASK_DEAD;
+}
+
+static bool
+task_pgid_has_live_member_except_locked(pid_t pgid, pid_t sid,
+					const struct task_struct *ignored)
+{
+	struct task_pgid_query query = {
+		.pgid = pgid,
+		.sid = sid,
+		.ignored = ignored,
+	};
+
+	return pid_visit_published(task_pgid_live_member_visit, &query);
+}
+
+bool task_pgid_has_live_member_except(pid_t pgid, pid_t sid,
+				      const struct task_struct *ignored)
+{
+	bool found;
+
+	mutex_lock(&process_lock);
+	found = task_pgid_has_live_member_except_locked(pgid, sid, ignored);
+	mutex_unlock(&process_lock);
+	return found;
+}
+
+int task_process_snapshot(const struct task_struct *task,
+			  struct task_process_identity *identity)
+{
+	if (!task || !identity)
+		return -EINVAL;
+
+	mutex_lock(&process_lock);
+	identity->pgid = task->ids.pgid;
+	identity->sid = task->ids.sid;
+	mutex_unlock(&process_lock);
+	return 0;
+}
+
+int task_process_clone_identity(struct task_struct *child,
+				const struct task_struct *parent)
+{
+	if (!child || !parent)
+		return -EINVAL;
+	if (child->lifecycle.published)
+		return -EINVAL;
+
+	mutex_lock(&process_lock);
+	child->ids.pgid = parent->ids.pgid;
+	child->ids.sid = parent->ids.sid;
+	mutex_unlock(&process_lock);
+	return 0;
+}
+
+static void task_set_pgid_all(struct task_struct *leader, pid_t pgid)
 {
 	struct task_struct *thread;
 
 	leader = task_group_leader(leader);
-	task_set_pgid(leader, pgid);
+	leader->ids.pgid = pgid;
 	list_for_each_entry (thread, task_thread_group(leader),
 			     links.thread_node)
-		task_set_pgid(thread, pgid);
+		thread->ids.pgid = pgid;
 }
 
-void __nonnull(1) task_set_sid_all(struct task_struct *leader, pid_t sid)
+static void task_set_sid_all(struct task_struct *leader, pid_t sid)
 {
 	struct task_struct *thread;
 
 	leader = task_group_leader(leader);
-	task_set_sid(leader, sid);
+	leader->ids.sid = sid;
 	list_for_each_entry (thread, task_thread_group(leader),
 			     links.thread_node)
-		task_set_sid(thread, sid);
+		thread->ids.sid = sid;
 }
+
+int task_process_setsid(struct task_struct *task,
+			struct task_process_identity *previous)
+{
+	struct task_struct *leader = task_group_leader_safe(task);
+	pid_t sid;
+	int ret = 0;
+
+	if (!previous)
+		return -EINVAL;
+	if (!leader)
+		return -ESRCH;
+
+	mutex_lock(&process_lock);
+	previous->pgid = leader->ids.pgid;
+	previous->sid = leader->ids.sid;
+	sid = task_pid(leader);
+	if (task_pgid_exists_locked(sid)) {
+		ret = -EPERM;
+	} else {
+		task_set_sid_all(leader, sid);
+		task_set_pgid_all(leader, sid);
+		ret = sid;
+	}
+	mutex_unlock(&process_lock);
+	return ret;
+}
+
+int task_process_setpgid(struct task_struct *caller, pid_t pid, pid_t pgid,
+			 struct task_process_identity *previous)
+{
+	struct task_struct *self = task_group_leader_safe(caller);
+	struct task_struct *target;
+	pid_t new_pgid;
+	bool put_target = false;
+	int ret = 0;
+
+	if (!previous)
+		return -EINVAL;
+	if (!self)
+		return -ESRCH;
+
+	mutex_lock(&process_lock);
+	if (pid == 0) {
+		target = self;
+	} else {
+		target = task_find_thread(pid);
+		put_target = true;
+	}
+	if (!target || !task_is_group_leader(target) ||
+	    task_tgid(target) != task_pid(target)) {
+		ret = -ESRCH;
+		goto out;
+	}
+	if (target != self && task_parent(target) != self) {
+		ret = -EPERM;
+		goto out;
+	}
+	if (target != self && target->ids.sid != self->ids.sid) {
+		ret = -EPERM;
+		goto out;
+	}
+	if (target->ids.sid == task_pid(target)) {
+		ret = -EPERM;
+		goto out;
+	}
+
+	new_pgid = pgid == 0 ? task_pid(target) : pgid;
+	if (new_pgid != task_pid(target) &&
+	    !task_pgid_in_session_locked(new_pgid, target->ids.sid)) {
+		ret = -EPERM;
+		goto out;
+	}
+
+	previous->pgid = target->ids.pgid;
+	previous->sid = target->ids.sid;
+	task_set_pgid_all(target, new_pgid);
+out:
+	mutex_unlock(&process_lock);
+	if (put_target && target)
+		task_put(target);
+	return ret;
+}
+
+#ifdef KERNEL_SELFTEST
+pid_t task_test_pgid(const struct task_struct *task)
+{
+	struct task_process_identity identity;
+
+	BUG_ON(task_process_snapshot(task, &identity) < 0);
+	return identity.pgid;
+}
+
+pid_t task_test_sid(const struct task_struct *task)
+{
+	struct task_process_identity identity;
+
+	BUG_ON(task_process_snapshot(task, &identity) < 0);
+	return identity.sid;
+}
+
+void task_test_set_process_identity(struct task_struct *task, pid_t pgid,
+				    pid_t sid)
+{
+	BUG_ON(!task);
+
+	mutex_lock(&process_lock);
+	task->ids.pgid = pgid;
+	task->ids.sid = sid;
+	mutex_unlock(&process_lock);
+}
+
+void task_test_mark_user_process(struct task_struct *task)
+{
+	task_mark_user_process(task);
+}
+
+void task_test_inherit_process_role(struct task_struct *child,
+				    const struct task_struct *parent)
+{
+	task_inherit_process_role(child, parent);
+}
+#endif

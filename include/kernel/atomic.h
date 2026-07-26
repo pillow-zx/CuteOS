@@ -15,9 +15,19 @@ static __always_inline int atomic_read(const atomic_t *v)
 	return atomic_load_n(&v->counter, ATOMIC_SEQ_CST);
 }
 
+static __always_inline int atomic_read_acquire(const atomic_t *v)
+{
+	return atomic_load_n(&v->counter, ATOMIC_ACQUIRE);
+}
+
 static __always_inline void atomic_set(atomic_t *v, int i)
 {
 	atomic_store_n(&v->counter, i, ATOMIC_SEQ_CST);
+}
+
+static __always_inline void atomic_set_release(atomic_t *v, int i)
+{
+	atomic_store_n(&v->counter, i, ATOMIC_RELEASE);
 }
 
 static __always_inline int atomic_add_return(atomic_t *v, int i)

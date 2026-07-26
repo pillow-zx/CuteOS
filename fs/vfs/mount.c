@@ -5,6 +5,7 @@
 #include <kernel/blkdev.h>
 #include <kernel/errno.h>
 #include <kernel/fs.h>
+#include <kernel/page_cache.h>
 #include <kernel/slab.h>
 #include <kernel/stat.h>
 #include <kernel/sync.h>
@@ -16,6 +17,47 @@
 static LIST_HEAD(mount_list);
 static DEFINE_MUTEX(mount_lock);
 static struct vfsmount *root_mount;
+
+int vfs_sync_all(void)
+{
+	int first_error;
+	struct vfsmount **mounts = NULL;
+	struct vfsmount *mnt;
+	size_t count = 0;
+	size_t index = 0;
+
+	first_error = page_cache_sync_all();
+	mutex_lock(&mount_lock);
+	list_for_each_entry (mnt, &mount_list, mnt_list)
+		count++;
+	if (count != 0) {
+		mounts = kmalloc_array(count, sizeof(*mounts));
+		if (!mounts) {
+			mutex_unlock(&mount_lock);
+			return first_error < 0 ? first_error : -ENOMEM;
+		}
+		list_for_each_entry (mnt, &mount_list, mnt_list) {
+			mntget(mnt);
+			mounts[index++] = mnt;
+		}
+	}
+	mutex_unlock(&mount_lock);
+
+	for (index = 0; index < count; index++) {
+		const struct super_operations *ops =
+			mounts[index]->mnt_sb->s_op;
+		int ret = 0;
+
+		if (ops && ops->sync_fs)
+			ret = ops->sync_fs(mounts[index]->mnt_sb);
+		if (ret < 0 && first_error == 0)
+			first_error = ret;
+		mntput(mounts[index]);
+	}
+	kfree(mounts);
+
+	return first_error;
+}
 
 static struct vfsmount *mount_find_by_mountpoint(const struct path *mountpoint)
 {

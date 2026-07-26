@@ -1,4 +1,5 @@
 #include <kernel/pid.h>
+#include <kernel/task.h>
 #include <kernel/test.h>
 
 #include "../ktest.h"
@@ -33,7 +34,7 @@ int test_pid_basic(void)
 		p0 = -1;
 
 		free_pid((pid_t)-1);
-		TEST_ASSERT(pid_task((pid_t)-1) == NULL);
+		TEST_ASSERT(task_find_thread((pid_t)-1) == NULL);
 
 		after_negative = alloc_pid();
 		TEST_ASSERT_EQ(after_negative, first_pid);

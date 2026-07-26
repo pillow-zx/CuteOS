@@ -50,6 +50,7 @@
 #define SYS_readlinkat	      78
 #define SYS_newfstatat	      79
 #define SYS_fstat	      80
+#define SYS_sync	      81
 #define SYS_fsync	      82
 #define SYS_fdatasync	      83
 #define SYS_utimensat	      88
@@ -81,7 +82,9 @@
 #define SYS_sigaltstack	      132
 #define SYS_rt_sigaction      134
 #define SYS_rt_sigprocmask    135
+#define SYS_rt_sigtimedwait   137
 #define SYS_rt_sigreturn      139
+#define SYS_reboot	      142
 #define SYS_setgid	      144
 #define SYS_setuid	      146
 #define SYS_times	      153

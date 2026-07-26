@@ -59,6 +59,7 @@
 	X(SYS_readlinkat, "readlinkat", sys_readlinkat)                        \
 	X(SYS_newfstatat, "newfstatat", sys_newfstatat)                        \
 	X(SYS_fstat, "fstat", sys_fstat)                                       \
+	X(SYS_sync, "sync", sys_sync)                                          \
 	X(SYS_fsync, "fsync", sys_fsync)                                       \
 	X(SYS_fdatasync, "fdatasync", sys_fdatasync)                           \
 	X(SYS_utimensat, "utimensat", sys_utimensat)                           \
@@ -90,7 +91,9 @@
 	X(SYS_sigaltstack, "sigaltstack", sys_sigaltstack)                     \
 	X(SYS_rt_sigaction, "rt_sigaction", sys_sigaction)                     \
 	X(SYS_rt_sigprocmask, "rt_sigprocmask", sys_sigprocmask)               \
+	X(SYS_rt_sigtimedwait, "rt_sigtimedwait", sys_sigtimedwait)            \
 	X(SYS_rt_sigreturn, "rt_sigreturn", sys_sigreturn)                     \
+	X(SYS_reboot, "reboot", sys_reboot)                                    \
 	X(SYS_setgid, "setgid", sys_setgid)                                    \
 	X(SYS_setuid, "setuid", sys_setuid)                                    \
 	X(SYS_times, "times", sys_times)                                       \

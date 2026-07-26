@@ -223,6 +223,9 @@ static wait_outcome_t wait_arbitrate(int probe_result, wait_flags_t flags,
 		return WAIT_OUTCOME_EVENT;
 	if ((flags & WAIT_FLAG_INTERRUPTIBLE) && signal_pending(current_task()))
 		return WAIT_OUTCOME_SIGNAL;
+	if ((flags & WAIT_FLAG_KILLABLE) &&
+	    signal_fatal_pending(current_task()))
+		return WAIT_OUTCOME_SIGNAL;
 	if (deadline->active && arch_timer_now() >= deadline->expires)
 		return WAIT_OUTCOME_TIMEOUT;
 	return 0;
@@ -305,9 +308,12 @@ int wait_for(const struct wait_request *request, wait_flags_t flags,
 			timer_active = true;
 		}
 
-		sleep_state = (flags & WAIT_FLAG_INTERRUPTIBLE)
-				      ? TASK_INTERRUPTIBLE
-				      : TASK_UNINTERRUPTIBLE;
+		if (flags & WAIT_FLAG_KILLABLE)
+			sleep_state = TASK_KILLABLE;
+		else if (flags & WAIT_FLAG_INTERRUPTIBLE)
+			sleep_state = TASK_INTERRUPTIBLE;
+		else
+			sleep_state = TASK_UNINTERRUPTIBLE;
 		task_set_state(current_task(), sleep_state);
 
 		probe_result = wait_check(request, &session);

@@ -6,6 +6,7 @@
 #include <kernel/exit.h>
 #include <kernel/buddy.h>
 #include <kernel/fs.h>
+#include <kernel/init.h>
 #include <kernel/mm.h>
 #include <kernel/pid.h>
 #include <kernel/sched.h>
@@ -15,6 +16,7 @@
 #include <kernel/task.h>
 #include <kernel/syscall.h>
 #include <kernel/user_map.h>
+#include <kernel/wait.h>
 #include <uapi/syscall.h>
 #include <kernel/processor.h>
 #include <kernel/page.h>
@@ -137,6 +139,7 @@ static bool signal_is_fatal_default(int sig)
 	switch (sig) {
 	case SIGCHLD:
 	case SIGCONT:
+	case SIGTSTP:
 		return false;
 	default:
 		return true;
@@ -241,6 +244,29 @@ static bool task_signal_target_dead(struct task_struct *task)
 	return task_state(task) == TASK_DEAD || task_state(task) == TASK_ZOMBIE;
 }
 
+static __sighandler_t signal_handler_for_task(struct task_struct *task, int sig)
+{
+	struct sighand_struct *sighand = task_sighand(task);
+	__sighandler_t handler = SIG_DFL;
+
+	if (!sighand)
+		return handler;
+
+	mutex_lock(&sighand->lock);
+	handler = sighand->sigactions[sig].sa_handler;
+	mutex_unlock(&sighand->lock);
+	return handler;
+}
+
+static bool signal_init_default_ignored(struct task_struct *task, int sig)
+{
+	if (!init_process_is_task(task) || sig == SIGSTOP)
+		return false;
+
+	return (signal_is_fatal_default(sig) || sig == SIGTSTP) &&
+	       signal_handler_for_task(task, sig) == SIG_DFL;
+}
+
 static void reset_task_altstack(struct task_struct *task)
 {
 	struct stack_t *sas = task_altstack_safe(task);
@@ -275,6 +301,7 @@ int signals_init(struct task_struct *task)
 
 	signal_set_blocked_mask(task, 0);
 	signal_clear_pending(task, ~0UL);
+	task->sigctx.forced_pending = 0;
 	signal_clear_frames(task);
 	task->sigctx.restore_mask = 0;
 	task->sigctx.restore_mask_pending = false;
@@ -293,14 +320,15 @@ void signals_release(struct task_struct *task)
 	task_set_signal_state(task, NULL);
 	signal_set_blocked_mask(task, 0);
 	signal_clear_pending(task, ~0UL);
+	task->sigctx.forced_pending = 0;
 	signal_clear_frames(task);
 	task->sigctx.restore_mask = 0;
 	task->sigctx.restore_mask_pending = false;
 	reset_task_altstack(task);
 }
 
-static void signal_copy_rlimits(struct signal_struct *dst,
-				struct signal_struct *src)
+static void signal_copy_process_state(struct signal_struct *dst,
+				      struct signal_struct *src)
 {
 	if (!dst || !src)
 		return;
@@ -343,7 +371,8 @@ int signals_clone(struct task_struct *child, bool share_sighand,
 			sighand_put(sighand);
 			return -ENOMEM;
 		}
-		signal_copy_rlimits(signal, task_signal_state(current_task()));
+		signal_copy_process_state(signal,
+					  task_signal_state(current_task()));
 	}
 
 	signals_release(child);
@@ -351,6 +380,7 @@ int signals_clone(struct task_struct *child, bool share_sighand,
 	task_set_signal_state(child, signal);
 	signal_set_blocked_mask(child, signal_blocked_mask(current_task()));
 	signal_clear_pending(child, ~0UL);
+	child->sigctx.forced_pending = 0;
 	signal_clear_frames(child);
 	child->sigctx.restore_mask = 0;
 	child->sigctx.restore_mask_pending = false;
@@ -396,6 +426,29 @@ bool signal_pending(struct task_struct *task)
 	return (pending & ~blocked) != 0;
 }
 
+bool signal_fatal_pending(struct task_struct *task)
+{
+	uint64_t pending;
+	uint64_t forced;
+	uint64_t kill_mask = signal_mask(SIGKILL);
+
+	if (!task)
+		return false;
+
+	pending = task_pending_mask(task);
+	forced = task->sigctx.forced_pending;
+	if (task_signal_state(task)) {
+		struct signal_struct *signal = task_signal_state(task);
+
+		mutex_lock(&signal->lock);
+		pending |= signal->shared_pending;
+		mutex_unlock(&signal->lock);
+	}
+	return (pending & kill_mask) != 0 &&
+	       ((forced & kill_mask) != 0 ||
+		!signal_init_default_ignored(task, SIGKILL));
+}
+
 uint64_t signal_blocked_mask(struct task_struct *task)
 {
 	return task_blocked_mask(task);
@@ -434,6 +487,7 @@ void signal_clear_pending(struct task_struct *task, uint64_t mask)
 			       sizeof(task->sigctx.pending_info[sig]));
 	}
 	task_and_pending_mask(task, ~mask);
+	task->sigctx.forced_pending &= ~mask;
 }
 
 void signal_defer_mask_restore(struct task_struct *task, uint64_t mask)
@@ -479,6 +533,10 @@ static void wake_signal_target(struct task_struct *task, int sig)
 		sched_wake_task(task);
 		return;
 	}
+	if (state == TASK_KILLABLE && signal_fatal_pending(task)) {
+		sched_wake_task(task);
+		return;
+	}
 
 	if (sig == SIGKILL || sig == SIGCONT) {
 		if (state == TASK_STOPPED || state == TASK_UNINTERRUPTIBLE)
@@ -486,7 +544,8 @@ static void wake_signal_target(struct task_struct *task, int sig)
 	}
 }
 
-int send_signal_info(int sig, const siginfo_t *info, struct task_struct *task)
+static int send_signal_info_internal(int sig, const siginfo_t *info,
+				     struct task_struct *task, bool force)
 {
 	uint64_t mask;
 
@@ -503,9 +562,16 @@ int send_signal_info(int sig, const siginfo_t *info, struct task_struct *task)
 		task->sigctx.pending_info[sig].si_signo = sig;
 		signal_mark_pending(task, mask);
 	}
+	if (force)
+		task->sigctx.forced_pending |= mask;
 	wake_signal_target(task, sig);
 
 	return 0;
+}
+
+int send_signal_info(int sig, const siginfo_t *info, struct task_struct *task)
+{
+	return send_signal_info_internal(sig, info, task, false);
 }
 
 int send_signal(int sig, struct task_struct *task)
@@ -592,15 +658,20 @@ int send_pgrp_signal(int sig, pid_t pgid)
 		return -ESRCH;
 
 	for (pid_t pid = 1; pid <= PID_MAX; pid++) {
-		struct task_struct *task = pid_task(pid);
+		struct task_struct *task = task_find_thread(pid);
+		struct task_process_identity identity;
 		int ret;
 
 		if (!task || !task_is_group_leader(task) ||
-		    task_pgid(task) != pgid)
+		    task_process_snapshot(task, &identity) < 0 ||
+		    identity.pgid != pgid) {
+			task_put(task);
 			continue;
+		}
 
 		found = true;
 		ret = send_group_signal(sig, task);
+		task_put(task);
 		if (ret < 0 && first_error == 0)
 			first_error = ret;
 	}
@@ -608,6 +679,38 @@ int send_pgrp_signal(int sig, pid_t pgid)
 	if (!found)
 		return -ESRCH;
 	return first_error;
+}
+
+int send_session_pgrp_signal(int sig, pid_t pgid, pid_t sid)
+{
+	bool found = false;
+	int first_error = 0;
+
+	if (!signal_is_valid(sig))
+		return -EINVAL;
+	if (pgid <= 0 || sid <= 0)
+		return -ESRCH;
+
+	for (pid_t pid = 1; pid <= PID_MAX; pid++) {
+		struct task_struct *task = task_find_thread(pid);
+		struct task_process_identity identity;
+		int ret;
+
+		if (!task || !task_is_group_leader(task) ||
+		    task_process_snapshot(task, &identity) < 0 ||
+		    identity.pgid != pgid || identity.sid != sid) {
+			task_put(task);
+			continue;
+		}
+
+		found = true;
+		ret = send_group_signal(sig, task);
+		task_put(task);
+		if (ret < 0 && first_error == 0)
+			first_error = ret;
+	}
+
+	return found ? first_error : -ESRCH;
 }
 
 int force_signal_info(int sig, const siginfo_t *info, struct task_struct *task)
@@ -635,7 +738,7 @@ int force_signal_info(int sig, const siginfo_t *info, struct task_struct *task)
 		mutex_unlock(&sighand->lock);
 	}
 
-	ret = send_signal_info(sig, info, task);
+	ret = send_signal_info_internal(sig, info, task, true);
 	if (ret < 0)
 		return ret;
 
@@ -832,24 +935,90 @@ static uint64_t current_shared_pending(void)
 	return pending;
 }
 
-static int take_shared_pending(int sig, siginfo_t *info)
+static int take_shared_pending_from_set(uint64_t set, siginfo_t *info)
 {
 	struct signal_struct *signal = task_signal_state(current_task());
+	int selected = 0;
 
-	if (!signal)
-		return -ENOENT;
+	if (!signal || !info)
+		return 0;
 
 	mutex_lock(&signal->lock);
-	if (!(signal->shared_pending & signal_mask(sig))) {
-		mutex_unlock(&signal->lock);
-		return -ENOENT;
+	for (int sig = 1; sig < NSIG; sig++) {
+		uint64_t mask = signal_mask(sig);
+
+		if (!(signal->shared_pending & set & mask))
+			continue;
+		*info = signal->shared_pending_info[sig];
+		signal->shared_pending &= ~mask;
+		memset(&signal->shared_pending_info[sig], 0,
+		       sizeof(signal->shared_pending_info[sig]));
+		selected = sig;
+		break;
 	}
-	*info = signal->shared_pending_info[sig];
-	signal->shared_pending &= ~signal_mask(sig);
-	memset(&signal->shared_pending_info[sig], 0,
-	       sizeof(signal->shared_pending_info[sig]));
 	mutex_unlock(&signal->lock);
-	return 0;
+	return selected;
+}
+
+static int take_shared_pending(int sig, siginfo_t *info)
+{
+	return take_shared_pending_from_set(signal_mask(sig), info) == sig
+		       ? 0
+		       : -ENOENT;
+}
+
+static int take_pending_from_set(uint64_t set, siginfo_t *info)
+{
+	uint64_t pending = task_pending_mask(current_task()) & set;
+
+	for (int sig = 1; sig < NSIG; sig++) {
+		uint64_t mask = signal_mask(sig);
+
+		if (!(pending & mask))
+			continue;
+		if (signal_pending_info(current_task(), sig, info) < 0)
+			continue;
+		signal_clear_pending(current_task(), mask);
+		return sig;
+	}
+
+	return take_shared_pending_from_set(set, info);
+}
+
+int signal_wait_pending(uint64_t set, const struct timespec *timeout,
+			siginfo_t *info)
+{
+	struct wait_deadline deadline;
+	uint64_t blocked;
+	wait_outcome_t outcome;
+	int sig;
+	int ret;
+
+	ret = mtime_deadline_from_timespec(timeout, &deadline);
+	if (ret < 0)
+		return ret;
+
+	set &= ~unblockable_mask();
+	sig = take_pending_from_set(set, info);
+	if (sig)
+		return sig;
+	if (timeout && timeout->tv_sec == 0 && timeout->tv_nsec == 0)
+		return -EAGAIN;
+
+	blocked = signal_blocked_mask(current_task());
+	signal_set_blocked_mask(current_task(), blocked & ~set);
+	ret = wait_for(NULL, WAIT_FLAG_INTERRUPTIBLE, &deadline, &outcome);
+	signal_set_blocked_mask(current_task(), blocked);
+	if (ret < 0)
+		return ret;
+
+	sig = take_pending_from_set(set, info);
+	if (sig)
+		return sig;
+	if (outcome == WAIT_OUTCOME_TIMEOUT)
+		return -EAGAIN;
+	BUG_ON(outcome != WAIT_OUTCOME_SIGNAL);
+	return -EINTR;
 }
 
 static int next_signal(bool *shared)
@@ -908,6 +1077,7 @@ void do_signal(struct trap_frame *tf)
 {
 	while (true) {
 		bool shared;
+		bool forced;
 		siginfo_t info;
 		int sig = next_signal(&shared);
 
@@ -919,6 +1089,8 @@ void do_signal(struct trap_frame *tf)
 		uint64_t mask = signal_mask(sig);
 		struct sigaction action = get_signal_action(sig);
 		__sighandler_t handler = action.sa_handler;
+		forced = !shared &&
+			 (current_task()->sigctx.forced_pending & mask) != 0;
 
 		if (shared) {
 			if (take_shared_pending(sig, &info) < 0)
@@ -931,13 +1103,16 @@ void do_signal(struct trap_frame *tf)
 
 		if (handler == SIG_IGN || handler == SIG_DFL)
 			(void)restart_for_signal(current_task(), tf, false);
+		if (!forced && handler == SIG_DFL &&
+		    signal_init_default_ignored(current_task(), sig))
+			continue;
 
 		if (sig == SIGCONT) {
 			if (handler == SIG_DFL || handler == SIG_IGN)
 				continue;
 		}
 
-		if (sig == SIGSTOP) {
+		if (sig == SIGSTOP || (sig == SIGTSTP && handler == SIG_DFL)) {
 			stop_current();
 			continue;
 		}
@@ -959,12 +1134,50 @@ void do_signal(struct trap_frame *tf)
 
 		if (rseq_signal_deliver(tf) < 0)
 			do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
-		(void)restart_for_signal(
-			current_task(), tf, (action.sa_flags & SA_RESTART) != 0);
+		(void)restart_for_signal(current_task(), tf,
+					 (action.sa_flags & SA_RESTART) != 0);
 		if (setup_signal_frame(tf, sig, &info, &action) < 0)
 			do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
 		return;
 	}
+}
+
+static int kill_all_processes(int sig, const siginfo_t *info)
+{
+	bool found = false;
+	int first_error = 0;
+	pid_t caller_tgid = task_tgid(current_task());
+
+	for (pid_t nr = 1; nr <= PID_MAX; nr++) {
+		struct task_struct *task = task_find_thread(nr);
+		int ret;
+
+		if (!task_is_user_process(task) ||
+		    task_state(task) == TASK_ZOMBIE ||
+		    task_state(task) == TASK_DEAD) {
+			task_put(task);
+			continue;
+		}
+		if (init_process_is_task(task) ||
+		    task_tgid(task) == caller_tgid) {
+			task_put(task);
+			continue;
+		}
+
+		found = true;
+		if (sig == 0) {
+			task_put(task);
+			continue;
+		}
+		ret = send_group_signal_info(sig, info, task);
+		task_put(task);
+		if (ret < 0 && first_error == 0)
+			first_error = ret;
+	}
+
+	if (!found)
+		return -ESRCH;
+	return first_error;
 }
 
 int do_kill(pid_t pid, int sig)
@@ -974,20 +1187,28 @@ int do_kill(pid_t pid, int sig)
 
 	if (sig != 0 && !signal_is_valid(sig))
 		return -EINVAL;
-	if (pid <= 0)
+	if (pid == 0 || pid < -1)
 		return -EINVAL;
-
-	task = task_find_group_leader(pid);
-	if (!task)
-		return -ESRCH;
-	if (sig == 0)
-		return 0;
 
 	info.si_signo = sig;
 	info.si_code = SI_USER;
 	info.si_pid = task_pid(current_task());
 	info.si_uid = task_uid(current_task());
-	return send_group_signal_info(sig, &info, task);
+	if (pid == -1)
+		return kill_all_processes(sig, &info);
+
+	task = task_find_group_leader(pid);
+	if (!task)
+		return -ESRCH;
+	if (sig == 0) {
+		task_put(task);
+		return 0;
+	}
+
+	int ret = send_group_signal_info(sig, &info, task);
+
+	task_put(task);
+	return ret;
 }
 
 int do_tkill(pid_t tid, int sig)
@@ -1003,14 +1224,19 @@ int do_tkill(pid_t tid, int sig)
 	task = task_find_thread(tid);
 	if (!task)
 		return -ESRCH;
-	if (sig == 0)
+	if (sig == 0) {
+		task_put(task);
 		return 0;
+	}
 
 	info.si_signo = sig;
 	info.si_code = SI_USER;
 	info.si_pid = task_pid(current_task());
 	info.si_uid = task_uid(current_task());
-	return send_signal_info(sig, &info, task);
+	int ret = send_signal_info(sig, &info, task);
+
+	task_put(task);
+	return ret;
 }
 
 int do_tgkill(pid_t tgid, pid_t tid, int sig)
@@ -1024,16 +1250,23 @@ int do_tgkill(pid_t tgid, pid_t tid, int sig)
 		return -EINVAL;
 
 	task = find_task_by_pid(tid);
-	if (!task || !task_in_thread_group(task, tgid))
+	if (!task || !task_in_thread_group(task, tgid)) {
+		task_put(task);
 		return -ESRCH;
-	if (sig == 0)
+	}
+	if (sig == 0) {
+		task_put(task);
 		return 0;
+	}
 
 	info.si_signo = sig;
 	info.si_code = SI_USER;
 	info.si_pid = task_pid(current_task());
 	info.si_uid = task_uid(current_task());
-	return send_signal_info(sig, &info, task);
+	int ret = send_signal_info(sig, &info, task);
+
+	task_put(task);
+	return ret;
 }
 
 int do_sigaltstack(const struct stack_t *ss, struct stack_t *old_ss)

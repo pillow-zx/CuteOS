@@ -1,68 +1,45 @@
 # 构建与链接架构
 
-本文描述 cuteOS 构建系统如何组织内核对象、用户程序、链接脚本、Kconfig 和 QEMU 镜像。构建系统的架构目标是让每个目录拥有自己的对象列表，同时由顶层 `Makefile` 统一聚合、链接和运行。
+本文描述 cuteOS 构建系统如何组织内核对象、用户程序、链接脚本、Kconfig 和 QEMU 镜像。顶层 `Makefile` 只提供稳定入口；所有构建编排由 `scripts/` 下的四个 Make module 实现。
 
 ## 顶层 Makefile 结构
 
-顶层 `Makefile` 先引入构建基础设施：
+顶层 `Makefile` 只设置默认目标并引入构建入口：
 
 ```mermaid
 flowchart TD
     Config[".config"]
-    Kconfig["scripts/kconfig.mk<br/>syncconfig"]
+    Build["scripts/build.mk<br/>toolchain + Kconfig + output"]
     Auto["include/generated/autoconf.h<br/>include/config/auto.conf"]
-    Flags["scripts/flags.mk<br/>CFLAGS / ASFLAGS / LDFLAGS"]
-    Lists["filelist.mk<br/>per-directory *.mk"]
-    KernelObjs["kernel object groups"]
-    UserObjs["user/user.mk<br/>selected user-space profile"]
+    Kernel["scripts/kernel.mk<br/>manifest + flags + link"]
+    User["scripts/userspace.mk<br/>musl + BusyBox + rootfs"]
     Rootfs["build/user/rootfs<br/>staged rootfs"]
     Link["kernel.ld<br/>link cuteos ELF"]
     Image["rootfs image<br/>mkimg + staged rootfs"]
     Qemu["QEMU virt<br/>-kernel cuteos + virtio-blk image"]
 
-    Config --> Kconfig --> Auto
-    Auto --> KernelObjs
-    Auto --> UserObjs
-    Flags --> KernelObjs
-    Flags --> UserObjs
-    Lists --> KernelObjs --> Link
-    UserObjs --> Rootfs --> Image
+    Config --> Build --> Auto
+    Auto --> Kernel
+    Auto --> User
+    Kernel --> Link
+    User --> Rootfs --> Image
     Link --> Qemu
     Image --> Qemu
 ```
 
 ```make
-include scripts/toolchain.mk
-include scripts/kconfig.mk
 include scripts/build.mk
-include scripts/flags.mk
-include filelist.mk
 ```
 
 其中：
 
-- `scripts/toolchain.mk` 选择 RISC-V 交叉工具链、QEMU 和工具路径。
-- `scripts/kconfig.mk` 负责 `.config`、`include/config/auto.conf`、`include/generated/autoconf.h`。
-- `scripts/build.mk` 提供静默构建输出等通用构建规则辅助。
-- `scripts/flags.mk` 定义内核 C/ASM/LDFLAGS。
-- `filelist.mk` 引入各目录对象清单。
+- `scripts/build.mk` 选择工具链、管理输出目录与静默输出，并生成或引入 Kconfig 配置。
+- `scripts/kernel.mk` 定义内核编译/链接策略和完整对象清单。
+- `scripts/userspace.mk` 构建 musl、compiler-rt、BusyBox、staged rootfs 与 ext2 镜像。
+- `scripts/workflows.mk` 提供 QEMU、测试、开发辅助和清理目标。
+- `scripts/tools/` 存放 ELF 检查、符号生成、镜像制作、测试运行和 BusyBox 配置工具。
 
-`filelist.mk` 是内核对象分组的入口：
-
-```make
-include arch/riscv/arch.mk
-include init/init.mk
-include kernel/kernel.mk
-include sched/sched.mk
-include mm/mm.mk
-include fs/fs.mk
-include block/block.mk
-include drivers/drivers.mk
-include syscall/syscall.mk
-include lib/lib.mk
-```
-
-顶层再将各组对象聚合为 `OBJ_REL`：
+`scripts/kernel.mk` 将各组对象聚合为 `OBJ_REL`：
 
 ```text
 ARCH_OBJS
@@ -79,8 +56,8 @@ LIB_OBJS
 ```
 
 普通构建中 `KERNEL_TEST_OBJS` 为空。`make test` 递归执行
-`KERNEL_SELFTEST=1 OUTROOT=build/test` 构建，此时顶层 `Makefile` 包含
-`test/test.mk`，递归发现 `test/<subsystem>/*_test.c` 并填充
+`KERNEL_SELFTEST=1 OUTROOT=build/test` 构建，此时 `scripts/kernel.mk` 递归发现
+`test/<subsystem>/*_test.c` 并填充
 `KERNEL_TEST_OBJS`。测试执行顺序由 `test/test.c` 的显式 registry 决定，不依赖
 链接顺序。
 
@@ -90,12 +67,12 @@ LIB_OBJS
 `make test` 会强制重建测试 rootfs，运行脚本再复制临时镜像交给 QEMU，避免
 自测写入污染后续运行。
 
-新增生产源文件时必须更新所属目录的 `.mk` 文件，否则不会进入内核链接。新增
-内核自测文件时放入 `test/<subsystem>/`，由 `test/test.mk` 自动发现。
+新增生产源文件时必须更新 `scripts/kernel.mk` 的对象清单，否则不会进入内核链接。
+新增内核自测文件时放入 `test/<subsystem>/`，由同一 module 自动发现。
 
 ## 编译标志
 
-内核编译参数由 `scripts/flags.mk` 定义。核心约束包括：
+内核编译参数由 `scripts/kernel.mk` 定义。核心约束包括：
 
 - 架构：`-march=rv64gc -mabi=lp64 -mcmodel=medany`
 - 标准：`-std=gnu23`
@@ -148,7 +125,7 @@ KERNEL_VBASE = 0xFFFFFFC000000000;
 
 ## 架构对象
 
-`arch/riscv/arch.mk` 当前包含：
+`scripts/kernel.mk` 的 RISC-V 对象清单当前包含：
 
 ```text
 arch/riscv/boot.o
@@ -169,7 +146,7 @@ arch/riscv/mm/tlb.o
 
 ## Kconfig 生成物
 
-`scripts/kconfig.mk` 以 `Kconfig` 和架构/子系统 Kconfig 文件生成：
+`scripts/build.mk` 以 `Kconfig` 和架构/子系统 Kconfig 文件生成：
 
 - `.config`
 - `include/config/auto.conf`
@@ -178,60 +155,38 @@ arch/riscv/mm/tlb.o
 
 内核和用户态编译都预包含 `include/generated/autoconf.h`。因此构建配置可以影响内核对象和用户测试程序。
 
-`KCONFIG_SKIP_GOALS` 让 `clean`、`help`、`format`、`defconfig`、
-`busybox_defconfig` 等目标不强制要求已有配置。
+`KCONFIG_SKIP_GOALS` 让 `clean`、`help`、`format`、`defconfig` 等目标不强制
+要求已有配置。
 
 ## 用户态构建
 
-用户程序构建由 `user/user.mk` 管理，并在顶层 `Makefile` 中引入。Kconfig
-提供两个互斥 profile：
+用户态构建由 `scripts/userspace.mk` 管理。它固定构建
+静态 musl BusyBox 1.36.1：BusyBox `/sbin/init` 作为 PID 1，提供 `/bin/sh`
+和选定 applet。它公开三个递进目标：`make user` 生成 BusyBox ELF，
+`make user-rootfs` 生成 staged rootfs，`make user-image` 生成 ext2 镜像。
+外部构建分为两个深模块：
 
-- `USERSPACE_MINIMAL`：使用项目 minimal libc 构建 `/init`、内置 shell、命令和
-  ABI 测试程序。这是默认 profile。
-- `USERSPACE_BUSYBOX`：只保留 minimal-libc `/init`，使用项目构建的静态 musl
-  构建 BusyBox 1.37.0；BusyBox 提供 `/bin/sh` 和选定 applet。
-
-项目 minimal 用户程序继续使用 riscv64 gcc/ld，编译参数独立于内核：
-
-- `-march=rv64imac_zicsr_zifencei -mabi=lp64 -mcmodel=medany`
-- `-ffreestanding -nostdlib -nostdinc -fno-builtin`
-- include：`user/libc/minimal/include` 和 `include`
-- 链接脚本：`user/user.ld`
-
-Minimal profile 的用户 ELF 列表包括：
-
-- `USER_INIT_ELF = build/.../user/init/init.elf`
-- `USER_SH_ELF = build/.../user/init/sh.elf`
-- `user/bin/*.c` 生成的 `bin/*.elf`
-- 最小 libc 对象
-- `user/start.o`
-
-`user/user.ld` 将用户程序基址设为 `0x10000`，并拆分页对齐的 RX、R、RW PT_LOAD：
-
-```text
-.text   -> PF_R | PF_X
-.rodata -> PF_R
-.data/.bss -> PF_R | PF_W
-```
-
-内核 exec loader 按用户 ELF 的 PT_LOAD 权限映射用户页。用户链接脚本的分段设计避免 text/data 被合并成单个 RWE 段。
-
-BusyBox profile 的外部构建分为三个深模块：
-
-1. `user/libc/musl.mk` out-of-tree 构建 musl `v1.2.6` sysroot，固定
-   `rv64imac_zicsr_zifencei/lp64`、static 和 non-PIE。用户态明确禁止
-   RISC-V F/D ISA 扩展；所有浮点运算必须降低为 compiler-rt soft-float
-   builtins，不能依赖内核保存浮点寄存器状态。
-2. `user/runtime/runtime.mk` 调用 Zig 0.16+ 的 `build-lib -fcompiler-rt`，生成
-   soft-float `libcompiler_rt.a`。它只提供 GCC 工具链缺失的 compiler builtins，
-   不提供另一套 libc。
-3. `user/busybox.mk` 使用 BusyBox 自己的 Kbuild 与项目
+1. `scripts/userspace.mk` out-of-tree 构建 musl `v1.2.6` sysroot，并将
+   `user/linux-uapi/include/` 中经筛选的 Linux UAPI 头安装到该 sysroot。
+   sysroot 固定 `rv64imac_zicsr_zifencei/lp64`、static 和 non-PIE。用户态
+   明确禁止 RISC-V F/D ISA 扩展；所有浮点运算必须降低为 compiler-rt
+   soft-float builtins，不能依赖内核保存浮点寄存器状态。UAPI 头仅提供
+   编译期 ABI 声明；每个接口的运行时语义仍须以 syscall/driver 文档和测试为准。
+   同一模块还调用 Zig 0.16+ 的 `build-lib -fcompiler-rt`，生成 soft-float
+   `libcompiler_rt.a`。它只提供 GCC 工具链缺失的 compiler builtins，不提供另一套
+   libc。
+2. 同一 module 使用 BusyBox 自己的 Kbuild 与项目
    `configs/busybox_defconfig`，通过项目 musl crt/libc 和 compiler-rt 链接。
+
+BusyBox 配置启用 `INIT`、`FEATURE_USE_INITTAB` 和 `FEATURE_INIT_SCTTY`，但本轮
+保持 `ASH_JOB_CONTROL` 关闭。rootfs 安装的 `/etc/inittab` 使用
+`::respawn:-/bin/sh`：BusyBox action child 先建立新 session，继承 PID 1 的
+console fd 0，再因命令前导 `-` 调用 `TIOCSCTTY`。shell 退出后由 PID 1 respawn。
 
 项目 musl GCC specs 明确移除主机 `lp64d` 的 `crtbegin/crtend/libgcc`，只使用
 项目 musl crt 与 Zig 生成的 strict-`lp64` compiler runtime。最终 BusyBox
 必须是 static、non-PIE、soft-float `ET_EXEC`，且 ELF ISA attributes 不得声明
-F/D 扩展。`scripts/check-user-elf.sh` 在链接后强制检查这些约束；该约束是长期
+F/D 扩展。`scripts/tools/check-user-elf.sh` 在链接后强制检查这些约束；该约束是长期
 用户 ABI，不是临时构建限制。
 
 ## 内核产物
@@ -244,14 +199,14 @@ F/D 扩展。`scripts/check-user-elf.sh` 在链接后强制检查这些约束；
 `CONFIG_KSYMS=y` 时构建分两阶段：
 
 1. 链接 `cuteos.stage1`。
-2. 用 `scripts/gen_ksyms.sh` 从 stage1 符号表生成 `kernel/ksyms.generated.c`。
+2. 用 `scripts/tools/gen-ksyms.sh` 从 stage1 符号表生成 `kernel/ksyms.generated.c`。
 3. 将生成对象纳入最终链接。
 
 ## 根文件系统镜像
 
-`user/rootfs.mk` 先将所选 profile 安装到 `$(USER_OUTROOT)/rootfs`。该 staged
-目录是 rootfs 装配 Interface：minimal profile 安装项目 ELF；BusyBox profile
-安装项目 `/init`、BusyBox 本体和 applet symlink。
+`scripts/userspace.mk` 将 BusyBox 安装到 `$(USER_OUTROOT)/rootfs`。该 staged 目录是
+rootfs 装配 Interface：它安装 BusyBox 本体、`/sbin/init` 与 applet symlink，
+并安装 `/etc/inittab`；不会创建项目 `/init` 或用它覆盖 `/bin/init`。
 
 `$(KERNEL_IMG)` 再由 `$(MKIMG)` 将 staged rootfs 转换为 ext2：
 
@@ -260,7 +215,7 @@ MKIMG_SIZE_MB=$(CONFIG_ROOTFS_IMAGE_SIZE_MB) $(MKIMG) \
     $@ $(USER_ROOTFS)
 ```
 
-`mkimg.sh` 不理解 libc、init、shell 或 applet，只处理完整目录树并补充不能由
+`scripts/tools/mkimg.sh` 不理解 libc、init、shell 或 applet，只处理完整目录树并补充不能由
 普通用户在 host staging 目录创建的 `/dev/console` 和 `/dev/null` 设备节点。
 
 QEMU 启动时使用：
@@ -293,12 +248,12 @@ QEMU 启动时使用：
 
 构建系统的所有权边界如下：
 
-- 顶层 `Makefile` 负责聚合和最终产物。
-- 每个源码目录负责声明自己的对象列表。
-- `scripts/flags.mk` 负责全局编译/链接约束。
-- `user/user.mk` 负责选择用户态 profile；Musl、BusyBox、compiler-rt 和 rootfs
-  各自在自己的 `.mk` 内拥有实现。
-- `kernel.ld` 和 `user/user.ld` 分别定义内核与用户 ABI 布局。
+- 顶层 `Makefile` 只提供构建入口。
+- `scripts/build.mk` 负责工具链、Kconfig 与共享构建设置。
+- `scripts/kernel.mk` 负责内核对象清单、编译/链接约束和分析。
+- `scripts/userspace.mk` 负责完整静态 musl BusyBox 用户态与镜像。
+- `scripts/workflows.mk` 负责运行、测试和开发工作流。
+- `kernel.ld` 定义内核 ABI 布局。
 - Kconfig 只通过生成头和 `auto.conf` 影响编译，不应在源码中硬编码可配置项的替代路径。
 
 新增模块时，应同时考虑：对象清单、头文件边界、Kconfig 选项、链接布局和是否需要用户态测试程序。

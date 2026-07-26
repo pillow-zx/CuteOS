@@ -7,7 +7,9 @@
  */
 
 #include <kernel/types.h>
+#include <kernel/atomic.h>
 #include <kernel/list.h>
+#include <kernel/refcount.h>
 #include <kernel/wait.h>
 #include <kernel/compiler.h>
 #include <kernel/cpu.h>
@@ -34,6 +36,12 @@ constexpr uint32_t TASK_UNINTERRUPTIBLE = 0x01u;
 constexpr uint32_t TASK_INTERRUPTIBLE = 0x02u;
 
 /**
+ * @def TASK_KILLABLE
+ * @brief task sleeps until wakeup or pending SIGKILL makes it runnable.
+ */
+constexpr uint32_t TASK_KILLABLE = 0x20u;
+
+/**
  * @def TASK_ZOMBIE
  * @brief task has exited and keeps waitable exit status for its parent.
  */
@@ -53,9 +61,10 @@ constexpr uint32_t TASK_STOPPED = 0x10u;
 
 /**
  * @def TASK_ANY_SLEEP
- * @brief Mask matching both interruptible and uninterruptible sleep states.
+ * @brief Mask matching all wait sleep states.
  */
-constexpr uint32_t TASK_ANY_SLEEP = TASK_UNINTERRUPTIBLE | TASK_INTERRUPTIBLE;
+constexpr uint32_t TASK_ANY_SLEEP =
+	TASK_UNINTERRUPTIBLE | TASK_INTERRUPTIBLE | TASK_KILLABLE;
 
 /**
  * @def KSTACK_ORDER
@@ -98,6 +107,22 @@ struct task_identity {
 };
 
 /**
+ * @struct task_process_identity
+ * @brief A process-identity snapshot protected by task/process ownership.
+ *
+ * @par Fields
+ * - @c pgid: Process group sampled with @c sid.
+ * - @c sid: Session sampled with @c pgid.
+ *
+ * Callers must use task_process_snapshot() rather than independently reading
+ * SID and PGID when the pair controls another subsystem's policy.
+ */
+struct task_process_identity {
+	pid_t pgid;
+	pid_t sid;
+};
+
+/**
  * @struct task_lifecycle
  * @brief Run state and exit status owned by scheduler and wait paths.
  *
@@ -105,11 +130,34 @@ struct task_identity {
  * - @c state: TASK_* state sampled by wake/schedule paths.
  * - @c exit_code: Wait-visible process status recorded at exit.
  * - @c exit_signal: Signal delivered to parent when this task exits.
+ * - @c user_process: One-way atomic role set after a successful user exec and
+ *   inherited by clone; it survives user-mm teardown during exit.
  */
 struct task_lifecycle {
+	refcount_t refs;
 	volatile uint32_t state;
 	int exit_code;
 	int exit_signal;
+	bool published;
+	atomic_t user_process;
+};
+
+/**
+ * @struct task_vfork_context
+ * @brief Clone-owned completion state for a vfork child.
+ *
+ * @par Fields
+ * - @c lock: Protects completed as the wait source lock.
+ * - @c completion_wait: Calling task waits for a possible completion change.
+ * - @c active: Initialized before publish and immutable afterwards; this task
+ *   was published as a vfork child.
+ * - @c completed: The child no longer uses its pre-exec address space.
+ */
+struct task_vfork_context {
+	spinlock_t lock;
+	struct wait_channel completion_wait;
+	bool active;
+	bool completed;
 };
 
 /**
@@ -163,6 +211,7 @@ struct task_resources {
  * @par Fields
  * - @c blocked: Linux signal mask; bit n represents signal n+1.
  * - @c pending: Per-thread pending signal mask.
+ * - @c forced_pending: Pending signals that bypass PID 1 default protection.
  * - @c signal_frames: Signal-owned LIFO state for active user frames.
  * - @c restore_mask: Signal mask restored after a temporary wait mask.
  * - @c restore_mask_pending: Whether restore_mask must be consumed.
@@ -174,6 +223,7 @@ struct task_resources {
 struct task_signal_context {
 	uint64_t blocked;
 	uint64_t pending;
+	uint64_t forced_pending;
 	siginfo_t pending_info[NSIG];
 	struct signal_frame_state *signal_frames;
 	uint64_t restore_mask;
@@ -253,6 +303,7 @@ struct task_cputime {
  * - @c arch: RISC-V context, trap frame, stack, satp.
  * - @c ids: PID/TGID/PGID/SID and leader identity.
  * - @c lifecycle: Runnable, sleep, stopped, exit state.
+ * - @c vfork: Clone-owned vfork completion state.
  * - @c links: Parent/child and thread-group intrusive links.
  * - @c resources: MM, fd, fs, signal, and credential refs.
  * - @c sigctx: Per-thread signal/futex ABI state.
@@ -267,6 +318,7 @@ struct task_struct {
 	struct task_arch_state arch;
 	struct task_identity ids;
 	struct task_lifecycle lifecycle;
+	struct task_vfork_context vfork;
 	struct task_links links;
 	struct task_resources resources;
 	struct task_signal_context sigctx;
@@ -290,7 +342,7 @@ extern struct task_struct *init_task;
  * @return The task mm, or NULL for NULL/kernel-only tasks.
  */
 static inline __must_check __pure struct mm_struct *
-task_mm(struct task_struct *task)
+task_mm(const struct task_struct *task)
 {
 	return task ? task->resources.mm : NULL;
 }
@@ -331,8 +383,7 @@ task_fs(struct task_struct *task)
 	return task ? task->resources.fs : NULL;
 }
 
-static inline void task_set_fs(struct task_struct *task,
-					struct fs_struct *fs)
+static inline void task_set_fs(struct task_struct *task, struct fs_struct *fs)
 {
 	if (task)
 		task->resources.fs = fs;
@@ -367,50 +418,6 @@ static inline __must_check __pure __nonnull(1) pid_t
 	return task->ids.tgid;
 }
 
-/**
- * @brief Return the POSIX process-group id attached to a task.
- * @param task Non-NULL task.
- * @return Process-group id used by getpgid/setpgid paths.
- */
-static inline __must_check __pure __nonnull(1) pid_t
-	task_pgid(const struct task_struct *task)
-{
-	return task->ids.pgid;
-}
-
-/**
- * @brief Return the POSIX session id attached to a task.
- * @param task Non-NULL task.
- * @return Session id used by getsid/setsid and controlling tty paths.
- */
-static inline __must_check __pure __nonnull(1) pid_t
-	task_sid(const struct task_struct *task)
-{
-	return task->ids.sid;
-}
-
-/**
- * @brief Update one task's process-group id.
- * @param task Non-NULL task to update.
- * @param pgid New process-group id.
- */
-static inline __nonnull(1) void task_set_pgid(struct task_struct *task,
-						       pid_t pgid)
-{
-	task->ids.pgid = pgid;
-}
-
-/**
- * @brief Update one task's session id.
- * @param task Non-NULL task to update.
- * @param sid New session id.
- */
-static inline __nonnull(1) void task_set_sid(struct task_struct *task,
-						      pid_t sid)
-{
-	task->ids.sid = sid;
-}
-
 static inline void task_set_uid(struct task_struct *task, uid_t uid)
 {
 	BUG_ON(!task);
@@ -435,8 +442,7 @@ task_state_safe(const struct task_struct *task)
 	return task ? task_state(task) : TASK_DEAD;
 }
 
-static inline void task_set_state(struct task_struct *task,
-					   uint32_t state)
+static inline void task_set_state(struct task_struct *task, uint32_t state)
 {
 	if (task)
 		task->lifecycle.state = state;
@@ -447,14 +453,17 @@ static inline void task_mark_running(struct task_struct *task)
 	task_set_state(task, TASK_RUNNING);
 }
 
-static inline void
-task_mark_interruptible_sleep(struct task_struct *task)
+static inline void task_mark_interruptible_sleep(struct task_struct *task)
 {
 	task_set_state(task, TASK_INTERRUPTIBLE);
 }
 
-static inline void
-task_mark_uninterruptible_sleep(struct task_struct *task)
+static inline void task_mark_killable_sleep(struct task_struct *task)
+{
+	task_set_state(task, TASK_KILLABLE);
+}
+
+static inline void task_mark_uninterruptible_sleep(struct task_struct *task)
 {
 	task_set_state(task, TASK_UNINTERRUPTIBLE);
 }
@@ -464,8 +473,8 @@ static inline void task_mark_stopped(struct task_struct *task)
 	task_set_state(task, TASK_STOPPED);
 }
 
-static inline __must_check __pure __nonnull(1)
-struct task_struct *task_group_leader(struct task_struct *task)
+static inline __must_check __pure __nonnull(
+	1) struct task_struct *task_group_leader(struct task_struct *task)
 {
 	return task->ids.group_leader;
 }
@@ -507,14 +516,14 @@ task_has_parent_link(const struct task_struct *task)
 }
 
 static inline void task_set_parent(struct task_struct *task,
-					    struct task_struct *parent)
+				   struct task_struct *parent)
 {
 	if (task)
 		task->links.parent = parent;
 }
 
 static inline void task_link_child(struct task_struct *parent,
-					    struct task_struct *child)
+				   struct task_struct *child)
 {
 	if (!parent || !child)
 		return;
@@ -555,7 +564,7 @@ task_thread_node(struct task_struct *task)
 }
 
 static inline void task_link_thread(struct task_struct *leader,
-					     struct task_struct *thread)
+				    struct task_struct *thread)
 {
 	if (!leader || !thread)
 		return;
@@ -581,27 +590,23 @@ task_system_ticks(const struct task_struct *task)
 	return task ? task->cputime.stime_ticks : 0;
 }
 
-static inline __must_check __pure int
-task_exit_code(struct task_struct *task)
+static inline __must_check __pure int task_exit_code(struct task_struct *task)
 {
 	return task ? task->lifecycle.exit_code : 0;
 }
 
-static inline void task_set_exit_code(struct task_struct *task,
-					       int code)
+static inline void task_set_exit_code(struct task_struct *task, int code)
 {
 	if (task)
 		task->lifecycle.exit_code = code;
 }
 
-static inline __must_check __pure int
-task_exit_signal(struct task_struct *task)
+static inline __must_check __pure int task_exit_signal(struct task_struct *task)
 {
 	return task ? task->lifecycle.exit_signal : 0;
 }
 
-static inline void task_set_exit_signal(struct task_struct *task,
-						 int sig)
+static inline void task_set_exit_signal(struct task_struct *task, int sig)
 {
 	if (task)
 		task->lifecycle.exit_signal = sig;
@@ -613,8 +618,7 @@ task_run_list(struct task_struct *task)
 	return task ? &task->sched.run_list : NULL;
 }
 
-static inline __must_check __pure bool
-task_is_queued(struct task_struct *task)
+static inline __must_check __pure bool task_is_queued(struct task_struct *task)
 {
 	return task && !list_empty(&task->sched.run_list);
 }
@@ -625,8 +629,7 @@ task_need_resched(struct task_struct *task)
 	return task ? task->sched.need_resched : 0;
 }
 
-static inline void task_set_need_resched(struct task_struct *task,
-						  uint8_t val)
+static inline void task_set_need_resched(struct task_struct *task, uint8_t val)
 {
 	if (task)
 		task->sched.need_resched = val;
@@ -638,7 +641,10 @@ static inline void task_set_need_resched(struct task_struct *task,
 void task_init(void);
 
 /**
- * @brief Allocate a zeroed task_struct with architecture stack storage.
+ * @brief Allocate an unpublished task with architecture stack storage.
+ *
+ * The returned task owns one lifecycle reference and a reserved PID, but is
+ * invisible to PID lookup until task_publish() commits it.
  * @return New task on success, or NULL when allocation fails.
  */
 struct task_struct *__must_check task_alloc(void);
@@ -661,6 +667,31 @@ void task_release_resources(struct task_struct *task);
  * @param task Task to free; may be NULL.
  */
 void task_free(struct task_struct *task);
+
+/**
+ * @brief Make a fully initialized task discoverable by PID/TID lookup.
+ * @param task Unpublished task holding its creator's base reference.
+ *
+ * Publish only after task resources and parent/thread-group links are ready.
+ * A successful PID lookup returns an additional lifecycle reference; it never
+ * returns an unpinned raw task pointer.
+ */
+void __nonnull(1) task_publish(struct task_struct *task);
+
+/**
+ * @brief Remove a task from PID/TID lookup before dropping its base reference.
+ * @param task Published task that will no longer accept new PID lookups.
+ *
+ * Existing lookup references remain valid and must be released with
+ * task_put().  This is normally the last step of zombie reaping.
+ */
+void __nonnull(1) task_unpublish(struct task_struct *task);
+
+/**
+ * @brief Drop one task lifecycle reference.
+ * @param task Reference returned by lookup, or the creator's base reference.
+ */
+void task_put(struct task_struct *task);
 
 /**
  * @brief Initialize architecture-owned task fields.
@@ -759,16 +790,20 @@ task_group_has_other_threads(const struct task_struct *task);
 /**
  * @brief Find a thread-group leader by TGID.
  * @param tgid Thread-group id to search for.
- * @return Matching leader, or NULL.
+ * @return Matching leader with a lifecycle reference, or NULL.
+ *
+ * Call task_put() after the task is no longer needed.
  */
-struct task_struct *__must_check __pure task_find_group_leader(pid_t tgid);
+struct task_struct *__must_check task_find_group_leader(pid_t tgid);
 
 /**
  * @brief Find a task by Linux TID.
  * @param tid Thread id to search for.
- * @return Matching task, or NULL.
+ * @return Matching task with a lifecycle reference, or NULL.
+ *
+ * Call task_put() after the task is no longer needed.
  */
-struct task_struct *__must_check __pure task_find_thread(pid_t tid);
+struct task_struct *__must_check task_find_thread(pid_t tid);
 
 /**
  * @brief Check whether a task belongs to a thread group.
@@ -780,39 +815,42 @@ bool __must_check __pure task_in_thread_group(const struct task_struct *task,
 					      pid_t tgid);
 
 /**
- * @brief Check whether any task currently uses a process-group id.
- * @param pgid Process-group id.
- * @return true if at least one task has @p pgid.
+ * @brief Check whether a task belongs to a user process group.
+ *
+ * This role is independent of the task's current user-mm pointer, so it
+ * remains stable while exit releases resources.
+ * @param task Task to inspect.
+ * @return true when @p task is a user-process group leader.
  */
-bool __must_check __pure task_pgid_exists(pid_t pgid);
+bool __must_check __pure task_is_user_process(const struct task_struct *task);
 
 /**
- * @brief Check whether any task currently belongs to a session.
- * @param sid Session id.
- * @return true if at least one task has @p sid.
- */
-bool __must_check __pure task_sid_exists(pid_t sid);
-
-/**
- * @brief Check whether a process group has a member in one session.
+ * @brief Check whether a process group has a live member in one session.
  * @param pgid Process-group id.
  * @param sid Session id.
- * @return true if at least one task has both @p pgid and @p sid.
+ * @param ignored Optional task that must not count as a member.
+ * @return true if a live task other than @p ignored has both ids.
  */
-bool __must_check __pure task_pgid_in_session(pid_t pgid, pid_t sid);
+bool __must_check task_pgid_has_live_member_except(
+	pid_t pgid, pid_t sid, const struct task_struct *ignored);
 
 /**
- * @brief Set one thread group's process-group id.
- * @param leader Non-NULL thread-group leader.
- * @param pgid Process-group id applied to all group members.
+ * @brief Read one task's process group and session as one protected snapshot.
+ * @param task Lifecycle-pinned task to inspect.
+ * @param identity Output process identity snapshot.
+ * @return 0 on success, or a negative errno.
  */
-void __nonnull(1) task_set_pgid_all(struct task_struct *leader, pid_t pgid);
+int __must_check task_process_snapshot(const struct task_struct *task,
+				       struct task_process_identity *identity);
 
-/**
- * @brief Set one thread group's session id.
- * @param leader Non-NULL thread-group leader.
- * @param sid Session id applied to all group members.
- */
-void __nonnull(1) task_set_sid_all(struct task_struct *leader, pid_t sid);
+#ifdef KERNEL_SELFTEST
+pid_t task_test_pgid(const struct task_struct *task) __must_check;
+pid_t task_test_sid(const struct task_struct *task) __must_check;
+void task_test_set_process_identity(struct task_struct *task, pid_t pgid,
+				    pid_t sid);
+void task_test_mark_user_process(struct task_struct *task);
+void task_test_inherit_process_role(struct task_struct *child,
+				    const struct task_struct *parent);
+#endif
 
 #endif

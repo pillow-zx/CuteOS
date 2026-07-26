@@ -25,7 +25,8 @@ int test_kernel_thread_basic(void)
 
 
 		sched_dequeue(t);
-		task_free(t);
+		task_unpublish(t);
+		task_put(t);
 
 
 		if (was_empty)
@@ -53,7 +54,8 @@ int test_kernel_thread_ctx_setup(void)
 
 
 		sched_dequeue(t);
-		task_free(t);
+		task_unpublish(t);
+		task_put(t);
 	}
 	TEST_END("kthread: ctx and trap_frame setup");
 	return __test_ret;

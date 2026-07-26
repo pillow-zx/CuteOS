@@ -16,7 +16,9 @@ constexpr uint32_t WAIT_OUTCOME_SIGNAL = 2u;
 constexpr uint32_t WAIT_OUTCOME_TIMEOUT = 3u;
 
 constexpr uint32_t WAIT_FLAG_INTERRUPTIBLE = 0x01u;
-constexpr uint32_t WAIT_FLAG_MASK = WAIT_FLAG_INTERRUPTIBLE;
+constexpr uint32_t WAIT_FLAG_KILLABLE = 0x02u;
+constexpr uint32_t WAIT_FLAG_MASK =
+	WAIT_FLAG_INTERRUPTIBLE | WAIT_FLAG_KILLABLE;
 
 constexpr uint32_t WAIT_SESSION_MAX_CHANNELS = 64u;
 
@@ -107,7 +109,9 @@ int wait_session_watch(struct wait_session *session,
 /**
  * @brief Wait for an event, signal, or deadline.
  *
- * Outcome priority is EVENT, then SIGNAL, then TIMEOUT. Wakeups that do not
+ * Outcome priority is EVENT, then SIGNAL, then TIMEOUT.
+ * `WAIT_FLAG_INTERRUPTIBLE` reports an unblocked pending signal;
+ * `WAIT_FLAG_KILLABLE` reports only a pending `SIGKILL`. Wakeups that do not
  * make any outcome true are retried internally. On every return the current
  * task is running and all channel watches and timeout state are cleaned. A
  * negative return is an operation error and leaves outcome set to zero.

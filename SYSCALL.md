@@ -1,7 +1,7 @@
 # cuteOS syscall 语义矩阵报告
 
 本文是 cuteOS 当前 syscall 支持面的基线，记录
-`include/kernel/syscall_table.h` 中 110 个 syscall 入口的语义成熟度。它不
+`include/kernel/syscall_table.h` 中 115 个 syscall 入口的语义成熟度。它不
 是 Linux 完整兼容声明；入口存在只表示分发表安装了 handler，具体支持等级以
 本文的 A/B/C/D 矩阵为准。
 
@@ -23,15 +23,15 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | 域 | 数量 | 主要等级 | 主要风险 |
 | --- | ---: | --- | --- |
 | 文件描述符与 I/O | 20 | A/B | fcntl/ioctl/splice/fallocate flag 子集 |
-| 路径、目录、挂载 | 18 | A/B/C | mount/umount 保持 C 级最小模型、rename/link 边界 |
+| 路径、目录、挂载 | 16 | A/B/C | mount/umount 保持 C 级最小模型、rename/link 边界 |
 | stat/statfs/statx | 5 | A/B | statx 扩展字段不置位、statfs 字段随 FS 声明 |
-| poll/select/epoll | 6 | B | edge/oneshot、嵌套 epoll、信号掩码细节 |
-| 进程、线程、等待 | 11 | A/B | clone flag、wait options、线程组细节 |
-| signal | 7 | B | restart 覆盖有限 syscall、默认动作、复杂 signal mask 细节 |
-| 时间和 timer | 13 | B/C | REALTIME、clock_settime、POSIX timer 细节 |
-| 内存管理 | 11 | B | file mmap、msync、mlock 语义深度 |
+| poll/select/epoll | 5 | B | edge/oneshot、嵌套 epoll、信号掩码细节 |
+| 进程、线程、等待 | 14 | A/B | clone flag、wait options、线程组细节 |
+| signal | 8 | B | restart 覆盖有限 syscall、默认动作、实时信号缺失 |
+| 时间和 timer | 14 | B/C | REALTIME、clock_settime、POSIX timer 细节 |
+| 内存管理 | 10 | B | file mmap、msync、mlock 语义深度 |
 | futex/rseq/membarrier | 5 | B/C | futex opcode 子集、rseq flag、SMP 语义 |
-| 身份、资源、杂项 | 14 | B/C/D | 权限模型、groups、syslog、随机源质量 |
+| 身份、资源、杂项 | 18 | B/C/D | 权限模型、groups、syslog、随机源质量 |
 
 ## 文件描述符与 I/O
 
@@ -40,7 +40,7 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | 23 | `dup` | A | fd 复制 | 无明显短期缺口 | 压测 fd 上限和 close-on-exec 交互 |
 | 24 | `dup3` | A | 支持 `O_CLOEXEC` | 仅当前 fdtable 范围 | 加 dup3 同 fd errno 回归 |
 | 25 | `fcntl` | B | 支持 `F_DUPFD/F_DUPFD_CLOEXEC/F_GETFD/F_SETFD/F_GETFL/F_SETFL`，`F_SETFL` 可修改 `O_APPEND/O_NONBLOCK`，见 cmd 支持表 | lock、lease、pipe size、owner 系列未实现但 errno 已固定 | 按表逐项替换为真实语义 |
-| 29 | `ioctl` | B | 委托 `vfs_ioctl`；console 支持 termios、winsize、controlling tty、foreground pgid/session 查询设置 | pty、serial、line discipline 等 ioctl 未实现 | 按真实程序探测继续扩展 |
+| 29 | `ioctl` | B | 委托 `vfs_ioctl`；console 支持 termios、winsize、显式 controlling-TTY 关联、foreground pgid/session 查询设置，以及 Linux 风格 `TIOCSCTTY/TIOCNOTTY` 生命周期 | pty、多 terminal、后台读写和 orphaned pgrp 规则未实现 | 按真实程序探测继续扩展 |
 | 46 | `ftruncate64` | A | 通过 VFS truncate 文件 | 文件系统大文件边界有限 | 覆盖 sparse/truncate 扩展测试 |
 | 47 | `fallocate` | B | 仅 `mode == 0`，限制最大文件大小 | punch hole/keep size 等 flag 不支持 | 固定 unsupported mode errno |
 | 57 | `close` | A | fd close | 无明显短期缺口 | 加多线程/dup 交互测试 |
@@ -54,6 +54,7 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | 68 | `pwrite64` | A | offset 写 | `O_APPEND` 语义需确认 | 增加 append + pwrite 测试 |
 | 71 | `sendfile` | B | regular input 到 writable output，buffered copy | socket/pipe 等 Linux 场景缺失 | 明确只支持 file-to-file |
 | 76 | `splice` | B | pipe/file 单边 splice，支持 hint flags | file-file、pipe-pipe、更多 flag 缺失 | 做 pipe/file 语义表 |
+| 81 | `sync` | B | 通过 VFS 同步写回全部 dirty page-cache 数据及 filesystem-wide hook；底层写回错误记录到内核日志，ABI 返回成功 | 无 per-superblock 异步 writeback/error accounting | 保持 Linux 无错误返回契约 |
 | 82 | `fsync` | A | VFS sync file | 元数据完整性取决于 FS | 加崩溃一致性非目标说明 |
 | 83 | `fdatasync` | B | VFS 同步文件数据页，并调用 FS datasync hook 同步取回数据所需元数据；无 hook 时退化为完整 inode writeback | 崩溃写入顺序仍是 best-effort；各 FS 需要准确声明 datasync 元数据边界 | 按文件系统补强 ordering 语义 |
 
@@ -183,6 +184,20 @@ ready，则返回 ready 数量并保留 signal pending；只有无 ready 结果�
 `-EINTR` 返回。临时 signal mask 在 handler 完成后恢复原值。`-EINTR` 路径
 不回写 `pollfd.revents`、fd sets 或 epoll events，也不修改 timeout 参数。
 
+当前 `/dev/console` 同时是系统 console 和唯一 UART terminal。`TIOCSCTTY(0)`
+只允许 session leader 获取未占用 terminal；UID 0 可用 `TIOCSCTTY(1)` 强制
+清除旧 session 并接管。非 session leader 的 `TIOCNOTTY` 只解除自身关联；
+session leader detach/exit 或强制接管会解除旧 session，并向其旧 foreground
+pgrp 发送 `SIGHUP`、`SIGCONT`。输入信号不向无 owner 的 reader 回退，也不会
+投递给已离开 TTY session 的陈旧 PGID。当前没有完整 process-group object：若
+`setpgid` 或退出使 foreground pgrp 在该 session 中没有存活成员，内核将其清为
+0；此后输入信号返回 `-ESRCH`，直到 `TIOCSPGRP` 显式选择新 foreground pgrp。
+
+涉及 PID 的进程查询和信号投递使用 published PID registry；查询成功会在操作期间
+固定 task lifetime，避免并发 reaping 后继续使用裸 task。zombie 在 wait4 回收前仍
+可被其 PID 解析；回收先撤销 publish，再允许 PID 复用。本轮仍是单核非抢占模型，
+这不是 SMP 生命周期/内存序承诺。
+
 ## 进程、线程、等待
 
 | Nr | syscall | 等级 | 当前语义 | 主要缺口 | 下一步 |
@@ -194,23 +209,24 @@ ready，则返回 ready 数量并保留 signal pending；只有无 ready 结果�
 | 154 | `setpgid` | B | 设置同 session 内 process group，拒绝 session leader | exec-time EACCES、orphaned pgrp 规则未实现 | 和 shell job control 继续压测 |
 | 155 | `getpgid` | B | 查询 pgid | 权限模型浅 | 保持并补跨进程测试 |
 | 156 | `getsid` | B | 查询 sid，采用 Linux 不返回跨 session EPERM 的行为 | 权限模型浅 | 保持 |
-| 157 | `setsid` | B | 创建新 session 和 process group | controlling tty 仅 single-console 模型 | 保持最小 job-control 语义 |
+| 157 | `setsid` | B | 解除调用进程的 controlling-TTY 关联，并创建新 session 和 process group | 仅 single-console 模型；无完整 job-control/orphaned-pgrp 规则 | 保持 BusyBox init 所需最小语义 |
 | 172 | `getpid` | A | 返回 tgid | 保持 |
 | 173 | `getppid` | A | 返回 parent pid | orphan/adoption 已依赖 task | 保持 |
 | 178 | `gettid` | A | 返回 task pid | 保持 |
-| 220 | `clone` | B | 支持 fork-like 和线程子集，见 flag 支持表 | clone3/vfork/namespace 不支持 | 按真实线程库需求扩展 |
+| 220 | `clone` | B | 支持 fork-like、线程子集和 non-thread vfork，见 flag 支持表 | clone3/namespace 与完整线程组细节不支持 | 按真实线程库需求扩展 |
 | 221 | `execve` | A | 通过 VFS 加载静态非 PIE `ET_EXEC` ELF，复制 argv/envp，安装新 mm 和 Linux riscv64 auxv | `ET_DYN`、解释器脚本和动态链接不支持 | 保持静态 ELF 主线，补 auxv/错误码测试 |
-| 260 | `wait4` | B | 等待 pid `-1` 或正 pid，`options == 0`，返回 rusage；`SA_RESTART` 重放可中断等待 | options/pgrp wait 不完整 | 扩展 `WNOHANG/WUNTRACED` 等 |
+| 260 | `wait4` | B | 等待 pid `-1` 或正 pid，支持 `WNOHANG`，返回 rusage；`SA_RESTART` 重放可中断的阻塞等待 | pgrp wait、`WUNTRACED/WCONTINUED` 不完整 | 按真实子进程监管需求扩展 |
 
 ### `clone` flag 支持表
 
-`clone` 当前覆盖 fork-like clone 和 pthread 所需线程子集。复杂 Linux
-模型先固定为 `-EINVAL`，避免真实程序把探测成功误认为完整支持。
+`clone` 当前覆盖 fork-like clone、pthread 所需线程子集和 non-thread
+vfork。复杂 Linux 模型先固定为 `-EINVAL`，避免真实程序把探测成功误认为
+完整支持。
 
 | flag / 组合 | 状态 | errno / 语义 |
 | --- | --- | --- |
 | exit signal `0` / `SIGCHLD` | supported | 非线程 clone 可用；其它非零 exit signal 返回 `-EINVAL` |
-| `CLONE_VM` | supported | 共享 mm；必须提供 child stack，并且必须同时设置 `CLONE_SIGHAND` |
+| `CLONE_VM` | supported | 共享 mm；必须提供 child stack；除 vfork 外必须同时设置 `CLONE_SIGHAND` |
 | `CLONE_FS` | supported | 共享 cwd/root/umask 状态 |
 | `CLONE_FILES` | supported | 共享 fdtable |
 | `CLONE_SIGHAND` | supported | 共享 handler 表；必须同时设置 `CLONE_VM` |
@@ -222,7 +238,9 @@ ready，则返回 ready 数量并保留 signal pending；只有无 ready 结果�
 | `CLONE_DETACHED/CLONE_UNTRACED` | supported no-op | 无 ptrace 模型，作为兼容 hint 接受 |
 | `CLONE_SYSVSEM` | supported no-op | 无 SysV semaphore undo 状态；为 musl-style pthread flag 组合接受 |
 | `CLONE_PIDFD` | unsupported | `-EINVAL`；没有 pidfd 文件描述符模型 |
-| `CLONE_VFORK` | unsupported | `-EINVAL`；没有 parent blocking / mm_release 语义 |
+| `CLONE_VFORK` | supported for non-threads | 调用任务睡眠到 child 成功 exec 释放旧 mm，或 child exit 释放 mm；失败 exec 不完成 vfork；可与/不与 `CLONE_VM` 组合 |
+| `CLONE_VM | CLONE_VFORK | SIGCHLD` | supported | riscv64 musl `vfork()` 组合；无需 `CLONE_SIGHAND`，但仍需 child stack |
+| `CLONE_VFORK | CLONE_THREAD` | unsupported | `-EINVAL`；vfork child 不加入调用任务的线程组 |
 | `CLONE_PARENT` | unsupported | `-EINVAL`；不改变 parent 关系 |
 | `CLONE_PTRACE` | unsupported | `-EINVAL`；没有 ptrace 模型 |
 | namespace flags | unsupported | `CLONE_NEWTIME/NEWNS/NEWCGROUP/NEWUTS/NEWIPC/NEWUSER/NEWPID/NEWNET` 返回 `-EINVAL` |
@@ -231,17 +249,38 @@ ready，则返回 ready 数量并保留 signal pending；只有无 ready 结果�
 | unknown flag bits | unsupported | `-EINVAL` |
 | non-leader non-thread clone | unsupported | `-EINVAL` |
 
+vfork 调用任务只在 completion 或 pending `SIGKILL` 时离开其 killable
+等待；普通 signal 保持 pending，待调用任务恢复到用户返回路径后按常规规则
+处理。
+
 ## signal
 
 | Nr | syscall | 等级 | 当前语义 | 主要缺口 | 下一步 |
 | ---: | --- | --- | --- | --- | --- |
-| 129 | `kill` | B | 正 pid 投递 | pid 0/-1/process group 未支持 | 扩展 POSIX pid 语义 |
+| 129 | `kill` | B | 正 pid 投递；`pid == -1` 广播到除 PID 1、调用进程及 kernel-only task 外的用户进程 | pid 0、pid < -1 process group 和权限模型未支持 | 按 shell/job-control 需求扩展 |
 | 130 | `tkill` | B | tid 投递 | 权限模型浅 | 补 cred 检查 |
 | 131 | `tgkill` | B | tgid+tid 投递 | 权限模型浅 | 同 tkill |
 | 132 | `sigaltstack` | B | 注册/查询 altstack | SS_AUTODISARM 等未支持 | 明确 flag policy |
 | 134 | `rt_sigaction` | B | handler/mask，支持 `SA_ONSTACK/NODEFER/RESETHAND/RESTART/SIGINFO` | Linux 完整 signal action flag/queue 语义仍缺失 | 继续按真实工作负载扩展 |
 | 135 | `rt_sigprocmask` | B | 设/查 blocked mask | sigset size 固定 unsigned long | 保持 ABI 断言 |
+| 137 | `rt_sigtimedwait` | B | 消费线程私有或线程组共享 pending；支持 NULL/零值/有限相对 timeout、siginfo、目标信号唤醒和非目标信号 `-EINTR` | 仅信号 1..31；实时信号和重复排队未实现 | 按真实工作负载扩展 RT signal 模型 |
 | 139 | `rt_sigreturn` | B | 从当前 kernel-tracked `rt_sigframe` 恢复用户上下文/mask；嵌套 handler 按 LIFO 返回 | 浮点/向量扩展状态仍受限 | 继续补架构状态边界测试 |
+
+`rt_sigtimedwait` 接受 Linux riscv64 的 8 字节 sigset ABI，但当前只消费
+1..31 号标准信号，并排除 `SIGKILL/SIGSTOP`。同一等待集合中先选择线程私有
+pending，再选择线程组共享 pending，各自按最低信号号选择。等待期间仅临时
+解除目标集合的 blocked 位，以复用 interruptible wait 的无丢失唤醒；返回前
+恢复原 mask。timeout 到期返回 `-EAGAIN`，非目标可投递信号返回 `-EINTR`。
+与 Linux 一致，成功消费后若 siginfo 写回失败，返回 `-EFAULT` 但不恢复信号。
+
+PID 1 的未处理默认 fatal signal 不执行退出动作，包括用户发送的 `SIGKILL`；
+显式 handler、`SIGSTOP` 和内核 `force_signal*()` 保持原语义。被 PID 1 block 的
+默认 signal 仍进入 pending，因此 BusyBox init 可以通过 `rt_sigtimedwait` 同步
+消费 SIGTERM/SIGUSR1/SIGUSR2，而不会被保护逻辑提前丢弃。
+
+console 的 `ISIG` 行规程将 `VINTR`、`VQUIT`、`VSUSP` 分别投递为 `SIGINT`、
+`SIGQUIT`、`SIGTSTP`；普通任务对默认 `SIGTSTP` action 进入 stopped 状态。后台
+读写限制、`WUNTRACED` 与完整 shell job-control 仍不在当前支持面。
 
 ### `rt_sigaction` flag 支持表
 
@@ -425,6 +464,7 @@ CPU0 参数校验。没有 SMP IPI、remote runqueue 扫描或跨 hart expedited
 | 116 | `syslog` | D | 仅 `SIZE_BUFFER`，其它返回 `-ENOSYS` | 无 printk ring buffer read/clear | 实现 ring buffer 或继续标 D |
 | 122 | `sched_setaffinity` | C | 单核 mask 检查，接受 CPU0 | 不存储 per-task mask | SMP 前保持 C |
 | 123 | `sched_getaffinity` | C | 固定返回 CPU0 mask | 同上 | SMP 前保持 C |
+| 142 | `reboot` | B | 校验 Linux magic 与 root；CAD on/off 成功 no-op；restart/halt/poweroff 经 OpenSBI SRST 执行 | restart2、kexec、suspend 未支持；halt 与 poweroff 均映射 SRST shutdown | 有 boot-command 存储后再支持 restart2 |
 | 144 | `setgid` | B | root 或自身 gid 改写 | cred/capability 模型浅 | 建立 cred 模型 |
 | 146 | `setuid` | B | root 或自身 uid 改写 | saved uid/euid 不完整 | 同 cred |
 | 158 | `getgroups` | C | 固定单组 gid 0 | supplementary groups 缺失 | 和 cred 一起做 |

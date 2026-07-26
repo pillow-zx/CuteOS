@@ -44,11 +44,23 @@ CSR, trap-frame, page-table, SBI, or platform-MMIO knowledge.
 
 ## Project Language
 
-**User-space profile** is the mutually exclusive userspace composition chosen
-for a system image. The Minimal profile exercises project programs and their
-minimal libc; the BusyBox profile keeps the project init while using static
-musl BusyBox commands. Avoid calling this a global libc selection, because
-independently linked static programs may use different libc implementations.
+**User-space runtime** is the static musl BusyBox image installed into the
+root filesystem. Its `init` applet is PID 1 and its `ash` applet provides the
+interactive shell. Do not call this a selectable profile: cuteOS builds this
+one user-space runtime.
+
+**vfork calling task** is the task whose `clone()` request includes
+`CLONE_VFORK` and whose syscall return is suspended until vfork completion.
+Avoid calling it the parent process: the clone caller and the child's reaper
+parent are distinct roles. Ordinary signals do not end this suspension; a
+pending `SIGKILL` may terminate the calling task without waiting for
+completion.
+
+**vfork child** is the child task created by a `CLONE_VFORK` request.
+
+**vfork completion** is the lifecycle event at which the vfork child stops
+using its pre-exec virtual memory, either through successful exec or
+termination. A failed exec attempt is not vfork completion.
 
 ## Current Runtime Model
 
@@ -81,7 +93,7 @@ generic current-CPU implementation.
 | `fs/vfs/` | files, fdtable, paths, mounts, dentries, inodes, poll and ioctl routing |
 | `fs/ext2/` | ext2 implementation and on-disk rules |
 | `block/` | block devices, page cache, dirty state and writeback |
-| `drivers/` | console, UART and virtio MMIO drivers |
+| `drivers/` | UART and virtio MMIO transport drivers |
 | `syscall/` | thin Linux riscv64 ABI adapters; no core policy |
 | `include/kernel/` | public internal interfaces and cross-subsystem contracts |
 | `include/uapi/` | user-visible ABI layouts and constants |
@@ -120,6 +132,59 @@ semantic boundary changes.
 state. Signal, futex and rseq helpers remain with their owners. Clone uses a
 prepare/commit/abort transaction; syscall code must not bypass it. Exit may
 run after the task loses its `mm`, so it must not introduce late user access.
+
+Task allocation reserves a PID and owns one base reference, but it does not
+publish a PID-to-task mapping. After resources and links are coherent, the
+creator calls `task_publish()`, which marks the task published and installs
+the PID mapping under the PID-registry lock as one transaction.
+`task_find_thread()` and
+`task_find_group_leader()` return a lifecycle-pinned task that every caller
+must release with `task_put()`; they never lend a raw registry pointer. Reaping
+first calls `task_unpublish()`, preventing new lookup references, then drops
+the base reference. This makes PID reuse impossible until all prior lookup
+users have left the task lifetime.
+
+Process identity (`SID`/`PGID`) is owned by task/process code. Cross-subsystem
+callers read the pair through `task_process_snapshot()` under the process
+identity lock; raw field access is limited to that owner or unpublished task
+construction. Identity mutations are task-private and reached only through the
+session coordinator. The session coordinator owns the linearization of operations
+that jointly change process identity and controlling-TTY policy, but does not
+write identity fields or retain task pointers. A
+controlling-TTY attachment contains only
+TTY-owned state and is protected by the TTY mutex. TTY passes foreground input
+signals to the coordinator, which snapshots `(sid, pgid)` through TTY and
+invokes signal delivery after unlocking; signal code performs the pinned task
+scan. The coordinator mutex is outermost for joint policy operations. It may
+enter task/process or TTY operations separately, but those two subsystem locks
+must never be nested. PID-registry lookup remains internal to task and signal
+operations.
+
+A controlling-TTY loss caused by its session leader's detach or exit, or by a
+privileged forced takeover, is a session hangup: the former foreground process
+group receives `SIGHUP` followed by `SIGCONT`. Detaching a non-leader affects
+only that process and is not a session hangup.
+
+For a non-thread clone, session identity inheritance and controlling-TTY
+attachment inheritance are one session-coordinator prepare transaction before
+the child is published. A failed prepare or a later clone abort removes the
+tentative attachment completely. Threads resolve their leader's attachment and
+never copy it.
+
+Session leader exit changes controlling-TTY visibility before the task becomes
+a zombie. It removes the session relationship and emits any resulting hangup;
+the exiting leader's attachment is then released. Reaping and clone-abort use
+an idempotent cleanup fallback and do not repeat a normal exit's hangup.
+
+A successful `setsid()` only detaches its calling process from its former
+controlling TTY before creating a new session and process group. It does not
+change the former session's terminal relationship or emit a session hangup.
+
+The minimal terminal model keeps a foreground PGID only while that session has
+a live member in the group. Session transitions clear an empty foreground
+group to `0`; terminal input then has no foreground recipient until an explicit
+foreground-group selection. This avoids treating a later reused PID number as
+the old foreground group without introducing a general process-group object.
 
 The scheduler owns runnable-task selection and architecture switch
 orchestration. Wait channels own waiter registration and wakeup observation.
@@ -160,6 +225,9 @@ does not absorb generic lifecycle policy.
   address space. Exit performs signal/futex/task cleanup before reaping.
 - **File I/O:** syscall fd/path adaptation enters VFS; VFS owns lookup and
   file lifetime; filesystem data reaches the page cache and block device.
+- **Shutdown:** BusyBox init broadcasts TERM/KILL to user processes, calls
+  VFS-wide sync for page-cache and filesystem-global state, then requests
+  restart/halt/poweroff through the platform-independent reset seam.
 
 ## Non-Negotiable ABI Rules
 
@@ -182,9 +250,9 @@ does not absorb generic lifecycle policy.
 | VM or user access | `docs/architecture/memory.md`, `include/kernel/mm.h`, `mm/` |
 | VFS or paths | `docs/architecture/vfs.md`, `include/kernel/fs.h`, `fs/vfs/` |
 | ext2 or cached I/O | `docs/architecture/ext2.md`, `docs/architecture/block.md`, `fs/ext2/`, `block/` |
-| build and boot | `Makefile`, `filelist.mk`, `arch/riscv/arch.mk`, `init/` |
+| build and boot | `Makefile`, `scripts/build.mk`, `scripts/kernel.mk`, `scripts/workflows.mk` |
+| shutdown and reset | `SYSCALL.md`, `kernel/signal.c`, `syscall/sys_misc.c`, `include/kernel/reboot.h` |
 
 Use `make help` to discover targets. `make test` runs kernel self-tests with a
-temporary test image; use the relevant `user/bin/*_test.c` program in QEMU for
-user-visible behavior. When adding a source file, update the relevant `*.mk`
-object list.
+temporary test image. When adding a source file, update the object manifest in
+`scripts/kernel.mk`.

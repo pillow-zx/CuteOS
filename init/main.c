@@ -10,21 +10,20 @@
 #include <kernel/task.h>
 #include <kernel/sched.h>
 #include <kernel/timer.h>
-#include <kernel/tty.h>
 #include <kernel/syscall.h>
 #include <kernel/signal.h>
 #include <kernel/user_map.h>
 #include <kernel/vmalloc.h>
 #include <kernel/vfs.h>
-#include <drivers/console.h>
 #include <drivers/virtio_blk.h>
 #include <kernel/trap.h>
 #include <kernel/processor.h>
 #include <kernel/pgtable.h>
+#include <kernel/reboot.h>
 #include <kernel/user_map_arch.h>
+#include <kernel/tty.h>
 
 #ifdef KERNEL_SELFTEST
-#include <kernel/sbi.h>
 #include <kernel/test.h>
 #endif
 
@@ -45,7 +44,8 @@ static void kernel_selftest_thread(void *arg)
 		pr_err("[KTEST] result failed\n");
 	else
 		pr_info("[KTEST] result passed\n");
-	sbi_shutdown();
+	ret = kernel_reboot(KERNEL_REBOOT_POWER_OFF);
+	BUG_ON(ret < 0);
 }
 #endif
 
@@ -62,19 +62,27 @@ void kernel_main(void)
 	console_init_sbi();
 
 	pr_info("\n");
-	pr_info("  /$$$$$$              /$$                /$$$$$$   /$$$$$$ \n");
-	pr_info(" /$$__  $$            | $$               /$$__  $$ /$$__  $$\n");
-	pr_info("| $$  \\__/ /$$   /$$ /$$$$$$    /$$$$$$ | $$  \\ $$| $$  \\__/\n");
-	pr_info("| $$      | $$  | $$|_  $$_/   /$$__  $$| $$  | $$|  $$$$$$ \n");
-	pr_info("| $$      | $$  | $$  | $$    | $$$$$$$$| $$  | $$ \\____  $$\n");
-	pr_info("| $$    $$| $$  | $$  | $$ /$$| $$_____/| $$  | $$ /$$  \\ $$\n");
-	pr_info("|  $$$$$$/|  $$$$$$/  |  $$$$/|  $$$$$$$|  $$$$$$/|  $$$$$$/\n");
-	pr_info(" \\______/  \\______/    \\___/   \\_______/ \\______/  \\______/ \n");
+	pr_info("  /$$$$$$              /$$                /$$$$$$   /$$$$$$ "
+		"\n");
+	pr_info(" /$$__  $$            | $$               /$$__  $$ /$$__  "
+		"$$\n");
+	pr_info("| $$  \\__/ /$$   /$$ /$$$$$$    /$$$$$$ | $$  \\ $$| $$  "
+		"\\__/\n");
+	pr_info("| $$      | $$  | $$|_  $$_/   /$$__  $$| $$  | $$|  $$$$$$ "
+		"\n");
+	pr_info("| $$      | $$  | $$  | $$    | $$$$$$$$| $$  | $$ \\____  "
+		"$$\n");
+	pr_info("| $$    $$| $$  | $$  | $$ /$$| $$_____/| $$  | $$ /$$  \\ "
+		"$$\n");
+	pr_info("|  $$$$$$/|  $$$$$$/  |  $$$$/|  $$$$$$$|  $$$$$$/|  "
+		"$$$$$$/\n");
+	pr_info(" \\______/  \\______/    \\___/   \\_______/ \\______/  "
+		"\\______/ \n");
 	pr_info("\n");
 
 	pagetable_init();
 	console_init_mmio();
-	console_chrdev_init();
+	tty_console_init();
 	pr_info("uart: init successfully\n");
 
 	buddy_init();
@@ -122,7 +130,10 @@ void kernel_main(void)
 	init = kernel_thread(init_process, NULL);
 	BUG_ON(!init);
 	set_init_task(init);
-	tty_console_init_session(init);
+
+	ret = tty_console_start();
+	if (ret < 0)
+		panic("console: input thread init failed (%d)", ret);
 
 	writeback = kernel_thread(page_cache_wb_thread, NULL);
 	BUG_ON(!writeback);

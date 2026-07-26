@@ -134,23 +134,40 @@ ssize_t sys_get_robust_list(struct trap_frame *tf)
 	struct robust_list_head *head;
 	size_t len;
 	int ret;
+	bool put_task = false;
 
 	if (!uhead || !ulen)
 		return -EFAULT;
 	if (pid < 0)
 		return -EINVAL;
 
-	task = pid == 0 ? current_task() : task_find_thread((pid_t)pid);
+	if (pid == 0) {
+		task = current_task();
+	} else {
+		task = task_find_thread((pid_t)pid);
+		put_task = true;
+	}
 	if (!task)
 		return -ESRCH;
 
 	ret = futex_get_robust_list(task, &head, &len);
-	if (ret < 0)
+	if (ret < 0) {
+		if (put_task)
+			task_put(task);
 		return ret;
-	if (copy_to_user(uhead, &head, sizeof(head)) != 0)
+	}
+	if (copy_to_user(uhead, &head, sizeof(head)) != 0) {
+		if (put_task)
+			task_put(task);
 		return -EFAULT;
-	if (copy_to_user(ulen, &len, sizeof(len)) != 0)
+	}
+	if (copy_to_user(ulen, &len, sizeof(len)) != 0) {
+		if (put_task)
+			task_put(task);
 		return -EFAULT;
+	}
+	if (put_task)
+		task_put(task);
 
 	return 0;
 }

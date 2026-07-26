@@ -7,6 +7,7 @@
 #include <kernel/buddy.h>
 #include <kernel/exec.h>
 #include <kernel/fdtable.h>
+#include <kernel/fork.h>
 #include <kernel/fs.h>
 #include <kernel/mm.h>
 #include <kernel/printk.h>
@@ -24,6 +25,8 @@
 #include <kernel/page.h>
 #include <kernel/pgtable.h>
 #include <kernel/trap.h>
+
+#include "task_internal.h"
 
 struct exec_image {
 	struct file *file;
@@ -671,6 +674,8 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 		return ret;
 
 	install_exec_mm(mm, tf, entry, sp);
+	task_mark_user_process(current_task());
+	kernel_clone_complete_vfork(current_task());
 	signal_clear_frames(current_task());
 	restart_clear(current_task());
 	rseq_execve(current_task());

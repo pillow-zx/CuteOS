@@ -16,8 +16,8 @@ flowchart TD
     Satp["写 satp<br/>sfence.vma"]
     Kmain["kernel_main()<br/>高半区 C 入口"]
     Init["kernel_thread(init_process)<br/>PID 1"]
-    Exec["exec_user_path('/bin/init')"]
-    User["用户态 /bin/init"]
+    Exec["exec_user_path('/sbin/init')"]
+    User["用户态 BusyBox /sbin/init"]
 
     OpenSBI --> Start --> Hart --> Bss --> TmpPT --> Satp --> Kmain
     Kmain --> Init --> Exec --> User
@@ -86,7 +86,7 @@ flowchart TD
 1. `console_init_sbi()`：建立最早期 printk 输出。
 2. `pagetable_init()`：创建正式内核页表并切换到它。
 3. `console_init_mmio()`：切换到 UART MMIO 轮询控制台。
-4. `console_chrdev_init()`：注册 `/dev/console` 字符设备。
+4. `tty_console_init()`：注册 `/dev/console` TTY 字符设备。
 5. `buddy_init()`：初始化物理页伙伴分配器。
 6. `pagetable_use_buddy()`：让后续页表页从 buddy 分配。
 7. `slab_init()`：启用 `kmalloc()`/`kfree()`。
@@ -106,8 +106,9 @@ flowchart TD
     挂载唯一匹配的根文件系统。
 21. `kernel_thread(init_process, NULL)`：创建 PID 1 内核线程。
 22. `set_init_task(init)`：记录 PID 1，供 exit/reparent 路径使用。
-23. `kernel_thread(page_cache_wb_thread, NULL)`：创建页缓存后台写回线程。
-24. idle 循环反复调用 `schedule()` 和 `wait_for_interrupt()`。
+23. `tty_console_start()`：创建轮询 UART 的 console TTY 输入线程。
+24. `kernel_thread(page_cache_wb_thread, NULL)`：创建页缓存后台写回线程。
+25. idle 循环反复调用 `schedule()` 和 `wait_for_interrupt()`。
 
 `make test` 使用 `KERNEL_SELFTEST=1` 构建单独的测试内核。该内核在根文件系统
 挂载后创建 self-test 内核线程，然后进入普通 idle 调度循环。self-test 线程在
@@ -129,7 +130,7 @@ task；VFS/ext2/page-cache/virtio 等深层回归路径由 self-test 线程的 t
 - 文件系统注册必须晚于 VFS 初始化。
 - rootfs 挂载必须晚于 virtio-blk 注册，因为文件系统 probe 和 mount 都通过
   block device/page cache 发起 I/O。根挂载失败会立即 panic，因为 PID 1 依赖
-  `/bin/init` 可从根文件系统访问。
+  `/sbin/init` 可从根文件系统访问。
 
 ## 正式内核地址空间
 
@@ -161,13 +162,25 @@ KERNEL_VBASE + DRAM_BASE ... KERNEL_VBASE + DRAM_BASE + DRAM_SIZE
 PID 1 的入口是 `kernel/init_process.c` 中的 `init_process()`。它调用：
 
 ```c
-exec_user_path("/bin/init");
+exec_user_path("/sbin/init");
 ```
 
-`exec_user_path()` 从 VFS 打开 `/bin/init`，加载静态、非 PIE 的 RISC-V
+`exec_user_path()` 从 VFS 打开 `/sbin/init`，加载静态、非 PIE 的 RISC-V
 `ET_EXEC` ELF，替换当前任务的 `mm/satp/trap_frame`，最后通过 trap return
 进入用户态。动态 `ET_DYN`、`PT_INTERP` 和 `PT_DYNAMIC` 镜像不属于当前 loader
 契约。
+
+内核只为 PID 1 安装继承的 console fd 0/1/2，不在启动期为它分配 controlling
+TTY。BusyBox init 读取 `/etc/inittab` 后，为 `-/bin/sh` action child 执行
+`setsid()`，child 继续使用继承的 fd 0，并由 `FEATURE_INIT_SCTTY` 调用
+`TIOCSCTTY(0)` 获取 console。TTY 所有权因而来自普通用户态 ABI，而不是启动期
+特例。
+
+BusyBox init 的完整关机路径是 `kill(-1, SIGTERM) -> sync() ->
+kill(-1, SIGKILL) -> sync() -> reboot(cmd)`。signal module 只广播到用户进程，
+page cache 承担全局写回；`reboot` ABI adapter 校验 Linux magic 和 root 后，
+通过 `system_reset(mode)` seam 调用 OpenSBI SRST。restart 使用 cold reboot，
+halt/poweroff 使用 system shutdown；旧式 SBI shutdown 仅作为 SRST 失败回退。
 
 exec 初始栈固定映射 64 KiB，栈下方保留一个 guard page。它按 Linux riscv64
 布局放置 `argc`、`argv`、`envp` 和 auxv，并提供 `AT_PHDR`、`AT_PHENT`、
@@ -183,7 +196,8 @@ exec 初始栈固定映射 64 KiB，栈下方保留一个 guard page。它按 Li
 | 任务 | 来源 | 角色 |
 | --- | --- | --- |
 | PID 0 idle | `task_init()` 静态初始化 | 无 runnable task 时运行，执行 `wfi` |
-| PID 1 init | `kernel_thread(init_process)` | 通过 exec 切换到 `/bin/init` |
+| PID 1 init | `kernel_thread(init_process)` | 通过 exec 切换到 BusyBox `/sbin/init` |
+| console input | `tty_console_start()` | 每个 scheduler tick 轮询 UART，处理 TTY 输入 |
 | page cache writeback | `kernel_thread(page_cache_wb_thread)` | 周期性同步全局脏页 |
 
 idle task 使用启动栈，不走普通 `task_alloc()` 的内核栈分配路径。其他任务拥有 8 KiB 内核栈，并在栈底放置 canary。
@@ -199,7 +213,7 @@ OpenSBI
   -> boot.S 临时地址空间
   -> kernel_main 子系统初始化
   -> virtio-blk + VFS rootfs probe/mount
-  -> PID 1 exec /bin/init
+  -> PID 1 exec /sbin/init
   -> trap/syscall/sched 驱动用户态运行
 ```
 

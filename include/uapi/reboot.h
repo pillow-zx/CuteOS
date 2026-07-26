@@ -1,0 +1,18 @@
+#ifndef _CUTEOS_UAPI_REBOOT_H
+#define _CUTEOS_UAPI_REBOOT_H
+
+/* Linux reboot(2) magic values. */
+#define LINUX_REBOOT_MAGIC1  0xfee1dead
+#define LINUX_REBOOT_MAGIC2  672274793
+#define LINUX_REBOOT_MAGIC2A 85072278
+#define LINUX_REBOOT_MAGIC2B 369367448
+#define LINUX_REBOOT_MAGIC2C 537993216
+
+/* Linux reboot(2) commands used by static musl BusyBox. */
+#define LINUX_REBOOT_CMD_RESTART   0x01234567
+#define LINUX_REBOOT_CMD_HALT	   0xcdef0123
+#define LINUX_REBOOT_CMD_CAD_ON	   0x89abcdef
+#define LINUX_REBOOT_CMD_CAD_OFF   0x00000000
+#define LINUX_REBOOT_CMD_POWER_OFF 0x4321fedc
+
+#endif
