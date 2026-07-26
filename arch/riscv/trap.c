@@ -172,8 +172,7 @@ void trap_handler(struct trap_frame *tf)
 			if (force_signal_info(exception.info.si_signo,
 					      &exception.info,
 					      current_task()) < 0)
-				do_exit(SIGNAL_EXIT_CODE(
-					exception.info.si_signo));
+				do_exit_signal(exception.info.si_signo);
 			user_return_work(tf);
 			return;
 		case TRAP_EXCEPTION_KERNEL_FATAL:

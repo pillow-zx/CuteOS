@@ -134,16 +134,40 @@ uint64_t signal_mask(int sig)
 	return 1UL << (sig - 1);
 }
 
+static bool signal_is_stop_signal(int sig)
+{
+	return sig == SIGSTOP || sig == SIGTSTP || sig == SIGTTIN ||
+	       sig == SIGTTOU;
+}
+
+static uint64_t signal_stop_mask(void)
+{
+	return signal_mask(SIGSTOP) | signal_mask(SIGTSTP) |
+	       signal_mask(SIGTTIN) | signal_mask(SIGTTOU);
+}
+
 static bool signal_is_fatal_default(int sig)
 {
 	switch (sig) {
 	case SIGCHLD:
 	case SIGCONT:
 	case SIGTSTP:
+	case SIGTTIN:
+	case SIGTTOU:
 		return false;
 	default:
 		return true;
 	}
+}
+
+static bool signal_stops_default(int sig, __sighandler_t handler)
+{
+	if (sig == SIGSTOP)
+		return true;
+	if (handler != SIG_DFL)
+		return false;
+
+	return signal_is_stop_signal(sig);
 }
 
 bool signal_is_catchable(int sig)
@@ -490,6 +514,40 @@ void signal_clear_pending(struct task_struct *task, uint64_t mask)
 	task->sigctx.forced_pending &= ~mask;
 }
 
+static void signal_clear_opposite_pending(struct task_struct *task, int sig)
+{
+	if (sig == SIGCONT)
+		signal_clear_pending(task, signal_stop_mask());
+	else if (signal_is_stop_signal(sig))
+		signal_clear_pending(task, signal_mask(SIGCONT));
+}
+
+static void signal_clear_shared_opposite_pending(struct signal_struct *signal,
+						 int sig)
+{
+	uint64_t mask = 0;
+
+	if (sig == SIGCONT)
+		mask = signal_stop_mask();
+	else if (signal_is_stop_signal(sig))
+		mask = signal_mask(SIGCONT);
+
+	signal->shared_pending &= ~mask;
+}
+
+static void signal_clear_task_shared_opposite_pending(struct task_struct *task,
+						      int sig)
+{
+	struct signal_struct *signal = task_signal_state(task);
+
+	if (!signal)
+		return;
+
+	mutex_lock(&signal->lock);
+	signal_clear_shared_opposite_pending(signal, sig);
+	mutex_unlock(&signal->lock);
+}
+
 void signal_defer_mask_restore(struct task_struct *task, uint64_t mask)
 {
 	if (!task)
@@ -538,7 +596,13 @@ static void wake_signal_target(struct task_struct *task, int sig)
 		return;
 	}
 
-	if (sig == SIGKILL || sig == SIGCONT) {
+	if (sig == SIGCONT && state == TASK_STOPPED) {
+		task_child_publish_continue(task);
+		sched_wake_task(task);
+		return;
+	}
+
+	if (sig == SIGKILL) {
 		if (state == TASK_STOPPED || state == TASK_UNINTERRUPTIBLE)
 			sched_wake_task(task);
 	}
@@ -557,6 +621,8 @@ static int send_signal_info_internal(int sig, const siginfo_t *info,
 		return -ESRCH;
 
 	mask = signal_mask(sig);
+	signal_clear_opposite_pending(task, sig);
+	signal_clear_task_shared_opposite_pending(task, sig);
 	if (!(task_pending_mask(task) & mask)) {
 		task->sigctx.pending_info[sig] = *info;
 		task->sigctx.pending_info[sig].si_signo = sig;
@@ -607,6 +673,7 @@ int send_group_signal_info(int sig, const siginfo_t *info,
 
 	mutex_lock(&signal->lock);
 	mask = signal_mask(sig);
+	signal_clear_shared_opposite_pending(signal, sig);
 	if (!(signal->shared_pending & mask)) {
 		signal->shared_pending_info[sig] = *info;
 		signal->shared_pending_info[sig].si_signo = sig;
@@ -614,13 +681,16 @@ int send_group_signal_info(int sig, const siginfo_t *info,
 	}
 	mutex_unlock(&signal->lock);
 
+	signal_clear_opposite_pending(leader, sig);
 	wake_signal_target(leader, sig);
 	if (task_is_group_leader(leader)) {
 		struct task_struct *thread;
 
 		list_for_each_entry (thread, &leader->links.thread_group,
-				     links.thread_node)
+				     links.thread_node) {
+			signal_clear_opposite_pending(thread, sig);
 			wake_signal_target(thread, sig);
+		}
 	}
 
 	return 0;
@@ -724,7 +794,7 @@ int force_signal_info(int sig, const siginfo_t *info, struct task_struct *task)
 
 	if (signal_frame_contains(task, sig)) {
 		if (task == current_task())
-			do_exit(SIGNAL_EXIT_CODE(sig));
+			do_exit_signal(sig);
 		return 0;
 	}
 
@@ -786,9 +856,10 @@ void signal_user_map_init(void)
 	BUG_ON(ret < 0);
 }
 
-static void stop_current(void)
+static void stop_current(int sig)
 {
 	task_mark_stopped(current_task());
+	task_child_publish_stop(current_task(), sig);
 	schedule();
 }
 
@@ -1112,20 +1183,20 @@ void do_signal(struct trap_frame *tf)
 				continue;
 		}
 
-		if (sig == SIGSTOP || (sig == SIGTSTP && handler == SIG_DFL)) {
-			stop_current();
+		if (signal_stops_default(sig, handler)) {
+			stop_current(sig);
 			continue;
 		}
 
 		if (sig == SIGKILL)
-			do_exit(SIGNAL_EXIT_CODE(sig));
+			do_exit_signal(sig);
 
 		if (handler == SIG_IGN)
 			continue;
 
 		if (handler == SIG_DFL) {
 			if (signal_is_fatal_default(sig))
-				do_exit(SIGNAL_EXIT_CODE(sig));
+				do_exit_signal(sig);
 			continue;
 		}
 
@@ -1133,11 +1204,11 @@ void do_signal(struct trap_frame *tf)
 			reset_signal_action(sig);
 
 		if (rseq_signal_deliver(tf) < 0)
-			do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+			do_exit_signal(SIGSEGV);
 		(void)restart_for_signal(current_task(), tf,
 					 (action.sa_flags & SA_RESTART) != 0);
 		if (setup_signal_frame(tf, sig, &info, &action) < 0)
-			do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+			do_exit_signal(SIGSEGV);
 		return;
 	}
 }
@@ -1374,33 +1445,33 @@ int do_sigreturn(struct trap_frame *tf, uintptr_t sp)
 	struct signal_frame_state *state = signal_frame_top(current_task());
 
 	if (!state || state->sp != sp)
-		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+		do_exit_signal(SIGSEGV);
 
 	if (copy_from_user(&frame, user_frame, sizeof(frame)) != 0)
-		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+		do_exit_signal(SIGSEGV);
 	if (frame.info.si_signo != state->sig)
-		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+		do_exit_signal(SIGSEGV);
 	if (frame.uc.uc_flags != 0 || frame.uc.uc_link != NULL)
-		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+		do_exit_signal(SIGSEGV);
 	if ((frame.uc.uc_mcontext.sc_regs.pc & 1) ||
 	    !access_ok((const void *)frame.uc.uc_mcontext.sc_regs.pc, 1))
-		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+		do_exit_signal(SIGSEGV);
 	if ((frame.uc.uc_mcontext.sc_regs.sp & 0xf) ||
 	    frame.uc.uc_mcontext.sc_regs.sp == 0 ||
 	    !access_ok((const void *)(frame.uc.uc_mcontext.sc_regs.sp - 1), 1))
-		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+		do_exit_signal(SIGSEGV);
 	if (frame.uc.uc_stack.ss_flags != 0 &&
 	    frame.uc.uc_stack.ss_flags != SS_DISABLE)
-		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+		do_exit_signal(SIGSEGV);
 	if (!(frame.uc.uc_stack.ss_flags & SS_DISABLE) &&
 	    (frame.uc.uc_stack.ss_size < MINSIGSTKSZ ||
 	     !access_ok(frame.uc.uc_stack.ss_sp, frame.uc.uc_stack.ss_size)))
-		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+		do_exit_signal(SIGSEGV);
 	fp_state = (const unsigned char *)&frame.uc.uc_mcontext.sc_fpregs;
 	for (size_t index = 0; index < sizeof(frame.uc.uc_mcontext.sc_fpregs);
 	     index++) {
 		if (fp_state[index] != 0)
-			do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+			do_exit_signal(SIGSEGV);
 	}
 
 	signal_restore_user_regs(tf, &frame.uc.uc_mcontext.sc_regs);

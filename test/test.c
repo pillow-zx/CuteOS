@@ -105,6 +105,8 @@ static const struct ktest_case task_cases[] = {
 	KTEST_CASE(test_task_process_tree),
 	KTEST_CASE(test_task_free_null),
 	KTEST_CASE(test_task_publish_lookup_lifetime),
+	KTEST_CASE(test_wait4_stop_continue_events),
+	KTEST_CASE(test_wait4_signal_exit_status),
 };
 
 static const struct ktest_case resource_cases[] = {

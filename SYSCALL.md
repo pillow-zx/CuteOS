@@ -215,7 +215,7 @@ pgrp 发送 `SIGHUP`、`SIGCONT`。输入信号不向无 owner 的 reader 回退
 | 178 | `gettid` | A | 返回 task pid | 保持 |
 | 220 | `clone` | B | 支持 fork-like、线程子集和 non-thread vfork，见 flag 支持表 | clone3/namespace 与完整线程组细节不支持 | 按真实线程库需求扩展 |
 | 221 | `execve` | A | 通过 VFS 加载静态非 PIE `ET_EXEC` ELF，复制 argv/envp，安装新 mm 和 Linux riscv64 auxv | `ET_DYN`、解释器脚本和动态链接不支持 | 保持静态 ELF 主线，补 auxv/错误码测试 |
-| 260 | `wait4` | B | 等待 pid `-1` 或正 pid，支持 `WNOHANG`，返回 rusage；`SA_RESTART` 重放可中断的阻塞等待 | pgrp wait、`WUNTRACED/WCONTINUED` 不完整 | 按真实子进程监管需求扩展 |
+| 260 | `wait4` | B | 等待 pid `-1` 或正 pid，支持 `WNOHANG`、`WUNTRACED`、`WCONTINUED` 和 rusage；每个成功事件均 snapshot child cputime，exit、signal-stop、continue 均返回 Linux status；`SA_RESTART` 重放可中断的阻塞等待 | `pid == 0`、`pid < -1` 的 process-group selector 和其它 options 返回 `-EINVAL` | 仅按真实 shell trace 扩展 selector |
 
 ### `clone` flag 支持表
 
@@ -279,8 +279,16 @@ PID 1 的未处理默认 fatal signal 不执行退出动作，包括用户发送
 消费 SIGTERM/SIGUSR1/SIGUSR2，而不会被保护逻辑提前丢弃。
 
 console 的 `ISIG` 行规程将 `VINTR`、`VQUIT`、`VSUSP` 分别投递为 `SIGINT`、
-`SIGQUIT`、`SIGTSTP`；普通任务对默认 `SIGTSTP` action 进入 stopped 状态。后台
-读写限制、`WUNTRACED` 与完整 shell job-control 仍不在当前支持面。
+`SIGQUIT`、`SIGTSTP`；默认 stop action 也涵盖 `SIGTTIN` 和 `SIGTTOU`。每个 child
+将停止、继续和退出边按 FIFO 保存在 task-owned event queue 中，并以递增 sequence 和
+claim 区分同一 child 的连续状态边。发布在 parent/child relation source lock 内完成并
+唤醒 parent child-wait queue；`SIGCHLD` 在解锁后投递，重父化将未消费 event 交给新
+parent。`wait4` 只在全部用户结果写回成功后 commit event；任何 `-EFAULT` 都 abort
+claim，因此不会丢失事件。阻塞 wait4 遇到未屏蔽 signal 返回 `-EINTR`，可按
+`SA_RESTART` 重放。后台读写限制、process-group wait selector 与完整 shell
+job-control 仍不在当前支持面。
+生成 `SIGCONT` 会清除 pending stop signals；生成 stop signal 会清除 pending
+`SIGCONT`，避免继续后的陈旧停止请求再次挂起任务。
 
 ### `rt_sigaction` flag 支持表
 

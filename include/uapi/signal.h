@@ -27,6 +27,8 @@
 #define SIGCONT 18
 #define SIGSTOP 19
 #define SIGTSTP 20
+#define SIGTTIN 21
+#define SIGTTOU 22
 #define SIGSYS	31
 
 #define NSIG 32
@@ -162,12 +164,6 @@ struct stack_t {
 
 #define MINSIGSTKSZ 2048
 #define SIGSTKSZ    8192
-
-/**
- * @def SIGNAL_EXIT_CODE
- * @brief Shell-visible exit status for a process killed by a signal.
- */
-#define SIGNAL_EXIT_CODE(sig) (128 + (sig))
 
 #undef offsetof
 #define offsetof(t, d) __builtin_offsetof(t, d)

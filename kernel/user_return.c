@@ -20,7 +20,7 @@ void user_return_set_test_hook(user_return_test_hook_t hook)
 void user_return_work(struct trap_frame *tf)
 {
 	if (rseq_resume_user(tf) < 0)
-		do_exit(SIGNAL_EXIT_CODE(SIGSEGV));
+		do_exit_signal(SIGSEGV);
 
 #ifdef KERNEL_SELFTEST
 	if (user_return_test_hook)

@@ -10,16 +10,22 @@
 #include <kernel/task.h>
 
 /**
- * @brief Terminate the current task with an encoded exit status.
- * @param code Wait-visible exit status.
+ * @brief Terminate the current task with a normal userspace exit code.
+ * @param code Userspace exit code; only its low 8 bits are wait-visible.
  */
 void __noreturn do_exit(int code);
 
 /**
- * @brief Terminate every task in the current thread group.
- * @param code Wait-visible exit status.
+ * @brief Terminate every task in the current thread group with one exit code.
+ * @param code Userspace exit code; only its low 8 bits are wait-visible.
  */
 void __noreturn do_exit_group(int code);
+
+/**
+ * @brief Terminate the current task because a signal used its default action.
+ * @param sig Linux signal number exposed through WTERMSIG.
+ */
+void __noreturn do_exit_signal(int sig);
 bool exited_threads_pending(void);
 void reap_exited_threads(void);
 
@@ -28,13 +34,13 @@ void reap_exited_threads(void);
  * @brief Deferred wait4 result whose task release is finished by caller.
  *
  * @par Fields
- * - @c task: Reaped task pending release.
- * - @c cputime: CPU time charged to the child.
+ * - @c claim: Task-owned child event held until userspace copies succeed.
+ * - @c cputime: Total child CPU-time snapshot returned through rusage.
  * - @c pid: Wait result pid.
  * - @c status: Linux wait status.
  */
 struct wait4_result {
-	struct task_struct *task;
+	struct task_child_event_claim claim;
 	struct task_cputime cputime;
 	pid_t pid;
 	int status;
@@ -57,9 +63,15 @@ void release_task(struct task_struct *task);
 int kernel_wait4(pid_t pid, int options, struct wait4_result *result);
 
 /**
- * @brief Finish a successful wait4 by releasing held task state.
+ * @brief Commit a successful wait4 and release its held child event.
  * @param result Result previously filled by kernel_wait4().
  */
 void kernel_wait4_finish(struct wait4_result *result);
+
+/**
+ * @brief Return a held child event after wait4 userspace-copy failure.
+ * @param result Result previously filled by kernel_wait4().
+ */
+void kernel_wait4_abort(struct wait4_result *result);
 
 #endif

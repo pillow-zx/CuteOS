@@ -25,6 +25,24 @@ struct task_pgid_query {
 	const struct task_struct *ignored;
 };
 
+struct task_child_event_record {
+	struct list_head node;
+	struct task_struct *claimer;
+	uint64_t sequence;
+	enum task_child_event_type type;
+	int status;
+};
+
+struct task_child_notification {
+	struct task_struct *parent;
+	pid_t pid;
+	uid_t uid;
+	int code;
+	int status;
+	bool send_sigchld;
+	bool parent_ref;
+};
+
 struct task_struct idle_task;
 
 struct cpu cpu_table[NR_CPUS];
@@ -32,6 +50,237 @@ uint32_t nr_cpu_ids;
 
 struct task_struct *init_task;
 static DEFINE_MUTEX(process_lock);
+static DEFINE_SPINLOCK(child_relation_lock);
+
+static void task_child_lock(irq_flags_t *flags)
+{
+	spin_lock_irqsave(&child_relation_lock, flags);
+}
+
+static void task_child_unlock(irq_flags_t flags)
+{
+	spin_unlock_irqrestore(&child_relation_lock, flags);
+}
+
+static int child_exit_si_code(int status)
+{
+	return (status & 0x7f) == 0 ? CLD_EXITED : CLD_KILLED;
+}
+
+static int child_exit_si_status(int status)
+{
+	return (status & 0x7f) == 0 ? (status >> 8) & 0xff : status & 0x7f;
+}
+
+static int child_stop_status(int sig)
+{
+	return (sig << 8) | 0x7f;
+}
+
+static struct task_child_event_record *
+task_child_event_alloc(enum task_child_event_type type, int status)
+{
+	struct task_child_event_record *event = kzalloc(sizeof(*event));
+
+	BUG_ON(!event);
+	INIT_LIST_HEAD(&event->node);
+	event->type = type;
+	event->status = status;
+	return event;
+}
+
+static void task_child_event_free_list(struct list_head *events)
+{
+	struct list_head *pos;
+	struct list_head *next;
+
+	list_for_each_safe (pos, next, events) {
+		struct task_child_event_record *event =
+			list_entry(pos, struct task_child_event_record, node);
+
+		list_del_init(&event->node);
+		kfree(event);
+	}
+}
+
+static void task_child_event_discard_all_locked(struct task_struct *task,
+						struct list_head *discarded)
+{
+	struct list_head *pos;
+	struct list_head *next;
+
+	list_for_each_safe (pos, next, &task->lifecycle.child_events) {
+		list_del_init(pos);
+		list_add_tail(pos, discarded);
+	}
+}
+
+static void task_child_event_discard_all(struct task_struct *task)
+{
+	LIST_HEAD(discarded);
+	irq_flags_t flags;
+
+	task_child_lock(&flags);
+	task_child_event_discard_all_locked(task, &discarded);
+	task_child_unlock(flags);
+	task_child_event_free_list(&discarded);
+}
+
+static bool task_child_matches(const struct task_struct *child, pid_t pid)
+{
+	return task_is_group_leader(child) &&
+	       (pid == (pid_t)-1 || task_pid(child) == pid);
+}
+
+static bool task_child_has_target_locked(const struct task_struct *parent,
+					 pid_t pid)
+{
+	struct task_struct *child;
+
+	list_for_each_entry (child, &parent->links.children, links.sibling) {
+		if (task_child_matches(child, pid))
+			return true;
+	}
+
+	return false;
+}
+
+static struct task_child_event_record *
+task_child_event_find_locked(struct task_struct *child, uint32_t event_mask)
+{
+	struct task_child_event_record *event;
+
+	list_for_each_entry (event, &child->lifecycle.child_events, node) {
+		if (event->claimer || !(event_mask & (1u << event->type)))
+			continue;
+		return event;
+	}
+
+	return NULL;
+}
+
+static struct task_child_event_record *
+task_child_event_find_sequence_locked(struct task_struct *child,
+				      uint64_t sequence)
+{
+	struct task_child_event_record *event;
+
+	list_for_each_entry (event, &child->lifecycle.child_events, node) {
+		if (event->sequence == sequence)
+			return event;
+	}
+
+	return NULL;
+}
+
+static enum task_child_wait_state
+task_child_event_observe_locked(struct task_struct *parent, pid_t pid,
+				uint32_t event_mask,
+				struct task_struct **matched_child,
+				struct task_child_event_record **matched_event)
+{
+	struct task_struct *child;
+
+	if (matched_child)
+		*matched_child = NULL;
+	if (matched_event)
+		*matched_event = NULL;
+
+	list_for_each_entry (child, &parent->links.children, links.sibling) {
+		struct task_child_event_record *event;
+
+		if (!task_child_matches(child, pid))
+			continue;
+		event = task_child_event_find_locked(child, event_mask);
+		if (!event)
+			continue;
+		if (matched_child)
+			*matched_child = child;
+		if (matched_event)
+			*matched_event = event;
+		return TASK_CHILD_WAIT_EVENT;
+	}
+
+	return task_child_has_target_locked(parent, pid)
+		       ? TASK_CHILD_WAIT_NO_EVENT
+		       : TASK_CHILD_WAIT_NO_CHILD;
+}
+
+static void task_child_event_clear_claims_locked(struct task_struct *child)
+{
+	struct task_child_event_record *event;
+
+	list_for_each_entry (event, &child->lifecycle.child_events, node)
+		event->claimer = NULL;
+}
+
+static void task_reparent_children_locked(struct task_struct *dead)
+{
+	struct list_head *pos;
+	struct list_head *next;
+
+	list_for_each_safe (pos, next, &dead->links.children) {
+		struct task_struct *child =
+			list_entry(pos, struct task_struct, links.sibling);
+
+		list_del_init(&child->links.sibling);
+		child->links.parent = init_task ? init_task : &idle_task;
+		list_add_tail(&child->links.sibling,
+			      &child->links.parent->links.children);
+		task_child_event_clear_claims_locked(child);
+		if (!list_empty(&child->lifecycle.child_events))
+			wait_channel_wake_one(
+				&child->links.parent->links.wait_child_queue);
+	}
+}
+
+static void
+task_child_event_publish_locked(struct task_struct *child,
+				struct task_child_event_record *event, int code,
+				int signal_status,
+				struct task_child_notification *notification)
+{
+	struct task_struct *parent = child->links.parent;
+
+	event->sequence = ++child->lifecycle.next_child_event_sequence;
+	BUG_ON(event->sequence == 0);
+	list_add_tail(&event->node, &child->lifecycle.child_events);
+	memset(notification, 0, sizeof(*notification));
+	if (!parent)
+		return;
+
+	notification->parent = parent;
+	notification->pid = task_pid(child);
+	notification->uid = task_uid(child);
+	notification->code = code;
+	notification->status = signal_status;
+	notification->send_sigchld = task_exit_signal(child) == SIGCHLD;
+	if (notification->send_sigchld && parent != &idle_task) {
+		if (task_try_get_published(parent))
+			notification->parent_ref = true;
+		else
+			notification->send_sigchld = false;
+	}
+	wait_channel_wake_one(&parent->links.wait_child_queue);
+}
+
+static void task_child_event_send_notification(
+	const struct task_child_notification *notification)
+{
+	siginfo_t info = {0};
+
+	if (!notification->send_sigchld)
+		return;
+
+	info.si_signo = SIGCHLD;
+	info.si_code = notification->code;
+	info.si_pid = notification->pid;
+	info.si_uid = notification->uid;
+	info.si_status = notification->status;
+	(void)send_signal_info(SIGCHLD, &info, notification->parent);
+	if (notification->parent_ref)
+		task_put(notification->parent);
+}
 
 void cpu_boot_init(struct task_struct *idle)
 {
@@ -90,6 +339,7 @@ struct task_struct *task_alloc(void)
 	task->sigctx.sas.ss_flags = SS_DISABLE;
 	sched_task_init(task);
 
+	INIT_LIST_HEAD(&task->lifecycle.child_events);
 	INIT_LIST_HEAD(&task->links.children);
 	INIT_LIST_HEAD(&task->links.sibling);
 	INIT_LIST_HEAD(&task->links.thread_group);
@@ -141,6 +391,7 @@ void task_release_resources(struct task_struct *task)
 static void task_destroy(struct task_struct *task)
 {
 	BUG_ON(task->active_wait);
+	task_child_event_discard_all(task);
 	task_release_resources(task);
 
 	free_pid(task->ids.pid);
@@ -215,6 +466,7 @@ void task_init(void)
 	idle_task.sigctx.sas.ss_flags = SS_DISABLE;
 	sched_task_init(&idle_task);
 
+	INIT_LIST_HEAD(&idle_task.lifecycle.child_events);
 	INIT_LIST_HEAD(&idle_task.links.children);
 	INIT_LIST_HEAD(&idle_task.links.sibling);
 	INIT_LIST_HEAD(&idle_task.links.thread_group);
@@ -244,8 +496,7 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 
 	arch_task_setup_kernel_thread(task, fn, arg);
 
-	task->links.parent = parent;
-	list_add_tail(&task->links.sibling, &parent->links.children);
+	task_link_child(parent, task);
 
 	task_publish(task);
 	sched_enqueue(task);
@@ -487,7 +738,7 @@ int task_process_setpgid(struct task_struct *caller, pid_t pid, pid_t pgid,
 		ret = -ESRCH;
 		goto out;
 	}
-	if (target != self && task_parent(target) != self) {
+	if (target != self && target->links.parent != self) {
 		ret = -EPERM;
 		goto out;
 	}
@@ -515,6 +766,232 @@ out:
 	if (put_target && target)
 		task_put(target);
 	return ret;
+}
+
+struct task_struct *task_parent(struct task_struct *task)
+{
+	struct task_struct *parent;
+	irq_flags_t flags;
+
+	if (!task)
+		return NULL;
+
+	task_child_lock(&flags);
+	parent = task->links.parent;
+	task_child_unlock(flags);
+	return parent;
+}
+
+void task_link_child(struct task_struct *parent, struct task_struct *child)
+{
+	irq_flags_t flags;
+
+	if (!parent || !child)
+		return;
+
+	task_child_lock(&flags);
+	child->links.parent = parent;
+	list_add_tail(&child->links.sibling, &parent->links.children);
+	task_child_unlock(flags);
+}
+
+void task_unlink_child(struct task_struct *task)
+{
+	irq_flags_t flags;
+
+	if (!task)
+		return;
+
+	task_child_lock(&flags);
+	if (!list_empty(&task->links.sibling)) {
+		list_del_init(&task->links.sibling);
+		task->links.parent = NULL;
+	}
+	task_child_unlock(flags);
+}
+
+uint32_t task_child_count(const struct task_struct *parent)
+{
+	struct task_struct *child;
+	irq_flags_t flags;
+	uint32_t count = 0;
+
+	if (!parent)
+		return 0;
+
+	task_child_lock(&flags);
+	list_for_each_entry (child, &parent->links.children, links.sibling)
+		count++;
+	task_child_unlock(flags);
+	return count;
+}
+
+void task_child_publish_stop(struct task_struct *task, int sig)
+{
+	struct task_child_event_record *event;
+	struct task_child_notification notification;
+	irq_flags_t flags;
+
+	if (!task_is_group_leader(task))
+		return;
+
+	event = task_child_event_alloc(TASK_CHILD_EVENT_STOP,
+				       child_stop_status(sig));
+	task_child_lock(&flags);
+	task_child_event_publish_locked(task, event, CLD_STOPPED, sig,
+					&notification);
+	task_child_unlock(flags);
+	task_child_event_send_notification(&notification);
+}
+
+void task_child_publish_continue(struct task_struct *task)
+{
+	struct task_child_event_record *event;
+	struct task_child_notification notification;
+	irq_flags_t flags;
+
+	if (!task_is_group_leader(task))
+		return;
+
+	event = task_child_event_alloc(TASK_CHILD_EVENT_CONTINUE, 0xffff);
+	task_child_lock(&flags);
+	task_child_event_publish_locked(task, event, CLD_CONTINUED, SIGCONT,
+					&notification);
+	task_child_unlock(flags);
+	task_child_event_send_notification(&notification);
+}
+
+void task_child_publish_exit(struct task_struct *task, int status)
+{
+	struct task_child_event_record *event;
+	struct task_child_notification notification;
+	irq_flags_t flags;
+
+	BUG_ON(!task_is_group_leader(task));
+	event = task_child_event_alloc(TASK_CHILD_EVENT_EXIT, status);
+	task_child_lock(&flags);
+	task_reparent_children_locked(task);
+	task_set_state(task, TASK_ZOMBIE);
+	task_child_event_publish_locked(task, event, child_exit_si_code(status),
+					child_exit_si_status(status),
+					&notification);
+	task_child_unlock(flags);
+	task_child_event_send_notification(&notification);
+}
+
+enum task_child_wait_state
+task_child_event_claim_next(struct task_struct *parent, pid_t pid,
+			    uint32_t event_mask,
+			    struct task_child_event_claim *claim)
+{
+	struct task_child_event_record *event;
+	struct task_struct *child;
+	enum task_child_wait_state state;
+	irq_flags_t flags;
+
+	memset(claim, 0, sizeof(*claim));
+	task_child_lock(&flags);
+	state = task_child_event_observe_locked(parent, pid, event_mask, &child,
+						&event);
+	if (state == TASK_CHILD_WAIT_EVENT) {
+		event->claimer = parent;
+		claim->parent = parent;
+		claim->child = child;
+		claim->pid = task_pid(child);
+		claim->sequence = event->sequence;
+		claim->type = event->type;
+		claim->status = event->status;
+	}
+	task_child_unlock(flags);
+	return state;
+}
+
+int task_child_event_watch(struct wait_session *session,
+			   struct task_struct *parent, pid_t pid,
+			   uint32_t event_mask)
+{
+	enum task_child_wait_state state;
+	irq_flags_t flags;
+	int ret;
+
+	task_child_lock(&flags);
+	state = task_child_event_observe_locked(parent, pid, event_mask, NULL,
+						NULL);
+	if (state != TASK_CHILD_WAIT_NO_EVENT) {
+		ret = 1;
+	} else {
+		ret = wait_session_watch(session,
+					 &parent->links.wait_child_queue);
+		if (ret == 0 && task_child_event_observe_locked(
+					parent, pid, event_mask, NULL, NULL) !=
+					TASK_CHILD_WAIT_NO_EVENT)
+			ret = 1;
+	}
+	task_child_unlock(flags);
+	return ret;
+}
+
+bool task_child_event_commit(const struct task_child_event_claim *claim)
+{
+	struct task_child_event_record *event;
+	irq_flags_t flags;
+	bool committed = false;
+
+	if (!claim->parent || !claim->child)
+		return false;
+
+	task_child_lock(&flags);
+	event = task_child_event_find_sequence_locked(claim->child,
+						      claim->sequence);
+	if (event && event->claimer == claim->parent) {
+		list_del_init(&event->node);
+		committed = true;
+	}
+	task_child_unlock(flags);
+	if (committed)
+		kfree(event);
+	return committed;
+}
+
+void task_child_event_abort(const struct task_child_event_claim *claim)
+{
+	struct task_child_event_record *event;
+	irq_flags_t flags;
+
+	if (!claim->parent || !claim->child)
+		return;
+
+	task_child_lock(&flags);
+	event = task_child_event_find_sequence_locked(claim->child,
+						      claim->sequence);
+	if (event && event->claimer == claim->parent) {
+		event->claimer = NULL;
+		wait_channel_wake_one(&claim->parent->links.wait_child_queue);
+	}
+	task_child_unlock(flags);
+}
+
+void task_child_release_zombie(struct task_struct *task)
+{
+	LIST_HEAD(discarded);
+	struct task_struct *parent;
+	irq_flags_t flags;
+
+	task_child_lock(&flags);
+	BUG_ON(task_state(task) != TASK_ZOMBIE);
+	BUG_ON(!list_empty(&task->links.children));
+	BUG_ON(task_is_group_leader(task) &&
+	       !list_empty(&task->links.thread_group));
+	if (!list_empty(&task->links.sibling))
+		list_del_init(&task->links.sibling);
+	parent = task->links.parent;
+	task->links.parent = NULL;
+	task_set_state(task, TASK_DEAD);
+	task_child_event_discard_all_locked(task, &discarded);
+	if (parent)
+		wait_channel_wake_all(&parent->links.wait_child_queue);
+	task_child_unlock(flags);
+	task_child_event_free_list(&discarded);
 }
 
 #ifdef KERNEL_SELFTEST

@@ -64,12 +64,13 @@ abort:
 
 /*
  * SYSCALL_SUPPORT(B): wait4
- * Current: waits for pid -1 or a positive pid, supports WNOHANG, and can
- * return rusage; SA_RESTART replays an interrupted blocking wait after its
- * handler returns.
- * Unsupported errno: pid 0, pid < -1, and options other than WNOHANG return
- * -EINVAL; no wait target returns -ECHILD.
- * Future: add pgrp waits and WUNTRACED/WCONTINUED-style option semantics.
+ * Current: waits for pid -1 or a positive pid; WNOHANG, WUNTRACED, and
+ * WCONTINUED report Linux-compatible exit, signal, stop, and continue
+ * statuses. It can return rusage; SA_RESTART replays an interrupted blocking
+ * wait after its handler returns.
+ * Unsupported errno: pid 0, pid < -1, and unsupported options return -EINVAL;
+ * no wait target returns -ECHILD.
+ * Future: add a process-group selector only when a real shell trace needs it.
  */
 ssize_t sys_wait4(struct trap_frame *tf)
 {
@@ -80,30 +81,33 @@ ssize_t sys_wait4(struct trap_frame *tf)
 	struct wait4_result result = {0};
 	int ret;
 
-	if (pid != -1 && pid <= 0)
-		return -EINVAL;
 	ret = kernel_wait4(pid, options, &result);
 	if (ret < 0)
 		return ret;
 	if (result.pid == 0)
 		return 0;
 	if (wstatus && !access_ok(wstatus, sizeof(*wstatus)))
-		return -EFAULT;
+		goto fault;
 	if (urusage && !access_ok(urusage, sizeof(*urusage)))
-		return -EFAULT;
+		goto fault;
 
 	if (wstatus &&
 	    copy_to_user(wstatus, &result.status, sizeof(result.status)) != 0)
-		return -EFAULT;
+		goto fault;
 
 	if (urusage) {
 		struct rusage rusage;
 
 		cputime_rusage(&result.cputime, &rusage);
 		if (copy_to_user(urusage, &rusage, sizeof(rusage)) != 0)
-			return -EFAULT;
+			goto fault;
 	}
 
+	pid_t waited_pid = result.pid;
 	kernel_wait4_finish(&result);
-	return result.pid;
+	return waited_pid;
+
+fault:
+	kernel_wait4_abort(&result);
+	return -EFAULT;
 }

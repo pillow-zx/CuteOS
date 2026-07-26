@@ -123,13 +123,58 @@ struct task_process_identity {
 };
 
 /**
+ * @enum task_child_event_type
+ * @brief Lifecycle edge reported by one child to its wait parent.
+ */
+enum task_child_event_type {
+	TASK_CHILD_EVENT_NONE,
+	TASK_CHILD_EVENT_EXIT,
+	TASK_CHILD_EVENT_STOP,
+	TASK_CHILD_EVENT_CONTINUE,
+};
+
+constexpr uint32_t TASK_CHILD_EVENT_MASK_EXIT = 1u << TASK_CHILD_EVENT_EXIT;
+constexpr uint32_t TASK_CHILD_EVENT_MASK_STOP = 1u << TASK_CHILD_EVENT_STOP;
+constexpr uint32_t TASK_CHILD_EVENT_MASK_CONTINUE =
+	1u << TASK_CHILD_EVENT_CONTINUE;
+
+/**
+ * @enum task_child_wait_state
+ * @brief Result of observing a parent's matching child-event stream.
+ */
+enum task_child_wait_state {
+	TASK_CHILD_WAIT_NO_CHILD,
+	TASK_CHILD_WAIT_NO_EVENT,
+	TASK_CHILD_WAIT_EVENT,
+};
+
+/**
+ * @struct task_child_event_claim
+ * @brief One ordered child event held until wait4 copies its result.
+ *
+ * The task module owns the queued record.  Callers may inspect this snapshot
+ * but must finish it with task_child_event_commit() or
+ * task_child_event_abort().
+ */
+struct task_child_event_claim {
+	struct task_struct *parent;
+	struct task_struct *child;
+	pid_t pid;
+	uint64_t sequence;
+	enum task_child_event_type type;
+	int status;
+};
+
+/**
  * @struct task_lifecycle
  * @brief Run state and exit status owned by scheduler and wait paths.
  *
  * @par Fields
  * - @c state: TASK_* state sampled by wake/schedule paths.
- * - @c exit_code: Wait-visible process status recorded at exit.
+ * - @c exit_code: Linux-encoded wait status recorded at exit.
  * - @c exit_signal: Signal delivered to parent when this task exits.
+ * - @c child_events: Ordered, task-owned wait-visible child lifecycle edges.
+ * - @c next_child_event_sequence: Sequence assigned to the next child edge.
  * - @c user_process: One-way atomic role set after a successful user exec and
  *   inherited by clone; it survives user-mm teardown during exit.
  */
@@ -138,6 +183,8 @@ struct task_lifecycle {
 	volatile uint32_t state;
 	int exit_code;
 	int exit_signal;
+	struct list_head child_events;
+	uint64_t next_child_event_sequence;
 	bool published;
 	atomic_t user_process;
 };
@@ -171,6 +218,10 @@ struct task_vfork_context {
  * - @c thread_group: Head of threads when this task is leader.
  * - @c thread_node: Node in group leader's thread list.
  * - @c wait_child_queue: wait4 sleepers for children.
+ *
+ * Parent/child links, child event records, and the child wait queue are owned
+ * by the task module. Cross-subsystem callers use task_child_*() operations
+ * instead of reading or locking these fields directly.
  */
 struct task_links {
 	struct task_struct *parent;
@@ -485,71 +536,84 @@ task_group_leader_safe(struct task_struct *task)
 	return task ? task_group_leader(task) : NULL;
 }
 
-static inline __must_check __pure struct task_struct *
-task_parent(struct task_struct *task)
-{
-	return task ? task->links.parent : NULL;
-}
-
-static inline __must_check __pure __nonnull(1) __returns_nonnull
-	struct list_head *task_children(struct task_struct *task)
-{
-	return &task->links.children;
-}
-
-static inline __must_check __pure struct list_head *
-task_children_safe(struct task_struct *task)
-{
-	return task ? task_children(task) : NULL;
-}
-
-static inline __must_check __pure struct wait_channel *
-task_wait_child_queue(struct task_struct *task)
-{
-	return task ? &task->links.wait_child_queue : NULL;
-}
-
-static inline __must_check __pure bool
-task_has_parent_link(const struct task_struct *task)
-{
-	return task && !list_empty(&task->links.sibling);
-}
-
-static inline void task_set_parent(struct task_struct *task,
-				   struct task_struct *parent)
-{
-	if (task)
-		task->links.parent = parent;
-}
-
-static inline void task_link_child(struct task_struct *parent,
-				   struct task_struct *child)
-{
-	if (!parent || !child)
-		return;
-	child->links.parent = parent;
-	list_add_tail(&child->links.sibling, &parent->links.children);
-}
-
-static inline void task_unlink_child(struct task_struct *task)
-{
-	if (!task || list_empty(&task->links.sibling))
-		return;
-	list_del_init(&task->links.sibling);
-	task->links.parent = NULL;
-}
+/**
+ * @brief Return a task's reaper parent, or NULL when it has none.
+ *
+ * The returned pointer is not lifecycle-pinned; callers must use it only for
+ * the immediate current-task relationship checks supported by task lifecycle.
+ */
+struct task_struct *task_parent(struct task_struct *task);
 
 /**
- * @def task_for_each_child
- * @brief Iterate over a parent's direct children.
- * @param pos Cursor of type `struct task_struct *`.
- * @param parent Parent task whose children list is traversed.
- *
- * The cursor is recovered from the embedded @c links.sibling node with
- * container-of logic inherited from @ref list_for_each_entry.
+ * @brief Link one non-thread child to its wait parent.
  */
-#define task_for_each_child(pos, parent)                                       \
-	list_for_each_entry (pos, task_children(parent), links.sibling)
+void task_link_child(struct task_struct *parent, struct task_struct *child);
+
+/**
+ * @brief Remove a child from its wait parent.
+ */
+void task_unlink_child(struct task_struct *task);
+
+/**
+ * @brief Count direct children of one parent.
+ */
+uint32_t __must_check task_child_count(const struct task_struct *parent);
+
+/**
+ * @brief Publish a group leader's stop edge and notify its wait parent.
+ */
+void task_child_publish_stop(struct task_struct *task, int sig);
+
+/**
+ * @brief Publish a group leader's continuation edge and notify its parent.
+ */
+void task_child_publish_continue(struct task_struct *task);
+
+/**
+ * @brief Reparent children, publish a group leader's exit, and notify parent.
+ * @param task Exiting group leader.
+ * @param status Linux-encoded wait status.
+ */
+void task_child_publish_exit(struct task_struct *task, int status);
+
+/**
+ * @brief Claim the first matching queued event for one parent and pid filter.
+ * @param parent Parent whose children are inspected.
+ * @param pid -1 for any child, otherwise one positive child PID.
+ * @param event_mask Bitset of TASK_CHILD_EVENT_MASK_* values.
+ * @param claim Output held event when TASK_CHILD_WAIT_EVENT is returned.
+ */
+enum task_child_wait_state __must_check task_child_event_claim_next(
+	struct task_struct *parent, pid_t pid, uint32_t event_mask,
+	struct task_child_event_claim *claim) __nonnull(1, 4);
+
+/**
+ * @brief Atomically observe matching child events and register a wait channel.
+ *
+ * Returns 1 when a child disappeared or a matching event is available, 0 when
+ * the session was registered with no matching event, or a negative errno.
+ */
+int __must_check task_child_event_watch(struct wait_session *session,
+					struct task_struct *parent, pid_t pid,
+					uint32_t event_mask) __nonnull(1, 2);
+
+/**
+ * @brief Commit a held child event after userspace result copies succeed.
+ * @return true when the exact claimed sequence was consumed.
+ */
+bool __must_check task_child_event_commit(
+	const struct task_child_event_claim *claim) __nonnull(1);
+
+/**
+ * @brief Return a held event to the queue after a failed userspace copy.
+ */
+void task_child_event_abort(const struct task_child_event_claim *claim)
+	__nonnull(1);
+
+/**
+ * @brief Detach and mark a reaped zombie dead before PID unpublication.
+ */
+void task_child_release_zombie(struct task_struct *task) __nonnull(1);
 
 static inline __must_check __pure struct list_head *
 task_thread_group(struct task_struct *task)

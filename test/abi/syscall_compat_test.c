@@ -1111,7 +1111,7 @@ int test_tty_empty_foreground_pgrp_is_cleared(void)
 		TEST_ASSERT_EQ(signals_clone(child, false, false, false), 0);
 		TEST_ASSERT_EQ(
 			session_process_clone_prepare(child, owner, false), 0);
-		child->links.parent = owner;
+		task_link_child(owner, child);
 		task_publish(child);
 
 		TEST_ASSERT_EQ(session_process_setpgid(task_pid(child), 0), 0);
@@ -1140,8 +1140,10 @@ cleanup:
 		test_console_release();
 	}
 	set_current_task(saved);
-	if (child)
+	if (child) {
+		task_unlink_child(child);
 		test_release_published_task(child);
+	}
 	if (owner)
 		test_release_published_task(owner);
 

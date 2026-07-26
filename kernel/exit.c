@@ -22,100 +22,33 @@
 #include <kernel/pgtable.h>
 #include <uapi/wait.h>
 
-#define WEXITCODE(code) ((code) << 8)
+#define WEXITCODE(code) (((code) & 0xff) << 8)
 
-static LIST_HEAD(exited_threads);
+struct wait4_selector {
+	pid_t pid;
+	uint32_t event_mask;
+};
+
+LIST_HEAD_STATIC(exited_threads);
 static bool exited_threads_reap_pending;
 
-static struct task_struct *find_child(pid_t pid)
+static uint32_t wait4_event_mask(int options)
 {
-	struct task_struct *child;
+	uint32_t event_mask = TASK_CHILD_EVENT_MASK_EXIT;
 
-	task_for_each_child (child, current_task()) {
-		if (!task_is_group_leader(child))
-			continue;
-		if (task_pid(child) == pid)
-			return child;
-	}
-
-	return NULL;
-}
-
-static struct task_struct *find_any_zombie_child(void)
-{
-	struct task_struct *child;
-
-	task_for_each_child (child, current_task()) {
-		if (!task_is_group_leader(child))
-			continue;
-		if (task_state(child) == TASK_ZOMBIE)
-			return child;
-	}
-
-	return NULL;
-}
-
-static struct task_struct *find_waitable_child(pid_t pid)
-{
-	if (pid == (pid_t)-1)
-		return find_any_zombie_child();
-
-	struct task_struct *child = find_child(pid);
-	if (child && task_state(child) == TASK_ZOMBIE)
-		return child;
-
-	return NULL;
-}
-
-static bool has_wait_target(pid_t pid)
-{
-	struct task_struct *child;
-
-	if (pid == (pid_t)-1) {
-		task_for_each_child (child, current_task()) {
-			if (task_is_group_leader(child))
-				return true;
-		}
-		return false;
-	}
-
-	return find_child(pid) != NULL;
+	if (options & WUNTRACED)
+		event_mask |= TASK_CHILD_EVENT_MASK_STOP;
+	if (options & WCONTINUED)
+		event_mask |= TASK_CHILD_EVENT_MASK_CONTINUE;
+	return event_mask;
 }
 
 static int wait4_probe(struct wait_session *session, void *arg)
 {
-	pid_t pid = *(pid_t *)arg;
-	int ret;
+	const struct wait4_selector *selector = arg;
 
-	if (!has_wait_target(pid) || find_waitable_child(pid))
-		return 1;
-
-	ret = wait_session_watch(session,
-				 task_wait_child_queue(current_task()));
-	if (ret < 0)
-		return ret;
-
-	return !has_wait_target(pid) || find_waitable_child(pid) != NULL;
-}
-
-static void reparent_children(struct task_struct *dead)
-{
-	struct list_head *pos;
-	struct list_head *next;
-
-	list_for_each_safe (pos, next, &dead->links.children) {
-		struct task_struct *child =
-			list_entry(pos, struct task_struct, links.sibling);
-
-		list_del_init(&child->links.sibling);
-		child->links.parent = init_task ? init_task : &idle_task;
-		list_add_tail(&child->links.sibling,
-			      &child->links.parent->links.children);
-
-		if (child->lifecycle.state == TASK_ZOMBIE)
-			wait_channel_wake_one(
-				&child->links.parent->links.wait_child_queue);
-	}
+	return task_child_event_watch(session, current_task(), selector->pid,
+				      selector->event_mask);
 }
 
 static void clear_child_tid(struct task_struct *task)
@@ -156,9 +89,10 @@ static void detach_task_queues(struct task_struct *task)
 		sched_dequeue(task);
 }
 
-static void __nonnull(1)
-	finish_task_exit(struct task_struct *task, int code, bool notify_parent)
+static void __nonnull(1) finish_task_exit(struct task_struct *task, int status)
 {
+	bool leader;
+
 	if (task_state(task) == TASK_ZOMBIE || task_state(task) == TASK_DEAD)
 		return;
 
@@ -166,7 +100,7 @@ static void __nonnull(1)
 	wait_cancel_task(task);
 	restart_clear(task);
 
-	task_set_exit_code(task, code);
+	task_set_exit_code(task, status);
 	futex_exit_robust_list(task);
 	clear_child_tid(task);
 	close_files(task);
@@ -176,32 +110,17 @@ static void __nonnull(1)
 	release_task_mm(task);
 	kernel_clone_complete_vfork(task);
 
-	if (task_is_group_leader(task))
-		reparent_children(task);
-	else if (!list_empty(&task->links.thread_node))
-		list_del_init(&task->links.thread_node);
-
-	task_set_state(task, TASK_ZOMBIE);
-	if (!task_is_group_leader(task) && task == current_task()) {
+	leader = task_is_group_leader(task);
+	if (leader) {
+		task_child_publish_exit(task, status);
+	} else {
+		if (!list_empty(&task->links.thread_node))
+			list_del_init(&task->links.thread_node);
+		task_set_state(task, TASK_ZOMBIE);
+	}
+	if (!leader && task == current_task()) {
 		list_add_tail(&task->links.thread_node, &exited_threads);
 		exited_threads_reap_pending = true;
-	}
-
-	if (notify_parent && task->links.parent &&
-	    task->lifecycle.exit_signal > 0) {
-		siginfo_t info = {0};
-
-		info.si_signo = task->lifecycle.exit_signal;
-		info.si_code = task->lifecycle.exit_signal == SIGCHLD
-				       ? CLD_EXITED
-				       : SI_KERNEL;
-		info.si_pid = task_pid(task);
-		info.si_uid = task_uid(task);
-		info.si_status = code;
-		send_signal_info(task->lifecycle.exit_signal, &info,
-				 task->links.parent);
-		wait_channel_wake_one(
-			&task->links.parent->links.wait_child_queue);
 	}
 }
 
@@ -232,7 +151,7 @@ void reap_exited_threads(void)
 		exited_threads_reap_pending = false;
 }
 
-static void reap_other_threads(struct task_struct *leader, int code)
+static void reap_other_threads(struct task_struct *leader, int status)
 {
 	struct list_head *pos;
 	struct list_head *next;
@@ -244,47 +163,60 @@ static void reap_other_threads(struct task_struct *leader, int code)
 		if (thread == current_task())
 			continue;
 
-		finish_task_exit(thread, code, false);
+		finish_task_exit(thread, status);
 		release_task(thread);
 	}
 }
 
-void __noreturn do_exit(int code)
+static void __noreturn do_exit_status(int status)
 {
 	struct task_struct *task = current_task();
 
 	BUG_ON(!task);
 	if (!task_is_group_leader(task)) {
-		finish_task_exit(task, code, false);
+		finish_task_exit(task, status);
 	} else {
-		reap_other_threads(task, code);
-		finish_task_exit(task, code, true);
+		reap_other_threads(task, status);
+		finish_task_exit(task, status);
 	}
 
 	schedule();
 
 	unreachable();
+}
+
+void __noreturn do_exit(int code)
+{
+	do_exit_status(WEXITCODE(code));
 }
 
 void __noreturn do_exit_group(int code)
 {
 	struct task_struct *task = current_task();
 	struct task_struct *leader;
+	int status = WEXITCODE(code);
 
 	BUG_ON(!task);
 	leader = task_group_leader(task);
 
-	if (leader && leader != task) {
-		finish_task_exit(leader, code, true);
-	}
+	if (leader && leader != task)
+		finish_task_exit(leader, status);
 
 	if (leader)
-		reap_other_threads(leader, code);
+		reap_other_threads(leader, status);
 
-	finish_task_exit(task, code, task == leader);
+	finish_task_exit(task, status);
 	schedule();
 
 	unreachable();
+}
+
+void __noreturn do_exit_signal(int sig)
+{
+	int status = sig & 0x7f;
+
+	BUG_ON(status == 0);
+	do_exit_status(status);
 }
 
 void release_task(struct task_struct *task)
@@ -294,18 +226,12 @@ void release_task(struct task_struct *task)
 
 	BUG_ON(task == current_task());
 	BUG_ON(task == &idle_task);
-	BUG_ON(task_state(task) != TASK_ZOMBIE);
-	BUG_ON(!list_empty(&task->links.children));
-	BUG_ON(task_is_group_leader(task) &&
-	       !list_empty(&task->links.thread_group));
+	task_child_release_zombie(task);
 
-	if (!list_empty(&task->links.sibling))
-		list_del_init(&task->links.sibling);
 	if (!list_empty(&task->links.thread_node))
 		list_del_init(&task->links.thread_node);
 	if (!list_empty(&task->sched.run_list))
 		sched_dequeue(task);
-	task_set_state(task, TASK_DEAD);
 	task_unpublish(task);
 	task_put(task);
 }
@@ -315,55 +241,75 @@ int kernel_wait4(pid_t pid, int options, struct wait4_result *result)
 	const struct wait_deadline deadline = {
 		.active = false,
 	};
+	struct wait4_selector selector = {
+		.pid = pid,
+		.event_mask = wait4_event_mask(options),
+	};
 	struct wait_request source = {
 		.kind = WAIT_KIND_CHILD,
 		.check = wait4_probe,
-		.arg = &pid,
+		.arg = &selector,
 		.channel_limit = 1,
 	};
 	wait_outcome_t outcome;
 
 	if (pid != (pid_t)-1 && pid <= 0)
 		return -EINVAL;
-	if (options & ~WNOHANG)
+	if (options & ~(WNOHANG | WUNTRACED | WCONTINUED))
 		return -EINVAL;
 	if (!result)
 		return -EINVAL;
 	memset(result, 0, sizeof(*result));
 
 	while (true) {
-		if (!has_wait_target(pid))
+		enum task_child_wait_state state;
+
+		state = task_child_event_claim_next(current_task(), pid,
+						    selector.event_mask,
+						    &result->claim);
+		if (state == TASK_CHILD_WAIT_NO_CHILD)
 			return -ECHILD;
 
-		struct task_struct *child = find_waitable_child(pid);
-		if (!child) {
+		if (state == TASK_CHILD_WAIT_NO_EVENT) {
 			if (options & WNOHANG)
 				return 0;
 
-			int ret = wait_for(&source, 0, &deadline, &outcome);
+			int ret = wait_for(&source, WAIT_FLAG_INTERRUPTIBLE,
+					   &deadline, &outcome);
 			if (ret < 0)
 				return ret;
+			if (outcome == WAIT_OUTCOME_SIGNAL)
+				return -EINTR;
 			BUG_ON(outcome != WAIT_OUTCOME_EVENT);
 			continue;
 		}
 
-		pid_t child_pid = task_pid(child);
-		int status = WEXITCODE(task_exit_code(child));
-
-		result->task = child;
-		task_cputime_total(child, &result->cputime);
-		result->pid = child_pid;
-		result->status = status;
+		BUG_ON(state != TASK_CHILD_WAIT_EVENT);
+		result->pid = result->claim.pid;
+		result->status = result->claim.status;
+		task_cputime_total(result->claim.child, &result->cputime);
 		return 0;
 	}
 }
 
 void kernel_wait4_finish(struct wait4_result *result)
 {
-	if (!result || !result->task)
+	if (!result || !result->claim.child)
 		return;
 
-	task_add_child_time(current_task(), &result->cputime);
-	release_task(result->task);
-	result->task = NULL;
+	BUG_ON(!task_child_event_commit(&result->claim));
+	if (result->claim.type == TASK_CHILD_EVENT_EXIT) {
+		task_add_child_time(current_task(), &result->cputime);
+		release_task(result->claim.child);
+	}
+	memset(result, 0, sizeof(*result));
+}
+
+void kernel_wait4_abort(struct wait4_result *result)
+{
+	if (!result || !result->claim.child)
+		return;
+
+	task_child_event_abort(&result->claim);
+	memset(result, 0, sizeof(*result));
 }

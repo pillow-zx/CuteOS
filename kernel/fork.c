@@ -155,7 +155,6 @@ static void clone_setup_task_links(struct task_struct *child,
 
 	child->ids.tgid = child->ids.pid;
 	child->ids.group_leader = child;
-	child->links.parent = current_task();
 }
 
 static void clone_link_task(struct task_struct *child, unsigned long flags)
@@ -165,7 +164,7 @@ static void clone_link_task(struct task_struct *child, unsigned long flags)
 			&child->links.thread_node,
 			&task_group_leader(current_task())->links.thread_group);
 	else
-		list_add(&child->links.sibling, task_children(current_task()));
+		task_link_child(current_task(), child);
 }
 
 static void clone_setup_vfork(struct task_struct *child, unsigned long flags)

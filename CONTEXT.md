@@ -192,6 +192,16 @@ Every new shared mutable object needs a documented owner, lifetime, lock,
 lock order, IRQ/preemption state, and wakeup rule. Prefer a small deep module
 interface over exposing lock choreography to callers.
 
+Task owns every published parent/child relation and its wait-visible lifecycle
+edges. Each child keeps an ordered event FIFO with a monotonically increasing
+sequence; the task interface atomically observes or claims events, registers
+waiters, and commits or aborts claims. A failed userspace result copy aborts
+the claim, so it cannot discard the event. Task publishes the edge and wakes
+the parent while holding its relation source lock, pins a non-idle published
+parent, then delivers `SIGCHLD` only after unlocking. `exit` owns wait4
+selector and status policy; syscall code owns only Linux ABI validation,
+uaccess, and the final commit or abort.
+
 Until stage 2 is complete, do not add a feature that is only correct because
 execution happens on one hart. During stages 2--5, keep task state transitions,
 runqueue membership, remote wakeup and migration as separate, explicit
@@ -222,7 +232,8 @@ does not absorb generic lifecycle policy.
   switches tasks only at currently permitted points.
 - **Fork/exec/exit:** clone prepares child state, commits it to task/PID and
   scheduler ownership, then exposes it. Successful exec replaces the old
-  address space. Exit performs signal/futex/task cleanup before reaping.
+  address space. Exit performs signal/futex/task cleanup, task-owned child
+  event publication, and later reaping.
 - **File I/O:** syscall fd/path adaptation enters VFS; VFS owns lookup and
   file lifetime; filesystem data reaches the page cache and block device.
 - **Shutdown:** BusyBox init broadcasts TERM/KILL to user processes, calls

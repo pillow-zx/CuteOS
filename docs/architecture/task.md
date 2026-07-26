@@ -52,7 +52,7 @@ struct task_struct {
 
 - `arch`：RISC-V 上下文、trap frame、内核栈、`satp`。
 - `ids`：`pid/tgid/pgid/sid/group_leader`。
-- `lifecycle`：任务状态、退出码、退出信号。
+- `lifecycle`：任务状态、退出码、退出信号和按 child 排序的 wait4 event FIFO。
 - `vfork`：仅 vfork child 使用的 completion latch 与等待通道。
 - `links`：父子链表、线程组链表、wait4 等待队列。
 - `resources`：`mm/files/fs/sighand/signal/uid/gid`。
@@ -68,6 +68,12 @@ struct task_struct {
 - robust futex list 和 `clear_child_tid` helper 位于 `include/kernel/futex.h`。
 - rseq 注册状态通过 `include/kernel/rseq.h` 的语义入口管理，字段级 helper 保持在 rseq 实现内部。
 - scheduler 可以在 `sched/` 内直接访问 `task->sched`，task/fork/exit 可以在生命周期装配路径直接访问对应字段；其他模块不应为了方便绕过 owner API。
+- task 模块拥有 parent/child relation source lock。它同时保护已发布任务的
+  `parent/children/sibling` 链接、每个 child 的 wait4 event FIFO、事件 sequence/
+  claim 和向 wait4 发布的 `TASK_ZOMBIE`；锁顺序固定为该 source lock 后 child
+  wait channel lock。调用者通过 `task_child_event_claim_next()`、
+  `task_child_event_watch()`、`task_child_event_commit()` 和
+  `task_child_event_abort()` 观察、等待和完成事件，不能编排该锁或 IRQ flags。
 
 新增 per-task 状态时，先说明 owner、生命周期和访问边界，再决定是否进入 `task_struct`。
 
@@ -294,16 +300,26 @@ stateDiagram-v2
    module 解除整个 session 并向旧 foreground pgrp 发送 `SIGHUP`/`SIGCONT`。
 6. 释放信号状态和 mm，并切回 kernel page table；若任务是 vfork child，完成 vfork
    wait。
-7. leader 将子进程 reparent 给 `init_task` 或 idle。
-8. 设置 `TASK_ZOMBIE`。
-9. 向父进程发送 `SIGCHLD` 并唤醒 wait channel。
-10. 调用 `schedule()`，不再返回。
+7. task 模块将 leader 的子进程 reparent 给 `init_task` 或 idle，设置
+   `TASK_ZOMBIE`，并向该 child 的 event FIFO 发布 exit edge。
+8. task 模块为非 idle、已发布的父进程持有 lifecycle reference，然后释放
+   child-relation source lock 并发送 `SIGCHLD`；投递后释放该 reference，事件发布
+   期间已唤醒 parent wait channel。
+9. 调用 `schedule()`，不再返回。
 
 `do_exit_group(code)` 以线程组为单位终止。
 
-`kernel_wait4()` 等待子进程 zombie 状态，回收时将 child cputime 累加到父进程，并调用
-`release_task()` 释放 task。`WNOHANG` 在有匹配子进程但尚无 zombie 时立即返回 0，
-不注册 wait channel；无匹配子进程时仍返回 `-ECHILD`。
+`kernel_wait4()` 等待 pid `-1` 或正 pid 的子进程事件。每个 child 的 stop、continue
+和 exit edge 进入 FIFO，并带递增 sequence；wait4 以 sequence claim 精确保留一个
+event，避免同一 child 的连续状态边混淆。每个成功事件都会 snapshot child cputime 供
+rusage 返回；仅 exit 回收时将其累加到父进程。`WUNTRACED` 选择 stop event，
+`WCONTINUED` 选择 continue event。停止、继续和退出在 child-relation source lock
+内发布并各自向 parent child wait queue 唤醒一次；重父化会将未消费 event 交给 adopter。
+syscall adapter 仅在全部用户写回成功后 commit claim；任一 `-EFAULT` 都会 abort claim，
+保留 event 供下一次 wait4 消费。阻塞等待使用 interruptible wait，未屏蔽 signal 返回
+`-EINTR`（可由 `SA_RESTART` 重放）。`WNOHANG` 在有匹配子进程但尚无匹配事件时立即
+返回 0，不注册 wait channel；无匹配子进程时仍返回 `-ECHILD`。`pid == 0` 和
+`pid < -1` 的 process-group selector 当前明确返回 `-EINVAL`。
 
 ## PID 管理
 

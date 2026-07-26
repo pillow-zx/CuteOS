@@ -104,6 +104,8 @@ int test_task_process_tree(void);
 int test_task_idle(void);
 int test_task_free_null(void);
 int test_task_publish_lookup_lifetime(void);
+int test_wait4_stop_continue_events(void);
+int test_wait4_signal_exit_status(void);
 
 int test_files_struct_copy_and_share(void);
 int test_files_struct_copy_preserves_cloexec(void);
