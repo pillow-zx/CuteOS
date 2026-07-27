@@ -11,10 +11,10 @@
 
 /*
  * SYSCALL_SUPPORT(B): kill
- * Current: delivers to a positive pid or all eligible processes for pid -1.
- * Unsupported errno: pid 0 and pid < -1 return -EINVAL; a missing target set
- * returns -ESRCH.
- * Future: add pid 0, process-group, and permission semantics.
+ * Current: delivers to a positive pid, the caller's process group for pid 0,
+ * a selected process group for pid < -1, or all eligible processes for -1.
+ * Unsupported errno: a missing target set returns -ESRCH.
+ * Future: add credential-based permission semantics.
  */
 ssize_t sys_kill(struct trap_frame *tf)
 {

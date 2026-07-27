@@ -224,8 +224,9 @@ void do_signal(struct trap_frame *tf);
 void signal_user_map_init(void);
 
 /**
- * @brief Implement kill() pid-directed signal semantics.
- * @param pid Linux pid argument.
+ * @brief Implement Linux kill() process and process-group signal semantics.
+ * @param pid Positive process ID, zero for the caller's process group, -1 for
+ *        the supported broadcast policy, or a negative process-group ID.
  * @param sig Signal number, or 0 for permission/existence probe.
  * @return 0 on success, or a negative errno.
  */

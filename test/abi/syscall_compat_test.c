@@ -2,6 +2,7 @@
 #include <kernel/blkdev.h>
 #include <kernel/errno.h>
 #include <kernel/pipe.h>
+#include <kernel/pid.h>
 #include <kernel/resource.h>
 #include <kernel/signal.h>
 #include <kernel/statfs.h>
@@ -1306,8 +1307,8 @@ int test_kill_all_processes(void)
 			task_signal_state(kernel_target)->shared_pending & mask,
 			(uint64_t)0);
 
-		tf.a0 = (uint64_t)-2;
-		TEST_ASSERT_EQ(sys_kill(&tf), -EINVAL);
+		tf.a0 = (uint64_t)-(long)PID_MAX;
+		TEST_ASSERT_EQ(sys_kill(&tf), -ESRCH);
 	}
 	TEST_END("syscall compat: kill all processes");
 	goto cleanup;
@@ -1322,6 +1323,133 @@ cleanup:
 	if (target) {
 		test_release_published_task(target);
 	}
+
+	return __test_ret;
+}
+
+int test_kill_process_groups(void)
+{
+	struct task_struct *saved = current_task();
+	struct task_struct *sender = NULL;
+	struct task_struct *same_group = NULL;
+	struct task_struct *other_group = NULL;
+	struct task_struct *target_group = NULL;
+	struct task_struct *target_member = NULL;
+	struct trap_frame tf = {0};
+	uint64_t sender_mask = signal_mask(SIGUSR1);
+	uint64_t target_mask = signal_mask(SIGUSR2);
+
+	TEST_BEGIN("syscall compat: kill process groups");
+	{
+		sender = task_alloc();
+		TEST_ASSERT_NOT_NULL(sender);
+		TEST_ASSERT_EQ(task_init_resources(sender), 0);
+		task_publish(sender);
+		set_current_task(sender);
+
+		same_group = task_alloc();
+		TEST_ASSERT_NOT_NULL(same_group);
+		TEST_ASSERT_EQ(task_init_resources(same_group), 0);
+		task_test_set_process_identity(same_group,
+					       task_test_pgid(sender),
+					       task_test_sid(sender));
+		task_publish(same_group);
+
+		other_group = task_alloc();
+		TEST_ASSERT_NOT_NULL(other_group);
+		TEST_ASSERT_EQ(task_init_resources(other_group), 0);
+		task_publish(other_group);
+
+		target_group = task_alloc();
+		TEST_ASSERT_NOT_NULL(target_group);
+		TEST_ASSERT_EQ(task_init_resources(target_group), 0);
+		task_publish(target_group);
+
+		target_member = task_alloc();
+		TEST_ASSERT_NOT_NULL(target_member);
+		TEST_ASSERT_EQ(task_init_resources(target_member), 0);
+		task_test_set_process_identity(target_member,
+					       task_test_pgid(target_group),
+					       task_test_sid(target_group));
+		task_publish(target_member);
+
+		tf.a0 = 0;
+		tf.a1 = 0;
+		TEST_ASSERT_EQ(sys_kill(&tf), 0);
+		TEST_ASSERT_EQ(task_signal_state(sender)->shared_pending &
+				       sender_mask,
+			       (uint64_t)0);
+		TEST_ASSERT_EQ(task_signal_state(same_group)->shared_pending &
+				       sender_mask,
+			       (uint64_t)0);
+
+		tf.a1 = SIGUSR1;
+		TEST_ASSERT_EQ(sys_kill(&tf), 0);
+		TEST_ASSERT_EQ(task_signal_state(sender)->shared_pending &
+				       sender_mask,
+			       sender_mask);
+		TEST_ASSERT_EQ(task_signal_state(same_group)->shared_pending &
+				       sender_mask,
+			       sender_mask);
+		TEST_ASSERT_EQ(task_signal_state(other_group)->shared_pending &
+				       sender_mask,
+			       (uint64_t)0);
+		TEST_ASSERT_EQ(task_signal_state(sender)
+				       ->shared_pending_info[SIGUSR1]
+				       .si_code,
+			       SI_USER);
+		TEST_ASSERT_EQ(task_signal_state(sender)
+				       ->shared_pending_info[SIGUSR1]
+				       .si_pid,
+			       task_pid(sender));
+
+		tf.a0 = (uint64_t)-(long)task_test_pgid(target_group);
+		tf.a1 = 0;
+		TEST_ASSERT_EQ(sys_kill(&tf), 0);
+		TEST_ASSERT_EQ(task_signal_state(target_group)->shared_pending &
+				       target_mask,
+			       (uint64_t)0);
+		TEST_ASSERT_EQ(
+			task_signal_state(target_member)->shared_pending &
+				target_mask,
+			(uint64_t)0);
+
+		task_set_state(target_group, TASK_ZOMBIE);
+		tf.a1 = SIGUSR2;
+		TEST_ASSERT_EQ(sys_kill(&tf), 0);
+		TEST_ASSERT_EQ(task_signal_state(target_group)->shared_pending &
+				       target_mask,
+			       (uint64_t)0);
+		TEST_ASSERT_EQ(
+			task_signal_state(target_member)->shared_pending &
+				target_mask,
+			target_mask);
+		TEST_ASSERT_EQ(task_signal_state(sender)->shared_pending &
+				       target_mask,
+			       (uint64_t)0);
+		TEST_ASSERT_EQ(task_signal_state(same_group)->shared_pending &
+				       target_mask,
+			       (uint64_t)0);
+
+		tf.a0 = (uint64_t)-(long)PID_MAX;
+		TEST_ASSERT_EQ(sys_kill(&tf), -ESRCH);
+	}
+	TEST_END("syscall compat: kill process groups");
+	goto cleanup;
+fail:
+	TEST_FAIL("syscall compat: kill process groups", "see above");
+cleanup:
+	set_current_task(saved);
+	if (target_member)
+		test_release_published_task(target_member);
+	if (target_group)
+		test_release_published_task(target_group);
+	if (other_group)
+		test_release_published_task(other_group);
+	if (same_group)
+		test_release_published_task(same_group);
+	if (sender)
+		test_release_published_task(sender);
 
 	return __test_ret;
 }

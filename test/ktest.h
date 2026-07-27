@@ -139,6 +139,7 @@ int test_tty_empty_foreground_pgrp_is_cleared(void);
 int test_signal_rt_sigsetsize_validation(void);
 int test_init_signal_protection(void);
 int test_kill_all_processes(void);
+int test_kill_process_groups(void);
 int test_shutdown_syscall_contract(void);
 int test_root_statfs_fields(void);
 int test_pipe2_file_alloc_failure_cleanup(void);

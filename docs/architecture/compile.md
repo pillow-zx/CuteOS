@@ -178,8 +178,8 @@ arch/riscv/mm/tlb.o
 2. 同一 module 使用 BusyBox 自己的 Kbuild 与项目
    `configs/busybox_defconfig`，通过项目 musl crt/libc 和 compiler-rt 链接。
 
-BusyBox 配置启用 `INIT`、`FEATURE_USE_INITTAB` 和 `FEATURE_INIT_SCTTY`，但本轮
-保持 `ASH_JOB_CONTROL` 关闭。rootfs 安装的 `/etc/inittab` 使用
+BusyBox 配置启用 `INIT`、`FEATURE_USE_INITTAB`、`FEATURE_INIT_SCTTY` 和
+`ASH_JOB_CONTROL`。rootfs 安装的 `/etc/inittab` 使用
 `::respawn:-/bin/sh`：BusyBox action child 先建立新 session，继承 PID 1 的
 console fd 0，再因命令前导 `-` 调用 `TIOCSCTTY`。shell 退出后由 PID 1 respawn。
 

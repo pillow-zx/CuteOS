@@ -257,7 +257,7 @@ vfork 调用任务只在 completion 或 pending `SIGKILL` 时离开其 killable
 
 | Nr | syscall | 等级 | 当前语义 | 主要缺口 | 下一步 |
 | ---: | --- | --- | --- | --- | --- |
-| 129 | `kill` | B | 正 pid 投递；`pid == -1` 广播到除 PID 1、调用进程及 kernel-only task 外的用户进程 | pid 0、pid < -1 process group 和权限模型未支持 | 按 shell/job-control 需求扩展 |
+| 129 | `kill` | B | 正 pid 投递；`pid == 0` 投递到调用者 process group；`pid < -1` 投递到指定 process group；`pid == -1` 广播到除 PID 1、调用进程及 kernel-only task 外的用户进程 | credential 权限模型未支持 | 按 shell/job-control 需求压测 |
 | 130 | `tkill` | B | tid 投递 | 权限模型浅 | 补 cred 检查 |
 | 131 | `tgkill` | B | tgid+tid 投递 | 权限模型浅 | 同 tkill |
 | 132 | `sigaltstack` | B | 注册/查询 altstack | SS_AUTODISARM 等未支持 | 明确 flag policy |

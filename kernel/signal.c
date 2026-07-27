@@ -717,14 +717,16 @@ int signal_pending_info(const struct task_struct *task, int sig,
 	return 0;
 }
 
-int send_pgrp_signal(int sig, pid_t pgid)
+static int send_pgrp_signal_info(int sig, const siginfo_t *info, pid_t pgid,
+				 pid_t sid)
 {
-	bool found = false;
+	bool probe_found = false;
+	bool delivered = false;
 	int first_error = 0;
 
-	if (!signal_is_valid(sig))
+	if (sig != 0 && (!signal_is_valid(sig) || !info))
 		return -EINVAL;
-	if (pgid <= 0)
+	if (pgid <= 0 || sid < 0)
 		return -ESRCH;
 
 	for (pid_t pid = 1; pid <= PID_MAX; pid++) {
@@ -734,53 +736,56 @@ int send_pgrp_signal(int sig, pid_t pgid)
 
 		if (!task || !task_is_group_leader(task) ||
 		    task_process_snapshot(task, &identity) < 0 ||
-		    identity.pgid != pgid) {
+		    identity.pgid != pgid ||
+		    (sid != 0 && identity.sid != sid)) {
 			task_put(task);
 			continue;
 		}
 
-		found = true;
-		ret = send_group_signal(sig, task);
+		if (sig == 0) {
+			probe_found = true;
+			task_put(task);
+			continue;
+		}
+
+		ret = send_group_signal_info(sig, info, task);
 		task_put(task);
-		if (ret < 0 && first_error == 0)
+		if (ret == 0) {
+			delivered = true;
+		} else if (ret != -ESRCH && first_error == 0) {
 			first_error = ret;
+		}
 	}
 
-	if (!found)
-		return -ESRCH;
-	return first_error;
+	if (sig == 0)
+		return probe_found ? 0 : -ESRCH;
+	return delivered ? 0 : first_error ? first_error : -ESRCH;
+}
+
+int send_pgrp_signal(int sig, pid_t pgid)
+{
+	siginfo_t info = {0};
+
+	if (!signal_is_valid(sig))
+		return -EINVAL;
+
+	info.si_signo = sig;
+	info.si_code = SI_KERNEL;
+	return send_pgrp_signal_info(sig, &info, pgid, 0);
 }
 
 int send_session_pgrp_signal(int sig, pid_t pgid, pid_t sid)
 {
-	bool found = false;
-	int first_error = 0;
+	siginfo_t info = {0};
 
 	if (!signal_is_valid(sig))
 		return -EINVAL;
-	if (pgid <= 0 || sid <= 0)
+	if (sid <= 0)
 		return -ESRCH;
 
-	for (pid_t pid = 1; pid <= PID_MAX; pid++) {
-		struct task_struct *task = task_find_thread(pid);
-		struct task_process_identity identity;
-		int ret;
-
-		if (!task || !task_is_group_leader(task) ||
-		    task_process_snapshot(task, &identity) < 0 ||
-		    identity.pgid != pgid || identity.sid != sid) {
-			task_put(task);
-			continue;
-		}
-
-		found = true;
-		ret = send_group_signal(sig, task);
-		task_put(task);
-		if (ret < 0 && first_error == 0)
-			first_error = ret;
-	}
-
-	return found ? first_error : -ESRCH;
+	info.si_signo = sig;
+	info.si_code = SI_KERNEL;
+	return send_pgrp_signal_info(sig, &info, pgid, sid);
 }
 
 int force_signal_info(int sig, const siginfo_t *info, struct task_struct *task)
@@ -1254,11 +1259,12 @@ static int kill_all_processes(int sig, const siginfo_t *info)
 int do_kill(pid_t pid, int sig)
 {
 	struct task_struct *task;
+	struct task_process_identity identity;
 	siginfo_t info = {0};
+	long pgid;
+	int ret;
 
 	if (sig != 0 && !signal_is_valid(sig))
-		return -EINVAL;
-	if (pid == 0 || pid < -1)
 		return -EINVAL;
 
 	info.si_signo = sig;
@@ -1267,6 +1273,18 @@ int do_kill(pid_t pid, int sig)
 	info.si_uid = task_uid(current_task());
 	if (pid == -1)
 		return kill_all_processes(sig, &info);
+	if (pid == 0) {
+		ret = task_process_snapshot(current_task(), &identity);
+		if (ret < 0)
+			return ret;
+		return send_pgrp_signal_info(sig, &info, identity.pgid, 0);
+	}
+	if (pid < -1) {
+		pgid = -(long)pid;
+		if (pgid > PID_MAX)
+			return -ESRCH;
+		return send_pgrp_signal_info(sig, &info, (pid_t)pgid, 0);
+	}
 
 	task = task_find_group_leader(pid);
 	if (!task)
@@ -1276,7 +1294,7 @@ int do_kill(pid_t pid, int sig)
 		return 0;
 	}
 
-	int ret = send_group_signal_info(sig, &info, task);
+	ret = send_group_signal_info(sig, &info, task);
 
 	task_put(task);
 	return ret;

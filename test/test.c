@@ -263,6 +263,7 @@ static const struct ktest_case syscall_compat_cases[] = {
 	KTEST_CASE(test_signal_rt_sigsetsize_validation),
 	KTEST_CASE(test_init_signal_protection),
 	KTEST_CASE(test_kill_all_processes),
+	KTEST_CASE(test_kill_process_groups),
 	KTEST_CASE(test_shutdown_syscall_contract),
 	KTEST_CASE(test_root_statfs_fields),
 	KTEST_CASE(test_pipe2_file_alloc_failure_cleanup),
