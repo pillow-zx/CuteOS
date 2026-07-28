@@ -77,6 +77,51 @@ UT_CASE(io_nonblocking_and_sigpipe, 1500)
 	UT_EXPECT_SIGNAL(child, SIGPIPE);
 }
 
+UT_CASE(io_pipe_fd_lifecycle, 1500)
+{
+	char byte;
+	int pipefd[2];
+	int read_dup;
+	int fcntl_dup;
+	int replaced;
+
+	UT_ASSERT_EQ(pipe2(pipefd, O_CLOEXEC | O_NONBLOCK), 0);
+	UT_EXPECT_EQ(fcntl(pipefd[0], F_GETFD), FD_CLOEXEC);
+	UT_EXPECT_EQ(fcntl(pipefd[1], F_GETFD), FD_CLOEXEC);
+	UT_EXPECT(fcntl(pipefd[0], F_GETFL) & O_NONBLOCK);
+	UT_EXPECT(fcntl(pipefd[1], F_GETFL) & O_NONBLOCK);
+
+	read_dup = dup(pipefd[0]);
+	UT_ASSERT(read_dup >= 0);
+	UT_EXPECT_EQ(fcntl(read_dup, F_GETFD), 0);
+	UT_ASSERT_EQ(fcntl(read_dup, F_SETFD, FD_CLOEXEC), 0);
+	UT_ASSERT_EQ(fcntl(pipefd[0], F_SETFD, 0), 0);
+	UT_EXPECT_EQ(fcntl(read_dup, F_GETFD), FD_CLOEXEC);
+	UT_EXPECT_EQ(fcntl(pipefd[0], F_GETFD), 0);
+	UT_EXPECT(fcntl(read_dup, F_GETFL) & O_NONBLOCK);
+
+	fcntl_dup = fcntl(read_dup, F_DUPFD_CLOEXEC, 0);
+	UT_ASSERT(fcntl_dup >= 0);
+	UT_EXPECT_EQ(fcntl(fcntl_dup, F_GETFD), FD_CLOEXEC);
+	UT_EXPECT(fcntl(fcntl_dup, F_GETFL) & O_NONBLOCK);
+	UT_ASSERT_EQ(close(fcntl_dup), 0);
+
+	UT_ASSERT_EQ(close(pipefd[0]), 0);
+	UT_ASSERT_EQ(write(pipefd[1], "x", 1), 1);
+	UT_ASSERT_EQ(read(read_dup, &byte, 1), 1);
+	UT_EXPECT_EQ(byte, 'x');
+
+	replaced = dup(pipefd[1]);
+	UT_ASSERT(replaced >= 0);
+	UT_ASSERT_EQ(dup3(read_dup, replaced, O_CLOEXEC), replaced);
+	UT_EXPECT_EQ(fcntl(replaced, F_GETFD), FD_CLOEXEC);
+	UT_EXPECT_ERRNO(dup3(read_dup, read_dup, 0), EINVAL);
+	UT_EXPECT_ERRNO(dup3(read_dup, replaced, O_NONBLOCK), EINVAL);
+	UT_ASSERT_EQ(close(replaced), 0);
+	UT_ASSERT_EQ(close(read_dup), 0);
+	UT_ASSERT_EQ(close(pipefd[1]), 0);
+}
+
 UT_CASE(io_sendfile_and_splice, 1500)
 {
 	char *content;
@@ -149,7 +194,8 @@ UT_CASE(io_poll_select_epoll_and_eintr, 5000)
 	FD_ZERO(&readfds);
 	FD_SET(pipefd[0], &readfds);
 	UT_ASSERT_EQ(pselect(pipefd[0] + 1, &readfds, NULL, NULL,
-			     &(struct timespec){0}, NULL), 1);
+			     &(struct timespec){0}, NULL),
+		     1);
 	UT_EXPECT(FD_ISSET(pipefd[0], &readfds));
 	epollfd = epoll_create1(EPOLL_CLOEXEC);
 	UT_ASSERT(epollfd >= 0);

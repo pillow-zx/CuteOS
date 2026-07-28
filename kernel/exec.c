@@ -653,6 +653,11 @@ void exec_user_path(const char *path)
 int kernel_execve(const char *path, const struct exec_args_envp *args,
 		  struct trap_frame *tf)
 {
+	struct exec_image image;
+	struct mm_struct *mm;
+	struct signal_struct *signal;
+	vaddr_t entry;
+	vaddr_t sp;
 	int ret;
 
 	if (!path || !args || !tf)
@@ -660,32 +665,34 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 	if (task_group_has_other_threads(current_task()))
 		return -EINVAL;
 
-	struct exec_image image;
 	ret = open_exec_image(path, &image);
 	if (ret < 0)
 		return ret;
 
-	struct mm_struct *mm;
-	vaddr_t entry;
-	vaddr_t sp;
 	ret = load_elf_file(&image, args, path, &mm, &entry, &sp);
 	close_exec_image(&image);
 	if (ret < 0)
 		return ret;
 
+	ret = files_unshare_for_exec(current_task());
+	if (ret < 0) {
+		mm_put(mm);
+		return ret;
+	}
+
 	install_exec_mm(mm, tf, entry, sp);
 	task_mark_user_process(current_task());
-	kernel_clone_complete_vfork(current_task());
+	files_close_on_exec(task_files_safe(current_task()));
 	signal_clear_frames(current_task());
 	restart_clear(current_task());
 	rseq_execve(current_task());
 
-	struct signal_struct *signal = task_signal_state(current_task());
+	signal = task_signal_state(current_task());
 
 	if (signal)
 		posix_timer_table_clear(&signal->posix_timers);
 
-	files_close_on_exec(task_files_safe(current_task()));
+	kernel_clone_complete_vfork(current_task());
 
 	return 0;
 }

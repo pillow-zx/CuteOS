@@ -203,6 +203,27 @@ void files_close_on_exec(struct files_struct *files)
 		file_put(closing[fd]);
 }
 
+int files_unshare_for_exec(struct task_struct *task)
+{
+	struct files_struct *old;
+	struct files_struct *files;
+
+	if (!task)
+		return -EINVAL;
+
+	old = task_files_safe(task);
+	if (!old || refcount_read(&old->refcount) == 1)
+		return 0;
+
+	files = files_dup(old);
+	if (!files)
+		return -ENOMEM;
+
+	task_set_files(task, files);
+	files_put(old);
+	return 0;
+}
+
 int fd_close(int fd)
 {
 	struct files_struct *files = current_files();

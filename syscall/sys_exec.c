@@ -105,6 +105,11 @@ static int copy_exec_args(const char *const *uargv, const char *const *uenvp,
 	return copy_env_array(uenvp, args);
 }
 
+/*
+ * SYSCALL_SUPPORT(A): execve
+ * Current: validates and copies ABI inputs, then delegates the transactional
+ * image replacement and close-on-exec fd lifecycle to kernel_execve().
+ */
 ssize_t sys_execve(struct trap_frame *tf)
 {
 	const char *upath = (const char *)syscall_arg(tf, 0);

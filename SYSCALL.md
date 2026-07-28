@@ -37,14 +37,14 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 
 | Nr | syscall | 等级 | 当前语义 | 主要缺口 | 下一步 |
 | ---: | --- | --- | --- | --- | --- |
-| 23 | `dup` | A | fd 复制 | 无明显短期缺口 | 压测 fd 上限和 close-on-exec 交互 |
-| 24 | `dup3` | A | 支持 `O_CLOEXEC` | 仅当前 fdtable 范围 | 加 dup3 同 fd errno 回归 |
-| 25 | `fcntl` | B | 支持 `F_DUPFD/F_DUPFD_CLOEXEC/F_GETFD/F_SETFD/F_GETFL/F_SETFL`，`F_SETFL` 可修改 `O_APPEND/O_NONBLOCK`，见 cmd 支持表 | lock、lease、pipe size、owner 系列未实现但 errno 已固定 | 按表逐项替换为真实语义 |
+| 23 | `dup` | A | 复制到最低空闲 fd，共享 open file description，复制 fd 清除 `FD_CLOEXEC` | 无明显短期缺口 | 压测 fd 上限 |
+| 24 | `dup3` | A | 原子替换 target fd，支持 `O_CLOEXEC`；相同 old/new fd 返回 `-EINVAL` | 仅当前 fdtable 范围 | 保持回归 |
+| 25 | `fcntl` | B | 支持 `F_DUPFD/F_DUPFD_CLOEXEC/F_GETFD/F_SETFD/F_GETFL/F_SETFL`；`FD_CLOEXEC` 是 descriptor-local，`F_SETFL` 可修改 `O_APPEND/O_NONBLOCK`，见 cmd 支持表 | lock、lease、pipe size、owner 系列未实现但 errno 已固定 | 按表逐项替换为真实语义 |
 | 29 | `ioctl` | B | 委托 `vfs_ioctl`；console 支持 termios、winsize、显式 controlling-TTY 关联、foreground pgid/session 查询设置，以及 Linux 风格 `TIOCSCTTY/TIOCNOTTY` 生命周期 | pty、多 terminal、后台读写和 orphaned pgrp 规则未实现 | 按真实程序探测继续扩展 |
 | 46 | `ftruncate64` | A | 通过 VFS truncate 文件 | 文件系统大文件边界有限 | 覆盖 sparse/truncate 扩展测试 |
 | 47 | `fallocate` | B | 仅 `mode == 0`，限制最大文件大小 | punch hole/keep size 等 flag 不支持 | 固定 unsupported mode errno |
-| 57 | `close` | A | fd close | 无明显短期缺口 | 加多线程/dup 交互测试 |
-| 59 | `pipe2` | A | pipe 创建，支持 `O_CLOEXEC/O_NONBLOCK` | pipe size 调整未实现 | 补 `F_GETPIPE_SZ/F_SETPIPE_SZ` |
+| 57 | `close` | A | 在 fdtable lock 下解除 fd 和其 `FD_CLOEXEC` 位，随后释放 file 引用 | 无明显短期缺口 | 加多线程/dup 交互测试 |
+| 59 | `pipe2` | A | 创建独立 read/write open file description；支持 descriptor-local `O_CLOEXEC` 与共享 status flag `O_NONBLOCK`，失败路径完整回滚 | pipe size 调整未实现 | 补 `F_GETPIPE_SZ/F_SETPIPE_SZ` |
 | 62 | `lseek` | A | VFS llseek | 特殊文件 seek 语义依赖 fops | 补设备/pipe ESPIPE 测试 |
 | 63 | `read` | A | fd read + uaccess 分块；可中断阻塞读在 handler 带 `SA_RESTART` 时重放 | 非 pipe 文件的非阻塞语义有限 | 扩展更多文件类型的 nonblock 语义 |
 | 64 | `write` | A | fd write + uaccess 分块；可中断阻塞写在 handler 带 `SA_RESTART` 时重放，部分计数不重放 | SIGPIPE/partial write 边界需继续测 | 扩展 pipe 写端测试 |
@@ -214,7 +214,7 @@ pgrp 发送 `SIGHUP`、`SIGCONT`。输入信号不向无 owner 的 reader 回退
 | 173 | `getppid` | A | 返回 parent pid | orphan/adoption 已依赖 task | 保持 |
 | 178 | `gettid` | A | 返回 task pid | 保持 |
 | 220 | `clone` | B | 支持 fork-like、线程子集和 non-thread vfork，见 flag 支持表 | clone3/namespace 与完整线程组细节不支持 | 按真实线程库需求扩展 |
-| 221 | `execve` | A | 通过 VFS 加载静态非 PIE `ET_EXEC` ELF，复制 argv/envp，安装新 mm 和 Linux riscv64 auxv | `ET_DYN`、解释器脚本和动态链接不支持 | 保持静态 ELF 主线，补 auxv/错误码测试 |
+| 221 | `execve` | A | 通过 VFS 加载静态非 PIE `ET_EXEC` ELF，复制 argv/envp，安装新 mm 和 Linux riscv64 auxv；先解除 `CLONE_FILES`，再原子 detach close-on-exec fd | `ET_DYN`、解释器脚本和动态链接不支持 | 保持静态 ELF 主线，补 auxv/错误码测试 |
 | 260 | `wait4` | B | 等待 pid `-1` 或正 pid，支持 `WNOHANG`、`WUNTRACED`、`WCONTINUED` 和 rusage；每个成功事件均 snapshot child cputime，exit、signal-stop、continue 均返回 Linux status；`SA_RESTART` 重放可中断的阻塞等待 | `pid == 0`、`pid < -1` 的 process-group selector 和其它 options 返回 `-EINVAL` | 仅按真实 shell trace 扩展 selector |
 
 ### `clone` flag 支持表

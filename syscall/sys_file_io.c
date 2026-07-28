@@ -522,6 +522,11 @@ ssize_t sys_splice(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(A): close
+ * Current: atomically detaches the fd slot and its close-on-exec bit before
+ * dropping the referenced file outside the fdtable lock.
+ */
 ssize_t sys_close(struct trap_frame *tf)
 {
 	return fd_close((int)syscall_arg(tf, 0));
@@ -566,7 +571,8 @@ ssize_t sys_ioctl(struct trap_frame *tf)
 
 /*
  * SYSCALL_SUPPORT(B): fcntl
- * Current: supports dup, close-on-exec, and file status flag get/set commands.
+ * Current: supports dup, descriptor-local close-on-exec, and file status flag
+ * get/set commands.
  * Unsupported errno: bad fds return -EBADF first. Known but unsupported lock,
  * owner, lease, pipe-size, seal, rw-hint, notify, and delegation commands
  * return -EINVAL. Unknown commands also return -EINVAL for valid fds.
@@ -629,6 +635,12 @@ ssize_t sys_fcntl(struct trap_frame *tf)
 	}
 }
 
+/*
+ * SYSCALL_SUPPORT(A): dup and dup3
+ * Current: duplicate fd slots share one open file description. dup clears the
+ * new slot's close-on-exec bit; dup3 atomically replaces its target and may
+ * set that bit with O_CLOEXEC. dup3 rejects equal descriptors with -EINVAL.
+ */
 ssize_t sys_dup(struct trap_frame *tf)
 {
 	return fd_dup((int)syscall_arg(tf, 0));
@@ -640,6 +652,8 @@ ssize_t sys_dup3(struct trap_frame *tf)
 	int newfd = (int)syscall_arg(tf, 1);
 	int flags = (int)syscall_arg(tf, 2);
 
+	if (oldfd == newfd)
+		return -EINVAL;
 	if (flags & ~O_CLOEXEC)
 		return -EINVAL;
 
@@ -737,6 +751,12 @@ ssize_t sys_fallocate(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(A): pipe2
+ * Current: creates separate read/write open file descriptions, applies
+ * O_NONBLOCK to both status flags and O_CLOEXEC to both descriptor slots.
+ * Failed fd installation or userspace result copying rolls both endpoints back.
+ */
 ssize_t sys_pipe2(struct trap_frame *tf)
 {
 	int *user_fds = (int *)syscall_arg(tf, 0);

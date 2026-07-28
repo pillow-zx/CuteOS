@@ -1,8 +1,11 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <sched.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/syscall.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -31,11 +34,7 @@ UT_CASE(runtime_exec_argv_env, 5000)
 	char *output = ut_path("argv-env.out");
 	char *content;
 	char *const argv[] = {
-		probe,
-		output,
-		"alpha",
-		"beta",
-		NULL,
+		probe, output, "alpha", "beta", NULL,
 	};
 	char *const envp[] = {
 		"UTEST_EXEC_TOKEN=runtime-token",
@@ -124,6 +123,40 @@ UT_CASE(runtime_cloexec_survives_exec, 5000)
 	(void)snprintf(descriptor, sizeof(descriptor), "%d", fd);
 	runtime_exec_probe(probe, argv, NULL);
 	UT_EXPECT_EQ(close(fd), 0);
+	free(probe);
+	free(path);
+}
+
+UT_CASE(runtime_cloexec_unshares_shared_files, 5000)
+{
+	char *path = ut_path("cloexec-shared.file");
+	char *probe = ut_exec_path("utest-probe-cloexec");
+	char descriptor[32];
+	char *const argv[] = {
+		probe,
+		descriptor,
+		NULL,
+	};
+	pid_t child;
+	int fd;
+
+	UT_ASSERT(path != NULL);
+	UT_ASSERT(probe != NULL);
+	fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0600);
+	UT_ASSERT(fd >= 0);
+	UT_ASSERT_EQ(fcntl(fd, F_SETFD, FD_CLOEXEC), 0);
+	(void)snprintf(descriptor, sizeof(descriptor), "%d", fd);
+
+	child = (pid_t)syscall(SYS_clone, CLONE_FILES | SIGCHLD, 0, 0, 0, 0);
+	UT_ASSERT(child >= 0);
+	if (child == 0) {
+		execve(probe, argv, NULL);
+		_exit(127);
+	}
+
+	UT_EXPECT_EXIT(child, 0);
+	UT_EXPECT_EQ(fcntl(fd, F_GETFD), FD_CLOEXEC);
+	UT_ASSERT_EQ(close(fd), 0);
 	free(probe);
 	free(path);
 }

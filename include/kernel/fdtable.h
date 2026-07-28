@@ -68,6 +68,16 @@ void files_install_standard_fds(struct files_struct *files);
 void files_close_on_exec(struct files_struct *files);
 
 /**
+ * @brief Give an execing task a private fdtable when its table is shared.
+ * @param task Task replacing its image.
+ * @return 0, or -ENOMEM if the private fdtable cannot be allocated.
+ *
+ * A successful exec must undo CLONE_FILES before close-on-exec descriptors
+ * are detached, so another task sharing the old table keeps its descriptors.
+ */
+int __must_check files_unshare_for_exec(struct task_struct *task);
+
+/**
  * @brief Install a referenced file in the lowest free fd slot.
  * @param file File to install.
  * @return Allocated fd, or a negative errno.

@@ -252,12 +252,13 @@ flowchart TD
     NewMM["mm_create_user()"]
     Segments["map PT_LOAD segments"]
     Stack["build user stack<br/>argc / argv / envp"]
+    Unshare["unshare CLONE_FILES"]
     Install["install new mm / satp / trap frame<br/>release old mm"]
-    VforkComplete["complete vfork child"]
     Cleanup["close CLOEXEC<br/>clear rseq + timers"]
+    VforkComplete["complete vfork child"]
     User["return to new user PC"]
 
-    Open --> ELF --> NewMM --> Segments --> Stack --> Install --> VforkComplete --> Cleanup --> User
+    Open --> ELF --> NewMM --> Segments --> Stack --> Unshare --> Install --> Cleanup --> VforkComplete --> User
 ```
 
 主要流程：
@@ -269,9 +270,11 @@ flowchart TD
 5. 按 PT_LOAD 映射段，权限来自 ELF `p_flags`。
 6. 构造单页用户栈，写入 `argc/argv/envp`。
 7. `mm_finalize()` 设置 `brk/code_start/code_end`。
-8. 安装新 `mm`、新 `satp` 和用户返回 trap frame，并释放旧 `mm`。
-9. 如果当前任务是 vfork child，完成其 vfork wait。
-10. 关闭 `CLOEXEC` fd，清理 rseq 和 POSIX timers。
+8. 若 fdtable 由 `CLONE_FILES` 共享，为执行任务复制并安装私有 fdtable。
+9. 安装新 `mm`、新 `satp` 和用户返回 trap frame，并释放旧 `mm`。
+10. 在 fdtable lock 下解除并关闭 `CLOEXEC` fd，清理 rseq 和 POSIX timers。
+11. 如果当前任务是 vfork child，完成其 vfork wait；调用任务只能在 fd
+    close-on-exec 清理完成后恢复。
 
 exec 后返回用户态时，`trap_setup_user_return()` 设置新的 PC/SP 和用户态 `sstatus`。
 

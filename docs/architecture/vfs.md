@@ -352,6 +352,13 @@ syscall 层通过 fdtable helper 将 fd 转为 `struct file *`。dup/dup3/fcntl/
 
 `struct file` 自身带 refcount，fd 复制共享 file 对象，close 只释放当前 fd 引用。
 
+`close_on_exec` 属于 fdtable slot，而不是 `struct file`：`dup()` 清除新 slot 的
+该位，`dup3(O_CLOEXEC)` 和 `F_DUPFD_CLOEXEC` 只设置新 slot，`F_SETFD` 也不改变
+同一 open file description 的其它 fd。`close()` 与 exec close-on-exec 都在
+`files_struct.lock` 下先解除 slot 和位图，再在锁外 `file_put()`。成功 `execve()`
+若发现 `files_struct` 由 `CLONE_FILES` 共享，会先复制 fdtable 并把执行任务切换到
+副本；因此 close-on-exec 只影响新映像，原共享者仍持有原 fdtable。
+
 ## read/write 路由
 
 公共 API：
