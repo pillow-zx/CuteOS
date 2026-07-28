@@ -20,6 +20,13 @@ static const struct ktest_case bitmap_cases[] = {
 	KTEST_CASE(test_bitmap_odd_bits),
 };
 
+static const struct ktest_case container_cases[] = {
+	KTEST_CASE(test_kfifo_order_and_wrap),
+	KTEST_CASE(test_kfifo_bulk_and_init),
+	KTEST_CASE(test_klifo_order_and_bounds),
+	KTEST_CASE(test_klifo_objects_and_init),
+};
+
 static const struct ktest_case hash_cases[] = {
 	KTEST_CASE(test_hash_insert_lookup),
 	KTEST_CASE(test_hash_collision_delete),
@@ -277,6 +284,8 @@ static const struct ktest_case syscall_compat_cases[] = {
 
 static const struct ktest_module core_bitmap_module =
 	KTEST_MODULE("bitmap", bitmap_cases);
+static const struct ktest_module core_container_module =
+	KTEST_MODULE("container", container_cases);
 static const struct ktest_module core_hash_module =
 	KTEST_MODULE("hash", hash_cases);
 static const struct ktest_module core_cleanup_module =
@@ -342,6 +351,7 @@ static const struct ktest_module abi_syscall_compat_module =
 
 static const struct ktest_module *const core_modules[] = {
 	&core_bitmap_module,
+	&core_container_module,
 	&core_hash_module,
 	&core_cleanup_module,
 };

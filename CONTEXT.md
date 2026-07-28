@@ -207,6 +207,15 @@ execution happens on one hart. During stages 2--5, keep task state transitions,
 runqueue membership, remote wakeup and migration as separate, explicit
 contracts; do not fold their policy into syscall handlers.
 
+### Generic kernel containers
+
+`kfifo` and `klifo` hold copies of fixed-size kernel objects in caller-owned
+storage. They do not own the copied objects, allocate memory, synchronize
+access, or provide wait/wake policy. The owning subsystem keeps the storage
+live and supplies the lock, IRQ, and lifetime contract. Prefer intrusive lists
+when an object participates in multiple memberships or needs identity rather
+than a copied value.
+
 ### Memory, VFS, and storage
 
 MM owns VMA layout and page-table changes behind `include/kernel/mm.h`.
