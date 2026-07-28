@@ -39,12 +39,21 @@ TEST_OUTROOT ?= build/test
 TEST_KERNEL = $(TEST_OUTROOT)/kernel/$(KERNEL_NAME)
 TEST_KERNEL_IMG = $(TEST_KERNEL).img
 
-test: check-gcc-version check-qemu-version
+ktest: check-gcc-version check-qemu-version
 	$(Q)rm -f $(TEST_KERNEL_IMG)
 	$(Q)$(MAKE) KERNEL_SELFTEST=1 OUTROOT=$(TEST_OUTROOT) all $(KERNEL_NAME).img
 	$(Q)scripts/tools/run-kernel-tests.sh \
 		"$(QEMU)" "$(TEST_KERNEL)" "$(TEST_KERNEL_IMG)" \
 		"$(CONFIG_DRAM_SIZE_MB)" "$(CPUS)"
+
+utest: check-gcc-version check-qemu-version $(KERNEL) $(UTEST_IMG)
+	$(Q)scripts/tools/run-user-tests.sh \
+		"$(QEMU)" "$(KERNEL)" "$(UTEST_IMG)" \
+		"$(CONFIG_DRAM_SIZE_MB)" "$(CPUS)"
+
+ci:
+	$(Q)$(MAKE) ktest
+	$(Q)$(MAKE) utest
 
 print-gdbport:
 	@echo $(GDBPORT)
@@ -89,7 +98,10 @@ help:
 	@printf '  make defconfig               Reset .config from configs/cuteos_defconfig\n'
 	@printf '  make menuconfig              Configure build options\n'
 	@printf '  make qemu                    Build image and boot QEMU\n'
-	@printf '  make test                    Build and run kernel self-test regression suite\n'
+	@printf '  make ktest                   Build and run kernel self-test regression suite\n'
+	@printf '  make utest-build             Build user-space test ELFs and rootfs image\n'
+	@printf '  make utest                   Boot the user-space regression suite\n'
+	@printf '  make check                   Run kernel and user-space regression suites\n'
 	@printf '  make qemu-gdb                Boot QEMU paused with GDB stub\n'
 	@printf '  make .gdbinit                Generate GDB startup file\n'
 	@printf '  make user                    Build user-space ELFs only\n'
@@ -119,5 +131,6 @@ clean: clean-user clean-kernel
 
 FORCE:
 
-.PHONY: help qemu qemu-gdb test check-qemu-version print-gdbport print-toolprefix
+.PHONY: help qemu qemu-gdb ktest utest check check-qemu-version print-gdbport \
+	print-toolprefix
 .PHONY: tags gtags format clean FORCE

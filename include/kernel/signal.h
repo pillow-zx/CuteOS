@@ -181,6 +181,7 @@ void signal_unblock_mask(struct task_struct *task, uint64_t mask);
 void signal_set_blocked_mask(struct task_struct *task, uint64_t mask);
 void signal_mark_pending(struct task_struct *task, uint64_t mask);
 void signal_clear_pending(struct task_struct *task, uint64_t mask);
+uint64_t signal_pending_mask(const struct task_struct *task);
 /**
  * @brief Restore a temporary wait mask after the next user signal delivery.
  * @param task Task returning from an interruptible masked wait.

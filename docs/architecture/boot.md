@@ -110,7 +110,7 @@ flowchart TD
 24. `kernel_thread(page_cache_wb_thread, NULL)`：创建页缓存后台写回线程。
 25. idle 循环反复调用 `schedule()` 和 `wait_for_interrupt()`。
 
-`make test` 使用 `KERNEL_SELFTEST=1` 构建单独的测试内核。该内核在根文件系统
+`make ktest` 使用 `KERNEL_SELFTEST=1` 构建单独的测试内核。该内核在根文件系统
 挂载后创建 self-test 内核线程，然后进入普通 idle 调度循环。self-test 线程在
 普通 8 KiB task 栈上运行 `kernel_test_run()`，输出 `[KTEST] done ...` 结果哨兵，
 然后通过 SBI 关机，不再创建 PID 1。

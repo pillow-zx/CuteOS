@@ -82,6 +82,7 @@
 #define SYS_sigaltstack	      132
 #define SYS_rt_sigaction      134
 #define SYS_rt_sigprocmask    135
+#define SYS_rt_sigpending     136
 #define SYS_rt_sigtimedwait   137
 #define SYS_rt_sigreturn      139
 #define SYS_reboot	      142

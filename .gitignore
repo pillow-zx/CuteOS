@@ -41,6 +41,8 @@
 !user/rootfs/busybox/inittab
 !user/runtime/
 !user/runtime/**
+!user/ci/
+!user/ci/**/
 
 
 
@@ -81,6 +83,8 @@
 !user/**/*.h
 !user/**/*.in
 !user/**/*.zig
+!user/ci/**/*.md
+!user/ci/rootfs/inittab
 !user/Makefile
 !docs/architecture/
 !docs/architecture/*

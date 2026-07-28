@@ -55,7 +55,7 @@ KERNEL_TEST_OBJS
 LIB_OBJS
 ```
 
-普通构建中 `KERNEL_TEST_OBJS` 为空。`make test` 递归执行
+普通构建中 `KERNEL_TEST_OBJS` 为空。`make ktest` 递归执行
 `KERNEL_SELFTEST=1 OUTROOT=build/test` 构建，此时 `scripts/kernel.mk` 递归发现
 `test/<subsystem>/*_test.c` 并填充
 `KERNEL_TEST_OBJS`。测试执行顺序由 `test/test.c` 的显式 registry 决定，不依赖
@@ -64,8 +64,14 @@ LIB_OBJS
 `KERNEL_SELFTEST` 同时进入 CFLAGS 和 ASFLAGS。除链接测试对象外，它还让
 `init/main.c` 创建 self-test 内核线程，而不是创建 PID 1。普通构建和测试构建
 都使用 8 KiB 启动栈；深层回归路径运行在 self-test 线程的普通 task 栈上。
-`make test` 会强制重建测试 rootfs，运行脚本再复制临时镜像交给 QEMU，避免
+`make ktest` 构建测试 rootfs，运行脚本再复制临时镜像交给 QEMU，避免
 自测写入污染后续运行。
+
+用户态回归由 `make utest-build` 构建独立的 static musl 测试 ELF 和测试
+rootfs；`make utest` 从该镜像启动 BusyBox init，并只执行
+`/usr/lib/cuteos-tests/utest-runner`。该 runner 在每个 case 的独立子进程组中
+执行、清理 fixture，并在完成后请求关机。`make check` 先运行 `make ktest`，
+再串行运行 `make utest`。
 
 新增生产源文件时必须更新 `scripts/kernel.mk` 的对象清单，否则不会进入内核链接。
 新增内核自测文件时放入 `test/<subsystem>/`，由同一 module 自动发现。

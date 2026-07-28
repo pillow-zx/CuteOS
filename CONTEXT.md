@@ -49,6 +49,24 @@ root filesystem. Its `init` applet is PID 1 and its `ash` applet provides the
 interactive shell. Do not call this a selectable profile: cuteOS builds this
 one user-space runtime.
 
+**User-space regression suite** is the serial corpus that validates cuteOS's
+user-visible contracts from static musl programs. It distinguishes promised
+behavior, documented probe failures, and expected future failures; an XPASS
+is a suite failure, while a crash or timeout is never an expected failure.
+Each case owns a process group so its descendants cannot outlive its result.
+
+**Test root filesystem** is the generated root filesystem that runs only the
+user-space regression suite before shutting the machine down. It is separate
+from the interactive user-space runtime.
+
+**Test probe ELF** is a small static `ET_EXEC` program installed only in the
+test root filesystem and executed by the regression suite to validate a fresh
+program image. It is not a runner mode and does not link the test framework.
+
+**User-test sentinel** is the final serial line emitted by the user-space
+regression suite before it requests poweroff. It is the host workflow's
+authoritative result, with only FAIL, XPASS, CRASH, and TIMEOUT causing failure.
+
 **vfork calling task** is the task whose `clone()` request includes
 `CLONE_VFORK` and whose syscall return is suspended until vfork completion.
 Avoid calling it the parent process: the clone caller and the child's reaper
@@ -273,6 +291,7 @@ does not absorb generic lifecycle policy.
 | build and boot | `Makefile`, `scripts/build.mk`, `scripts/kernel.mk`, `scripts/workflows.mk` |
 | shutdown and reset | `SYSCALL.md`, `kernel/signal.c`, `syscall/sys_misc.c`, `include/kernel/reboot.h` |
 
-Use `make help` to discover targets. `make test` runs kernel self-tests with a
-temporary test image. When adding a source file, update the object manifest in
-`scripts/kernel.mk`.
+Use `make help` to discover targets. `make ktest` runs kernel self-tests with a
+temporary test image; `make utest` runs user-space regression from its separate
+test root filesystem; `make check` runs both serially. When adding a source
+file, update the object manifest in `scripts/kernel.mk`.

@@ -1,7 +1,7 @@
 # cuteOS syscall 语义矩阵报告
 
 本文是 cuteOS 当前 syscall 支持面的基线，记录
-`include/kernel/syscall_table.h` 中 115 个 syscall 入口的语义成熟度。它不
+`include/kernel/syscall_table.h` 中 116 个 syscall 入口的语义成熟度。它不
 是 Linux 完整兼容声明；入口存在只表示分发表安装了 handler，具体支持等级以
 本文的 A/B/C/D 矩阵为准。
 
@@ -263,6 +263,7 @@ vfork 调用任务只在 completion 或 pending `SIGKILL` 时离开其 killable
 | 132 | `sigaltstack` | B | 注册/查询 altstack | SS_AUTODISARM 等未支持 | 明确 flag policy |
 | 134 | `rt_sigaction` | B | handler/mask，支持 `SA_ONSTACK/NODEFER/RESETHAND/RESTART/SIGINFO` | Linux 完整 signal action flag/queue 语义仍缺失 | 继续按真实工作负载扩展 |
 | 135 | `rt_sigprocmask` | B | 设/查 blocked mask | sigset size 固定 unsigned long | 保持 ABI 断言 |
+| 136 | `rt_sigpending` | B | 查询当前线程私有与线程组共享 pending mask | sigset size 固定 unsigned long；实时信号未实现 | 保持 ABI 断言 |
 | 137 | `rt_sigtimedwait` | B | 消费线程私有或线程组共享 pending；支持 NULL/零值/有限相对 timeout、siginfo、目标信号唤醒和非目标信号 `-EINTR` | 仅信号 1..31；实时信号和重复排队未实现 | 按真实工作负载扩展 RT signal 模型 |
 | 139 | `rt_sigreturn` | B | 从当前 kernel-tracked `rt_sigframe` 恢复用户上下文/mask；嵌套 handler 按 LIFO 返回 | 浮点/向量扩展状态仍受限 | 继续补架构状态边界测试 |
 

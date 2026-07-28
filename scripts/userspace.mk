@@ -115,6 +115,65 @@ $(BUSYBOX_INSTALL_STAMP): $(BUSYBOX_ELF)
 
 USER_ELFS = $(BUSYBOX_ELF)
 
+UTEST_SRC = user/ci
+UTEST_OUTROOT = $(OUTROOT)/utest
+UTEST_BUILD = $(UTEST_OUTROOT)/build
+UTEST_ROOTFS = $(UTEST_OUTROOT)/rootfs
+UTEST_ROOTFS_STAMP = $(UTEST_OUTROOT)/rootfs.stamp
+UTEST_IMG = $(UTEST_OUTROOT)/$(KERNEL_NAME).img
+UTEST_RUNNER = $(UTEST_BUILD)/utest-runner
+UTEST_PROBE_ARGV_ENV = $(UTEST_BUILD)/utest-probe-argv-env
+UTEST_PROBE_BSS = $(UTEST_BUILD)/utest-probe-bss
+UTEST_PROBE_TLS = $(UTEST_BUILD)/utest-probe-tls
+UTEST_PROBE_CLOEXEC = $(UTEST_BUILD)/utest-probe-cloexec
+UTEST_ELFS = $(UTEST_RUNNER) $(UTEST_PROBE_ARGV_ENV) $(UTEST_PROBE_BSS) \
+	$(UTEST_PROBE_TLS) $(UTEST_PROBE_CLOEXEC)
+
+UTEST_CASE_SRCS := $(sort $(shell find $(UTEST_SRC)/src/cases -type f -name '*.c'))
+UTEST_RUNNER_SRCS = $(UTEST_SRC)/src/utest.c $(UTEST_SRC)/src/runner.c \
+	$(UTEST_CASE_SRCS)
+UTEST_CFLAGS = $(USER_ARCH_FLAGS) -O2 -fno-pie -fno-stack-protector \
+	-std=gnu23 -D_GNU_SOURCE -I$(abspath $(UTEST_SRC)/include)
+UTEST_LDFLAGS = $(USER_ARCH_FLAGS) -static -no-pie \
+	-L$(abspath $(COMPILER_RT_OUT)) -Wl,--start-group -lcompiler_rt -lc \
+	-Wl,--end-group
+UTEST_CC = $(USER_CC) -specs=$(abspath $(MUSL_SPECS))
+
+$(UTEST_RUNNER): $(UTEST_RUNNER_SRCS) $(MUSL_SPECS) $(COMPILER_RT_A)
+	$(QUIET_UTEST)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)$(UTEST_CC) $(UTEST_CFLAGS) -pthread -o $@ $(UTEST_RUNNER_SRCS) \
+		$(UTEST_LDFLAGS)
+	$(Q)$(USER_ELF_CHECK) $(USER_READELF) $@
+
+$(UTEST_PROBE_ARGV_ENV): $(UTEST_SRC)/src/probes/argv_env.c $(MUSL_SPECS) \
+		$(COMPILER_RT_A)
+	$(QUIET_UTEST)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)$(UTEST_CC) $(UTEST_CFLAGS) -o $@ $< $(UTEST_LDFLAGS)
+	$(Q)$(USER_ELF_CHECK) $(USER_READELF) $@
+
+$(UTEST_PROBE_BSS): $(UTEST_SRC)/src/probes/bss.c $(MUSL_SPECS) \
+		$(COMPILER_RT_A)
+	$(QUIET_UTEST)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)$(UTEST_CC) $(UTEST_CFLAGS) -o $@ $< $(UTEST_LDFLAGS)
+	$(Q)$(USER_ELF_CHECK) $(USER_READELF) $@
+
+$(UTEST_PROBE_TLS): $(UTEST_SRC)/src/probes/tls.c $(MUSL_SPECS) \
+		$(COMPILER_RT_A)
+	$(QUIET_UTEST)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)$(UTEST_CC) $(UTEST_CFLAGS) -pthread -o $@ $< $(UTEST_LDFLAGS)
+	$(Q)$(USER_ELF_CHECK) $(USER_READELF) $@
+
+$(UTEST_PROBE_CLOEXEC): $(UTEST_SRC)/src/probes/cloexec.c $(MUSL_SPECS) \
+		$(COMPILER_RT_A)
+	$(QUIET_UTEST)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)$(UTEST_CC) $(UTEST_CFLAGS) -o $@ $< $(UTEST_LDFLAGS)
+	$(Q)$(USER_ELF_CHECK) $(USER_READELF) $@
+
 USER_ROOTFS = $(USER_OUTROOT)/rootfs
 USER_ROOTFS_STAMP = $(USER_OUTROOT)/rootfs.stamp
 USER_ROOTFS_DEPS = $(BUSYBOX_INSTALL_STAMP) user/rootfs/busybox/inittab
@@ -129,6 +188,19 @@ $(USER_ROOTFS_STAMP): $(USER_ROOTFS_DEPS) $(AUTO_CONF)
 	$(Q)ln -s readlink-target $(USER_ROOTFS)/fixtures/readlink-link
 	$(Q)touch $@
 
+UTEST_ROOTFS_DEPS = $(BUSYBOX_INSTALL_STAMP) $(UTEST_ELFS) \
+	$(UTEST_SRC)/rootfs/inittab
+
+$(UTEST_ROOTFS_STAMP): $(UTEST_ROOTFS_DEPS) $(AUTO_CONF)
+	$(QUIET_UTEST)
+	$(Q)rm -rf $(UTEST_ROOTFS)
+	$(Q)mkdir -p $(UTEST_ROOTFS)/bin $(UTEST_ROOTFS)/dev $(UTEST_ROOTFS)/etc \
+		$(UTEST_ROOTFS)/tmp $(UTEST_ROOTFS)/usr/lib/cuteos-tests
+	$(Q)cp -a $(BUSYBOX_INSTALL)/. $(UTEST_ROOTFS)/
+	$(Q)cp $(UTEST_SRC)/rootfs/inittab $(UTEST_ROOTFS)/etc/inittab
+	$(Q)cp $(UTEST_ELFS) $(UTEST_ROOTFS)/usr/lib/cuteos-tests/
+	$(Q)touch $@
+
 $(USER_ELFS): check-gcc-version
 
 busybox-menuconfig: 
@@ -137,6 +209,13 @@ busybox-menuconfig:
 user: check-gcc-version $(USER_ELFS)
 
 user-rootfs: check-gcc-version $(USER_ROOTFS_STAMP)
+
+$(UTEST_IMG): $(UTEST_ROOTFS_STAMP) $(MKIMG) $(AUTO_CONF)
+	$(Q)mkdir -p $(dir $@)
+	$(QUIET_FSIMG)
+	$(Q)MKIMG_SIZE_MB=$(CONFIG_ROOTFS_IMAGE_SIZE_MB) $(MKIMG) $@ $(UTEST_ROOTFS)
+
+utest-build: check-gcc-version $(UTEST_IMG)
 
 $(KERNEL_IMG): check-gcc-version $(USER_ROOTFS_STAMP) $(MKIMG) $(AUTO_CONF)
 	$(Q)mkdir -p $(dir $@)
@@ -148,6 +227,7 @@ user-image: check-gcc-version $(KERNEL_IMG)
 $(KERNEL_NAME).img: $(KERNEL_IMG)
 
 clean-user:
-	$(Q)rm -rf $(USER_OUTROOT)
+	$(Q)rm -rf $(USER_OUTROOT) $(UTEST_OUTROOT)
 
-.PHONY: user user-rootfs user-image clean-user $(KERNEL_NAME).img busybox_menuconfig
+.PHONY: user user-rootfs user-image utest-build clean-user $(KERNEL_NAME).img \
+	busybox-menuconfig

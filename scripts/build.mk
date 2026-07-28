@@ -43,6 +43,7 @@ QUIET_FSIMG :=
 QUIET_MUSL :=
 QUIET_BUSYBOX :=
 QUIET_ROOTFS :=
+QUIET_UTEST :=
 QUIET_ANALYZE :=
 else
 Q := @
@@ -56,6 +57,7 @@ QUIET_FSIMG = @echo '  FSIMG   $@'
 QUIET_MUSL = @echo '  MUSL    $@'
 QUIET_BUSYBOX = @echo '  BUSYBOX $@'
 QUIET_ROOTFS = @echo '  ROOTFS  $@'
+QUIET_UTEST = @echo '  UTEST   $@'
 QUIET_ANALYZE = @echo '  ANALYZE $<'
 endif
 

@@ -168,6 +168,27 @@ ssize_t sys_sigprocmask(struct trap_frame *tf)
 }
 
 /*
+ * SYSCALL_SUPPORT(B): rt_sigpending
+ * Current: snapshots the calling thread's private and thread-group pending
+ * masks using the Linux riscv64 unsigned-long sigset ABI.
+ * Unsupported errno: a bad sigset size returns -EINVAL; an invalid userspace
+ * destination returns -EFAULT.
+ */
+ssize_t sys_sigpending(struct trap_frame *tf)
+{
+	uint64_t *set = (uint64_t *)syscall_arg(tf, 0);
+	size_t sigsetsize = (size_t)syscall_arg(tf, 1);
+	uint64_t pending;
+
+	if (sigsetsize != sizeof(unsigned long))
+		return -EINVAL;
+	pending = signal_pending_mask(current_task());
+	if (copy_to_user(set, &pending, sizeof(pending)) != 0)
+		return -EFAULT;
+	return 0;
+}
+
+/*
  * SYSCALL_SUPPORT(B): rt_sigtimedwait
  * Current: consumes thread-private or shared standard signals, waits with an
  * optional relative timeout, returns siginfo, and is interrupted by an

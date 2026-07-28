@@ -432,22 +432,31 @@ static struct task_struct *find_task_by_pid(pid_t pid)
 
 bool signal_pending(struct task_struct *task)
 {
-	uint64_t pending;
 	uint64_t blocked;
 
 	if (!task)
 		return false;
 
-	pending = task_pending_mask(task);
-	if (task_signal_state(task)) {
-		struct signal_struct *signal = task_signal_state(task);
+	blocked = task_blocked_mask(task) & ~unblockable_mask();
+	return (signal_pending_mask(task) & ~blocked) != 0;
+}
 
+uint64_t signal_pending_mask(const struct task_struct *task)
+{
+	uint64_t pending;
+	struct signal_struct *signal;
+
+	if (!task)
+		return 0;
+
+	pending = task_pending_mask(task);
+	signal = task_signal_state((struct task_struct *)task);
+	if (signal) {
 		mutex_lock(&signal->lock);
 		pending |= signal->shared_pending;
 		mutex_unlock(&signal->lock);
 	}
-	blocked = task_blocked_mask(task) & ~unblockable_mask();
-	return (pending & ~blocked) != 0;
+	return pending;
 }
 
 bool signal_fatal_pending(struct task_struct *task)

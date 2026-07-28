@@ -48,7 +48,7 @@ CSR、页表、trap、timer、IPI 与平台设备访问留在 `arch/` 或明确�
 信号、futex、匿名及文件映射、poll/epoll 兼容入口，以及静态 musl BusyBox
 用户态。
 
-`include/kernel/syscall_table.h` 当前安装 115 个 Linux riscv64 syscall
+`include/kernel/syscall_table.h` 当前安装 116 个 Linux riscv64 syscall
 入口。入口存在不等于完整 Linux 兼容；[SYSCALL.md](SYSCALL.md) 的 A/B/C/D
 矩阵才是支持承诺和后续优先级的来源。
 
@@ -83,7 +83,10 @@ QEMU 启动后进入串口 shell；使用 `Ctrl-a x` 退出。常用命令：
 | `make user-rootfs` | 构建 staged 用户态 rootfs |
 | `make user-image` | 构建包含 rootfs 的 ext2 镜像 |
 | `make qemu` | 构建镜像并启动 QEMU |
-| `make test` | 构建并运行内核自测回归套件 |
+| `make ktest` | 构建并运行内核自测回归套件 |
+| `make utest-build` | 构建用户态测试 ELF 和专用 rootfs 镜像 |
+| `make utest` | 启动用户态回归套件 |
+| `make check` | 串行运行内核与用户态回归套件 |
 | `make qemu-gdb` | 启动带 GDB stub 的 QEMU |
 | `make menuconfig` | 修改配置 |
 | `make analyze` | 运行 GCC analyzer 和额外诊断 |
