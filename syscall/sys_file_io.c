@@ -20,6 +20,7 @@
 #include <kernel/vfs.h>
 #include <uapi/uio.h>
 #include <kernel/page.h>
+#include <kernel/slab.h>
 #include <kernel/trap.h>
 #include <kernel/time.h>
 
@@ -195,6 +196,41 @@ static ssize_t write_user_buffer_pos(struct file *file, const void *buf,
 
 	if (!access_ok(buf, len))
 		return -EFAULT;
+	/* Keep a small pipe write as one VFS request for PIPE_BUF semantics. */
+	if (!pos && pipe_file(file) && len <= PIPE_BUF) {
+		char *pipe_buf;
+		ssize_t ret;
+
+		if (len == 0)
+			return 0;
+		pipe_buf = get_free_page(0);
+		if (!pipe_buf)
+			return -ENOMEM;
+		if (copy_from_user(pipe_buf, buf, len) != 0) {
+			free_page(pipe_buf, 0);
+			return -EFAULT;
+		}
+		ret = vfs_write(file, pipe_buf, len);
+		free_page(pipe_buf, 0);
+		return ret;
+	}
+	if (!pos && pipe_file(file) && len > PIPE_BUF) {
+		size_t pipe_len = PIPE_BUF + 1;
+		char *pipe_buf = kmalloc(pipe_len);
+		ssize_t ret;
+
+		if (!pipe_buf)
+			return -ENOMEM;
+		if (copy_from_user(pipe_buf, buf, pipe_len) != 0) {
+			kfree(pipe_buf);
+			return -EFAULT;
+		}
+		ret = vfs_write(file, pipe_buf, pipe_len);
+		kfree(pipe_buf);
+		if (ret <= 0 || (size_t)ret < pipe_len || pipe_len == len)
+			return ret;
+		done = (size_t)ret;
+	}
 
 	while (done < len) {
 		size_t chunk = len - done;
@@ -247,28 +283,108 @@ static int copy_user_offset(loff_t *uoffset, loff_t *offset)
 	return 0;
 }
 
+static ssize_t write_pipe_iovec_prefix(struct file *file,
+				       const struct iovec *uiov, size_t iovcnt,
+				       size_t *request_len, size_t *total_len)
+{
+	char *buffer;
+	struct iovec iov;
+	size_t total = 0;
+	size_t copied = 0;
+	size_t request;
+	bool atomic;
+
+	for (size_t i = 0; i < iovcnt; i++) {
+		if (copy_from_user(&iov, uiov + i, sizeof(iov)) != 0)
+			return -EFAULT;
+		if (iov.iov_len > UINT64_MAX - total)
+			return -EINVAL;
+		total += iov.iov_len;
+	}
+	*total_len = total;
+	if (total == 0)
+		return 0;
+
+	atomic = total <= PIPE_BUF;
+	request = atomic ? total : PIPE_BUF + 1;
+	*request_len = request;
+	buffer = atomic ? get_free_page(0) : kmalloc(request);
+	if (!buffer)
+		return -ENOMEM;
+	for (size_t i = 0; i < iovcnt; i++) {
+		size_t chunk;
+
+		if (copy_from_user(&iov, uiov + i, sizeof(iov)) != 0 ||
+		    !access_ok(iov.iov_base, iov.iov_len))
+			goto fault;
+		chunk = iov.iov_len;
+		if (chunk > request - copied)
+			chunk = request - copied;
+		if (copy_from_user(buffer + copied, iov.iov_base, chunk) != 0)
+			goto fault;
+		copied += chunk;
+		if (copied == request)
+			break;
+	}
+
+	ssize_t ret = vfs_write(file, buffer, request);
+
+	if (atomic)
+		free_page(buffer, 0);
+	else
+		kfree(buffer);
+	return ret;
+
+fault:
+	if (atomic)
+		free_page(buffer, 0);
+	else
+		kfree(buffer);
+	return -EFAULT;
+}
+
 static ssize_t rw_iovec(struct file *file, const struct iovec *uiov,
 			size_t iovcnt, bool write)
 {
 	struct iovec iov;
+	size_t skipped = 0;
 	ssize_t total = 0;
 
 	if (iovcnt > SYS_IOV_MAX)
 		return -EINVAL;
+	if (write && pipe_file(file)) {
+		size_t request_len = 0;
+		size_t total_len = 0;
+		ssize_t ret = write_pipe_iovec_prefix(file, uiov, iovcnt,
+						      &request_len, &total_len);
+
+		if (ret <= 0 || (size_t)ret < request_len ||
+		    (size_t)ret == total_len)
+			return ret;
+		total = ret;
+		skipped = (size_t)ret;
+	}
 
 	for (size_t i = 0; i < iovcnt; i++) {
 		uintptr_t base;
+		size_t length;
 		size_t done = 0;
 
 		if (copy_from_user(&iov, uiov + i, sizeof(iov)) != 0)
 			return total ? total : -EFAULT;
-		base = (uintptr_t)iov.iov_base;
-		if (!access_ok((void *)base, iov.iov_len))
+		if (skipped >= iov.iov_len) {
+			skipped -= iov.iov_len;
+			continue;
+		}
+		base = (uintptr_t)iov.iov_base + skipped;
+		length = iov.iov_len - skipped;
+		skipped = 0;
+		if (!access_ok((void *)base, length))
 			return total ? total : -EFAULT;
 
-		while (done < iov.iov_len) {
+		while (done < length) {
 			uintptr_t chunk_base = base + done;
-			size_t chunk_len = (size_t)(iov.iov_len - done);
+			size_t chunk_len = length - done;
 			ssize_t ret;
 
 			if (write)
@@ -295,8 +411,9 @@ static ssize_t rw_iovec(struct file *file, const struct iovec *uiov,
 
 /*
  * SYSCALL_SUPPORT(A): write
- * Current: VFS write with Linux riscv64 SA_RESTART replay after an
- * interruptible wait returns -EINTR; a positive partial count is preserved.
+ * Current: VFS write keeps pipe requests of at most PIPE_BUF intact, so the
+ * pipe owns their all-or-nothing and O_NONBLOCK semantics. Linux riscv64
+ * SA_RESTART replay applies after an interruptible wait returns -EINTR.
  * Future: keep partial-write and SIGPIPE restart boundaries under pipe tests.
  */
 ssize_t sys_write(struct trap_frame *tf)
@@ -352,6 +469,12 @@ ssize_t sys_readv(struct trap_frame *tf)
 	return ret;
 }
 
+/*
+ * SYSCALL_SUPPORT(A): writev
+ * Current: a pipe vector whose total length is at most PIPE_BUF is gathered
+ * into one VFS write, preserving the pipe's atomic all-or-nothing contract.
+ * Larger vectors retain the existing partial-I/O behavior.
+ */
 ssize_t sys_writev(struct trap_frame *tf)
 {
 	int fd = (int)syscall_arg(tf, 0);

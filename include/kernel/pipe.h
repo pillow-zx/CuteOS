@@ -6,8 +6,12 @@
  */
 
 #include <kernel/types.h>
+#include <kernel/page.h>
 
 struct file;
+
+/* Linux/POSIX atomic-write bound for one pipe write request. */
+constexpr size_t PIPE_BUF = PAGE_SIZE;
 
 int do_pipe2(int fds[2], int flags);
 bool pipe_file(struct file *file);

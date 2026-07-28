@@ -359,6 +359,21 @@ syscall 层通过 fdtable helper 将 fd 转为 `struct file *`。dup/dup3/fcntl/
 若发现 `files_struct` 由 `CLONE_FILES` 共享，会先复制 fdtable 并把执行任务切换到
 副本；因此 close-on-exec 只影响新映像，原共享者仍持有原 fdtable。
 
+### pipe 生命周期和写入边界
+
+`fs/pipe.c` 拥有 pipe ring buffer、reader/writer file-description 计数及两组
+wait channel。每个 pipe 的容量与 `PIPE_BUF` 均为 4096 bytes。syscall 的用户
+拷贝层对不超过 `PIPE_BUF` 的 pipe `write()` 保留一次 VFS 调用，避免分块拷贝
+破坏 pipe 的请求原子性；`writev()` 的总长度同样在此范围内时会先聚合为一次
+调用。pipe 在锁内一次性提交这些小写入：阻塞调用等到完整空间，非阻塞调用在
+空间不足时返回 `-EAGAIN`。更大的写入允许分段进展和短写。
+
+最后一个 writer 的 release 先将计数归零，再唤醒全部 reader；reader 消费完已
+缓冲数据后观察到 EOF。最后一个 reader 的 release 以相同顺序唤醒全部 writer；
+尚未提交字节的 writer 随后向当前任务投递 `SIGPIPE` 并返回 `-EPIPE`。每个
+`struct file` 表示一个 open file description，因此 fork 与 dup 只增加 file
+引用，不重复增加 endpoint 计数。
+
 ## read/write 路由
 
 公共 API：

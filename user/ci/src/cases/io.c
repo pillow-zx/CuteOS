@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
@@ -15,12 +16,48 @@
 
 #include <utest.h>
 
+#define IO_PIPE_RECORDS 4
+
 static volatile sig_atomic_t io_interrupted;
 
 static void io_signal_handler(int signal)
 {
 	(void)signal;
 	io_interrupted = 1;
+}
+
+static void io_fill_pipe(int fd, char value)
+{
+	char buffer[PIPE_BUF];
+
+	memset(buffer, value, sizeof(buffer));
+	UT_ASSERT_EQ(write(fd, buffer, sizeof(buffer)),
+		     (ssize_t)sizeof(buffer));
+}
+
+static void io_write_pipe_records(int fd, char value, int vector)
+{
+	char record[PIPE_BUF];
+	struct iovec iov[] = {
+		{.iov_base = record, .iov_len = sizeof(record) / 2},
+		{.iov_base = record + sizeof(record) / 2,
+		 .iov_len = sizeof(record) - sizeof(record) / 2},
+	};
+
+	memset(record, value, sizeof(record));
+	for (int i = 0; i < IO_PIPE_RECORDS; i++) {
+		ssize_t ret;
+
+		if (vector)
+			ret = writev(fd, iov, sizeof(iov) / sizeof(iov[0]));
+		else
+			ret = write(fd, record, sizeof(record));
+
+		if (ret != (ssize_t)sizeof(record))
+			_exit(1);
+	}
+
+	_exit(0);
 }
 
 UT_CASE(io_pipe_vector_and_offset, 1500)
@@ -58,7 +95,10 @@ UT_CASE(io_pipe_vector_and_offset, 1500)
 
 UT_CASE(io_nonblocking_and_sigpipe, 1500)
 {
+	char byte;
 	int pipefd[2];
+	int ready_pipe[2];
+	int start_pipe[2];
 	pid_t child;
 
 	UT_ASSERT_EQ(pipe2(pipefd, O_NONBLOCK), 0);
@@ -66,20 +106,236 @@ UT_CASE(io_nonblocking_and_sigpipe, 1500)
 	UT_ASSERT_EQ(close(pipefd[0]), 0);
 	UT_ASSERT_EQ(close(pipefd[1]), 0);
 	UT_ASSERT_EQ(pipe(pipefd), 0);
+	UT_ASSERT_EQ(pipe(ready_pipe), 0);
+	UT_ASSERT_EQ(pipe(start_pipe), 0);
 	child = UT_FORK();
 	if (child == 0) {
 		(void)close(pipefd[0]);
+		(void)close(ready_pipe[0]);
+		(void)close(start_pipe[1]);
+		if (write(ready_pipe[1], "r", 1) != 1 ||
+		    read(start_pipe[0], &byte, 1) != 0)
+			_exit(127);
 		(void)write(pipefd[1], "x", 1);
 		_exit(127);
 	}
 	UT_ASSERT_EQ(close(pipefd[0]), 0);
 	UT_ASSERT_EQ(close(pipefd[1]), 0);
+	UT_ASSERT_EQ(close(ready_pipe[1]), 0);
+	UT_ASSERT_EQ(close(start_pipe[0]), 0);
+	UT_ASSERT_EQ(read(ready_pipe[0], &byte, 1), 1);
+	UT_ASSERT_EQ(close(start_pipe[1]), 0);
 	UT_EXPECT_SIGNAL(child, SIGPIPE);
+	UT_ASSERT_EQ(close(ready_pipe[0]), 0);
+}
+
+UT_CASE(io_pipe_buf_atomicity, 5000)
+{
+	char output[PIPE_BUF];
+	char byte;
+	int data_pipe[2];
+	int ready_pipe[2];
+	int start_pipe[2];
+	int records_a = 0;
+	int records_b = 0;
+	pid_t writer_a;
+	pid_t writer_b;
+
+	UT_ASSERT_EQ(pipe(data_pipe), 0);
+	UT_ASSERT_EQ(pipe(ready_pipe), 0);
+	UT_ASSERT_EQ(pipe(start_pipe), 0);
+	writer_a = UT_FORK();
+	if (writer_a == 0) {
+		(void)close(data_pipe[0]);
+		(void)close(ready_pipe[0]);
+		(void)close(start_pipe[1]);
+		if (write(ready_pipe[1], "a", 1) != 1 ||
+		    read(start_pipe[0], &byte, 1) != 0)
+			_exit(1);
+		io_write_pipe_records(data_pipe[1], 'A', 0);
+	}
+	writer_b = UT_FORK();
+	if (writer_b == 0) {
+		(void)close(data_pipe[0]);
+		(void)close(ready_pipe[0]);
+		(void)close(start_pipe[1]);
+		if (write(ready_pipe[1], "b", 1) != 1 ||
+		    read(start_pipe[0], &byte, 1) != 0)
+			_exit(1);
+		io_write_pipe_records(data_pipe[1], 'B', 1);
+	}
+
+	UT_ASSERT_EQ(close(data_pipe[1]), 0);
+	UT_ASSERT_EQ(close(ready_pipe[1]), 0);
+	UT_ASSERT_EQ(close(start_pipe[0]), 0);
+	UT_ASSERT_EQ(read(ready_pipe[0], &byte, 1), 1);
+	UT_ASSERT_EQ(read(ready_pipe[0], &byte, 1), 1);
+	UT_ASSERT_EQ(close(start_pipe[1]), 0);
+	for (int i = 0; i < 2 * IO_PIPE_RECORDS; i++) {
+		int record_a = 1;
+		int record_b = 1;
+
+		UT_ASSERT_EQ(read(data_pipe[0], output, sizeof(output)),
+			     (ssize_t)sizeof(output));
+		for (size_t j = 0; j < sizeof(output); j++) {
+			if (output[j] != 'A')
+				record_a = 0;
+			if (output[j] != 'B')
+				record_b = 0;
+		}
+		UT_EXPECT(record_a || record_b);
+		if (record_a)
+			records_a++;
+		if (record_b)
+			records_b++;
+	}
+	UT_EXPECT_EQ(records_a, IO_PIPE_RECORDS);
+	UT_EXPECT_EQ(records_b, IO_PIPE_RECORDS);
+	UT_EXPECT_EXIT(writer_a, 0);
+	UT_EXPECT_EXIT(writer_b, 0);
+	UT_ASSERT_EQ(close(ready_pipe[0]), 0);
+	UT_ASSERT_EQ(close(data_pipe[0]), 0);
+}
+
+UT_CASE(io_pipe_last_reader_wakes_writer, 5000)
+{
+	struct sigaction ignore = {
+		.sa_handler = SIG_IGN,
+	};
+	char byte;
+	int data_pipe[2];
+	int ready_pipe[2];
+	pid_t child;
+
+	UT_ASSERT_EQ(pipe(data_pipe), 0);
+	UT_ASSERT_EQ(pipe(ready_pipe), 0);
+	io_fill_pipe(data_pipe[1], 'f');
+	child = UT_FORK();
+	if (child == 0) {
+		(void)close(data_pipe[0]);
+		(void)close(ready_pipe[0]);
+		if (sigaction(SIGPIPE, &ignore, NULL) != 0 ||
+		    write(ready_pipe[1], "w", 1) != 1)
+			_exit(1);
+		errno = 0;
+		if (write(data_pipe[1], "w", 1) != -1 || errno != EPIPE)
+			_exit(1);
+		_exit(0);
+	}
+	UT_ASSERT_EQ(close(data_pipe[1]), 0);
+	UT_ASSERT_EQ(close(ready_pipe[1]), 0);
+	UT_ASSERT_EQ(read(ready_pipe[0], &byte, 1), 1);
+	UT_ASSERT_EQ(nanosleep(&(struct timespec){.tv_nsec = 20000000}, NULL),
+		     0);
+	UT_ASSERT_EQ(close(data_pipe[0]), 0);
+	UT_EXPECT_EXIT(child, 0);
+	UT_ASSERT_EQ(close(ready_pipe[0]), 0);
+}
+
+UT_CASE(io_pipe_last_writer_wakes_reader, 5000)
+{
+	char byte;
+	int data_pipe[2];
+	int ready_pipe[2];
+	pid_t child;
+
+	UT_ASSERT_EQ(pipe(data_pipe), 0);
+	UT_ASSERT_EQ(pipe(ready_pipe), 0);
+	child = UT_FORK();
+	if (child == 0) {
+		(void)close(data_pipe[1]);
+		(void)close(ready_pipe[0]);
+		if (write(ready_pipe[1], "r", 1) != 1 ||
+		    read(data_pipe[0], &byte, 1) != 0)
+			_exit(1);
+		_exit(0);
+	}
+	UT_ASSERT_EQ(close(data_pipe[0]), 0);
+	UT_ASSERT_EQ(close(ready_pipe[1]), 0);
+	UT_ASSERT_EQ(read(ready_pipe[0], &byte, 1), 1);
+	UT_ASSERT_EQ(nanosleep(&(struct timespec){.tv_nsec = 20000000}, NULL),
+		     0);
+	UT_ASSERT_EQ(close(data_pipe[1]), 0);
+	UT_EXPECT_EXIT(child, 0);
+	UT_ASSERT_EQ(close(ready_pipe[0]), 0);
+}
+
+UT_CASE(io_pipe_nonblocking_and_endpoint_lifecycle, 5000)
+{
+	struct sigaction ignore = {
+		.sa_handler = SIG_IGN,
+	};
+	struct sigaction old_action;
+	char buffer[PIPE_BUF + 1];
+	char byte;
+	int data_pipe[2];
+	int ready_pipe[2];
+	int pipefd[2];
+	pid_t child;
+	ssize_t count;
+
+	memset(buffer, 'p', sizeof(buffer));
+	UT_ASSERT_EQ(pipe2(pipefd, O_NONBLOCK), 0);
+	io_fill_pipe(pipefd[1], 'f');
+	UT_EXPECT_ERRNO(write(pipefd[1], "x", 1), EAGAIN);
+	UT_ASSERT_EQ(read(pipefd[0], &byte, 1), 1);
+	UT_EXPECT_ERRNO(write(pipefd[1], "yz", 2), EAGAIN);
+	UT_ASSERT_EQ(read(pipefd[0], buffer, PIPE_BUF - 1), PIPE_BUF - 1);
+	io_fill_pipe(pipefd[1], 'f');
+	UT_ASSERT_EQ(read(pipefd[0], buffer, 128), 128);
+	count = write(pipefd[1], buffer, sizeof(buffer));
+	UT_EXPECT(count > 0 && count <= 128);
+	UT_ASSERT_EQ(read(pipefd[0], buffer, 128), 128);
+	count = writev(
+		pipefd[1],
+		(struct iovec[]){{.iov_base = buffer, .iov_len = PIPE_BUF},
+				 {.iov_base = buffer, .iov_len = 1}},
+		2);
+	UT_EXPECT(count > 0 && count <= 128);
+	UT_ASSERT_EQ(close(pipefd[0]), 0);
+	UT_ASSERT_EQ(close(pipefd[1]), 0);
+
+	UT_ASSERT_EQ(pipe(pipefd), 0);
+	UT_ASSERT_EQ(close(pipefd[1]), 0);
+	UT_EXPECT_EQ(read(pipefd[0], &byte, 1), 0);
+	UT_ASSERT_EQ(close(pipefd[0]), 0);
+
+	UT_ASSERT_EQ(sigaction(SIGPIPE, &ignore, &old_action), 0);
+	UT_ASSERT_EQ(pipe(pipefd), 0);
+	UT_ASSERT_EQ(close(pipefd[0]), 0);
+	UT_EXPECT_ERRNO(write(pipefd[1], "x", 1), EPIPE);
+	UT_ASSERT_EQ(close(pipefd[1]), 0);
+	UT_ASSERT_EQ(sigaction(SIGPIPE, &old_action, NULL), 0);
+
+	UT_ASSERT_EQ(pipe(data_pipe), 0);
+	UT_ASSERT_EQ(pipe(ready_pipe), 0);
+	io_fill_pipe(data_pipe[1], 'f');
+	child = UT_FORK();
+	if (child == 0) {
+		(void)close(data_pipe[0]);
+		(void)close(ready_pipe[0]);
+		if (write(ready_pipe[1], "r", 1) != 1 ||
+		    write(data_pipe[1], "w", 1) != 1)
+			_exit(1);
+		_exit(0);
+	}
+	UT_ASSERT_EQ(close(data_pipe[1]), 0);
+	UT_ASSERT_EQ(close(ready_pipe[1]), 0);
+	UT_ASSERT_EQ(read(ready_pipe[0], &byte, 1), 1);
+	UT_ASSERT_EQ(nanosleep(&(struct timespec){.tv_nsec = 20000000}, NULL),
+		     0);
+	UT_ASSERT_EQ(read(data_pipe[0], &byte, 1), 1);
+	UT_EXPECT_EXIT(child, 0);
+	UT_ASSERT_EQ(close(ready_pipe[0]), 0);
+	UT_ASSERT_EQ(close(data_pipe[0]), 0);
 }
 
 UT_CASE(io_pipe_fd_lifecycle, 1500)
 {
 	char byte;
+	char *path;
+	int file_dup;
+	int file_fd;
 	int pipefd[2];
 	int read_dup;
 	int fcntl_dup;
@@ -98,6 +354,14 @@ UT_CASE(io_pipe_fd_lifecycle, 1500)
 	UT_ASSERT_EQ(fcntl(pipefd[0], F_SETFD, 0), 0);
 	UT_EXPECT_EQ(fcntl(read_dup, F_GETFD), FD_CLOEXEC);
 	UT_EXPECT_EQ(fcntl(pipefd[0], F_GETFD), 0);
+	UT_EXPECT(fcntl(read_dup, F_GETFL) & O_NONBLOCK);
+	UT_ASSERT_EQ(fcntl(read_dup, F_SETFL,
+			   fcntl(read_dup, F_GETFL) & ~O_NONBLOCK),
+		     0);
+	UT_EXPECT(!(fcntl(pipefd[0], F_GETFL) & O_NONBLOCK));
+	UT_ASSERT_EQ(fcntl(pipefd[0], F_SETFL,
+			   fcntl(pipefd[0], F_GETFL) | O_NONBLOCK),
+		     0);
 	UT_EXPECT(fcntl(read_dup, F_GETFL) & O_NONBLOCK);
 
 	fcntl_dup = fcntl(read_dup, F_DUPFD_CLOEXEC, 0);
@@ -120,6 +384,45 @@ UT_CASE(io_pipe_fd_lifecycle, 1500)
 	UT_ASSERT_EQ(close(replaced), 0);
 	UT_ASSERT_EQ(close(read_dup), 0);
 	UT_ASSERT_EQ(close(pipefd[1]), 0);
+
+	path = ut_path("shared-status-flags");
+	UT_ASSERT(path != NULL);
+	file_fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0600);
+	UT_ASSERT(file_fd >= 0);
+	file_dup = dup(file_fd);
+	UT_ASSERT(file_dup >= 0);
+	UT_ASSERT_EQ(
+		fcntl(file_dup, F_SETFL, fcntl(file_dup, F_GETFL) | O_APPEND),
+		0);
+	UT_EXPECT(fcntl(file_fd, F_GETFL) & O_APPEND);
+	UT_ASSERT_EQ(close(file_dup), 0);
+	UT_ASSERT_EQ(close(file_fd), 0);
+	free(path);
+}
+
+UT_CASE(io_unsupported_file_controls, 1500)
+{
+	char *path;
+	int file_fd;
+	int pipefd[2];
+
+	UT_ASSERT_EQ(pipe(pipefd), 0);
+	UT_EXPECT_ERRNO(fcntl(pipefd[0], F_SETPIPE_SZ, PIPE_BUF), EINVAL);
+	UT_EXPECT_ERRNO(fcntl(pipefd[0], F_GETPIPE_SZ), EINVAL);
+	UT_EXPECT_ERRNO(fcntl(pipefd[0], F_SETLK, 0), EINVAL);
+	UT_EXPECT_ERRNO(fcntl(-1, F_GETPIPE_SZ), EBADF);
+	path = ut_path("unsupported-file-controls");
+	UT_ASSERT(path != NULL);
+	file_fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0600);
+	UT_ASSERT(file_fd >= 0);
+	UT_EXPECT_ERRNO(fallocate(file_fd, FALLOC_FL_KEEP_SIZE, 0, 1), EINVAL);
+	UT_EXPECT_ERRNO(
+		splice(pipefd[0], NULL, file_fd, NULL, 0, SPLICE_F_NONBLOCK),
+		EINVAL);
+	UT_ASSERT_EQ(close(file_fd), 0);
+	UT_ASSERT_EQ(close(pipefd[0]), 0);
+	UT_ASSERT_EQ(close(pipefd[1]), 0);
+	free(path);
 }
 
 UT_CASE(io_sendfile_and_splice, 1500)

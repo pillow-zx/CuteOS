@@ -39,21 +39,21 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | ---: | --- | --- | --- | --- | --- |
 | 23 | `dup` | A | 复制到最低空闲 fd，共享 open file description，复制 fd 清除 `FD_CLOEXEC` | 无明显短期缺口 | 压测 fd 上限 |
 | 24 | `dup3` | A | 原子替换 target fd，支持 `O_CLOEXEC`；相同 old/new fd 返回 `-EINVAL` | 仅当前 fdtable 范围 | 保持回归 |
-| 25 | `fcntl` | B | 支持 `F_DUPFD/F_DUPFD_CLOEXEC/F_GETFD/F_SETFD/F_GETFL/F_SETFL`；`FD_CLOEXEC` 是 descriptor-local，`F_SETFL` 可修改 `O_APPEND/O_NONBLOCK`，见 cmd 支持表 | lock、lease、pipe size、owner 系列未实现但 errno 已固定 | 按表逐项替换为真实语义 |
+| 25 | `fcntl` | B | 支持 `F_DUPFD/F_DUPFD_CLOEXEC/F_GETFD/F_SETFD/F_GETFL/F_SETFL`；`FD_CLOEXEC` 是 descriptor-local，`F_SETFL` 修改 shared open file description 的 `O_APPEND/O_NONBLOCK`，见 cmd 支持表 | lock、lease、pipe size、owner 系列未实现但 errno 已固定 | 按表逐项替换为真实语义 |
 | 29 | `ioctl` | B | 委托 `vfs_ioctl`；console 支持 termios、winsize、显式 controlling-TTY 关联、foreground pgid/session 查询设置，以及 Linux 风格 `TIOCSCTTY/TIOCNOTTY` 生命周期 | pty、多 terminal、后台读写和 orphaned pgrp 规则未实现 | 按真实程序探测继续扩展 |
 | 46 | `ftruncate64` | A | 通过 VFS truncate 文件 | 文件系统大文件边界有限 | 覆盖 sparse/truncate 扩展测试 |
-| 47 | `fallocate` | B | 仅 `mode == 0`，限制最大文件大小 | punch hole/keep size 等 flag 不支持 | 固定 unsupported mode errno |
+| 47 | `fallocate` | B | 仅 `mode == 0`，限制最大文件大小 | punch hole/keep size 等 flag 固定返回 `-EINVAL` | 按真实 trace 增加 mode |
 | 57 | `close` | A | 在 fdtable lock 下解除 fd 和其 `FD_CLOEXEC` 位，随后释放 file 引用 | 无明显短期缺口 | 加多线程/dup 交互测试 |
-| 59 | `pipe2` | A | 创建独立 read/write open file description；支持 descriptor-local `O_CLOEXEC` 与共享 status flag `O_NONBLOCK`，失败路径完整回滚 | pipe size 调整未实现 | 补 `F_GETPIPE_SZ/F_SETPIPE_SZ` |
+| 59 | `pipe2` | A | 创建独立 read/write open file description；支持 descriptor-local `O_CLOEXEC` 与共享 status flag `O_NONBLOCK`，`PIPE_BUF` 为 4096，失败路径完整回滚 | pipe size 调整未实现 | 补 `F_GETPIPE_SZ/F_SETPIPE_SZ` |
 | 62 | `lseek` | A | VFS llseek | 特殊文件 seek 语义依赖 fops | 补设备/pipe ESPIPE 测试 |
 | 63 | `read` | A | fd read + uaccess 分块；可中断阻塞读在 handler 带 `SA_RESTART` 时重放 | 非 pipe 文件的非阻塞语义有限 | 扩展更多文件类型的 nonblock 语义 |
-| 64 | `write` | A | fd write + uaccess 分块；可中断阻塞写在 handler 带 `SA_RESTART` 时重放，部分计数不重放 | SIGPIPE/partial write 边界需继续测 | 扩展 pipe 写端测试 |
+| 64 | `write` | A | fd write + uaccess；pipe 的 `<= PIPE_BUF` 请求保留为单次 VFS 写，遵守原子全写/`-EAGAIN` 规则；可中断阻塞写在 handler 带 `SA_RESTART` 时重放，部分计数不重放 | 非 pipe 文件的非阻塞语义有限 | 扩展更多文件类型的 nonblock 语义 |
 | 65 | `readv` | A | iovec 分块读取 | `IOV_MAX`、溢出细节 | 增加大 iov/partial 测试 |
-| 66 | `writev` | A | iovec 分块写入 | 同 readv | 同 readv |
+| 66 | `writev` | A | iovec 分块写入；写往 pipe 且总长度不超过 `PIPE_BUF` 时先聚合为一次原子请求 | 大 iov、超过 `PIPE_BUF` 的 partial 边界 | 增加大 iov/partial 测试 |
 | 67 | `pread64` | A | offset 读，不动 file pos | 特殊文件 offset 语义 | 补 pipe/socket-like EBADF/ESPIPE |
 | 68 | `pwrite64` | A | offset 写 | `O_APPEND` 语义需确认 | 增加 append + pwrite 测试 |
 | 71 | `sendfile` | B | regular input 到 writable output，buffered copy | socket/pipe 等 Linux 场景缺失 | 明确只支持 file-to-file |
-| 76 | `splice` | B | pipe/file 单边 splice，支持 hint flags | file-file、pipe-pipe、更多 flag 缺失 | 做 pipe/file 语义表 |
+| 76 | `splice` | B | pipe/file 单边 splice，支持 `MOVE/MORE/GIFT` hint flags | file-file、pipe-pipe、`SPLICE_F_NONBLOCK` 等 flag 固定返回 `-EINVAL` | 做 pipe/file 语义表 |
 | 81 | `sync` | B | 通过 VFS 同步写回全部 dirty page-cache 数据及 filesystem-wide hook；底层写回错误记录到内核日志，ABI 返回成功 | 无 per-superblock 异步 writeback/error accounting | 保持 Linux 无错误返回契约 |
 | 82 | `fsync` | A | VFS sync file | 元数据完整性取决于 FS | 加崩溃一致性非目标说明 |
 | 83 | `fdatasync` | B | VFS 同步文件数据页，并调用 FS datasync hook 同步取回数据所需元数据；无 hook 时退化为完整 inode writeback | 崩溃写入顺序仍是 best-effort；各 FS 需要准确声明 datasync 元数据边界 | 按文件系统补强 ordering 语义 |
@@ -71,7 +71,7 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | `F_GETFD` | supported | 返回 `FD_CLOEXEC` 或 0 |
 | `F_SETFD` | supported | 只采用 `FD_CLOEXEC` 位，其它位忽略 |
 | `F_GETFL` | supported | 返回 `O_ACCMODE/O_APPEND/O_NONBLOCK/O_DIRECTORY` 子集 |
-| `F_SETFL` | supported | 只允许修改 `O_APPEND/O_NONBLOCK`；`O_DSYNC/FASYNC/O_DIRECT/O_NOATIME/O_SYNC` 返回 `-EINVAL` |
+| `F_SETFL` | supported | 只允许修改 shared open file description 的 `O_APPEND/O_NONBLOCK`；`O_DSYNC/FASYNC/O_DIRECT/O_NOATIME/O_SYNC` 返回 `-EINVAL` |
 | `F_GETLK/F_SETLK/F_SETLKW/F_GETLK64/F_SETLK64/F_SETLKW64` | unsupported | `-EINVAL` |
 | `F_OFD_GETLK/F_OFD_SETLK/F_OFD_SETLKW` | unsupported | `-EINVAL` |
 | `F_SETOWN/F_GETOWN/F_SETSIG/F_GETSIG/F_SETOWN_EX/F_GETOWN_EX/F_GETOWNER_UIDS` | unsupported | `-EINVAL` |
@@ -82,6 +82,19 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | `F_ADD_SEALS/F_GET_SEALS` | unsupported | `-EINVAL` |
 | `F_GET_RW_HINT/F_SET_RW_HINT/F_GET_FILE_RW_HINT/F_SET_FILE_RW_HINT` | unsupported | `-EINVAL` |
 | `F_GETDELEG/F_SETDELEG` | unsupported | `-EINVAL` |
+
+### Pipe I/O
+
+每个 pipe 的容量和 `PIPE_BUF` 均为 4096 bytes。对同一 pipe 的单次
+`write()`/总长度不超过 `PIPE_BUF` 的 `writev()`，cuteOS 保持一个 VFS 写入
+请求：阻塞写会等待完整空间后一次性提交，非阻塞写则只会完整写入或返回
+`-EAGAIN`。超过该大小的非阻塞 `write()` 在 pipe 不为空闲时返回 `-EAGAIN`，
+否则可返回正的短写；阻塞写在没有信号或断管时继续等待剩余字节。
+
+最后一个 write file description 关闭时，内核先在 pipe 锁下把 writer 计数降为
+0，再唤醒所有 reader；缓冲区耗尽后的 read 返回 EOF。最后一个 read file
+description 关闭时，内核以相同顺序唤醒所有 writer；尚未写入任何字节的 write
+生成 `SIGPIPE` 并返回 `-EPIPE`。已写入的部分计数优先返回，不被错误覆盖。
 
 ## 路径、目录、挂载
 
