@@ -94,6 +94,7 @@
 !AGENTS.md
 !CONTEXT.md
 !SYSCALL.md
+!LICENSE
 !Doxyfile
 !.agents/skills/**/*
 !kernel.ld
