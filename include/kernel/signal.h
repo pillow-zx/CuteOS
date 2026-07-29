@@ -294,8 +294,8 @@ int __must_check __nonnull(3) __access_no_size(read_only, 2)
  * @brief Restore a userspace context from a signal frame.
  * @param tf Current syscall trap frame.
  * @param sp User stack pointer pointing at the current frame-stack top.
- * @return Does not return normally to the syscall ABI on success.
+ * @return The restored a0 value for syscall dispatch to write back.
  */
-int do_sigreturn(struct trap_frame *tf, uintptr_t sp);
+ssize_t do_sigreturn(struct trap_frame *tf, uintptr_t sp);
 
 #endif

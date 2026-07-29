@@ -90,12 +90,6 @@ void do_syscall(struct trap_frame *tf)
 	ssize_t ret;
 	struct task_struct *task = current_task();
 
-	if (nr == SYS_rt_sigreturn) {
-		ret = syscall_table[nr](tf);
-		syscall_set_return(tf, ret);
-		return;
-	}
-
 	if (task)
 		restart_save(task, tf, nr);
 

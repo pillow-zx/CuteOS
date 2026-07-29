@@ -1464,7 +1464,7 @@ int do_sigprocmask(int how, const uint64_t *set, uint64_t *oldset)
 	return 0;
 }
 
-int do_sigreturn(struct trap_frame *tf, uintptr_t sp)
+ssize_t do_sigreturn(struct trap_frame *tf, uintptr_t sp)
 {
 	struct rt_sigframe frame;
 	struct rt_sigframe *user_frame = (struct rt_sigframe *)sp;

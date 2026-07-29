@@ -6,6 +6,7 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <time.h>
+#include <ucontext.h>
 #include <unistd.h>
 
 #include <utest.h>
@@ -14,6 +15,12 @@ static volatile sig_atomic_t signal_count;
 static volatile sig_atomic_t signal_child_count;
 static char *signal_altstack_base;
 static size_t signal_altstack_size;
+
+enum {
+	RISCV_UCONTEXT_A0 = 10,
+};
+
+static const uintptr_t signal_restored_a0 = 0x1234567800000000UL;
 
 static void signal_count_handler(int signal)
 {
@@ -35,6 +42,16 @@ static void signal_child_handler(int signal)
 {
 	(void)signal;
 	signal_child_count++;
+}
+
+static void signal_restore_a0_handler(int signal, siginfo_t *info,
+				      void *context)
+{
+	ucontext_t *ucontext = context;
+
+	(void)signal;
+	(void)info;
+	ucontext->uc_mcontext.__gregs[RISCV_UCONTEXT_A0] = signal_restored_a0;
 }
 
 static void signal_sleep_ms(long milliseconds)
@@ -145,7 +162,7 @@ UT_CASE(signal_sigchld_process_group_and_fatal_status, 5000)
 	UT_EXPECT_SIGNAL(child, SIGSEGV);
 }
 
-UT_CASE(signal_eintr_and_sa_restart, 5000)
+UT_CASE(signal_eintr_restart_and_sigreturn_restore, 5000)
 {
 	struct sigaction action = {
 		.sa_handler = signal_count_handler,
@@ -166,7 +183,25 @@ UT_CASE(signal_eintr_and_sa_restart, 5000)
 	}
 	UT_EXPECT_ERRNO(read(pipefd[0], &byte, 1), EINTR);
 	UT_EXPECT_EXIT(child, 0);
-	action.sa_flags = SA_RESTART;
+	action = (struct sigaction){
+		.sa_sigaction = signal_restore_a0_handler,
+		.sa_flags = SA_SIGINFO,
+	};
+	UT_ASSERT_EQ(sigemptyset(&action.sa_mask), 0);
+	UT_ASSERT_EQ(sigaction(SIGUSR1, &action, NULL), 0);
+	child = UT_FORK();
+	if (child == 0) {
+		signal_sleep_ms(30);
+		(void)kill(getppid(), SIGUSR1);
+		_exit(0);
+	}
+	UT_EXPECT_EQ((uintptr_t)read(pipefd[0], &byte, 1), signal_restored_a0);
+	UT_EXPECT_EXIT(child, 0);
+	action = (struct sigaction){
+		.sa_handler = signal_count_handler,
+		.sa_flags = SA_RESTART,
+	};
+	UT_ASSERT_EQ(sigemptyset(&action.sa_mask), 0);
 	UT_ASSERT_EQ(sigaction(SIGUSR1, &action, NULL), 0);
 	child = UT_FORK();
 	if (child == 0) {
