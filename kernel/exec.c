@@ -49,6 +49,19 @@ struct elf_auxv {
 	uintptr_t value;
 };
 
+static int elf_auxv_set_value(struct elf_auxv *auxv, size_t count,
+			      uintptr_t type, uintptr_t value)
+{
+	for (size_t index = 0; index < count; index++) {
+		if (auxv[index].type != type)
+			continue;
+		auxv[index].value = value;
+		return 0;
+	}
+
+	return -ENOEXEC;
+}
+
 static int elf_flags_to_prot(uint32_t p_flags)
 {
 	int prot = 0;
@@ -198,8 +211,12 @@ static int setup_user_stack(struct mm_struct *mm,
 	ret = push_user_string(stack, &sp, path, &execfn_ptr);
 	if (ret < 0)
 		goto out;
-	auxv[10].value = random_ptr;
-	auxv[11].value = execfn_ptr;
+	ret = elf_auxv_set_value(auxv, ARRLEN(auxv), AT_RANDOM, random_ptr);
+	if (ret < 0)
+		goto out;
+	ret = elf_auxv_set_value(auxv, ARRLEN(auxv), AT_EXECFN, execfn_ptr);
+	if (ret < 0)
+		goto out;
 
 	sp &= ~(uintptr_t)0xf;
 

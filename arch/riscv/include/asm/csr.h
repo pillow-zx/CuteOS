@@ -21,6 +21,11 @@
  * @brief Current supervisor interrupt-enable bit.
  */
 #define SSTATUS_SIE  BIT(1)
+/** @def SSTATUS_FS_MASK
+ * @brief Floating-point state field. Clear it to make F/D instructions trap.
+ */
+#define SSTATUS_FS_SHIFT 13
+#define SSTATUS_FS_MASK  (3UL << SSTATUS_FS_SHIFT)
 /** @def SSTATUS_SUM
  * @brief Permit S-mode explicit memory accesses to U-mode pages.
  */

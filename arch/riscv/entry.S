@@ -15,10 +15,11 @@ __alltraps:
 	bnez    t0, .Lfrom_user
 
 
-	csrrw   zero, sscratch, t0
-	addi    sp, sp, -TRAP_FRAME_SIZE
+	csrr    t0, sscratch
+	csrw    sscratch, zero
+	addi    sp, sp, -TRAP_FRAME_ALLOC_SIZE
 
-	addi    t1, sp, TRAP_FRAME_SIZE
+	addi    t1, sp, TRAP_FRAME_ALLOC_SIZE
 	sd      t1, TF_SP(sp)
 
 	sd      ra,  TF_RA(sp)
@@ -67,7 +68,7 @@ __alltraps:
 	sd      sp, -8(t0)
 
 	mv      sp, t0
-	addi    sp, sp, -TRAP_FRAME_SIZE
+	addi    sp, sp, -TRAP_FRAME_ALLOC_SIZE
 
 	ld      t0, TRAP_SCRATCH_OFFSET(sp)
 	sd      t0, TF_SP(sp)
@@ -198,7 +199,7 @@ __trapret:
 .Lret_supervisor:
 	csrw    sscratch, zero
 	ld      t0, TF_T0(sp)
-	addi    sp, sp, TRAP_FRAME_SIZE
+	addi    sp, sp, TRAP_FRAME_ALLOC_SIZE
 	sret
 
 /*

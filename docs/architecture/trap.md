@@ -26,6 +26,9 @@ trap 子系统连接用户态 ABI、内核调度、缺页处理和信号投递�
 - `sstatus`
 
 布局由 `asm/asm_offsets.h` 的偏移宏和 C `static_assert` 双向校验。`entry.S` 使用这些偏移保存和恢复寄存器。
+`struct trap_frame` 的寄存器 payload 为 280 bytes；汇编分配 288 bytes，保证
+调用 C `trap_handler()` 时 `sp` 保持 16-byte 对齐。多出的 8 bytes 是 U→S
+入口保存用户 `sp` 的 scratch slot，不属于 C 结构。
 
 该结构也是 syscall、signal、clone、exec 和 rseq 的共同上下文容器：
 
@@ -148,7 +151,9 @@ pending 都为每个标准 signal 保存一个 `siginfo_t` slot；pending bit �
 投递时内核在用户栈构造 Linux riscv64 顺序的 `rt_sigframe`：`siginfo_t` 后接
 `ucontext_t`/`sigcontext`。`SA_SIGINFO` handler 收到 `a0=signo`、`a1=&info`、
 `a2=&uc`。`rt_sigreturn` 恢复整数寄存器、PC、mask 和 altstack；FP/vector
-扩展区保持 ABI 尺寸并由内核清零，非零扩展状态被视为非法 frame。
+扩展区保持 ABI 尺寸并由内核清零，非零扩展状态被视为非法 frame。当前用户态
+不支持 F/D/vector：每次返回用户态前内核清除 `sstatus.FS`，因此 F/D 指令会
+触发 `SIGILL`，不会出现未保存的浮点上下文。
 
 ## timer trap
 

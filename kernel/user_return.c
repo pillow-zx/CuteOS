@@ -6,6 +6,7 @@
 #include <kernel/exit.h>
 #include <kernel/rseq.h>
 #include <kernel/signal.h>
+#include <kernel/trap.h>
 #include <uapi/signal.h>
 
 #ifdef KERNEL_SELFTEST
@@ -28,6 +29,7 @@ void user_return_work(struct trap_frame *tf)
 #endif
 
 	do_signal(tf);
+	trap_disable_user_fpu(tf);
 	/* Future syscall restart handling belongs here. */
 	/* Future generic pending user-return work belongs here. */
 }

@@ -45,13 +45,14 @@
 #define TF_SSTATUS (34 * 8)
 
 #define TRAP_FRAME_SIZE (35 * 8)
+#define TRAP_FRAME_ALLOC_SIZE (36 * 8)
 
 /*
  * Temporary user-sp save slot used on U->S trap entry.
  * sscratch stores kstack_top; this slot is at kstack_top - 8, which is
- * frame_base + TRAP_SCRATCH_OFFSET after allocating trap_frame.
+ * frame_base + TRAP_SCRATCH_OFFSET after allocating trap-frame storage.
  */
-#define TRAP_SCRATCH_OFFSET (TRAP_FRAME_SIZE - 8)
+#define TRAP_SCRATCH_OFFSET (TRAP_FRAME_ALLOC_SIZE - 8)
 
 /* ---- struct context offsets ---- */
 #define CTX_RA	(0 * 8)

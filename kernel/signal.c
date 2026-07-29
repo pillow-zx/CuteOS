@@ -5,6 +5,7 @@
 #include <kernel/errno.h>
 #include <kernel/exit.h>
 #include <kernel/buddy.h>
+#include <kernel/compiler.h>
 #include <kernel/fs.h>
 #include <kernel/init.h>
 #include <kernel/mm.h>
@@ -90,16 +91,36 @@ static int signal_frame_clone(struct task_struct *child,
 	return 0;
 }
 
-static int signal_frame_push(struct task_struct *task, uintptr_t sp, int sig)
+static struct signal_frame_state *signal_frame_alloc(uintptr_t sp, int sig)
 {
 	struct signal_frame_state *state = kmalloc(sizeof(*state));
 
 	if (!state)
-		return -ENOMEM;
+		return NULL;
 	state->sp = sp;
 	state->sig = sig;
+	state->previous = NULL;
+	return state;
+}
+
+static void signal_frame_push(struct task_struct *task,
+			      struct signal_frame_state *state)
+{
 	state->previous = signal_frame_top(task);
 	task->sigctx.signal_frames = state;
+}
+
+static int signal_frame_sp(uintptr_t top, uintptr_t floor, uintptr_t *sp)
+{
+	uintptr_t frame_sp;
+
+	if (check_sub_overflow(top, (uintptr_t)sizeof(struct rt_sigframe),
+			       &frame_sp))
+		return -EFAULT;
+	frame_sp &= ~(uintptr_t)0xf;
+	if (frame_sp < floor)
+		return -EFAULT;
+	*sp = frame_sp;
 	return 0;
 }
 
@@ -977,6 +998,7 @@ static int setup_signal_frame(struct trap_frame *tf, int sig,
 {
 	uintptr_t sp;
 	struct rt_sigframe frame;
+	struct signal_frame_state *state;
 	struct stack_t *sas = task_altstack(current_task());
 	bool on_altstack = false;
 
@@ -984,12 +1006,16 @@ static int setup_signal_frame(struct trap_frame *tf, int sig,
 
 	if ((action->sa_flags & SA_ONSTACK) && sas &&
 	    !(sas->ss_flags & (SS_DISABLE | SS_ONSTACK))) {
-		uintptr_t top = (uintptr_t)sas->ss_sp + sas->ss_size;
-		sp = (top - sizeof(struct rt_sigframe)) & ~(uintptr_t)0xf;
+		uintptr_t top;
+
+		if (check_add_overflow((uintptr_t)sas->ss_sp,
+				       (uintptr_t)sas->ss_size, &top) ||
+		    signal_frame_sp(top, (uintptr_t)sas->ss_sp, &sp) < 0)
+			return -EFAULT;
 		on_altstack = true;
 	} else {
-		sp = (trap_user_sp(tf) - sizeof(struct rt_sigframe)) &
-		     ~(uintptr_t)0xf;
+		if (signal_frame_sp(trap_user_sp(tf), 0, &sp) < 0)
+			return -EFAULT;
 	}
 
 	if (!access_ok((void *)sp, sizeof(frame)))
@@ -1007,17 +1033,20 @@ static int setup_signal_frame(struct trap_frame *tf, int sig,
 	else
 		frame.uc.uc_sigmask = signal_blocked_mask(current_task());
 
-	if (copy_to_user((void *)sp, &frame, sizeof(frame)) != 0)
+	state = signal_frame_alloc(sp, sig);
+	if (!state)
+		return -ENOMEM;
+	if (copy_to_user((void *)sp, &frame, sizeof(frame)) != 0) {
+		kfree(state);
 		return -EFAULT;
-
-	if (on_altstack)
-		sas->ss_flags |= SS_ONSTACK;
+	}
 
 	if (!(action->sa_flags & SA_NODEFER))
 		signal_block_mask(current_task(), signal_mask(sig));
 	signal_block_mask(current_task(), action->sa_mask);
-	if (signal_frame_push(current_task(), sp, sig) < 0)
-		return -ENOMEM;
+	signal_frame_push(current_task(), state);
+	if (on_altstack)
+		sas->ss_flags |= SS_ONSTACK;
 
 	trap_setup_signal_handler(tf, (uintptr_t)action->sa_handler,
 				  SIGNAL_TRAMPOLINE_ADDR, sp, (uintptr_t)sig,
@@ -1534,6 +1563,7 @@ ssize_t do_sigreturn(struct trap_frame *tf, uintptr_t sp)
 	    (frame.uc.uc_stack.ss_size < MINSIGSTKSZ ||
 	     !access_ok(frame.uc.uc_stack.ss_sp, frame.uc.uc_stack.ss_size)))
 		do_exit_signal(SIGSEGV);
+	/* F/D/vector state is unsupported, so extension state remains zero. */
 	fp_state = (const unsigned char *)&frame.uc.uc_mcontext.sc_fpregs;
 	for (size_t index = 0; index < sizeof(frame.uc.uc_mcontext.sc_fpregs);
 	     index++) {

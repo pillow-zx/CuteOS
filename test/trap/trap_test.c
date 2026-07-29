@@ -9,6 +9,16 @@ int test_trap_frame_layout(void)
 	{
 		TEST_ASSERT_EQ(trap_frame_size(),
 			       (size_t)(35 * sizeof(size_t)));
+		TEST_ASSERT_EQ(TRAP_FRAME_ALLOC_SIZE,
+			       (size_t)(36 * sizeof(size_t)));
+		TEST_ASSERT_EQ(TRAP_FRAME_ALLOC_SIZE % 16, 0UL);
+
+		struct trap_frame tf = {
+			.sstatus = SSTATUS_FS_MASK,
+		};
+
+		trap_disable_user_fpu(&tf);
+		TEST_ASSERT_EQ(tf.sstatus & SSTATUS_FS_MASK, 0UL);
 	}
 	TEST_END("trap: frame layout");
 	return __test_ret;

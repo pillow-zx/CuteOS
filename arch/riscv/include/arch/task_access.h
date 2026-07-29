@@ -55,7 +55,7 @@ static inline __must_check __pure __nonnull(1) __returns_nonnull
 	struct trap_frame *task_kernel_trap_frame(struct task_struct *task)
 {
 	uintptr_t frame = (uintptr_t)task->arch.kstack + KSTACK_SIZE -
-			  sizeof(struct trap_frame);
+			  TRAP_FRAME_ALLOC_SIZE;
 
 	return (struct trap_frame *)frame;
 }

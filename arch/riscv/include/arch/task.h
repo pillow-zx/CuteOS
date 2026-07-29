@@ -41,9 +41,7 @@ struct task_arch_state {
 
 static_assert(ARCH_KSTACK_SIZE == TASK_KSTACK_SIZE,
 	      "entry.S __trapret kstack arithmetic is out of sync");
-static_assert((ARCH_KSTACK_SIZE - sizeof(struct trap_frame)) %
-			      __alignof__(struct trap_frame) ==
-		      0,
-	      "kernel trap frame must be aligned at the top of each kstack");
+static_assert((ARCH_KSTACK_SIZE - TRAP_FRAME_ALLOC_SIZE) % 16 == 0,
+	      "kernel trap-frame allocation must preserve stack alignment");
 
 #endif

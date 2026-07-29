@@ -194,6 +194,15 @@ trap_set_status(struct trap_frame *tf, uintptr_t status)
 }
 
 /**
+ * @brief Prevent the pending user return from enabling F/D instructions.
+ * @param tf Trap frame whose sstatus will be restored by sret.
+ */
+static inline __nonnull(1) void trap_disable_user_fpu(struct trap_frame *tf)
+{
+	tf->sstatus &= ~SSTATUS_FS_MASK;
+}
+
+/**
  * @brief Advance the saved program counter.
  * @param tf Trap frame.
  * @param bytes Number of bytes to add to sepc.

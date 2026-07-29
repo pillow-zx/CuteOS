@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <time.h>
@@ -109,6 +110,36 @@ UT_CASE(signal_handler_mask_pending_and_altstack, 1500)
 	UT_EXPECT_EQ(signal_count, 1);
 	UT_ASSERT_EQ(sigaltstack(&old_stack, NULL), 0);
 	UT_ASSERT_EQ(sigaction(SIGUSR1, &old_action, NULL), 0);
+}
+
+UT_CASE(signal_altstack_address_overflow, 1500)
+{
+	struct sigaction action = {
+		.sa_handler = signal_count_handler,
+		.sa_flags = SA_ONSTACK,
+	};
+	stack_t stack = {
+		.ss_sp = (void *)(UINTPTR_MAX - 0x7fff),
+		.ss_size = 64 * 1024,
+	};
+	pid_t child;
+
+	child = UT_FORK();
+	if (child == 0) {
+		void *mapping;
+
+		mapping = mmap((void *)0x7000, 4096, PROT_READ | PROT_WRITE,
+			       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+		if (mapping != (void *)0x7000)
+			_exit(127);
+		if (sigaltstack(&stack, NULL) < 0)
+			_exit(126);
+		if (sigaction(SIGUSR1, &action, NULL) < 0)
+			_exit(125);
+		(void)kill(getpid(), SIGUSR1);
+		_exit(124);
+	}
+	UT_EXPECT_SIGNAL(child, SIGSEGV);
 }
 
 UT_CASE(signal_rt_sigsuspend_abi_and_mask_restore, 5000)

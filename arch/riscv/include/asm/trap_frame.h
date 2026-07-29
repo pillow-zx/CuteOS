@@ -137,6 +137,8 @@ CHECK_TF_OFFSET(stval, TF_STVAL);
 CHECK_TF_OFFSET(sstatus, TF_SSTATUS);
 static_assert(sizeof(struct trap_frame) == TRAP_FRAME_SIZE,
 	      "trap_frame size mismatch");
+static_assert(TRAP_FRAME_ALLOC_SIZE % 16 == 0,
+	      "trap-frame allocation must preserve stack alignment");
 
 #undef CHECK_TF_OFFSET
 

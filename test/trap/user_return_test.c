@@ -25,6 +25,7 @@ int test_user_return_work_ecall_path(void)
 	{
 		memset(&tf, 0, sizeof(tf));
 		trap_setup_user_return(&tf, 0x1000, 0x2000);
+		tf.sstatus |= SSTATUS_FS_MASK;
 		tf.scause = EXC_ECALL_U;
 		tf.a7 = SYS_getpid;
 
@@ -42,6 +43,7 @@ int test_user_return_work_ecall_path(void)
 		TEST_ASSERT_EQ(trap_user_pc(&tf), (uintptr_t)0x1004);
 		TEST_ASSERT_EQ(trap_return_value(&tf),
 			       (uintptr_t)task_tgid(current_task()));
+		TEST_ASSERT_EQ(tf.sstatus & SSTATUS_FS_MASK, 0UL);
 	}
 	TEST_END("user-return: ecall path uses generic work");
 	return __test_ret;
