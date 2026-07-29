@@ -41,6 +41,8 @@
 	X(SYS_fallocate, "fallocate", sys_fallocate)                           \
 	X(SYS_faccessat, "faccessat", sys_faccessat)                           \
 	X(SYS_chdir, "chdir", sys_chdir)                                       \
+	X(SYS_fchmodat, "fchmodat", sys_fchmodat)                              \
+	X(SYS_fchownat, "fchownat", sys_fchownat)                              \
 	X(SYS_openat, "openat", sys_openat)                                    \
 	X(SYS_close, "close", sys_close)                                       \
 	X(SYS_pipe2, "pipe2", sys_pipe2)                                       \
@@ -136,6 +138,7 @@
 	X(SYS_membarrier, "membarrier", sys_membarrier)                        \
 	X(SYS_statx, "statx", sys_statx)                                       \
 	X(SYS_rseq, "rseq", sys_rseq)                                          \
-	X(SYS_faccessat2, "faccessat2", sys_faccessat2)
+	X(SYS_faccessat2, "faccessat2", sys_faccessat2)                        \
+	X(SYS_fchmodat2, "fchmodat2", sys_fchmodat2)
 
 #endif

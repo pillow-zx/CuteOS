@@ -310,10 +310,17 @@ void ext2_init_inode_ops(struct inode *inode)
 static void ext2_fill_vfs_inode(struct inode *inode)
 {
 	struct ext2_inode *raw = &EXT2_I(inode)->raw_inode;
+	struct ext2_sb_info *sbi = EXT2_SB(inode->i_sb);
 
 	inode->i_mode = raw->i_mode;
 	inode->i_uid = raw->i_uid;
 	inode->i_gid = raw->i_gid;
+	if (sbi->s_es.s_creator_os == EXT2_OS_LINUX) {
+		inode->i_uid |= (uint32_t)raw->i_osd2[4] << 16 |
+				(uint32_t)raw->i_osd2[5] << 24;
+		inode->i_gid |= (uint32_t)raw->i_osd2[6] << 16 |
+				(uint32_t)raw->i_osd2[7] << 24;
+	}
 	inode->i_nlink = raw->i_links_count;
 	inode->i_size = raw->i_size;
 	inode->i_blocks = raw->i_blocks;
@@ -456,6 +463,7 @@ int ext2_write_inode(struct inode *inode)
 {
 	struct ext2_inode_info *ei;
 	struct page_cache *page;
+	struct ext2_sb_info *sbi;
 	uint32_t block;
 	uint32_t offset;
 	int ret;
@@ -464,9 +472,19 @@ int ext2_write_inode(struct inode *inode)
 		return -EINVAL;
 
 	ei = EXT2_I(inode);
+	sbi = EXT2_SB(inode->i_sb);
+	if (sbi->s_es.s_creator_os != EXT2_OS_LINUX &&
+	    (inode->i_uid > UINT16_MAX || inode->i_gid > UINT16_MAX))
+		return -EINVAL;
 	ei->raw_inode.i_mode = (uint16_t)inode->i_mode;
 	ei->raw_inode.i_uid = (uint16_t)inode->i_uid;
 	ei->raw_inode.i_gid = (uint16_t)inode->i_gid;
+	if (sbi->s_es.s_creator_os == EXT2_OS_LINUX) {
+		ei->raw_inode.i_osd2[4] = (uint8_t)(inode->i_uid >> 16);
+		ei->raw_inode.i_osd2[5] = (uint8_t)(inode->i_uid >> 24);
+		ei->raw_inode.i_osd2[6] = (uint8_t)(inode->i_gid >> 16);
+		ei->raw_inode.i_osd2[7] = (uint8_t)(inode->i_gid >> 24);
+	}
 	ei->raw_inode.i_links_count = (uint16_t)inode->i_nlink;
 	ei->raw_inode.i_size = (uint32_t)inode->i_size;
 	ei->raw_inode.i_blocks = (uint32_t)inode->i_blocks;

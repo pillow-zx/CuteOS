@@ -59,6 +59,38 @@ constexpr uint32_t FMODE_READ = 0x1;
 /** @def FMODE_WRITE File object permits write operations. */
 constexpr uint32_t FMODE_WRITE = 0x2;
 
+/** @def VFS_MODE_CHMOD_MASK Special and permission bits set by chmod. */
+constexpr uint32_t VFS_MODE_CHMOD_MASK = 07777;
+
+/** @def VFS_MODE_SETID_MASK Set-user-ID and set-group-ID mode bits. */
+constexpr uint32_t VFS_MODE_SETID_MASK = 06000;
+
+/** @def VFS_ATTR_MODE Update the inode permission and special mode bits. */
+constexpr uint32_t VFS_ATTR_MODE = 0x0001;
+
+/** @def VFS_ATTR_UID Update the inode owner uid. */
+constexpr uint32_t VFS_ATTR_UID = 0x0002;
+
+/** @def VFS_ATTR_GID Update the inode owner gid. */
+constexpr uint32_t VFS_ATTR_GID = 0x0004;
+
+/** @def VFS_ATTR_ALL All attributes supported by vfs_inode_setattr(). */
+constexpr uint32_t VFS_ATTR_ALL = VFS_ATTR_MODE | VFS_ATTR_UID | VFS_ATTR_GID;
+
+/**
+ * @struct vfs_inode_attrs
+ * @brief Caller-requested inode metadata changes owned by VFS.
+ *
+ * @c valid selects which fields are applied. A mode update changes only the
+ * special and permission bits; VFS preserves the inode file type.
+ */
+struct vfs_inode_attrs {
+	uint32_t valid;
+	uint32_t mode;
+	uid_t uid;
+	gid_t gid;
+};
+
 /**
  * @typedef filldir_t
  * @brief Callback used by filesystem readdir implementations.
@@ -452,6 +484,8 @@ int __must_check vfs_inode_set_timestamps(struct inode *inode,
 					  bool set_atime, bool set_mtime);
 int __must_check vfs_inode_touch(struct inode *inode, bool atime, bool mtime,
 				 bool ctime);
+int __must_check vfs_inode_setattr(struct inode *inode,
+				   const struct vfs_inode_attrs *attrs);
 int __must_check vfs_datasync_file(struct file *file);
 int __must_check vfs_sync_file(struct file *file);
 /**

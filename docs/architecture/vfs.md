@@ -182,6 +182,26 @@ VFS 层负责参数检查、对象查找、fd/path 管理和权限检查；具�
 元数据，必须实现 `datasync_inode`；否则 `fdatasync` 会按 `fsync` 风格写回
 inode metadata，优先保证正确性而不是 data-only 优化。
 
+### Inode 属性更新
+
+`vfs_inode_setattr()` 是 mode、uid 和 gid mutation 的唯一 VFS 入口。调用方以
+`struct vfs_inode_attrs` 的 valid mask 声明要改动的字段；VFS 不接受 user
+pointer，并保留 `i_mode` 的文件类型，只替换 special/permission 位。
+
+- mode update 要求调用者是 root 或 inode owner；uid/gid update 在当前简化
+  credential model 中仅允许 root。uid/gid update 对非目录 inode 清除 set-ID
+  bits；VFS 拒绝 symlink mode mutation 并返回 `-EOPNOTSUPP`。
+- 成功 mutation 同步更新 ctime，并在返回前调用 `write_inode`。写回失败会恢复
+  in-memory inode 的 metadata snapshot，但底层设备的部分写错误仍由 filesystem
+  层报告。
+- `fchmodat`、`fchmodat2`、`fchownat` 的 dirfd、empty path 和末端 symlink
+  policy 由 `vfs_at_lookup()` 与 `LOOKUP_NOFOLLOW` 统一执行，syscall 只验证 ABI
+  flags 并把已复制的 kernel path 交给 VFS。
+
+ext2 Linux creator images 使用 inode Linux `osd2` uid/gid high words，因而
+能持久化 VFS 的 32-bit uid/gid。其他 ext2 creator formats 没有该解释时，超过
+16-bit 的 uid/gid 写回返回 `-EINVAL`，而不是截断。
+
 ## 文件系统注册和 root 挂载
 
 文件系统类型：

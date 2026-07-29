@@ -32,6 +32,8 @@
 #define SYS_fallocate	      47
 #define SYS_faccessat	      48
 #define SYS_chdir	      49
+#define SYS_fchmodat	      53
+#define SYS_fchownat	      54
 #define SYS_openat	      56
 #define SYS_close	      57
 #define SYS_pipe2	      59
@@ -128,12 +130,13 @@
 #define SYS_statx	      291
 #define SYS_rseq	      293
 #define SYS_faccessat2	      439
+#define SYS_fchmodat2	      452
 
 /**
  * @def NR_SYSCALL
  * @brief Dispatch-table size derived from the highest known syscall number.
  */
-#define NR_SYSCALL (SYS_faccessat2 + 1)
+#define NR_SYSCALL (SYS_fchmodat2 + 1)
 
 #ifndef __ASSEMBLER__
 _Static_assert(SYS_getitimer == 102, "getitimer syscall number mismatch");

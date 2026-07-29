@@ -78,6 +78,24 @@ static int sys_faccessat_path(int dfd, const char *upath, int mode, int flags,
 	return ret;
 }
 
+static int sys_inode_setattr_path(int dfd, const char *upath, int flags,
+				  uint32_t lookup_flags,
+				  const struct vfs_inode_attrs *attrs)
+{
+	struct vfs_at_lookup_result lookup __cleanup_with(vfs_at_lookup) = {};
+	char *path __cleanup_with(page0) = NULL;
+	int ret;
+
+	ret = copy_user_path_at_lookup(&path, upath, flags, false);
+	if (ret < 0)
+		return ret;
+	ret = vfs_at_lookup(dfd, path, flags, lookup_flags, &lookup);
+	if (ret < 0)
+		return ret;
+
+	return vfs_inode_setattr(lookup.inode, attrs);
+}
+
 static int filldir64(void *arg, const char *name, size_t namelen, uint64_t ino,
 		     uint8_t type, loff_t off)
 {
@@ -225,6 +243,88 @@ ssize_t sys_faccessat2(struct trap_frame *tf)
 	return sys_faccessat_path(
 		dfd, upath, mode, flags,
 		(flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0);
+}
+
+/*
+ * SYSCALL_SUPPORT(B): fchmodat
+ * Current: changes special and permission bits through VFS, following a final
+ * symlink as required by the three-argument Linux syscall ABI.
+ * Unsupported errno: VFS returns -EPERM unless the caller is root or owns the
+ * inode; no mount read-only or immutable inode state exists yet.
+ * Future: add filesystem attributes only with matching VFS ownership rules.
+ */
+ssize_t sys_fchmodat(struct trap_frame *tf)
+{
+	int dfd = (int)syscall_arg(tf, 0);
+	const char *upath = (const char *)syscall_arg(tf, 1);
+	struct vfs_inode_attrs attrs = {
+		.valid = VFS_ATTR_MODE,
+		.mode = (uint32_t)syscall_arg(tf, 2),
+	};
+
+	return sys_inode_setattr_path(dfd, upath, 0, 0, &attrs);
+}
+
+/*
+ * SYSCALL_SUPPORT(B): fchownat
+ * Current: changes uid and/or gid through VFS; AT_EMPTY_PATH and
+ * AT_SYMLINK_NOFOLLOW select existing VFS lookup behavior. The simplified
+ * credential model restricts ownership changes to uid 0.
+ * Unsupported errno: unknown flags return -EINVAL; non-root ownership or
+ * group changes return -EPERM.
+ * Future: replace root-only ownership checks with capabilities and
+ * supplementary-group semantics.
+ */
+ssize_t sys_fchownat(struct trap_frame *tf)
+{
+	int dfd = (int)syscall_arg(tf, 0);
+	const char *upath = (const char *)syscall_arg(tf, 1);
+	uint32_t uid = (uint32_t)syscall_arg(tf, 2);
+	uint32_t gid = (uint32_t)syscall_arg(tf, 3);
+	int flags = (int)syscall_arg(tf, 4);
+	struct vfs_inode_attrs attrs = {};
+
+	if (flags & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW))
+		return -EINVAL;
+	if (uid != UINT32_MAX) {
+		attrs.valid |= VFS_ATTR_UID;
+		attrs.uid = uid;
+	}
+	if (gid != UINT32_MAX) {
+		attrs.valid |= VFS_ATTR_GID;
+		attrs.gid = gid;
+	}
+
+	return sys_inode_setattr_path(
+		dfd, upath, flags,
+		(flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0, &attrs);
+}
+
+/*
+ * SYSCALL_SUPPORT(B): fchmodat2
+ * Current: adds AT_EMPTY_PATH and AT_SYMLINK_NOFOLLOW to fchmodat through the
+ * VFS at-path and attribute-mutation interfaces. A nofollow symlink target
+ * returns -EOPNOTSUPP, matching Linux VFS mode-mutation policy.
+ * Unsupported errno: unknown flags return -EINVAL; credentials and filesystem
+ * metadata limits follow fchmodat.
+ * Future: deepen the credential and mount-state models with VFS support.
+ */
+ssize_t sys_fchmodat2(struct trap_frame *tf)
+{
+	int dfd = (int)syscall_arg(tf, 0);
+	const char *upath = (const char *)syscall_arg(tf, 1);
+	int flags = (int)syscall_arg(tf, 3);
+	struct vfs_inode_attrs attrs = {
+		.valid = VFS_ATTR_MODE,
+		.mode = (uint32_t)syscall_arg(tf, 2),
+	};
+
+	if (flags & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW))
+		return -EINVAL;
+
+	return sys_inode_setattr_path(
+		dfd, upath, flags,
+		(flags & AT_SYMLINK_NOFOLLOW) ? LOOKUP_NOFOLLOW : 0, &attrs);
 }
 
 ssize_t sys_getcwd(struct trap_frame *tf)

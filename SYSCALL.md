@@ -110,12 +110,31 @@ description 关闭时，内核以相同顺序唤醒所有 writer；尚未写入�
 | 40 | `mount` | C | 单 namespace、显式 `ext2`、block-device source 到 directory target，`flags == 0` | 无 bind/remount/move/propagation/read-only、无 fs_context | 保持探测安全最小模型 |
 | 48 | `faccessat` | B | 权限检查通过 VFS；AT_FDCWD、dirfd 和 lookup result 生命周期由 VFS 统一管理 | real/effective id 差异浅 | 与 cred 模型一起加深 |
 | 49 | `chdir` | A | path lookup 后切 cwd | mount namespace 不存在 | 保持 |
+| 53 | `fchmodat` | B | 通过 VFS 更新 special/permission mode；末端 symlink 跟随 | 无 immutable/read-only mount；cred 模型浅 | 与 VFS mount/cred 模型一起加深 |
+| 54 | `fchownat` | B | 通过 VFS 更新 uid/gid；支持 `AT_EMPTY_PATH`、`AT_SYMLINK_NOFOLLOW` | owner/group 更新仅 root；无 capability/supplementary group | 与 cred 模型一起加深 |
 | 56 | `openat` | A | dirfd/path/flags/umask/VFS open | flag 组合仍需持续补 | 用 busybox/coreutils trace 补缺口 |
 | 61 | `getdents64` | A | readdir 转 linux dirent64 | d_type 准确性依赖 FS | 增加多 chunk 目录测试 |
 | 78 | `readlinkat` | A | nofollow 读取 symlink；at-path 起点和 result 生命周期由 VFS 统一管理 | `/proc/self/fd` 不存在 | 保持 |
 | 88 | `utimensat` | B | 支持 NOW/OMIT、nofollow/empty path；at-path 生命周期由 VFS 统一管理 | 权限和 ctime 细节浅 | 加权限/ctime 测试 |
 | 276 | `renameat2` | B | 支持 `RENAME_NOREPLACE` | exchange/whiteout 不支持 | 文档化 flag policy |
 | 439 | `faccessat2` | B | 支持 `AT_EACCESS/EMPTY_PATH/NOFOLLOW` | cred 语义浅 | 和权限模型一起推进 |
+| 452 | `fchmodat2` | B | `fchmodat` 加 `AT_EMPTY_PATH`、`AT_SYMLINK_NOFOLLOW`；nofollow symlink 返回 `-EOPNOTSUPP` | 无 immutable/read-only mount；cred 模型浅 | 与 VFS mount/cred 模型一起加深 |
+
+`fchmodat` 保持 Linux riscv64 的三参数 ABI，因此没有 flags 且总是跟随
+末端 symlink。`fchmodat2` 与 `fchownat` 仅接受
+`AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW`；empty path 通过 VFS 的 existing
+at-path result 操作 dirfd 所指 file（或 `AT_FDCWD` 的 cwd）。未知 flag
+返回 `-EINVAL`；空字符串是 `AT_EMPTY_PATH` 唯一接受的 empty path，NULL path
+返回 `-EFAULT`。`fchmodat2` 的 nofollow symlink mode mutation 返回
+`-EOPNOTSUPP`，与 Linux VFS 一致。
+
+VFS 的 `vfs_inode_setattr()` 保留 mode 文件类型，只替换低 12 位
+special/permission bits，在成功的 mode、uid 或 gid mutation 时更新 ctime 并
+同步调用 filesystem `write_inode`。当前简化凭据模型允许 root 或 inode owner
+执行 mode mutation，uid/gid mutation 仅 root；它还没有 capability、effective
+ID 或 supplementary group 语义。ext2 Linux creator images 持久化完整 32-bit
+uid/gid；非 Linux creator image 对超过 16-bit 的 uid/gid 返回 `-EINVAL`。
+uid/gid mutation 对非目录 inode 清除 set-user-ID/set-group-ID 位。
 
 ### `mount` / `umount2` 最小模型
 

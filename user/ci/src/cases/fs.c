@@ -103,3 +103,81 @@ UT_CASE(fs_stat_umask_and_reopen, 1500)
 	UT_EXPECT_STREQ(content, "persist");
 	free(content);
 }
+
+UT_CASE(fs_metadata_mutation_persists_and_flags, 1500)
+{
+	const uid_t file_uid = 0x12345;
+	const gid_t file_gid = 0x23456;
+	const uid_t link_uid = 0x34567;
+	const gid_t link_gid = 0x45678;
+	struct stat st;
+	struct stat lst;
+	pid_t child;
+	int fd;
+
+	fd = open("metadata", O_RDWR | O_CREAT | O_EXCL, 0600);
+	UT_ASSERT(fd >= 0);
+	UT_ASSERT_EQ(fchmodat(AT_FDCWD, "metadata", 0754, 0), 0);
+	UT_ASSERT_EQ(fchownat(AT_FDCWD, "metadata", file_uid, file_gid, 0), 0);
+	UT_ASSERT_EQ(close(fd), 0);
+	fd = open("metadata", O_RDONLY);
+	UT_ASSERT(fd >= 0);
+	UT_ASSERT_EQ(close(fd), 0);
+	UT_ASSERT_EQ(stat("metadata", &st), 0);
+	UT_EXPECT_EQ(st.st_mode & 07777, 0754);
+	UT_EXPECT_EQ(st.st_uid, file_uid);
+	UT_EXPECT_EQ(st.st_gid, file_gid);
+
+	child = UT_FORK();
+	if (child == 0) {
+		if (setuid(file_uid) != 0 ||
+		    fchmodat(AT_FDCWD, "metadata", 0750, 0) != 0)
+			_exit(1);
+		errno = 0;
+		if (fchownat(AT_FDCWD, "metadata", (uid_t)-1, file_gid, 0) !=
+			    -1 ||
+		    errno != EPERM)
+			_exit(2);
+		_exit(0);
+	}
+	UT_EXPECT_EXIT(child, 0);
+	UT_ASSERT_EQ(stat("metadata", &st), 0);
+	UT_EXPECT_EQ(st.st_mode & 07777, 0750);
+
+	fd = open("metadata", O_RDONLY);
+	UT_ASSERT(fd >= 0);
+	UT_EXPECT_ERRNO(syscall(SYS_fchmodat2, fd, NULL, 0640, AT_EMPTY_PATH),
+			EFAULT);
+	UT_EXPECT_ERRNO(fchownat(fd, NULL, file_uid, file_gid, AT_EMPTY_PATH),
+			EFAULT);
+	UT_ASSERT_EQ(syscall(SYS_fchmodat2, fd, "", 0640, AT_EMPTY_PATH), 0);
+	UT_ASSERT_EQ(close(fd), 0);
+	UT_ASSERT_EQ(stat("metadata", &st), 0);
+	UT_EXPECT_EQ(st.st_mode & 07777, 0640);
+	UT_ASSERT_EQ(symlink("metadata", "metadata-link"), 0);
+	UT_EXPECT_ERRNO(
+		fchmodat(AT_FDCWD, "metadata-link", 0700, AT_SYMLINK_NOFOLLOW),
+		EOPNOTSUPP);
+	UT_ASSERT_EQ(lstat("metadata-link", &lst), 0);
+	UT_EXPECT_EQ(lst.st_mode & 07777, 0777);
+	UT_ASSERT_EQ(stat("metadata", &st), 0);
+	UT_EXPECT_EQ(st.st_mode & 07777, 0640);
+	UT_ASSERT_EQ(fchmodat(AT_FDCWD, "metadata-link", 0600, 0), 0);
+	UT_ASSERT_EQ(stat("metadata", &st), 0);
+	UT_EXPECT_EQ(st.st_mode & 07777, 0600);
+	UT_ASSERT_EQ(fchownat(AT_FDCWD, "metadata-link", link_uid, link_gid,
+			      AT_SYMLINK_NOFOLLOW),
+		     0);
+	UT_ASSERT_EQ(lstat("metadata-link", &lst), 0);
+	UT_EXPECT_EQ(lst.st_uid, link_uid);
+	UT_EXPECT_EQ(lst.st_gid, link_gid);
+	UT_ASSERT_EQ(stat("metadata", &st), 0);
+	UT_EXPECT_EQ(st.st_uid, file_uid);
+	UT_EXPECT_EQ(st.st_gid, file_gid);
+	UT_EXPECT_ERRNO(
+		syscall(SYS_fchmodat2, AT_FDCWD, "metadata", 0600, AT_EACCESS),
+		EINVAL);
+	UT_EXPECT_ERRNO(
+		fchownat(AT_FDCWD, "metadata", file_uid, file_gid, AT_EACCESS),
+		EINVAL);
+}

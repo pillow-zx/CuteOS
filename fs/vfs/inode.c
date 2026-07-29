@@ -185,6 +185,67 @@ int vfs_inode_set_timestamps(struct inode *inode, int64_t atime_sec,
 	return vfs_inode_writeback(inode);
 }
 
+static int vfs_inode_setattr_permission(const struct inode *inode,
+					uint32_t valid)
+{
+	uid_t uid = task_uid(current_task());
+
+	if ((valid & VFS_ATTR_MODE) && uid != 0 && uid != vfs_inode_uid(inode))
+		return -EPERM;
+	if ((valid & (VFS_ATTR_UID | VFS_ATTR_GID)) && uid != 0)
+		return -EPERM;
+
+	return 0;
+}
+
+int vfs_inode_setattr(struct inode *inode, const struct vfs_inode_attrs *attrs)
+{
+	uint32_t old_mode;
+	uint32_t old_uid;
+	uint32_t old_gid;
+	int64_t old_ctime;
+	int ret;
+
+	if (!inode || !attrs)
+		return -EINVAL;
+	if (attrs->valid & ~VFS_ATTR_ALL)
+		return -EINVAL;
+	if (!attrs->valid)
+		return 0;
+
+	ret = vfs_inode_setattr_permission(inode, attrs->valid);
+	if (ret < 0)
+		return ret;
+	if ((attrs->valid & VFS_ATTR_MODE) && S_ISLNK(inode->i_mode))
+		return -EOPNOTSUPP;
+
+	old_mode = inode->i_mode;
+	old_uid = inode->i_uid;
+	old_gid = inode->i_gid;
+	old_ctime = inode->i_ctime_sec;
+	if (attrs->valid & VFS_ATTR_MODE)
+		inode->i_mode = (inode->i_mode & ~VFS_MODE_CHMOD_MASK) |
+				(attrs->mode & VFS_MODE_CHMOD_MASK);
+	if (attrs->valid & VFS_ATTR_UID)
+		inode->i_uid = attrs->uid;
+	if (attrs->valid & VFS_ATTR_GID)
+		inode->i_gid = attrs->gid;
+	if ((attrs->valid & (VFS_ATTR_UID | VFS_ATTR_GID)) &&
+	    !S_ISDIR(inode->i_mode))
+		inode->i_mode &= ~VFS_MODE_SETID_MASK;
+	inode->i_ctime_sec = vfs_current_time_sec();
+
+	ret = vfs_inode_writeback(inode);
+	if (ret < 0) {
+		inode->i_mode = old_mode;
+		inode->i_uid = old_uid;
+		inode->i_gid = old_gid;
+		inode->i_ctime_sec = old_ctime;
+	}
+
+	return ret;
+}
+
 int vfs_inode_truncate(struct inode *inode, uint64_t size)
 {
 	if (!inode || !inode->i_op || !inode->i_op->truncate)

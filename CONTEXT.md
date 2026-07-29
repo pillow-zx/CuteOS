@@ -241,6 +241,9 @@ Callers do not take `mm->mmap_lock` or manipulate VMAs. VFS owns file
 lifetime, fd lookup, path lookup, mount traversal and filesystem dispatch;
 syscalls and filesystems do not bypass it. The page cache is the authoritative
 cached file-data path; raw block aliases must preserve page-cache coherence.
+VFS also owns inode mode/uid/gid mutation through `vfs_inode_setattr()`;
+syscalls only adapt the ABI and pass a VFS-owned attribute request, while
+filesystem implementations persist the resulting inode state.
 
 Keep lower layers independent of higher policy: drivers do not decide VFS or
 scheduler policy, filesystems do not access block-driver MMIO, and arch code

@@ -139,6 +139,26 @@ UT_CASE(workload_busybox_pathname_applets, 5000)
 	workload_run_shell(script);
 }
 
+UT_CASE(workload_busybox_metadata_applets, 5000)
+{
+	struct stat source;
+	struct stat installed;
+	static const char script[] = "set -eu\n"
+				     "printf metadata > source\n"
+				     "chmod 0640 source\n"
+				     "chown 123:456 source\n"
+				     "install -m 0751 source installed\n"
+				     "cmp source installed\n";
+
+	workload_run_shell(script);
+	UT_ASSERT_EQ(stat("source", &source), 0);
+	UT_EXPECT_EQ(source.st_mode & 07777, 0640);
+	UT_EXPECT_EQ(source.st_uid, 123);
+	UT_EXPECT_EQ(source.st_gid, 456);
+	UT_ASSERT_EQ(stat("installed", &installed), 0);
+	UT_EXPECT_EQ(installed.st_mode & 07777, 0751);
+}
+
 UT_CASE(workload_busybox_streaming_text_applets, 5000)
 {
 	static const char script[] =
