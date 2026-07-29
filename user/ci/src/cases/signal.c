@@ -111,6 +111,51 @@ UT_CASE(signal_handler_mask_pending_and_altstack, 1500)
 	UT_ASSERT_EQ(sigaction(SIGUSR1, &old_action, NULL), 0);
 }
 
+UT_CASE(signal_rt_sigsuspend_abi_and_mask_restore, 5000)
+{
+	struct sigaction action = {
+		.sa_handler = signal_count_handler,
+		.sa_flags = SA_RESTART,
+	};
+	struct sigaction old_action;
+	sigset_t blocked;
+	sigset_t suspend_mask;
+	sigset_t observed;
+	sigset_t old_mask;
+	pid_t child;
+
+	UT_ASSERT_EQ(sigemptyset(&suspend_mask), 0);
+	UT_EXPECT_ERRNO(
+		syscall(SYS_rt_sigsuspend, &suspend_mask, sizeof(suspend_mask)),
+		EINVAL);
+	UT_EXPECT_ERRNO(syscall(SYS_rt_sigsuspend, NULL, sizeof(unsigned long)),
+			EFAULT);
+	UT_EXPECT_ERRNO(syscall(SYS_rt_sigsuspend, &suspend_mask,
+				sizeof(unsigned long) - 1),
+			EINVAL);
+	UT_ASSERT_EQ(sigemptyset(&action.sa_mask), 0);
+	UT_ASSERT_EQ(sigaction(SIGUSR1, &action, &old_action), 0);
+	UT_ASSERT_EQ(sigemptyset(&blocked), 0);
+	UT_ASSERT_EQ(sigaddset(&blocked, SIGUSR1), 0);
+	UT_ASSERT_EQ(sigprocmask(SIG_BLOCK, &blocked, &old_mask), 0);
+	UT_ASSERT_EQ(sigemptyset(&suspend_mask), 0);
+	UT_ASSERT_EQ(sigaddset(&suspend_mask, SIGCHLD), 0);
+	signal_count = 0;
+	child = UT_FORK();
+	if (child == 0) {
+		signal_sleep_ms(30);
+		(void)kill(getppid(), SIGUSR1);
+		_exit(0);
+	}
+	UT_EXPECT_ERRNO(sigsuspend(&suspend_mask), EINTR);
+	UT_EXPECT_EQ(signal_count, 1);
+	UT_ASSERT_EQ(sigprocmask(SIG_SETMASK, NULL, &observed), 0);
+	UT_EXPECT(sigismember(&observed, SIGUSR1));
+	UT_EXPECT_EXIT(child, 0);
+	UT_ASSERT_EQ(sigprocmask(SIG_SETMASK, &old_mask, NULL), 0);
+	UT_ASSERT_EQ(sigaction(SIGUSR1, &old_action, NULL), 0);
+}
+
 UT_CASE(signal_sigchld_process_group_and_fatal_status, 5000)
 {
 	struct sigaction action = {

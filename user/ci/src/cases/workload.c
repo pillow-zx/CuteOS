@@ -109,6 +109,14 @@ UT_CASE(workload_busybox_init_ash_and_file_flow, 20000)
 	sync();
 }
 
+UT_CASE(workload_busybox_ash_blocking_wait, 5000)
+{
+	static const char script[] = "sleep 1 &\n"
+				     "wait\n";
+
+	workload_run_shell(script);
+}
+
 UT_CASE(workload_busybox_pathname_applets, 5000)
 {
 	static const char script[] =

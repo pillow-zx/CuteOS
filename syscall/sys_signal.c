@@ -189,6 +189,26 @@ ssize_t sys_sigpending(struct trap_frame *tf)
 }
 
 /*
+ * SYSCALL_SUPPORT(B): rt_sigsuspend
+ * Current: replaces the calling mask while waiting for an unblocked signal,
+ * then returns -EINTR and restores the prior mask after handler return.
+ * Unsupported: real-time signals 32..64 and queued duplicate instances.
+ * Future: extend the signal model only when a real workload needs RT signals.
+ */
+ssize_t sys_sigsuspend(struct trap_frame *tf)
+{
+	const uint64_t *uset = (const uint64_t *)syscall_arg(tf, 0);
+	size_t sigsetsize = (size_t)syscall_arg(tf, 1);
+	uint64_t set;
+
+	if (sigsetsize != sizeof(unsigned long))
+		return -EINVAL;
+	if (copy_from_user(&set, uset, sizeof(set)) != 0)
+		return -EFAULT;
+	return signal_sigsuspend(set);
+}
+
+/*
  * SYSCALL_SUPPORT(B): rt_sigtimedwait
  * Current: consumes thread-private or shared standard signals, waits with an
  * optional relative timeout, returns siginfo, and is interrupted by an

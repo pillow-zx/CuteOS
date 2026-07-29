@@ -287,6 +287,17 @@ int do_sigaction(int sig, const struct sigaction *act,
 int do_sigprocmask(int how, const uint64_t *set, uint64_t *oldset);
 
 /**
+ * @brief Temporarily replace the signal mask and wait for interruption.
+ * @param mask Replacement blocked signal mask.
+ * @return Always -EINTR after an unblocked signal is observed, or a negative
+ *         errno from the wait subsystem.
+ *
+ * The previous mask is restored through the signal-frame path after a caught
+ * signal handler returns to userspace.
+ */
+int signal_sigsuspend(uint64_t mask);
+
+/**
  * @brief Synchronously consume or wait for a pending signal in a set.
  * @param set Signals accepted by the wait.
  * @param timeout Optional relative timeout; NULL waits indefinitely.

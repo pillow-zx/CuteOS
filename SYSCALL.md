@@ -274,11 +274,18 @@ vfork 调用任务只在 completion 或 pending `SIGKILL` 时离开其 killable
 | 130 | `tkill` | B | tid 投递 | 权限模型浅 | 补 cred 检查 |
 | 131 | `tgkill` | B | tgid+tid 投递 | 权限模型浅 | 同 tkill |
 | 132 | `sigaltstack` | B | 注册/查询 altstack | SS_AUTODISARM 等未支持 | 明确 flag policy |
+| 133 | `rt_sigsuspend` | B | 临时替换 blocked mask，等待未屏蔽 signal，返回 `-EINTR`；caught handler 返回后恢复调用前 mask | 仅信号 1..31；实时信号和重复排队未实现 | 按真实工作负载扩展 RT signal 模型 |
 | 134 | `rt_sigaction` | B | handler/mask，支持 `SA_ONSTACK/NODEFER/RESETHAND/RESTART/SIGINFO` | Linux 完整 signal action flag/queue 语义仍缺失 | 继续按真实工作负载扩展 |
 | 135 | `rt_sigprocmask` | B | 设/查 blocked mask | sigset size 固定 unsigned long | 保持 ABI 断言 |
 | 136 | `rt_sigpending` | B | 查询当前线程私有与线程组共享 pending mask | sigset size 固定 unsigned long；实时信号未实现 | 保持 ABI 断言 |
 | 137 | `rt_sigtimedwait` | B | 消费线程私有或线程组共享 pending；支持 NULL/零值/有限相对 timeout、siginfo、目标信号唤醒和非目标信号 `-EINTR` | 仅信号 1..31；实时信号和重复排队未实现 | 按真实工作负载扩展 RT signal 模型 |
 | 139 | `rt_sigreturn` | B | 从当前 kernel-tracked `rt_sigframe` 恢复用户上下文/mask；嵌套 handler 按 LIFO 返回 | 浮点/向量扩展状态仍受限 | 继续补架构状态边界测试 |
+
+`rt_sigsuspend` 接受 Linux riscv64 的 8 字节 sigset ABI。signal subsystem
+先安装复制后的 mask，再通过 interruptible wait 注册并阻塞；wait module 的二次
+检查确保安装临时 mask 与真正阻塞之间不会遗漏 signal。被 unblocked signal
+打断时，旧 mask 由 signal frame 保存，handler 期间临时 mask 继续生效，
+`rt_sigreturn` 再恢复旧 mask，最终 syscall 返回 `-EINTR`。
 
 `rt_sigtimedwait` 接受 Linux riscv64 的 8 字节 sigset ABI，但当前只消费
 1..31 号标准信号，并排除 `SIGKILL/SIGSTOP`。同一等待集合中先选择线程私有

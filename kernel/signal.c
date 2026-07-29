@@ -1090,6 +1090,26 @@ static int take_pending_from_set(uint64_t set, siginfo_t *info)
 	return take_shared_pending_from_set(set, info);
 }
 
+int signal_sigsuspend(uint64_t mask)
+{
+	struct wait_deadline deadline = wait_deadline_none();
+	uint64_t blocked;
+	wait_outcome_t outcome;
+	int ret;
+
+	blocked = signal_blocked_mask(current_task());
+	signal_set_blocked_mask(current_task(), mask);
+	ret = wait_for(NULL, WAIT_FLAG_INTERRUPTIBLE, &deadline, &outcome);
+	if (ret < 0) {
+		signal_set_blocked_mask(current_task(), blocked);
+		return ret;
+	}
+
+	BUG_ON(outcome != WAIT_OUTCOME_SIGNAL);
+	signal_defer_mask_restore(current_task(), blocked);
+	return -EINTR;
+}
+
 int signal_wait_pending(uint64_t set, const struct timespec *timeout,
 			siginfo_t *info)
 {

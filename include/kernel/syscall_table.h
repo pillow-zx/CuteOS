@@ -89,9 +89,10 @@
 	X(SYS_tkill, "tkill", sys_tkill)                                       \
 	X(SYS_tgkill, "tgkill", sys_tgkill)                                    \
 	X(SYS_sigaltstack, "sigaltstack", sys_sigaltstack)                     \
+	X(SYS_rt_sigsuspend, "rt_sigsuspend", sys_sigsuspend)                  \
 	X(SYS_rt_sigaction, "rt_sigaction", sys_sigaction)                     \
 	X(SYS_rt_sigprocmask, "rt_sigprocmask", sys_sigprocmask)               \
-	X(SYS_rt_sigpending, "rt_sigpending", sys_sigpending)                 \
+	X(SYS_rt_sigpending, "rt_sigpending", sys_sigpending)                  \
 	X(SYS_rt_sigtimedwait, "rt_sigtimedwait", sys_sigtimedwait)            \
 	X(SYS_rt_sigreturn, "rt_sigreturn", sys_sigreturn)                     \
 	X(SYS_reboot, "reboot", sys_reboot)                                    \

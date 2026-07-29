@@ -364,6 +364,7 @@ void signals_release(struct task_struct *task);
 int send_signal(int sig, struct task_struct *task);
 int send_group_signal(int sig, struct task_struct *leader);
 int force_signal(int sig, struct task_struct *task);
+int signal_sigsuspend(uint64_t mask);
 int signal_wait_pending(uint64_t set, const struct timespec *timeout,
                         siginfo_t *info);
 void do_signal(struct trap_frame *tf);
@@ -390,6 +391,12 @@ per-thread forced-pending 标记绕过该保护，避免把同步内核故障静
 用户进程的 kernel-only task，再向每个用户线程组投递一次。角色不依赖当前 `mm`，
 所以 exit teardown 不会改变该筛选；它也避免 writeback 等内核线程收到永远无法经过
 用户返回路径处理的 pending signal。
+
+`signal_sigsuspend()` 是 `rt_sigsuspend` 的 signal-policy seam。它安装完整的
+临时 mask 后调用 generic interruptible wait；wait module 的二次 condition check
+保证临时 mask 生效到 waiter 进入 sleep 的区间没有 lost wakeup。signal 打断后，它
+将原 mask 延迟到 signal frame 建立时保存，使 handler 使用临时 mask，随后由
+`rt_sigreturn` 恢复原 mask。
 
 `signal_wait_pending()` 是同步 pending 消费与等待的 seam。它优先消费当前线程
 pending，再消费线程组 shared pending；没有目标信号时临时从 blocked mask 移除等待
