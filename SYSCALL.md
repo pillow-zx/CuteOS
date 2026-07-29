@@ -227,7 +227,7 @@ pgrp 发送 `SIGHUP`、`SIGCONT`。输入信号不向无 owner 的 reader 回退
 | 173 | `getppid` | A | 返回 parent pid | orphan/adoption 已依赖 task | 保持 |
 | 178 | `gettid` | A | 返回 task pid | 保持 |
 | 220 | `clone` | B | 支持 fork-like、线程子集和 non-thread vfork，见 flag 支持表 | clone3/namespace 与完整线程组细节不支持 | 按真实线程库需求扩展 |
-| 221 | `execve` | A | 通过 VFS 加载静态非 PIE `ET_EXEC` ELF，复制 argv/envp，安装新 mm 和 Linux riscv64 auxv；先解除 `CLONE_FILES`，再原子 detach close-on-exec fd | `ET_DYN`、解释器脚本和动态链接不支持 | 保持静态 ELF 主线，补 auxv/错误码测试 |
+| 221 | `execve` | A | 通过 VFS 加载静态非 PIE `ET_EXEC` ELF，复制 argv/envp，安装新 mm 和 Linux riscv64 auxv；重置捕获的 signal disposition，先解除 `CLONE_FILES`，再原子 detach close-on-exec fd | `ET_DYN`、解释器脚本和动态链接不支持 | 保持静态 ELF 主线，补 auxv/错误码测试 |
 | 260 | `wait4` | B | 等待 pid `-1` 或正 pid，支持 `WNOHANG`、`WUNTRACED`、`WCONTINUED` 和 rusage；每个成功事件均 snapshot child cputime，exit、signal-stop、continue 均返回 Linux status；`SA_RESTART` 重放可中断的阻塞等待 | `pid == 0`、`pid < -1` 的 process-group selector 和其它 options 返回 `-EINVAL` | 仅按真实 shell trace 扩展 selector |
 
 ### `clone` flag 支持表

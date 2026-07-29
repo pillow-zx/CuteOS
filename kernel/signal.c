@@ -425,6 +425,26 @@ int signals_clone(struct task_struct *child, bool share_sighand,
 	return 0;
 }
 
+void signals_execve(struct task_struct *task)
+{
+	struct sighand_struct *sighand;
+
+	if (!task)
+		return;
+	sighand = task_sighand(task);
+	if (!sighand)
+		return;
+
+	mutex_lock(&sighand->lock);
+	for (int sig = 1; sig < NSIG; sig++) {
+		struct sigaction *action = &sighand->sigactions[sig];
+
+		if (action->sa_handler != SIG_IGN)
+			memset(action, 0, sizeof(*action));
+	}
+	mutex_unlock(&sighand->lock);
+}
+
 static struct task_struct *find_task_by_pid(pid_t pid)
 {
 	return task_find_thread(pid);

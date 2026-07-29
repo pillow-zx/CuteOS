@@ -28,6 +28,11 @@ static void runtime_exec_probe(const char *probe, char *const argv[],
 	UT_EXPECT_EXIT(child, 0);
 }
 
+static void runtime_exec_signal_handler(int signal)
+{
+	(void)signal;
+}
+
 UT_CASE(runtime_exec_argv_env, 5000)
 {
 	char *probe = ut_exec_path("utest-probe-argv-env");
@@ -94,6 +99,31 @@ UT_CASE(runtime_exec_initial_tls, 5000)
 	UT_EXPECT_STREQ(content, "isolated\n");
 	free(content);
 	free(output);
+	free(probe);
+}
+
+UT_CASE(runtime_exec_resets_caught_signal_dispositions, 5000)
+{
+	char *probe = ut_exec_path("utest-probe-exec-signal");
+	char *const argv[] = {
+		probe,
+		NULL,
+	};
+	struct sigaction action = {
+		.sa_handler = runtime_exec_signal_handler,
+	};
+	pid_t child;
+
+	UT_ASSERT(probe != NULL);
+	UT_ASSERT_EQ(sigemptyset(&action.sa_mask), 0);
+	child = UT_FORK();
+	if (child == 0) {
+		if (sigaction(SIGUSR1, &action, NULL) < 0)
+			_exit(127);
+		execve(probe, argv, NULL);
+		_exit(127);
+	}
+	UT_EXPECT_EXIT(child, 0);
 	free(probe);
 }
 

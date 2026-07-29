@@ -683,7 +683,7 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 	install_exec_mm(mm, tf, entry, sp);
 	task_mark_user_process(current_task());
 	files_close_on_exec(task_files_safe(current_task()));
-	signal_clear_frames(current_task());
+	signal_clear_frames(current_task());	signals_execve(current_task());
 	restart_clear(current_task());
 	rseq_execve(current_task());
 

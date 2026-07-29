@@ -205,6 +205,15 @@ bool signal_fatal_pending(struct task_struct *task);
 int signals_init(struct task_struct *task);
 int signals_clone(struct task_struct *child, bool share_sighand,
 		  bool share_signal, bool disable_altstack);
+
+/**
+ * @brief Apply the signal-disposition transition required by exec.
+ * @param task Task that successfully installed a new user image.
+ *
+ * Caught dispositions are reset to @c SIG_DFL, while @c SIG_IGN remains
+ * ignored. The signal mask and pending signals are left unchanged.
+ */
+void signals_execve(struct task_struct *task);
 void signals_release(struct task_struct *task);
 /**
  * @brief Discard all active signal-frame validation records for a task.

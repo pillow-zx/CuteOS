@@ -126,8 +126,9 @@ UTEST_PROBE_ARGV_ENV = $(UTEST_BUILD)/utest-probe-argv-env
 UTEST_PROBE_BSS = $(UTEST_BUILD)/utest-probe-bss
 UTEST_PROBE_TLS = $(UTEST_BUILD)/utest-probe-tls
 UTEST_PROBE_CLOEXEC = $(UTEST_BUILD)/utest-probe-cloexec
+UTEST_PROBE_EXEC_SIGNAL = $(UTEST_BUILD)/utest-probe-exec-signal
 UTEST_ELFS = $(UTEST_RUNNER) $(UTEST_PROBE_ARGV_ENV) $(UTEST_PROBE_BSS) \
-	$(UTEST_PROBE_TLS) $(UTEST_PROBE_CLOEXEC)
+	$(UTEST_PROBE_TLS) $(UTEST_PROBE_CLOEXEC) $(UTEST_PROBE_EXEC_SIGNAL)
 
 UTEST_CASE_SRCS := $(sort $(shell find $(UTEST_SRC)/src/cases -type f -name '*.c'))
 UTEST_RUNNER_SRCS = $(UTEST_SRC)/src/utest.c $(UTEST_SRC)/src/runner.c \
@@ -168,6 +169,13 @@ $(UTEST_PROBE_TLS): $(UTEST_SRC)/src/probes/tls.c $(MUSL_SPECS) \
 	$(Q)$(USER_ELF_CHECK) $(USER_READELF) $@
 
 $(UTEST_PROBE_CLOEXEC): $(UTEST_SRC)/src/probes/cloexec.c $(MUSL_SPECS) \
+		$(COMPILER_RT_A)
+	$(QUIET_UTEST)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)$(UTEST_CC) $(UTEST_CFLAGS) -o $@ $< $(UTEST_LDFLAGS)
+	$(Q)$(USER_ELF_CHECK) $(USER_READELF) $@
+
+$(UTEST_PROBE_EXEC_SIGNAL): $(UTEST_SRC)/src/probes/exec_signal.c $(MUSL_SPECS) \
 		$(COMPILER_RT_A)
 	$(QUIET_UTEST)
 	$(Q)mkdir -p $(dir $@)
