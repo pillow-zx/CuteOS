@@ -117,6 +117,15 @@ UT_CASE(workload_busybox_ash_blocking_wait, 5000)
 	workload_run_shell(script);
 }
 
+UT_CASE(workload_busybox_date_set_and_read, 5000)
+{
+	static const char script[] = "set -eu\n"
+				     "date -u -s '@1700000010' > date.set\n"
+				     "test \"$(date -u +%s)\" = 1700000010\n";
+
+	workload_run_shell(script);
+}
+
 UT_CASE(workload_busybox_pathname_applets, 5000)
 {
 	static const char script[] =

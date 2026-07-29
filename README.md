@@ -95,7 +95,7 @@ QEMU 启动后进入串口 shell；使用 `Ctrl-a x` 退出。常用命令：
 
 - [CONTEXT.md](CONTEXT.md)：架构边界、稳定入口、当前并发模型和修改导航。
 - [SYSCALL.md](SYSCALL.md)：syscall 成熟度、语义边界和优先级。
-- `docs/architecture/`：boot、trap、调度、内存、VFS、block 和 ext2 的详细设计。
+- `docs/architecture/`：boot、trap、调度、时间、内存、VFS、block 和 ext2 的详细设计。
 - [AGENTS.md](AGENTS.md)：贡献和自动化修改规则。
 
 新增内核源文件必须进入 `scripts/kernel.mk` 的对象清单。修改用户可见 ABI 时，须同步检查

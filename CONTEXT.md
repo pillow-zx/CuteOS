@@ -288,6 +288,7 @@ does not absorb generic lifecycle policy.
 | syscall semantics | `SYSCALL.md`, `include/kernel/syscall_table.h`, matching `syscall/sys_*.c` |
 | trap, signal, rseq | `docs/architecture/trap.md`, `arch/riscv/trap.c`, `kernel/user_return.c` |
 | scheduler and wait/wake | `docs/architecture/sched.md`, `sched/`, `kernel/waitqueue.c` |
+| time and timers | `docs/architecture/time.md`, `kernel/time.c`, `arch/riscv/timer.c` |
 | VM or user access | `docs/architecture/memory.md`, `include/kernel/mm.h`, `mm/` |
 | VFS or paths | `docs/architecture/vfs.md`, `include/kernel/fs.h`, `fs/vfs/` |
 | ext2 or cached I/O | `docs/architecture/ext2.md`, `docs/architecture/block.md`, `fs/ext2/`, `block/` |

@@ -9,7 +9,6 @@
 #include <kernel/stat.h>
 #include <kernel/task.h>
 #include <kernel/time.h>
-#include <kernel/timer.h>
 #include <kernel/vfs.h>
 
 #define ICACHE_HASH_BITS 6
@@ -130,7 +129,7 @@ static int64_t vfs_current_time_sec(void)
 {
 	struct timespec ts;
 
-	mtime_to_timespec(arch_timer_now(), &ts);
+	kernel_realtime_now(&ts);
 	return ts.tv_sec;
 }
 
@@ -263,7 +262,6 @@ int vfs_inode_permission(struct inode *inode, uint32_t mask)
 		return -ENOENT;
 	if (!mask)
 		return 0;
-
 
 	if (task_uid(current_task()) == 0)
 		return 0;

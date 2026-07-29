@@ -41,21 +41,22 @@ ssize_t sys_times(struct trap_frame *tf)
 
 /*
  * SYSCALL_SUPPORT(B): gettimeofday
- * Current: reports boot-relative mtime as timeval and UTC timezone zeroes.
- * Unsupported errno: no RTC or real wall-clock source exists.
- * Future: revisit when platform RTC or wall-clock offset support exists.
+ * Current: reports the runtime CLOCK_REALTIME wall-clock offset as timeval and
+ * UTC timezone zeroes. The offset is volatile because no RTC exists.
+ * Unsupported errno: timezone policy is fixed to UTC zeroes.
+ * Future: add an RTC source and persistence policy when the device exists.
  */
 ssize_t sys_gettimeofday(struct trap_frame *tf)
 {
 	struct timeval *utv = (struct timeval *)syscall_arg(tf, 0);
 	struct timezone *utz = (struct timezone *)syscall_arg(tf, 1);
-	uint64_t ticks = arch_timer_now();
+	struct timespec kts;
 	struct timeval ktv;
 
 	if (utv) {
-		ktv.tv_sec = (int64_t)(ticks / MTIME_FREQ);
-		ktv.tv_usec = (int64_t)((ticks % MTIME_FREQ) * 1000000UL /
-					MTIME_FREQ);
+		kernel_realtime_now(&kts);
+		ktv.tv_sec = kts.tv_sec;
+		ktv.tv_usec = kts.tv_nsec / 1000;
 		if (copy_to_user(utv, &ktv, sizeof(ktv)) != 0)
 			return -EFAULT;
 	}
@@ -72,10 +73,10 @@ ssize_t sys_gettimeofday(struct trap_frame *tf)
 
 /*
  * SYSCALL_SUPPORT(B): clock_gettime
- * Current: REALTIME, MONOTONIC, and BOOTTIME all derive from mtime.
- * Unsupported errno: unsupported clock ids return -EINVAL; REALTIME is not a
- * real wall clock.
- * Future: document or split REALTIME once wall-clock state exists.
+ * Current: REALTIME is mtime plus a volatile wall-clock offset; MONOTONIC and
+ * BOOTTIME remain raw mtime.
+ * Unsupported errno: unsupported clock ids return -EINVAL.
+ * Future: add an RTC source and persistence policy when the device exists.
  */
 ssize_t sys_clock_gettime(struct trap_frame *tf)
 {
@@ -88,8 +89,10 @@ ssize_t sys_clock_gettime(struct trap_frame *tf)
 	if (!uts)
 		return -EFAULT;
 
-
-	mtime_to_timespec(arch_timer_now(), &kts);
+	if (clock_id == CLOCK_REALTIME)
+		kernel_realtime_now(&kts);
+	else
+		mtime_to_timespec(arch_timer_now(), &kts);
 	if (copy_to_user(uts, &kts, sizeof(kts)) != 0)
 		return -EFAULT;
 
@@ -117,7 +120,8 @@ ssize_t sys_clock_getres(struct trap_frame *tf)
 
 ssize_t sys_nanosleep(struct trap_frame *tf)
 {
-	const struct timespec *ureq = (const struct timespec *)syscall_arg(tf, 0);
+	const struct timespec *ureq =
+		(const struct timespec *)syscall_arg(tf, 0);
 	struct timespec *urem = (struct timespec *)syscall_arg(tf, 1);
 	struct wait_deadline deadline;
 	struct timespec req;
@@ -133,8 +137,7 @@ ssize_t sys_nanosleep(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	ret = wait_for(NULL, WAIT_FLAG_INTERRUPTIBLE, &deadline,
-			    &outcome);
+	ret = wait_for(NULL, WAIT_FLAG_INTERRUPTIBLE, &deadline, &outcome);
 	if (ret < 0)
 		return ret;
 	if (outcome == WAIT_OUTCOME_TIMEOUT)
@@ -166,7 +169,8 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 {
 	int clock_id = (int)syscall_arg(tf, 0);
 	int flags = (int)syscall_arg(tf, 1);
-	const struct timespec *ureq = (const struct timespec *)syscall_arg(tf, 2);
+	const struct timespec *ureq =
+		(const struct timespec *)syscall_arg(tf, 2);
 	struct timespec *urem = (struct timespec *)syscall_arg(tf, 3);
 	struct wait_deadline deadline;
 	struct timespec req;
@@ -175,6 +179,10 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 	int ret;
 
 	if (!clock_id_supported(clock_id))
+		return -EINVAL;
+	if (flags != 0 && flags != TIMER_ABSTIME)
+		return -EINVAL;
+	if (clock_id == CLOCK_REALTIME && flags == TIMER_ABSTIME)
 		return -EINVAL;
 	if (!ureq)
 		return -EFAULT;
@@ -191,11 +199,9 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 		ret = mtime_deadline_from_timespec(&req, &deadline);
 		if (ret < 0)
 			return ret;
-	} else
-		return -EINVAL;
+	}
 
-	ret = wait_for(NULL, WAIT_FLAG_INTERRUPTIBLE, &deadline,
-			    &outcome);
+	ret = wait_for(NULL, WAIT_FLAG_INTERRUPTIBLE, &deadline, &outcome);
 	if (ret < 0)
 		return ret;
 	if (outcome == WAIT_OUTCOME_TIMEOUT)
@@ -260,7 +266,8 @@ ssize_t sys_getitimer(struct trap_frame *tf)
 ssize_t sys_setitimer(struct trap_frame *tf)
 {
 	int which = (int)syscall_arg(tf, 0);
-	const struct itimerval *unew_value = (const struct itimerval *)syscall_arg(tf, 1);
+	const struct itimerval *unew_value =
+		(const struct itimerval *)syscall_arg(tf, 1);
 	struct itimerval *uold_value = (struct itimerval *)syscall_arg(tf, 2);
 	struct itimerval new_value = {0};
 	struct itimerval old_value;
@@ -401,7 +408,8 @@ ssize_t sys_timer_settime(struct trap_frame *tf)
 {
 	timer_t timerid = (timer_t)syscall_arg(tf, 0);
 	int flags = (int)syscall_arg(tf, 1);
-	const struct itimerspec *unew_value = (const struct itimerspec *)syscall_arg(tf, 2);
+	const struct itimerspec *unew_value =
+		(const struct itimerspec *)syscall_arg(tf, 2);
 	struct itimerspec *uold_value = (struct itimerspec *)syscall_arg(tf, 3);
 	struct itimerspec new_value;
 	struct itimerspec old_value;
@@ -446,35 +454,27 @@ ssize_t sys_timer_delete(struct trap_frame *tf)
 }
 
 /*
- * SYSCALL_SUPPORT(C): clock_settime
- * Current: validates the timespec; REALTIME returns -EPERM and other supported
- * clocks return -EINVAL.
- * Unsupported errno: unsupported clock ids or invalid timespecs return
- * -EINVAL.
- * Future: keep C until RTC or wall-clock offset support exists.
+ * SYSCALL_SUPPORT(B): clock_settime
+ * Current: root may set CLOCK_REALTIME through the volatile wall-clock offset.
+ * Unsupported errno: non-root callers return -EPERM; unsupported clock ids,
+ * malformed timespecs, and values before CLOCK_MONOTONIC return -EINVAL.
+ * Future: add an RTC source and persistence policy when the device exists.
  */
 ssize_t sys_clock_settime(struct trap_frame *tf)
 {
 	int clock_id = (int)syscall_arg(tf, 0);
-	const struct timespec *uts = (const struct timespec *)syscall_arg(tf, 1);
+	const struct timespec *uts =
+		(const struct timespec *)syscall_arg(tf, 1);
 	struct timespec kts;
 
-	if (!clock_id_supported(clock_id))
+	if (clock_id != CLOCK_REALTIME)
 		return -EINVAL;
 	if (!uts)
 		return -EFAULT;
 	if (copy_from_user(&kts, uts, sizeof(kts)) != 0)
 		return -EFAULT;
-	if (kts.tv_sec < 0 || kts.tv_nsec < 0 || kts.tv_nsec >= 1000000000LL)
-		return -EINVAL;
-
-	switch (clock_id) {
-	case CLOCK_REALTIME:
-
+	if (task_uid(current_task()) != 0)
 		return -EPERM;
-	case CLOCK_MONOTONIC:
-	case CLOCK_BOOTTIME:
-	default:
-		return -EINVAL;
-	}
+
+	return kernel_realtime_set(&kts);
 }

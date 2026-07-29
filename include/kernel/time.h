@@ -143,22 +143,23 @@ static inline __must_check __pure bool posix_timer_id_valid(timer_t id)
 }
 
 static inline __nonnull(1, 2) __access_no_size(read_only, 1)
-	__access_no_size(write_only, 2) void
-	itimer_state_value(const struct itimer_state *state,
-			   struct itimerval *value)
+	__access_no_size(write_only, 2) void itimer_state_value(
+		const struct itimer_state *state, struct itimerval *value)
 {
 	*value = state->value;
 }
 
 static inline __must_check __pure __nonnull(1)
-__access_no_size(read_only, 1) bool ktimer_active(const struct ktimer *timer)
+	__access_no_size(read_only,
+			 1) bool ktimer_active(const struct ktimer *timer)
 {
 	return timer->active;
 }
 
 static inline __must_check __pure __nonnull(1)
-__access_no_size(read_only, 1) bool ktimer_expired(const struct ktimer *timer,
-						   uint64_t now)
+	__access_no_size(read_only,
+			 1) bool ktimer_expired(const struct ktimer *timer,
+						uint64_t now)
 {
 	return timer->active && timer->expires <= now;
 }
@@ -181,13 +182,35 @@ void __nonnull(2) __access_no_size(write_only, 2)
 	mtime_to_timespec(uint64_t ticks, struct timespec *ts);
 
 /**
+ * @brief Read the runtime CLOCK_REALTIME value.
+ *
+ * The value is architecture mtime plus a volatile wall-clock offset. The
+ * offset is reset at boot because cuteOS has no RTC persistence source.
+ *
+ * @param value Output Linux timespec.
+ */
+void __nonnull(1) __access_no_size(write_only, 1)
+	kernel_realtime_now(struct timespec *value);
+
+/**
+ * @brief Set the runtime CLOCK_REALTIME value.
+ *
+ * The value must be a normalized, nonnegative timespec and cannot precede
+ * the current CLOCK_MONOTONIC value.
+ *
+ * @param value Requested Linux timespec.
+ * @return 0 on success, or a negative errno.
+ */
+int __must_check __nonnull(1) __access_no_size(read_only, 1)
+	kernel_realtime_set(const struct timespec *value);
+
+/**
  * @brief Convert a relative Linux timespec to mtime ticks.
  * @param ts Input relative timespec.
  * @param delta Output tick delta.
  * @return 0 on success, or a negative errno.
  */
-int __must_check __access_no_size(read_only, 1)
-	__access_no_size(write_only, 2)
+int __must_check __access_no_size(read_only, 1) __access_no_size(write_only, 2)
 	timespec_to_mtime_delta(const struct timespec *ts, uint64_t *delta);
 
 /**
@@ -197,13 +220,12 @@ int __must_check __access_no_size(read_only, 1)
  * @return Absolute deadline.
  */
 uint64_t __must_check __const mtime_deadline_after(uint64_t now,
-						  uint64_t delta);
+						   uint64_t delta);
 int __must_check __nonnull(2) __access_no_size(write_only, 2)
 	mtime_deadline_from_timespec(const struct timespec *ts,
 				     struct wait_deadline *deadline);
 int __must_check __nonnull(2) __access_no_size(write_only, 2)
-	mtime_deadline_from_ms(long timeout_ms,
-			       struct wait_deadline *deadline);
+	mtime_deadline_from_ms(long timeout_ms, struct wait_deadline *deadline);
 
 /**
  * @brief Initialize a kernel timer object.
@@ -240,12 +262,14 @@ void __nonnull(1) __access_no_size(read_write, 1)
 	itimer_state_destroy(struct itimer_state *state);
 int __must_check __nonnull(1, 2) __access_no_size(read_write, 1)
 	__access_no_size(write_only, 2)
-	itimer_get_value(struct itimer_state *state, struct itimerval *value);
+		itimer_get_value(struct itimer_state *state,
+				 struct itimerval *value);
 int __must_check __nonnull(1, 2, 3) __access_no_size(read_write, 1)
 	__access_no_size(read_only, 3)
-	itimer_set_real(struct itimer_state *state, struct task_struct *target,
-			const struct itimerval *new_value,
-			struct itimerval *old_value);
+		itimer_set_real(struct itimer_state *state,
+				struct task_struct *target,
+				const struct itimerval *new_value,
+				struct itimerval *old_value);
 
 void __nonnull(1) __access_no_size(write_only, 1)
 	posix_timer_table_init(struct posix_timer_table *table);
@@ -255,18 +279,20 @@ void __nonnull(1) __access_no_size(read_write, 1)
 	posix_timer_table_destroy(struct posix_timer_table *table);
 int __must_check __nonnull(1, 3) __access_no_size(read_write, 1)
 	__access_no_size(write_only, 3)
-	posix_timer_create(struct signal_struct *signal, clockid_t clock_id,
-			   timer_t *timerid, const sigevent_t *event,
-			   struct task_struct *target);
+		posix_timer_create(struct signal_struct *signal,
+				   clockid_t clock_id, timer_t *timerid,
+				   const sigevent_t *event,
+				   struct task_struct *target);
 int __must_check __nonnull(1, 3) __access_no_size(read_write, 1)
 	__access_no_size(write_only, 3)
-	posix_timer_gettime(struct signal_struct *signal, timer_t id,
-			    struct itimerspec *value);
+		posix_timer_gettime(struct signal_struct *signal, timer_t id,
+				    struct itimerspec *value);
 int __must_check __nonnull(1, 4) __access_no_size(read_write, 1)
 	__access_no_size(read_only, 4)
-	posix_timer_settime(struct signal_struct *signal, timer_t id, int flags,
-			    const struct itimerspec *new_value,
-			    struct itimerspec *old_value);
+		posix_timer_settime(struct signal_struct *signal, timer_t id,
+				    int flags,
+				    const struct itimerspec *new_value,
+				    struct itimerspec *old_value);
 int __must_check __nonnull(1) __access_no_size(read_write, 1)
 	posix_timer_getoverrun(struct signal_struct *signal, timer_t id);
 int __must_check __nonnull(1) __access_no_size(read_write, 1)

@@ -361,19 +361,19 @@ task-local LIFO 链。`rt_sigreturn` 只接受该链的当前栈顶地址，再�
 | 107 | `timer_create` | B | POSIX timer，支持 SIGEV_NONE/SIGNAL | SIGEV_THREAD、clock 细节缺失 | 补 sigevent 支持表 |
 | 108 | `timer_gettime` | B | 查询 timer | 保持 |
 | 109 | `timer_getoverrun` | B | overrun 计数 | 信号队列语义简化 | 跟 signal queue 一起推进 |
-| 110 | `timer_settime` | B | 支持 relative/absolute | clock realtime 偏移缺失 | 补测试 |
+| 110 | `timer_settime` | B | 支持 relative/absolute；`CLOCK_REALTIME + TIMER_ABSTIME` 明确返回 `-EINVAL` | 未重排 wall-clock 绝对 timer | 有可重排 timer 合约后扩展 |
 | 111 | `timer_delete` | B | 删除 timer | 保持 |
-| 112 | `clock_settime` | C | REALTIME 返回 `-EPERM`，其它 `-EINVAL` | 无 RTC/wall-clock offset | 加 RTC/offset 前保持 |
-| 113 | `clock_gettime` | B | REALTIME/MONOTONIC/BOOTTIME 基于 mtime | REALTIME 不是真实 wall clock | 文档化 |
+| 112 | `clock_settime` | B | UID 0 可设置 `CLOCK_REALTIME` 的运行期 offset；其它 clock 返回 `-EINVAL` | 无 RTC；重启后 offset 丢失；无 wall-clock timer 重排 | 有 RTC/device 模型后扩展 |
+| 113 | `clock_gettime` | B | REALTIME 为 mtime 加运行期 offset；MONOTONIC/BOOTTIME 为原始 mtime | 无 RTC；重启后 offset 丢失 | 有 RTC/device 模型后扩展 |
 | 114 | `clock_getres` | A | 返回 mtime 分辨率 | 保持 |
-| 115 | `clock_nanosleep` | B | relative/absolute sleep；relative `-EINTR` 写 remainder，absolute 不修改 remainder | clock 差异浅 | 与 clock_gettime 同步 |
+| 115 | `clock_nanosleep` | B | relative sleep；MONOTONIC/BOOTTIME absolute sleep；relative `-EINTR` 写 remainder，absolute 不修改 remainder | `CLOCK_REALTIME + TIMER_ABSTIME` 返回 `-EINVAL`，直到可重排 wall-clock deadline | 与可重排 timer 合约一起扩展 |
 
 `SA_RESTART` 当前不改变 sleep 行为。`nanosleep` 和相对
 `clock_nanosleep` 被 signal 打断时返回 `-EINTR`，remainder 满足
 `0 < remainder <= request`。绝对 `clock_nanosleep(TIMER_ABSTIME)` 同样返回
 `-EINTR`，但不写 remainder。
 | 153 | `times` | B | 当前/系统 tick，child time 部分 | 更完整 cputime 统计 | 补 child cputime 测试 |
-| 169 | `gettimeofday` | B | 基于启动后 mtime，timezone UTC | 无 RTC | 等平台 RTC |
+| 169 | `gettimeofday` | B | 运行期 `CLOCK_REALTIME`，timezone UTC | 无 RTC；重启后 offset 丢失 | 等平台 RTC |
 
 ## 内存管理
 
@@ -463,7 +463,7 @@ pthread 路径，跨进程 shared futex 的 inode/page-cache key 尚未实现。
 | `FUTEX_WAIT` / `FUTEX_WAIT_PRIVATE` | supported | 值不匹配返回 `-EAGAIN`；relative timeout 可返回 `-ETIMEDOUT`；signal 打断返回 `-EINTR` |
 | `FUTEX_WAKE` / `FUTEX_WAKE_PRIVATE` | supported | 返回唤醒 waiter 数；`nr <= 0` 返回 0 |
 | `FUTEX_PRIVATE_FLAG` | supported | 作为 pthread fast path 固定接受；当前 private/shared 都使用 mm-local key |
-| `FUTEX_CLOCK_REALTIME` | supported for wait ops | `FUTEX_WAIT` / `FUTEX_WAIT_BITSET` 接受；当前 `CLOCK_REALTIME` 与 mtime 同源，不承诺真实墙钟 |
+| `FUTEX_CLOCK_REALTIME` | unsupported | 返回 `-ENOSYS`；当前没有可随 `clock_settime` 重排的 futex deadline |
 | `FUTEX_WAIT_BITSET/WAKE_BITSET` | supported | `val3 == 0` 返回 `-EINVAL`；WAIT_BITSET timeout 为 absolute；WAKE_BITSET 只唤醒 bitset 相交 waiter |
 | `FUTEX_REQUEUE/CMP_REQUEUE/WAKE_OP` | unsupported | `-ENOSYS` |
 | PI futex ops | unsupported | `FUTEX_LOCK_PI/UNLOCK_PI/TRYLOCK_PI/LOCK_PI2` 返回 `-ENOSYS` |

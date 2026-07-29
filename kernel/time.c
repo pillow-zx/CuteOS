@@ -15,6 +15,16 @@
 #include <kernel/wait.h>
 
 constexpr uint64_t USEC_PER_SEC = 1000000ULL;
+constexpr int64_t NSEC_PER_SEC = 1000000000LL;
+
+struct realtime_clock {
+	spinlock_t lock;
+	struct timespec offset;
+};
+
+static struct realtime_clock realtime_clock = {
+	.lock = SPINLOCK_INIT,
+};
 
 static struct {
 	spinlock_t lock;
@@ -27,6 +37,34 @@ static struct {
 static uint64_t nsec_from_mtime_remainder(uint64_t ticks)
 {
 	return ticks * 1000000000UL / MTIME_FREQ;
+}
+
+static bool timespec_is_valid(const struct timespec *ts)
+{
+	return ts && ts->tv_sec >= 0 && ts->tv_nsec >= 0 &&
+	       ts->tv_nsec < NSEC_PER_SEC;
+}
+
+static int timespec_compare(const struct timespec *left,
+			    const struct timespec *right)
+{
+	if (left->tv_sec != right->tv_sec)
+		return left->tv_sec < right->tv_sec ? -1 : 1;
+	if (left->tv_nsec != right->tv_nsec)
+		return left->tv_nsec < right->tv_nsec ? -1 : 1;
+	return 0;
+}
+
+static void timespec_subtract_nonnegative(const struct timespec *left,
+					  const struct timespec *right,
+					  struct timespec *result)
+{
+	result->tv_sec = left->tv_sec - right->tv_sec;
+	result->tv_nsec = left->tv_nsec - right->tv_nsec;
+	if (result->tv_nsec < 0) {
+		result->tv_nsec += NSEC_PER_SEC;
+		result->tv_sec--;
+	}
 }
 
 static bool timeval_is_zero(const struct timeval *tv)
@@ -288,6 +326,57 @@ void mtime_to_timespec(uint64_t ticks, struct timespec *ts)
 	ts->tv_nsec = (int64_t)nsec_from_mtime_remainder(rem);
 }
 
+void kernel_realtime_now(struct timespec *value)
+{
+	struct timespec monotonic;
+	struct timespec offset;
+	irq_flags_t flags;
+	int64_t seconds;
+	int64_t nanoseconds;
+
+	mtime_to_timespec(arch_timer_now(), &monotonic);
+	spin_lock_irqsave(&realtime_clock.lock, &flags);
+	offset = realtime_clock.offset;
+	spin_unlock_irqrestore(&realtime_clock.lock, flags);
+
+	if (check_add_overflow(monotonic.tv_sec, offset.tv_sec, &seconds))
+		goto saturated;
+	nanoseconds = monotonic.tv_nsec + offset.tv_nsec;
+	if (nanoseconds >= NSEC_PER_SEC) {
+		nanoseconds -= NSEC_PER_SEC;
+		if (check_add_overflow(seconds, 1LL, &seconds))
+			goto saturated;
+	}
+
+	value->tv_sec = seconds;
+	value->tv_nsec = nanoseconds;
+	return;
+
+saturated:
+	value->tv_sec = INT64_MAX;
+	value->tv_nsec = NSEC_PER_SEC - 1;
+}
+
+int kernel_realtime_set(const struct timespec *value)
+{
+	struct timespec monotonic;
+	struct timespec offset;
+	irq_flags_t flags;
+
+	if (!timespec_is_valid(value))
+		return -EINVAL;
+
+	mtime_to_timespec(arch_timer_now(), &monotonic);
+	if (timespec_compare(value, &monotonic) < 0)
+		return -EINVAL;
+
+	timespec_subtract_nonnegative(value, &monotonic, &offset);
+	spin_lock_irqsave(&realtime_clock.lock, &flags);
+	realtime_clock.offset = offset;
+	spin_unlock_irqrestore(&realtime_clock.lock, flags);
+	return 0;
+}
+
 int timespec_to_mtime_delta(const struct timespec *ts, uint64_t *delta)
 {
 	uint64_t sec_ticks;
@@ -295,7 +384,7 @@ int timespec_to_mtime_delta(const struct timespec *ts, uint64_t *delta)
 
 	if (!ts || !delta)
 		return -EINVAL;
-	if (ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= 1000000000LL)
+	if (!timespec_is_valid(ts))
 		return -EINVAL;
 
 	if ((uint64_t)ts->tv_sec > UINT64_MAX / MTIME_FREQ)
@@ -649,6 +738,10 @@ int posix_timer_settime(struct signal_struct *signal, timer_t id, int flags,
 	spin_lock_irqsave(&table->lock, &irq_flags);
 	timer = posix_timer_lookup_locked(table, id);
 	if (!timer) {
+		spin_unlock_irqrestore(&table->lock, irq_flags);
+		return -EINVAL;
+	}
+	if ((flags & TIMER_ABSTIME) && timer->clock_id == CLOCK_REALTIME) {
 		spin_unlock_irqrestore(&table->lock, irq_flags);
 		return -EINVAL;
 	}

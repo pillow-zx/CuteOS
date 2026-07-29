@@ -126,7 +126,7 @@ static int futex_wait(int *uaddr, int expected, uint32_t bitset,
 	struct futex_bucket *bucket;
 	struct futex_waiter waiter;
 	struct futex_wait_ctx wait_ctx;
-	struct wait_request source = { .kind = WAIT_KIND_FUTEX };
+	struct wait_request source = {.kind = WAIT_KIND_FUTEX};
 	wait_outcome_t outcome;
 	irq_flags_t flags;
 	int ret;
@@ -155,8 +155,7 @@ static int futex_wait(int *uaddr, int expected, uint32_t bitset,
 	source.arg = &wait_ctx;
 	source.channel_limit = 1;
 
-	ret = wait_for(&source, WAIT_FLAG_INTERRUPTIBLE, deadline,
-			    &outcome);
+	ret = wait_for(&source, WAIT_FLAG_INTERRUPTIBLE, deadline, &outcome);
 
 	spin_lock_irqsave(&bucket->lock, &flags);
 	if (!list_empty(&waiter.node))
@@ -272,7 +271,6 @@ void futex_exit_robust_list(struct task_struct *task)
 	struct robust_list *entry;
 	struct robust_list *pending;
 
-
 	head_ptr = task_robust_list(task);
 	if (!task || !head_ptr)
 		return;
@@ -328,8 +326,7 @@ int kernel_futex(const struct kernel_futex_args *args)
 		return -EINVAL;
 
 	cmd = args->op & FUTEX_CMD_MASK;
-	if ((args->op & FUTEX_CLOCK_REALTIME) && cmd != FUTEX_WAIT &&
-	    cmd != FUTEX_WAIT_BITSET)
+	if (args->op & FUTEX_CLOCK_REALTIME)
 		return -ENOSYS;
 
 	switch (cmd) {
