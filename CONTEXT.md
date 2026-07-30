@@ -13,11 +13,9 @@ tests for the behavior it claims to support. It keeps modern-kernel-inspired
 core abstractions, while intentionally avoiding the policy and device breadth
 of a production kernel.
 
-It is also a pre-validation platform for kernel-mechanism research: implement
-and compare a theory in a controlled environment with reusable Linux-ABI
-workloads, then move designs that pass this stage to Linux for detailed
-measurement and external-validity analysis. cuteOS results establish relative
-evidence only; they are not Linux performance claims.
+It is also a platform for kernel-mechanism research: reusable Linux-ABI
+workloads support controlled implementation and comparison. cuteOS results
+establish relative evidence only; they are not Linux performance claims.
 
 Current target:
 
@@ -28,19 +26,9 @@ Current target:
 - Linux numeric errno and Linux riscv64 syscall numbers and layouts for every
   supported ABI boundary.
 
-The roadmap is ordered by dependency, not by feature appeal:
-
-1. Deepen syscall semantics against real workloads and regression tests.
-2. Establish SMP-safe concurrency foundations: atomics, locking, memory
-   ordering, IRQ rules, and wait/wake ownership.
-3. Make the single-core kernel preemptible under that contract.
-4. Add minimal SMP: hart bring-up, per-hart current state and runqueues, IPI,
-   remote wakeups, and required TLB handling.
-5. Add SMP policy: affinity, balancing, migration, and work stealing.
-
-Portability is not a separate roadmap stage. New code must keep architecture
-mechanism behind narrow `arch/` seams and keep generic policy free of RISC-V
-CSR, trap-frame, page-table, SBI, or platform-MMIO knowledge.
+New code must keep architecture mechanism behind narrow `arch/` seams and
+keep generic policy free of RISC-V CSR, trap-frame, page-table, SBI, or
+platform-MMIO knowledge.
 
 ## Project Language
 
@@ -220,10 +208,10 @@ parent, then delivers `SIGCHLD` only after unlocking. `exit` owns wait4
 selector and status policy; syscall code owns only Linux ABI validation,
 uaccess, and the final commit or abort.
 
-Until stage 2 is complete, do not add a feature that is only correct because
-execution happens on one hart. During stages 2--5, keep task state transitions,
-runqueue membership, remote wakeup and migration as separate, explicit
-contracts; do not fold their policy into syscall handlers.
+Do not add a feature that is only correct because execution happens on one
+hart. Keep task state transitions, runqueue membership, remote wakeup and
+migration as separate, explicit contracts; do not fold their policy into
+syscall handlers.
 
 ### Generic kernel containers
 
