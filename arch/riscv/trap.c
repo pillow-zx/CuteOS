@@ -103,10 +103,10 @@ void trap_set_hook(trap_test_hook_t hook)
 
 static void handle_timer_irq(void)
 {
-	uint64_t now = arch_timer_now();
+	uint64_t now = timer_now();
 
 	jiffies++;
-	arch_timer_set(now + CLOCKS_PER_TICK);
+	timer_set(now + CLOCKS_PER_TICK);
 	timer_run_expired(now);
 
 	sched_tick();

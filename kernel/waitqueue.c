@@ -226,7 +226,7 @@ static wait_outcome_t wait_arbitrate(int probe_result, wait_flags_t flags,
 	if ((flags & WAIT_FLAG_KILLABLE) &&
 	    signal_fatal_pending(current_task()))
 		return WAIT_OUTCOME_SIGNAL;
-	if (deadline->active && arch_timer_now() >= deadline->expires)
+	if (deadline->active && timer_now() >= deadline->expires)
 		return WAIT_OUTCOME_TIMEOUT;
 	return 0;
 }

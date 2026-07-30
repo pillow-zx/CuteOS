@@ -9,7 +9,7 @@ static uint64_t random_next_u64(void)
 	uint64_t value = random_state;
 
 	if (value == 0)
-		value = arch_timer_now() ^ ((uintptr_t)current_task() << 17) ^
+		value = timer_now() ^ ((uintptr_t)current_task() << 17) ^
 			0x9e3779b97f4a7c15ULL;
 
 	value ^= value << 13;

@@ -170,7 +170,7 @@ static void __noreturn user_trap_test_resume(void)
 	if (task_is_queued(next))
 		sched_dequeue(next);
 	set_current_task(next);
-	arch_task_switch(prev, next);
+	task_switch(prev, next);
 	panic("user trap test resume returned unexpectedly");
 }
 

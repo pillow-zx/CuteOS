@@ -36,13 +36,13 @@ extern volatile uint64_t jiffies;
  * @brief Read the architecture mtime counter.
  * @return Current mtime ticks.
  */
-uint64_t arch_timer_now(void);
+uint64_t timer_now(void);
 
 /**
  * @brief Program the next architecture timer interrupt.
  * @param value Absolute mtime tick value.
  */
-void arch_timer_set(uint64_t value);
+void timer_set(uint64_t value);
 
 /**
  * @brief Run expired kernel timers.
@@ -53,6 +53,6 @@ void timer_run_expired(uint64_t now);
 /**
  * @brief Initialize architecture timer hardware.
  */
-void arch_timer_init(void);
+void timer_init(void);
 
 #endif

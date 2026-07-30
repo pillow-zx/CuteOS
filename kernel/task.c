@@ -494,7 +494,7 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 		return NULL;
 	}
 
-	arch_task_setup_kernel_thread(task, fn, arg);
+	task_setup_kthread(task, fn, arg);
 
 	task_link_child(parent, task);
 

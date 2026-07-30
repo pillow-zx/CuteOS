@@ -335,7 +335,7 @@ void rseq_clone(struct task_struct *child, const struct task_struct *parent,
 
 void rseq_sched_switch(struct task_struct *prev)
 {
-	if (!prev || !rseq_task_area(prev) || !arch_task_trap_from_user(prev))
+	if (!prev || !rseq_task_area(prev) || !task_trap_frome_user(prev))
 		return;
 
 	rseq_task_set_need_update(prev, 1);

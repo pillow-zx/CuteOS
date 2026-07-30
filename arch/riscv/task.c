@@ -11,7 +11,7 @@
 #include <asm/csr.h>
 
 static __must_check __pure uintptr_t
-arch_task_satp_or_kernel(const struct task_struct *task)
+task_pgroot(const struct task_struct *task)
 {
 	uint64_t satp = task_address_space_satp(task);
 
@@ -26,7 +26,7 @@ void arch_task_init(struct task_struct *task)
 	task_set_satp(task, 0);
 }
 
-void arch_task_setup_kernel_thread(struct task_struct *task, void (*fn)(void *),
+void task_setup_kthread(struct task_struct *task, void (*fn)(void *),
 				   void *arg)
 {
 	struct trap_frame *tf = task_kernel_trap_frame(task);
@@ -38,7 +38,7 @@ void arch_task_setup_kernel_thread(struct task_struct *task, void (*fn)(void *),
 	task->arch.ctx.sp = (size_t)tf;
 }
 
-void arch_task_setup_clone_frame(struct task_struct *child,
+void task_setup_clone_frame(struct task_struct *child,
 				 const struct trap_frame *parent_tf,
 				 unsigned long flags, uintptr_t child_stack,
 				 uintptr_t tls)
@@ -57,24 +57,24 @@ void arch_task_setup_clone_frame(struct task_struct *child,
 	child->arch.ctx.sp = (size_t)child_tf;
 }
 
-void arch_task_switch_address_space(const struct task_struct *prev,
+void task_switch_address_space(const struct task_struct *prev,
 				    const struct task_struct *next)
 {
-	const uintptr_t satp_val = arch_task_satp_or_kernel(next);
+	const uintptr_t satp_val = task_pgroot(next);
 
-	if (arch_task_satp_or_kernel(prev) == satp_val)
+	if (task_pgroot(prev) == satp_val)
 		return;
 
 	csr_write(satp, satp_val);
 	tlb_flush_all();
 }
 
-void arch_task_switch(struct task_struct *prev, struct task_struct *next)
+void task_switch(struct task_struct *prev, struct task_struct *next)
 {
 	switch_to(&prev->arch.ctx, &next->arch.ctx);
 }
 
-bool arch_task_trap_from_user(const struct task_struct *task)
+bool task_trap_frome_user(const struct task_struct *task)
 {
 	const struct trap_frame *tf = task_trap_frame_const(task);
 

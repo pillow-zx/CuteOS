@@ -334,7 +334,7 @@ void kernel_realtime_now(struct timespec *value)
 	int64_t seconds;
 	int64_t nanoseconds;
 
-	mtime_to_timespec(arch_timer_now(), &monotonic);
+	mtime_to_timespec(timer_now(), &monotonic);
 	spin_lock_irqsave(&realtime_clock.lock, &flags);
 	offset = realtime_clock.offset;
 	spin_unlock_irqrestore(&realtime_clock.lock, flags);
@@ -366,7 +366,7 @@ int kernel_realtime_set(const struct timespec *value)
 	if (!timespec_is_valid(value))
 		return -EINVAL;
 
-	mtime_to_timespec(arch_timer_now(), &monotonic);
+	mtime_to_timespec(timer_now(), &monotonic);
 	if (timespec_compare(value, &monotonic) < 0)
 		return -EINVAL;
 
@@ -423,8 +423,7 @@ int mtime_deadline_from_timespec(const struct timespec *ts,
 	if (ret < 0)
 		return ret;
 
-	*deadline =
-		wait_deadline_at(mtime_deadline_after(arch_timer_now(), delta));
+	*deadline = wait_deadline_at(mtime_deadline_after(timer_now(), delta));
 	return 0;
 }
 
@@ -438,7 +437,7 @@ int mtime_deadline_from_ms(long timeout_ms, struct wait_deadline *deadline)
 		return 0;
 
 	if (timeout_ms == 0) {
-		*deadline = wait_deadline_at(arch_timer_now());
+		*deadline = wait_deadline_at(timer_now());
 		return 0;
 	}
 
@@ -448,8 +447,7 @@ int mtime_deadline_from_ms(long timeout_ms, struct wait_deadline *deadline)
 	else
 		delta = (ms * MTIME_FREQ + 999ULL) / 1000ULL;
 
-	*deadline =
-		wait_deadline_at(mtime_deadline_after(arch_timer_now(), delta));
+	*deadline = wait_deadline_at(mtime_deadline_after(timer_now(), delta));
 	return 0;
 }
 
@@ -547,7 +545,7 @@ int itimer_get_value(struct itimer_state *state, struct itimerval *value)
 	irq_flags_t flags;
 
 	spin_lock_irqsave(&state->lock, &flags);
-	itimer_snapshot_locked(state, value, arch_timer_now());
+	itimer_snapshot_locked(state, value, timer_now());
 	spin_unlock_irqrestore(&state->lock, flags);
 	return 0;
 }
@@ -571,7 +569,7 @@ int itimer_set_real(struct itimer_state *state, struct task_struct *target,
 		return ret;
 
 	spin_lock_irqsave(&state->lock, &flags);
-	now = arch_timer_now();
+	now = timer_now();
 	if (old_value)
 		itimer_snapshot_locked(state, old_value, now);
 	cancelled = ktimer_cancel(&state->timer);
@@ -705,7 +703,7 @@ int posix_timer_gettime(struct signal_struct *signal, timer_t id,
 		return -EINVAL;
 	}
 
-	now = arch_timer_now();
+	now = timer_now();
 	posix_timer_snapshot_locked(timer, value, now);
 	spin_unlock_irqrestore(&table->lock, flags);
 	return 0;
@@ -746,7 +744,7 @@ int posix_timer_settime(struct signal_struct *signal, timer_t id, int flags,
 		return -EINVAL;
 	}
 
-	now = arch_timer_now();
+	now = timer_now();
 	if (old_value)
 		posix_timer_snapshot_locked(timer, old_value, now);
 

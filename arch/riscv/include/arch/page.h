@@ -81,6 +81,6 @@ void pagetable_init(void);
 /**
  * @brief Return the first physical address available after boot allocations.
  */
-void *__must_check arch_bootmem_end(void);
+void *__must_check bootmem_end(void);
 
 #endif

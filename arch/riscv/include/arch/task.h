@@ -23,7 +23,7 @@ constexpr uint32_t ARCH_KSTACK_ORDER = 1;
 constexpr size_t ARCH_KSTACK_SIZE = PAGE_SIZE << ARCH_KSTACK_ORDER;
 
 /**
- * @struct task_arch_state
+ * @struct task_state
  * @brief RISC-V-owned task state embedded in struct task_struct.
  *
  * @par Fields
@@ -32,7 +32,7 @@ constexpr size_t ARCH_KSTACK_SIZE = PAGE_SIZE << ARCH_KSTACK_ORDER;
  * - @c kstack: Base address of the task kernel stack allocation.
  * - @c satp: User page-table root installed before U-mode return.
  */
-struct task_arch_state {
+struct task_state {
 	struct context ctx;
 	struct trap_frame *tf;
 	void *kstack;

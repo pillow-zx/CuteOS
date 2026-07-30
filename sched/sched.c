@@ -56,7 +56,7 @@ static void sched_account_tick(void)
 	if (!task || task == &idle_task)
 		return;
 
-	if (arch_task_trap_from_user(task))
+	if (task_trap_frome_user(task))
 		task->cputime.utime_ticks++;
 	else
 		task->cputime.stime_ticks++;
@@ -97,9 +97,9 @@ void schedule(void)
 			return;
 
 		rseq_sched_switch(prev);
-		arch_task_switch_address_space(prev, &idle_task);
+		task_switch_address_space(prev, &idle_task);
 		set_current_task(&idle_task);
-		arch_task_switch(prev, &idle_task);
+		task_switch(prev, &idle_task);
 		return;
 	}
 
@@ -114,8 +114,8 @@ void schedule(void)
 
 	rseq_sched_switch(prev);
 	set_current_task(next);
-	arch_task_switch_address_space(prev, next);
-	arch_task_switch(prev, next);
+	task_switch_address_space(prev, next);
+	task_switch(prev, next);
 }
 
 #ifdef KERNEL_SELFTEST

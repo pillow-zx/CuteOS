@@ -47,7 +47,7 @@ void sbi_console_putchar(int ch)
 		  0, 0);
 }
 
-void arch_system_reset(enum arch_system_reset_mode mode)
+void system_reset(enum system_reset_mode mode)
 {
 	uint32_t type = mode == ARCH_SYSTEM_RESET_RESTART
 				? SBI_RESET_TYPE_COLD_REBOOT

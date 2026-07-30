@@ -93,7 +93,7 @@ void kernel_main(void)
 	task_init();
 	pr_info("task: init successfully\n");
 
-	arch_timer_init();
+	timer_init();
 	pr_info("timer: init successfully\n");
 
 	sched_init();

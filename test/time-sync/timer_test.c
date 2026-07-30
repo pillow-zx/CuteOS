@@ -10,11 +10,10 @@ int test_timer_mtime(void)
 {
 	TEST_BEGIN("timer: mtime monotonic");
 	{
-		uint64_t t0 = arch_timer_now();
-
+		uint64_t t0 = timer_now();
 
 		for (int i = 0; i < 1000; i++) {
-			uint64_t t1 = arch_timer_now();
+			uint64_t t1 = timer_now();
 			TEST_ASSERT(t1 >= t0);
 			t0 = t1;
 		}
@@ -31,14 +30,11 @@ int test_timer_mtimecmp(void)
 {
 	TEST_BEGIN("timer: mtimecmp write/read");
 	{
-		uint64_t now = arch_timer_now();
+		uint64_t now = timer_now();
 
+		timer_set(now + 10000000UL);
 
-		arch_timer_set(now + 10000000UL);
-
-
-
-		arch_timer_set(now + 100000UL);
+		timer_set(now + 100000UL);
 	}
 	TEST_END("timer: mtimecmp write/read");
 
@@ -49,7 +45,6 @@ int test_timer_jiffies(void)
 {
 	TEST_BEGIN("timer: jiffies initial value");
 	{
-
 		uint64_t j = jiffies;
 		TEST_ASSERT(j < 1000000UL);
 	}
@@ -65,10 +60,8 @@ int test_timer_constants(void)
 {
 	TEST_BEGIN("timer: constants");
 	{
-
 		TEST_ASSERT_EQ(10000000UL / 100UL, 100000UL);
 		TEST_ASSERT_EQ(100000UL * 100UL, 10000000UL);
-
 
 		TEST_ASSERT_EQ(100000UL * 1000UL / 10000000UL, 10UL);
 	}
@@ -110,43 +103,40 @@ int test_mtime_deadline_helpers(void)
 		TEST_ASSERT(!deadline.active);
 		TEST_ASSERT_EQ(deadline.expires, (uint64_t)0);
 
-		before = arch_timer_now();
-		TEST_ASSERT_EQ(mtime_deadline_from_timespec(&one_sec, &deadline),
-			       0);
-		after = arch_timer_now();
+		before = timer_now();
+		TEST_ASSERT_EQ(
+			mtime_deadline_from_timespec(&one_sec, &deadline), 0);
+		after = timer_now();
 		TEST_ASSERT(deadline.active);
 		TEST_ASSERT(deadline.expires >= before + MTIME_FREQ);
 		TEST_ASSERT(deadline.expires <= after + MTIME_FREQ);
 
-		TEST_ASSERT_EQ(mtime_deadline_from_timespec(&invalid_nsec,
-						    &deadline),
-			       -EINVAL);
-		TEST_ASSERT_EQ(mtime_deadline_from_timespec(&invalid_sec,
-						    &deadline),
-			       -EINVAL);
+		TEST_ASSERT_EQ(
+			mtime_deadline_from_timespec(&invalid_nsec, &deadline),
+			-EINVAL);
+		TEST_ASSERT_EQ(
+			mtime_deadline_from_timespec(&invalid_sec, &deadline),
+			-EINVAL);
 
 		TEST_ASSERT_EQ(mtime_deadline_from_timespec(&huge, &deadline),
 			       0);
 		TEST_ASSERT(deadline.active);
 		TEST_ASSERT_EQ(deadline.expires, UINT64_MAX);
 
-		TEST_ASSERT_EQ(mtime_deadline_from_ms(-1, &deadline),
-			       0);
+		TEST_ASSERT_EQ(mtime_deadline_from_ms(-1, &deadline), 0);
 		TEST_ASSERT(!deadline.active);
 		TEST_ASSERT_EQ(deadline.expires, (uint64_t)0);
 
-		before = arch_timer_now();
-		TEST_ASSERT_EQ(mtime_deadline_from_ms(0, &deadline),
-			       0);
-		after = arch_timer_now();
+		before = timer_now();
+		TEST_ASSERT_EQ(mtime_deadline_from_ms(0, &deadline), 0);
+		after = timer_now();
 		TEST_ASSERT(deadline.active);
 		TEST_ASSERT(deadline.expires >= before);
 		TEST_ASSERT(deadline.expires <= after);
 
-		before = arch_timer_now();
-		TEST_ASSERT_EQ(mtime_deadline_from_ms(25, &deadline),
-			       0);
-		after = arch_timer_now();
+		before = timer_now();
+		TEST_ASSERT_EQ(mtime_deadline_from_ms(25, &deadline), 0);
+		after = timer_now();
 		TEST_ASSERT(deadline.active);
 		TEST_ASSERT(deadline.expires >= before + 250000UL);
 		TEST_ASSERT(deadline.expires <= after + 250000UL);

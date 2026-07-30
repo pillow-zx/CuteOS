@@ -20,7 +20,7 @@ static int32_t pt_alloc_fail_after = -1;
 
 static char *early_alloc_ptr;
 
-void *arch_bootmem_end(void)
+void *bootmem_end(void)
 {
 	return early_alloc_ptr;
 }
@@ -194,7 +194,7 @@ void pagetable_write_current(uintptr_t va, uintptr_t pa, pte_t perm)
 	pte_t *pte = pagetable_lookup_current(va);
 
 	if (!pte || !(*pte & PTE_V))
-		panic("arch_pt_write_current: no mapping for va=%p",
+		panic("pt_write_current: no mapping for va=%p",
 		      (void *)va);
 
 	*pte = PA_TO_PTE(pa) | perm;

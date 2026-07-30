@@ -17,11 +17,11 @@ int kernel_reboot(enum kernel_reboot_command command)
 	case KERNEL_REBOOT_CAD_ON:
 		return 0;
 	case KERNEL_REBOOT_RESTART:
-		arch_system_reset(ARCH_SYSTEM_RESET_RESTART);
+		system_reset(ARCH_SYSTEM_RESET_RESTART);
 	case KERNEL_REBOOT_HALT:
-		arch_system_reset(ARCH_SYSTEM_RESET_HALT);
+		system_reset(ARCH_SYSTEM_RESET_HALT);
 	case KERNEL_REBOOT_POWER_OFF:
-		arch_system_reset(ARCH_SYSTEM_RESET_POWER_OFF);
+		system_reset(ARCH_SYSTEM_RESET_POWER_OFF);
 	}
 
 	return -EINVAL;

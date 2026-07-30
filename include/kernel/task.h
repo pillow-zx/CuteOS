@@ -366,7 +366,7 @@ struct task_cputime {
  * - @c active_wait: Opaque wait session cancelled during exit.
  */
 struct task_struct {
-	struct task_arch_state arch;
+	struct task_state arch;
 	struct task_identity ids;
 	struct task_lifecycle lifecycle;
 	struct task_vfork_context vfork;
@@ -770,7 +770,7 @@ void __nonnull(1) arch_task_init(struct task_struct *task);
  * @param arg Opaque argument passed to @p fn.
  */
 void __nonnull(1, 2)
-	arch_task_setup_kernel_thread(struct task_struct *task,
+	task_setup_kthread(struct task_struct *task,
 				      void (*fn)(void *), void *arg);
 
 /**
@@ -782,7 +782,7 @@ void __nonnull(1, 2)
  * @param tls Optional thread-local storage value for clone.
  */
 void __nonnull(1, 2)
-	arch_task_setup_clone_frame(struct task_struct *child,
+	task_setup_clone_frame(struct task_struct *child,
 				    const struct trap_frame *parent_tf,
 				    unsigned long flags, uintptr_t child_stack,
 				    uintptr_t tls);
@@ -793,7 +793,7 @@ void __nonnull(1, 2)
  * @param next Task being switched in.
  */
 void __nonnull(1, 2)
-	arch_task_switch_address_space(const struct task_struct *prev,
+	task_switch_address_space(const struct task_struct *prev,
 				       const struct task_struct *next);
 
 /**
@@ -802,7 +802,7 @@ void __nonnull(1, 2)
  * @param next Next scheduled task.
  */
 void __nonnull(1, 2)
-	arch_task_switch(struct task_struct *prev, struct task_struct *next);
+	task_switch(struct task_struct *prev, struct task_struct *next);
 
 /**
  * @brief Check whether the saved trap frame came from user mode.
@@ -810,7 +810,7 @@ void __nonnull(1, 2)
  * @return true when the saved trap frame represents user context.
  */
 bool __must_check __pure
-arch_task_trap_from_user(const struct task_struct *task);
+task_trap_frome_user(const struct task_struct *task);
 
 #ifdef KERNEL_SELFTEST
 bool __must_check __pure arch_task_test_kernel_thread_setup(

@@ -42,7 +42,7 @@ static int wait_test_probe(struct wait_session *session, void *arg)
 	if (source->wake_probe == source->probes)
 		wait_channel_wake_one(source->first);
 	if (source->timeout_probe == source->probes)
-		source->deadline->expires = arch_timer_now();
+		source->deadline->expires = timer_now();
 	return source->ready_probe == source->probes;
 }
 
@@ -59,7 +59,7 @@ static int wait_test_error_probe(struct wait_session *session, void *arg)
 
 int test_wait_for_timeout(void)
 {
-	struct wait_deadline deadline = wait_deadline_at(arch_timer_now());
+	struct wait_deadline deadline = wait_deadline_at(timer_now());
 	wait_outcome_t outcome = 99;
 
 	TEST_BEGIN("wait outcome: timeout");
@@ -151,7 +151,7 @@ fail:
 int test_wait_for_priority(void)
 {
 	struct wait_channel channel;
-	struct wait_deadline deadline = wait_deadline_at(arch_timer_now());
+	struct wait_deadline deadline = wait_deadline_at(timer_now());
 	struct wait_test_source test_source = { 0 };
 	struct wait_request source;
 	uint64_t saved_pending = current_task()->sigctx.pending;
@@ -334,7 +334,7 @@ cleanup:
 int test_wait_for_validation(void)
 {
 	struct wait_deadline no_deadline = wait_deadline_none();
-	struct wait_deadline deadline = wait_deadline_at(arch_timer_now());
+	struct wait_deadline deadline = wait_deadline_at(timer_now());
 	struct wait_request source = { .kind = WAIT_KIND_GENERIC };
 	wait_outcome_t outcome = 99;
 

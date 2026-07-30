@@ -452,7 +452,7 @@ static void console_input_thread(void *arg)
 
 	for (;;) {
 		const struct wait_deadline deadline =
-			wait_deadline_at(mtime_deadline_after(arch_timer_now(),
+			wait_deadline_at(mtime_deadline_after(timer_now(),
 							      CLOCKS_PER_TICK));
 		wait_outcome_t outcome;
 		int ret;

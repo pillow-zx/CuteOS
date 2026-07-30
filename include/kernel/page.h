@@ -65,9 +65,4 @@ static inline __nonnull(1) void page_clear_flag(struct page *page,
 	clr_bit(page->flags, flag);
 }
 
-static inline __must_check void *bootmem_end(void)
-{
-	return arch_bootmem_end();
-}
-
 #endif

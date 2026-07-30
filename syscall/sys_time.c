@@ -92,7 +92,7 @@ ssize_t sys_clock_gettime(struct trap_frame *tf)
 	if (clock_id == CLOCK_REALTIME)
 		kernel_realtime_now(&kts);
 	else
-		mtime_to_timespec(arch_timer_now(), &kts);
+		mtime_to_timespec(timer_now(), &kts);
 	if (copy_to_user(uts, &kts, sizeof(kts)) != 0)
 		return -EFAULT;
 
@@ -147,7 +147,7 @@ ssize_t sys_nanosleep(struct trap_frame *tf)
 
 	if (urem) {
 		struct timespec rem = {0};
-		uint64_t after = arch_timer_now();
+		uint64_t after = timer_now();
 
 		if (deadline.expires > after)
 			mtime_to_timespec(deadline.expires - after, &rem);
@@ -211,7 +211,7 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 
 	if (flags == 0 && urem) {
 		struct timespec rem = {0};
-		uint64_t after = arch_timer_now();
+		uint64_t after = timer_now();
 
 		if (deadline.expires > after)
 			mtime_to_timespec(deadline.expires - after, &rem);

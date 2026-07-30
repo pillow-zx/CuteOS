@@ -236,7 +236,7 @@ int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
 		return ret;
 	}
 
-	arch_task_setup_clone_frame(child, tf, flags, child_stack, tls);
+	task_setup_clone_frame(child, tf, flags, child_stack, tls);
 
 	ret = clone_copy_resources(child, flags);
 	if (ret < 0) {

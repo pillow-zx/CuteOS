@@ -659,7 +659,7 @@ static int sys_utimensat_read_times(const struct timespec *utimes,
 {
 	struct timespec now;
 
-	mtime_to_timespec(arch_timer_now(), &now);
+	mtime_to_timespec(timer_now(), &now);
 	if (!utimes) {
 		ktimes[0] = now;
 		ktimes[1] = now;

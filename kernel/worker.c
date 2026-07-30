@@ -23,7 +23,7 @@ void worker_run_periodic(unsigned int interval_sec, void (*work)(void *),
 	interval = worker_interval_ticks(interval_sec);
 	for (;;) {
 		struct wait_deadline deadline = wait_deadline_at(
-			mtime_deadline_after(arch_timer_now(), interval));
+			mtime_deadline_after(timer_now(), interval));
 		wait_outcome_t outcome;
 		int ret;
 
