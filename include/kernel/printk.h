@@ -13,24 +13,6 @@ typedef __builtin_va_list va_list;
 #define va_end(ap)	   __builtin_va_end(ap)
 #define va_arg(ap, type)   __builtin_va_arg(ap, type)
 
-#define ANSI_FG_BLACK	"\33[1;30m"
-#define ANSI_FG_RED	"\33[1;31m"
-#define ANSI_FG_GREEN	"\33[1;32m"
-#define ANSI_FG_YELLOW	"\33[1;33m"
-#define ANSI_FG_BLUE	"\33[1;34m"
-#define ANSI_FG_MAGENTA "\33[1;35m"
-#define ANSI_FG_CYAN	"\33[1;36m"
-#define ANSI_FG_WHITE	"\33[1;37m"
-#define ANSI_BG_BLACK	"\33[1;40m"
-#define ANSI_BG_RED	"\33[1;41m"
-#define ANSI_BG_GREEN	"\33[1;42m"
-#define ANSI_BG_YELLOW	"\33[1;43m"
-#define ANSI_BG_BLUE	"\33[1;44m"
-#define ANSI_BG_MAGENTA "\33[1;45m"
-#define ANSI_BG_CYAN	"\33[1;46m"
-#define ANSI_BG_WHITE	"\33[1;47m"
-#define ANSI_NONE	"\33[0m"
-
 #define LOG_ALL	    0
 #define LOG_DEBUG   1
 #define LOG_INFO    2
@@ -44,33 +26,28 @@ typedef __builtin_va_list va_list;
 
 void console_init_sbi(void);
 void console_init_mmio(void);
-size_t log_buffer_size(void);
+
+size_t printk_log_buffer_size(void);
+size_t printk_log_unread_size(void);
+ssize_t printk_log_read(void *buffer, size_t size);
+ssize_t printk_log_read_all(void *buffer, size_t size, bool clear);
+void printk_log_clear(void);
 
 int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap);
 int vsprintf(char *buf, const char *fmt, va_list ap);
-int __printk(const char *fmt, ...) __printf(1, 2) __nonnull(1);
+int __printk(int level, const char *fmt, ...) __printf(2, 3) __nonnull(2);
 void __noreturn __panic(const char *fmt, ...) __printf(1, 2) __nonnull(1)
 	__cold;
 
 #define _Log(level, ...)                                                       \
 	do {                                                                   \
 		if ((level) >= LOG_LEVEL)                                      \
-			__printk(__VA_ARGS__);                                 \
+			__printk((level), __VA_ARGS__);                        \
 	} while (0)
-
-#define ANSI_FMT(str) str ANSI_NONE
-#define LOG_COLOR(level)                                                       \
-	((level) == LOG_ERROR	  ? ANSI_FG_RED                                \
-	 : (level) == LOG_WARNING ? ANSI_FG_YELLOW                             \
-	 : (level) == LOG_NOTICE  ? ANSI_FG_CYAN                               \
-	 : (level) == LOG_INFO	  ? ANSI_FG_GREEN                              \
-	 : (level) == LOG_DEBUG	  ? ANSI_FG_BLUE                               \
-				  : ANSI_NONE)
 
 #define printk(level, fmt, ...)                                                \
 	do {                                                                   \
-		_Log(level, ANSI_FMT("%s" fmt), LOG_COLOR((level)),            \
-		     ##__VA_ARGS__);                                           \
+		_Log(level, fmt, ##__VA_ARGS__);                               \
 	} while (0)
 
 #define pr_err(fmt, ...)    printk(LOG_ERROR, fmt, ##__VA_ARGS__)
@@ -92,5 +69,12 @@ void __noreturn __panic(const char *fmt, ...) __printf(1, 2) __nonnull(1)
 			panic("ASSERT: %s:%d %s\n", __FILE__, __LINE__,        \
 			      #cond);                                          \
 	} while (0)
+
+#ifdef KERNEL_SELFTEST
+void printk_test_reset(void);
+void printk_test_append(const char *data, size_t size);
+size_t printk_test_read(char *buffer, size_t size);
+size_t printk_test_read_all(char *buffer, size_t size, bool clear);
+#endif
 
 #endif

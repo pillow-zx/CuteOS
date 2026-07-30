@@ -222,6 +222,18 @@ live and supplies the lock, IRQ, and lifetime contract. Prefer intrusive lists
 when an object participates in multiple memberships or needs identity rather
 than a copied value.
 
+### Kernel log
+
+`kernel/printk.c` owns the static printk ring, its overwrite/cursor policy,
+console formatting, ring locking and wait channel. `syscall/sys_log.c` is only
+the Linux `syslog(116)` ABI adapter: it validates user arguments, applies the
+documented UID-0 stand-in for `CAP_SYSLOG`, and delegates to the printk
+interface. The ring has a global destructive cursor for action 2 and an
+independent snapshot-clear cursor for actions 3--5; do not expose these fields
+or duplicate their synchronization in callers. See
+`docs/architecture/log.md` for lifetime, lock order, user-copy and overwrite
+semantics.
+
 ### Memory, VFS, and storage
 
 MM owns VMA layout and page-table changes behind `include/kernel/mm.h`.

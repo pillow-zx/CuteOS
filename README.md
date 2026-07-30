@@ -45,8 +45,9 @@ CSR、页表、trap、timer、IPI 与平台设备访问留在 `arch/` 或明确�
 ## 当前能力与边界
 
 系统已具备 OpenSBI 启动、virtio-blk/ext2 根文件系统、VFS、进程和线程子集、
-信号、futex、匿名及文件映射、poll/epoll 兼容入口，以及静态 musl BusyBox
-用户态。
+信号、futex、匿名及文件映射、poll/epoll 兼容入口、4096-byte 有界内核日志，
+以及静态 musl BusyBox 用户态。BusyBox 的 `dmesg` 可读取日志，支持 `-r` 和
+`-c`；console loglevel 控制仍未实现。
 
 `include/kernel/syscall_table.h` 当前安装 116 个 Linux riscv64 syscall
 入口。入口存在不等于完整 Linux 兼容；[SYSCALL.md](SYSCALL.md) 的 A/B/C/D
@@ -95,7 +96,7 @@ QEMU 启动后进入串口 shell；使用 `Ctrl-a x` 退出。常用命令：
 
 - [CONTEXT.md](CONTEXT.md)：架构边界、稳定入口、当前并发模型和修改导航。
 - [SYSCALL.md](SYSCALL.md)：syscall 成熟度、语义边界和优先级。
-- `docs/architecture/`：boot、trap、调度、时间、内存、VFS、block 和 ext2 的详细设计。
+- `docs/architecture/`：boot、trap、调度、时间、日志、内存、VFS、block 和 ext2 的详细设计。
 - [AGENTS.md](AGENTS.md)：贡献和自动化修改规则。
 
 新增内核源文件必须进入 `scripts/kernel.mk` 的对象清单。修改用户可见 ABI 时，须同步检查

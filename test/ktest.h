@@ -11,6 +11,7 @@ int test_kfifo_order_and_wrap(void);
 int test_kfifo_bulk_and_init(void);
 int test_klifo_order_and_bounds(void);
 int test_klifo_objects_and_init(void);
+int test_printk_ring_read_clear_and_overwrite(void);
 
 int test_hash_insert_lookup(void);
 int test_hash_collision_delete(void);

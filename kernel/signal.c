@@ -45,7 +45,7 @@ constexpr uint32_t RISCV_J_SELF = 0x0000006f;
 	((((uint32_t)(imm) & 0xfff) << 20) | ((uint32_t)(rs1) << 15) |         \
 	 ((uint32_t)(rd) << 7) | RISCV_OP_IMM)
 
-static struct signal_frame_state *signal_frame_top(struct task_struct *task)
+static struct signal_frame_state *signal_frame_top(const struct task_struct *task)
 {
 	return task ? task->sigctx.signal_frames : NULL;
 }
@@ -73,7 +73,7 @@ static int signal_frame_clone(struct task_struct *child,
 	const struct signal_frame_state *source;
 	struct signal_frame_state **destination = &child->sigctx.signal_frames;
 
-	for (source = signal_frame_top((struct task_struct *)parent); source;
+	for (source = signal_frame_top(parent); source;
 	     source = source->previous) {
 		struct signal_frame_state *copy = kmalloc(sizeof(*copy));
 
@@ -136,7 +136,7 @@ static void signal_frame_pop(struct task_struct *task)
 static bool signal_frame_contains(const struct task_struct *task, int sig)
 {
 	const struct signal_frame_state *state =
-		signal_frame_top((struct task_struct *)task);
+		signal_frame_top(task);
 
 	for (; state; state = state->previous) {
 		if (state->sig == sig)
@@ -491,7 +491,7 @@ uint64_t signal_pending_mask(const struct task_struct *task)
 		return 0;
 
 	pending = task_pending_mask(task);
-	signal = task_signal_state((struct task_struct *)task);
+	signal = task_signal_state(task);
 	if (signal) {
 		mutex_lock(&signal->lock);
 		pending |= signal->shared_pending;

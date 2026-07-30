@@ -509,7 +509,7 @@ CPU0 参数校验。没有 SMP IPI、remote runqueue 扫描或跨 hart expedited
 
 | Nr | syscall | 等级 | 当前语义 | 主要缺口 | 下一步 |
 | ---: | --- | --- | --- | --- | --- |
-| 116 | `syslog` | D | 仅 `SIZE_BUFFER`，其它返回 `-ENOSYS` | 无 printk ring buffer read/clear | 实现 ring buffer 或继续标 D |
+| 116 | `syslog` | B | 4096-byte printk byte ring；支持 read/read-all/read-clear/clear/unread-size/total-size | console control (6--8) 未实现；以 UID 0 暂代 `CAP_SYSLOG` | 引入 capability 与 console loglevel policy |
 | 122 | `sched_setaffinity` | C | 单核 mask 检查，接受 CPU0 | 不存储 per-task mask | SMP 前保持 C |
 | 123 | `sched_getaffinity` | C | 固定返回 CPU0 mask | 同上 | SMP 前保持 C |
 | 142 | `reboot` | B | 校验 Linux magic 与 root；CAD on/off 成功 no-op；restart/halt/poweroff 经 OpenSBI SRST 执行 | restart2、kexec、suspend 未支持；halt 与 poweroff 均映射 SRST shutdown | 有 boot-command 存储后再支持 restart2 |
@@ -527,6 +527,19 @@ CPU0 参数校验。没有 SMP IPI、remote runqueue 扫描或跨 hart expedited
 | 179 | `sysinfo` | B | uptime、内存、进程数 | load、swap 等置零 | 文档化字段 |
 | 261 | `prlimit64` | B | 基础 rlimit get/set | capability、资源强制执行有限 | 先落实 NOFILE/AS |
 | 278 | `getrandom` | C | 共享弱随机 Module，基于 xorshift/mtime/task-state，flag 验证 | 非密码安全随机源；同一来源也填充 exec `AT_RANDOM` | 接入 entropy 后提升安全性 |
+
+### `syslog(116)`
+
+`syslog` 使用 Linux riscv64 的 action 编号。动作 2 是全局 destructive reader，
+空日志时可被信号中断并返回 `-EINTR`；3 返回自最近一次 clear 后的最后 `len`
+字节，4 在成功复制后执行同一 clear，5 只影响 3/4 的可见性，不影响 2/9。9 返回
+动作 2 未读字节数，10 返回固定 4096-byte 容量；0/1 是 NOP。动作 6--8 未实现，
+授权调用返回 `-ENOSYS`。
+
+动作 3 和 10 无条件可读，其余有效 action 暂要求 UID 0，以此作为
+`CAP_SYSLOG` 的明确临时替代。未知 action、动作 2--4 的 NULL buffer 或负 size
+返回 `-EINVAL`；输出用户地址不可访问返回 `-EFAULT`。实现与同步细节见
+`docs/architecture/log.md`。
 
 ## 优先加深清单
 

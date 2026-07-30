@@ -80,13 +80,13 @@ static_assert(sizeof(struct rt_sigframe) == 1088,
 struct task_struct;
 
 static inline __must_check __pure struct signal_struct *
-task_signal_state(struct task_struct *task)
+task_signal_state(const struct task_struct *task)
 {
 	return task ? task->resources.signal : NULL;
 }
 
 static inline __must_check __pure struct sighand_struct *
-task_sighand(struct task_struct *task)
+task_sighand(const struct task_struct *task)
 {
 	return task ? task->resources.sighand : NULL;
 }
