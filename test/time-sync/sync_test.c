@@ -29,6 +29,57 @@ int test_atomic_basic(void)
 		TEST_ASSERT_EQ(atomic_cmpxchg(&value, 0, 1), 9);
 		TEST_ASSERT_EQ(atomic_read(&value), 9);
 
+		atomic_set_relaxed(&value, 2);
+		TEST_ASSERT_EQ(atomic_read_relaxed(&value), 2);
+		atomic_store_order(&value, 3, ATOMIC_ORDER_RELEASE);
+		TEST_ASSERT_EQ(atomic_load_order(&value, ATOMIC_ORDER_ACQUIRE), 3);
+		TEST_ASSERT_EQ(atomic_exchange_order(&value, 4,
+							    ATOMIC_ORDER_ACQ_REL),
+				      3);
+
+		TEST_ASSERT_EQ(atomic_fetch_add_order(&value, 2,
+							 ATOMIC_ORDER_RELAXED),
+				      4);
+		TEST_ASSERT_EQ(atomic_add_fetch_order(&value, 1,
+							 ATOMIC_ORDER_RELAXED),
+				      7);
+		TEST_ASSERT_EQ(atomic_fetch_sub_order(&value, 2,
+							 ATOMIC_ORDER_RELAXED),
+				      7);
+		TEST_ASSERT_EQ(atomic_sub_fetch_order(&value, 1,
+							 ATOMIC_ORDER_RELAXED),
+				      4);
+
+		atomic_set(&value, 0xf0);
+		TEST_ASSERT_EQ(atomic_fetch_and_order(&value, 0x0f,
+							 ATOMIC_ORDER_RELAXED),
+				      0xf0);
+		TEST_ASSERT_EQ(atomic_or_fetch_order(&value, 0x30,
+							ATOMIC_ORDER_RELAXED),
+				      0x30);
+		TEST_ASSERT_EQ(atomic_fetch_xor_order(&value, 0x10,
+							  ATOMIC_ORDER_RELAXED),
+				      0x30);
+		TEST_ASSERT_EQ(atomic_xor_fetch_order(&value, 0x20,
+							 ATOMIC_ORDER_RELAXED),
+				      0x00);
+		atomic_set(&value, 0xff);
+		TEST_ASSERT_EQ(atomic_fetch_andnot_order(&value, 0x0f,
+								ATOMIC_ORDER_RELAXED),
+				      0xff);
+		TEST_ASSERT_EQ(atomic_read(&value), 0xf0);
+
+		expected = 0xf0;
+		TEST_ASSERT(atomic_compare_exchange_order(
+			&value, &expected, 5, false, ATOMIC_ORDER_ACQUIRE,
+			ATOMIC_ORDER_RELAXED));
+		TEST_ASSERT_EQ(expected, 0xf0);
+		expected = 0;
+		TEST_ASSERT(!atomic_compare_exchange_order(
+			&value, &expected, 6, false, ATOMIC_ORDER_ACQUIRE,
+			ATOMIC_ORDER_RELAXED));
+		TEST_ASSERT_EQ(expected, 5);
+
 		atomic_set(&value, 0);
 		expected = 0;
 		TEST_ASSERT(atomic_try_cmpxchg_acquire(&value, &expected, 7));
@@ -40,6 +91,20 @@ int test_atomic_basic(void)
 		TEST_ASSERT_EQ(expected, 7);
 		TEST_ASSERT_EQ(atomic_xchg_release(&value, 9), 7);
 		TEST_ASSERT_EQ(atomic_read(&value), 9);
+
+		atomic64_t wide = ATOMIC64_INIT(1);
+		TEST_ASSERT_EQ(atomic64_add_return(&wide, 2), 3);
+		TEST_ASSERT_EQ(atomic64_read_acquire(&wide), 3);
+		TEST_ASSERT_EQ(atomic64_fetch_sub(&wide, 1), 3);
+		TEST_ASSERT_EQ(atomic64_read(&wide), 2);
+
+		atomic_isize_t word = ATOMIC_LONG_INIT(1);
+		TEST_ASSERT_EQ(atomic_isize_inc_return(&word), 2);
+		TEST_ASSERT_EQ(atomic_isize_xchg_release(&word, 3), 2);
+		TEST_ASSERT_EQ(atomic_isize_read(&word), 3);
+
+		atomic_thread_fence(ATOMIC_ORDER_SEQ_CST);
+		atomic_signal_fence(ATOMIC_ORDER_SEQ_CST);
 
 		refcount_t refs = REFCOUNT_INIT(1);
 		TEST_ASSERT_EQ(refcount_read(&refs), 1);

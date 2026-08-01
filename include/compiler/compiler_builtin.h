@@ -26,7 +26,9 @@
 #if __has_builtin(__builtin_trap)
 #define trap() __builtin_trap()
 #else
-#define trap() do {} while (0)
+#define trap()                                                                 \
+	do {                                                                   \
+	} while (0)
 #endif
 
 #if __has_builtin(__builtin_offsetof)
@@ -170,46 +172,129 @@
 #define object_size(res)
 #endif
 
-#define ATOMIC_RELAXED __ATOMIC_RELAXED
-#define ATOMIC_CONSUME __ATOMIC_CONSUME
-#define ATOMIC_ACQUIRE __ATOMIC_ACQUIRE
-#define ATOMIC_RELEASE __ATOMIC_RELEASE
-#define ATOMIC_ACQ_REL __ATOMIC_ACQ_REL
-#define ATOMIC_SEQ_CST __ATOMIC_SEQ_CST
+#define COMPILER_ATOMIC_RELAXED __ATOMIC_RELAXED
+#define COMPILER_ATOMIC_CONSUME __ATOMIC_CONSUME
+#define COMPILER_ATOMIC_ACQUIRE __ATOMIC_ACQUIRE
+#define COMPILER_ATOMIC_RELEASE __ATOMIC_RELEASE
+#define COMPILER_ATOMIC_ACQ_REL __ATOMIC_ACQ_REL
+#define COMPILER_ATOMIC_SEQ_CST __ATOMIC_SEQ_CST
 
 #if __has_builtin(__atomic_load_n)
-#define atomic_load_n(ptr, memorder) __atomic_load_n(ptr, memorder)
+#define compiler_atomic_load_n(ptr, memorder) __atomic_load_n(ptr, memorder)
 #else
 #error "compiler must provide __atomic_load_n"
 #endif
 
 #if __has_builtin(__atomic_store_n)
-#define atomic_store_n(ptr, val, memorder) __atomic_store_n(ptr, val, memorder)
+#define compiler_atomic_store_n(ptr, val, memorder)                            \
+	__atomic_store_n(ptr, val, memorder)
 #else
 #error "compiler must provide __atomic_store_n"
 #endif
 
+#if __has_builtin(__atomic_exchange_n)
+#define compiler_atomic_exchange_n(ptr, val, memorder)                         \
+	__atomic_exchange_n(ptr, val, memorder)
+#else
+#error "compiler must provide __atomic_exchange_n"
+#endif
+
+#if __has_builtin(__atomic_fetch_add)
+#define compiler_atomic_fetch_add_n(ptr, val, memorder)                        \
+	__atomic_fetch_add(ptr, val, memorder)
+#else
+#error "compiler must provide __atomic_fetch_add"
+#endif
+
 #if __has_builtin(__atomic_add_fetch)
-#define atomic_add_fetch(ptr, val, memorder)                                   \
+#define compiler_atomic_add_fetch_n(ptr, val, memorder)                        \
 	__atomic_add_fetch(ptr, val, memorder)
 #else
 #error "compiler must provide __atomic_add_fetch"
 #endif
 
+#if __has_builtin(__atomic_fetch_sub)
+#define compiler_atomic_fetch_sub_n(ptr, val, memorder)                        \
+	__atomic_fetch_sub(ptr, val, memorder)
+#else
+#error "compiler must provide __atomic_fetch_sub"
+#endif
+
+#if __has_builtin(__atomic_sub_fetch)
+#define compiler_atomic_sub_fetch_n(ptr, val, memorder)                        \
+	__atomic_sub_fetch(ptr, val, memorder)
+#else
+#error "compiler must provide __atomic_sub_fetch"
+#endif
+
+#if __has_builtin(__atomic_fetch_and)
+#define compiler_atomic_fetch_and_n(ptr, val, memorder)                        \
+	__atomic_fetch_and(ptr, val, memorder)
+#else
+#error "compiler must provide __atomic_fetch_and"
+#endif
+
+#if __has_builtin(__atomic_and_fetch)
+#define compiler_atomic_and_fetch_n(ptr, val, memorder)                        \
+	__atomic_and_fetch(ptr, val, memorder)
+#else
+#error "compiler must provide __atomic_and_fetch"
+#endif
+
+#if __has_builtin(__atomic_fetch_or)
+#define compiler_atomic_fetch_or_n(ptr, val, memorder)                         \
+	__atomic_fetch_or(ptr, val, memorder)
+#else
+#error "compiler must provide __atomic_fetch_or"
+#endif
+
+#if __has_builtin(__atomic_or_fetch)
+#define compiler_atomic_or_fetch_n(ptr, val, memorder)                         \
+	__atomic_or_fetch(ptr, val, memorder)
+#else
+#error "compiler must provide __atomic_or_fetch"
+#endif
+
+#if __has_builtin(__atomic_fetch_xor)
+#define compiler_atomic_fetch_xor_n(ptr, val, memorder)                        \
+	__atomic_fetch_xor(ptr, val, memorder)
+#else
+#error "compiler must provide __atomic_fetch_xor"
+#endif
+
+#if __has_builtin(__atomic_xor_fetch)
+#define compiler_atomic_xor_fetch_n(ptr, val, memorder)                        \
+	__atomic_xor_fetch(ptr, val, memorder)
+#else
+#error "compiler must provide __atomic_xor_fetch"
+#endif
+
 #if __has_builtin(__atomic_compare_exchange_n)
-#define atomic_compare_exchange_n(ptr, expected, desired, weak, succ_mo,       \
-				  fail_mo)                                     \
+#define compiler_atomic_compare_exchange_n(ptr, expected, desired, weak,       \
+					   succ_mo, fail_mo)                   \
 	__atomic_compare_exchange_n(ptr, expected, desired, weak, succ_mo,     \
 				    fail_mo)
 #else
 #error "compiler must provide __atomic_compare_exchange_n"
 #endif
 
-#if __has_builtin(__atomic_exchange_n)
-#define atomic_exchange_n(ptr, val, memorder)                                  \
-	__atomic_exchange_n(ptr, val, memorder)
+#if __has_builtin(__atomic_thread_fence)
+#define compiler_atomic_thread_fence(memorder) __atomic_thread_fence(memorder)
 #else
-#error "compiler must provide __atomic_exchange_n"
+#error "compiler must provide __atomic_thread_fence"
+#endif
+
+#if __has_builtin(__atomic_signal_fence)
+#define compiler_atomic_signal_fence(memorder) __atomic_signal_fence(memorder)
+#else
+#error "compiler must provide __atomic_signal_fence"
+#endif
+
+#if __has_builtin(__atomic_always_lock_free)
+#define compiler_atomic_always_lock_free(size, ptr)                            \
+	__atomic_always_lock_free(size, ptr)
+#else
+#error "compiler must provide __atomic_always_lock_free"
 #endif
 
 #if __has_builtin(__builtin_memcpy)
