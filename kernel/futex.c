@@ -41,7 +41,7 @@ static struct futex_bucket futex_buckets[FUTEX_BUCKETS];
 void futex_init(void)
 {
 	for (int i = 0; i < FUTEX_BUCKETS; i++) {
-		futex_buckets[i].lock.locked = 0;
+		spin_lock_init(&futex_buckets[i].lock);
 		INIT_LIST_HEAD(&futex_buckets[i].waiters);
 	}
 }

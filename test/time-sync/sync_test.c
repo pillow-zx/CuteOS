@@ -11,6 +11,7 @@ int test_atomic_basic(void)
 	TEST_BEGIN("sync: atomic basic");
 	{
 		atomic_t value = ATOMIC_INIT(1);
+		int expected;
 
 		TEST_ASSERT_EQ(atomic_read(&value), 1);
 		atomic_set(&value, 3);
@@ -26,6 +27,18 @@ int test_atomic_basic(void)
 		TEST_ASSERT_EQ(atomic_cmpxchg(&value, 0, 9), 0);
 		TEST_ASSERT_EQ(atomic_read(&value), 9);
 		TEST_ASSERT_EQ(atomic_cmpxchg(&value, 0, 1), 9);
+		TEST_ASSERT_EQ(atomic_read(&value), 9);
+
+		atomic_set(&value, 0);
+		expected = 0;
+		TEST_ASSERT(atomic_try_cmpxchg_acquire(&value, &expected, 7));
+		TEST_ASSERT_EQ(expected, 0);
+		TEST_ASSERT_EQ(atomic_read(&value), 7);
+
+		expected = 0;
+		TEST_ASSERT(!atomic_try_cmpxchg_acquire(&value, &expected, 8));
+		TEST_ASSERT_EQ(expected, 7);
+		TEST_ASSERT_EQ(atomic_xchg_release(&value, 9), 7);
 		TEST_ASSERT_EQ(atomic_read(&value), 9);
 
 		refcount_t refs = REFCOUNT_INIT(1);
@@ -59,14 +72,24 @@ int test_spinlock_irqsave(void)
 	{
 		spinlock_t lock = SPINLOCK_INIT;
 		irq_flags_t flags;
-		bool was_disabled = irqs_disabled();
+		irq_flags_t initial_flags = local_irq_save();
+
+		spin_lock_init(&lock);
+		local_irq_enable();
 
 		spin_lock_irqsave(&lock, &flags);
-		TEST_ASSERT(lock.locked);
+		TEST_ASSERT_EQ(atomic_read(&lock.locked), 1);
 		TEST_ASSERT(irqs_disabled());
 		spin_unlock_irqrestore(&lock, flags);
-		TEST_ASSERT(!lock.locked);
-		TEST_ASSERT_EQ(irqs_disabled(), was_disabled);
+		TEST_ASSERT_EQ(atomic_read(&lock.locked), 0);
+		TEST_ASSERT(!irqs_disabled());
+
+		local_irq_disable();
+		spin_lock_irqsave(&lock, &flags);
+		TEST_ASSERT(irqs_disabled());
+		spin_unlock_irqrestore(&lock, flags);
+		TEST_ASSERT(irqs_disabled());
+		local_irq_restore(initial_flags);
 	}
 	TEST_END("sync: spinlock irqsave");
 	return __test_ret;

@@ -346,7 +346,7 @@ void wait_channel_init(struct wait_channel *channel)
 {
 	BUG_ON(!channel);
 
-	channel->lock.locked = 0;
+	spin_lock_init(&channel->lock);
 	INIT_LIST_HEAD(&channel->waiters);
 }
 

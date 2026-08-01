@@ -180,20 +180,20 @@
 #if __has_builtin(__atomic_load_n)
 #define atomic_load_n(ptr, memorder) __atomic_load_n(ptr, memorder)
 #else
-#define atomic_load_n(ptr, memorder)
+#error "compiler must provide __atomic_load_n"
 #endif
 
 #if __has_builtin(__atomic_store_n)
 #define atomic_store_n(ptr, val, memorder) __atomic_store_n(ptr, val, memorder)
 #else
-#define atomic_store_n(ptr, val, memorder)
+#error "compiler must provide __atomic_store_n"
 #endif
 
 #if __has_builtin(__atomic_add_fetch)
 #define atomic_add_fetch(ptr, val, memorder)                                   \
 	__atomic_add_fetch(ptr, val, memorder)
 #else
-#define atomic_add_fetch(ptr, val, memorder)
+#error "compiler must provide __atomic_add_fetch"
 #endif
 
 #if __has_builtin(__atomic_compare_exchange_n)
@@ -202,8 +202,14 @@
 	__atomic_compare_exchange_n(ptr, expected, desired, weak, succ_mo,     \
 				    fail_mo)
 #else
-#define atomic_compare_exchange_n(ptr, expected, desired, weak, succ_mo,       \
-				  fail_mo)
+#error "compiler must provide __atomic_compare_exchange_n"
+#endif
+
+#if __has_builtin(__atomic_exchange_n)
+#define atomic_exchange_n(ptr, val, memorder)                                  \
+	__atomic_exchange_n(ptr, val, memorder)
+#else
+#error "compiler must provide __atomic_exchange_n"
 #endif
 
 #if __has_builtin(__builtin_memcpy)

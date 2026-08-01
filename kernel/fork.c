@@ -172,7 +172,7 @@ static void clone_setup_vfork(struct task_struct *child, unsigned long flags)
 	if (!(flags & CLONE_VFORK))
 		return;
 
-	child->vfork.lock.locked = 0;
+	spin_lock_init(&child->vfork.lock);
 	wait_channel_init(&child->vfork.completion_wait);
 	child->vfork.active = true;
 	child->vfork.completed = false;

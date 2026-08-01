@@ -92,8 +92,9 @@ These are current facts, not future guarantees:
 - Scheduling uses one global four-level MLFQ. Timer ticks account execution
   and request rescheduling; switching occurs at explicit scheduling points or
   user-return timer handling.
-- The kernel is non-preemptible. Existing irqsave locks prevent local
-  interrupt interleaving only; they are not SMP locks.
+- The kernel is non-preemptible. irqsave spinlocks use atomic lock words and
+  protect local interrupt interleaving; only hart 0 is online, so SMP
+  execution is not yet enabled.
 - UART and virtio-blk are primarily polling-oriented. Platform discovery is
   minimal and QEMU `virt` resources are mostly compile-time constants.
 - User VMAs use a fixed `NR_VMA` array and faults are handled lazily.

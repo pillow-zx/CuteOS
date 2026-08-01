@@ -1,8 +1,8 @@
 #ifndef _CUTEOS_KERNEL_ATOMIC_H
 #define _CUTEOS_KERNEL_ATOMIC_H
 
-#include <kernel/sync.h>
 #include <kernel/compiler.h>
+#include <kernel/types.h>
 
 typedef struct {
 	volatile int __aligned(sizeof(int)) counter;
@@ -28,6 +28,11 @@ static __always_inline void atomic_set(atomic_t *v, int i)
 static __always_inline void atomic_set_release(atomic_t *v, int i)
 {
 	atomic_store_n(&v->counter, i, ATOMIC_RELEASE);
+}
+
+static __always_inline int atomic_xchg_release(atomic_t *v, int i)
+{
+	return atomic_exchange_n(&v->counter, i, ATOMIC_RELEASE);
 }
 
 static __always_inline int atomic_add_return(atomic_t *v, int i)
@@ -70,6 +75,13 @@ static __always_inline int atomic_cmpxchg(atomic_t *v, int old, int new)
 	atomic_compare_exchange_n(&v->counter, &old, new, false, ATOMIC_SEQ_CST,
 				  ATOMIC_SEQ_CST);
 	return old;
+}
+
+static __always_inline bool atomic_try_cmpxchg_acquire(atomic_t *v,
+						       int *old, int new)
+{
+	return atomic_compare_exchange_n(&v->counter, old, new, false,
+					 ATOMIC_ACQUIRE, ATOMIC_RELAXED);
 }
 
 #endif

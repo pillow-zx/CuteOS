@@ -24,7 +24,7 @@ void mutex_init(mutex_t *mutex)
 {
 	BUG_ON(!mutex);
 
-	mutex->lock.locked = 0;
+	spin_lock_init(&mutex->lock);
 	mutex->owner = NULL;
 	wait_channel_init(&mutex->wait);
 }

@@ -525,7 +525,7 @@ void ktimer_run_expired(uint64_t now)
 
 void itimer_state_init(struct itimer_state *state)
 {
-	state->lock.locked = 0;
+	spin_lock_init(&state->lock);
 	state->value = (struct itimerval){0};
 	ktimer_init(&state->timer, itimer_real_fire, NULL);
 	state->target = NULL;
@@ -592,7 +592,7 @@ int itimer_set_real(struct itimer_state *state, struct task_struct *target,
 
 void posix_timer_table_init(struct posix_timer_table *table)
 {
-	table->lock.locked = 0;
+	spin_lock_init(&table->lock);
 	table->allocated = 0;
 
 	for (timer_t id = 0; id < POSIX_TIMER_COUNT; id++)

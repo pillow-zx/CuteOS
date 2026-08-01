@@ -19,7 +19,7 @@ cuteOS 当前调度器是单核、非抢占内核模型下的 4 级 MLFQ。timer
 
 ## 单核假设
 
-当前 `task_init()` 只让 CPU 0 online。调度器全局队列没有 per-CPU 分片，也没有跨 CPU 负载均衡。spinlock 和 wait channel 使用 irqsave 是为了保护中断上下文交错，而不是多核并发。
+当前 `task_init()` 只让 CPU 0 online。调度器全局队列没有 per-CPU 分片，也没有跨 CPU 负载均衡。spinlock 和 wait channel 使用 irqsave 既保护中断上下文交错，锁字也使用原子竞争；但多核执行仍未启用。
 
 `preempt_disable()`/`preempt_enable()` 修改 `current_cpu()->preempt_count`。`schedule()` 开头检查：
 
