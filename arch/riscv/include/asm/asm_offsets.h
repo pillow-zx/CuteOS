@@ -77,7 +77,7 @@
 #define TASK_KSTACK 120
 #define TASK_SATP   128
 
-#define TASK_KSTACK_SIZE 8192
+#define TASK_KSTACK_SIZE 1024 * 16
 
 /* ---- struct cpu offsets ---- */
 #define CPU_CURRENT_TASK  24

@@ -16,7 +16,7 @@
 /** @def ARCH_KSTACK_ORDER
  * @brief Buddy allocation order for one kernel stack.
  */
-constexpr uint32_t ARCH_KSTACK_ORDER = 1;
+constexpr uint32_t ARCH_KSTACK_ORDER = 2;
 /** @def ARCH_KSTACK_SIZE
  * @brief Kernel stack size in bytes for each task.
  */
