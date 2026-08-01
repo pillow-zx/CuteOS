@@ -8,7 +8,7 @@
 
 ```mermaid
 flowchart TD
-    Boot["boot memory end<br/>arch_bootmem_end()"]
+    Boot["boot memory end<br/>bootmem_end()"]
     Buddy["buddy<br/>physical page allocator"]
     Slab["slab / kmalloc<br/>small kernel objects"]
     Vmalloc["vmalloc<br/>virtual contiguous mappings"]
@@ -56,7 +56,7 @@ flowchart TD
 ```text
 DRAM_BASE
   内核镜像、早期页表、early allocator 已用页
-arch_bootmem_end()
+bootmem_end()
   mem_map[] 页面描述符数组
 ALIGN_UP(mem_map end, PAGE_SIZE)
   buddy 可分配页
@@ -72,8 +72,9 @@ void buddy_init(void);
 void *get_free_page(uint32_t order);
 void free_page(void *addr, uint32_t order);
 struct page *virt_to_page(const void *addr);
-void *bootmem_end(void);
 ```
+
+`bootmem_end()` 由架构层提供，声明于 `arch/riscv/include/arch/page.h`。
 
 `get_free_page(order)` 返回直接映射区内核虚拟地址。`free_page()` 会检查：
 
@@ -340,6 +341,7 @@ bool user_map_reserved_overlaps(vaddr_t start, vaddr_t end);
 
 当前用于：
 
+- 低地址 MMIO 窗口（UART/virtio），让每个用户页表都能访问设备。
 - 保留用户栈 guard 区，避免 mmap 占用。
 - 注册 signal trampoline 页面，让每个用户页表都有相同的 sigreturn 入口。
 

@@ -6,8 +6,6 @@
 #include <kernel/printk.h>
 #include <kernel/rseq.h>
 
-volatile int preempt_count;
-
 void sched_init(void)
 {
 	mlfq_init();

@@ -1,285 +1,361 @@
 # cuteOS Context
 
-This is the compact architecture map for maintainers and coding agents. Read
-it before changing cross-subsystem behavior. `AGENTS.md` contains execution
-rules; detailed subsystem explanations live in `docs/architecture/`; syscall
-maturity and caveats live in `SYSCALL.md`.
+This is the compact architecture contract for maintainers and coding agents.
+Read it before changing cross-subsystem behavior. `AGENTS.md` contains
+execution rules; `docs/architecture/` contains detailed subsystem references;
+`SYSCALL.md` is the source of truth for syscall maturity and known semantic
+gaps.
 
 ## Project Intent
 
-cuteOS is a compact experimental RISC-V 64 Unix-like kernel. It uses real,
-statically linked riscv64 programs and the Linux riscv64 ABI as compatibility
-tests for the behavior it claims to support. It keeps modern-kernel-inspired
-core abstractions, while intentionally avoiding the policy and device breadth
-of a production kernel.
+cuteOS is a compact experimental RISC-V 64 Unix-like kernel. Its long-term
+design target is a **monolithic kernel** with complete, reusable kernel
+mechanisms and one tested default implementation for each policy category.
+Mechanisms stay in the kernel and communicate through explicit subsystem
+interfaces; this project does not pursue a microkernel decomposition.
 
-It is also a platform for kernel-mechanism research: reusable Linux-ABI
-workloads support controlled implementation and comparison. cuteOS results
-establish relative evidence only; they are not Linux performance claims.
+The design must support adding a different policy without rewriting syscall
+adapters or generic object-lifetime code. This does not mean every function
+gets an `ops` table. Add a strategy seam only when the behavior is genuinely
+replaceable, the interface has stable invariants, and a second implementation
+or a concrete research need justifies it.
 
-Current target:
+SMP, kernel preemption, and multiple architectures are committed future
+targets. They are design constraints now, even though the current runtime is
+single-hart and non-preemptible.
 
-- QEMU `virt`, OpenSBI, `rv64gc`, Sv39, and supervisor mode.
-- High-half kernel mapping shared by user page tables.
-- Static ELF64 RISC-V userspace and a build-generated ext2 root filesystem on
-  virtio-blk.
-- Linux numeric errno and Linux riscv64 syscall numbers and layouts for every
-  supported ABI boundary.
+The current validation target is to run real, statically linked riscv64
+programs and use the Linux riscv64 ABI as a compatibility boundary for the
+semantics cuteOS explicitly supports. This is evidence about cuteOS only; it
+is not a Linux performance or compatibility claim.
 
-New code must keep architecture mechanism behind narrow `arch/` seams and
-keep generic policy free of RISC-V CSR, trap-frame, page-table, SBI, or
-platform-MMIO knowledge.
+## Five-Layer Model
 
-## Project Language
+Do not reduce all design decisions to a binary mechanism/policy split. Keep
+these layers distinct:
+
+| Layer | Owns | Examples |
+| --- | --- | --- |
+| Hardware mechanism | ISA, CSRs, page tables, traps, IRQs, timers, IPIs, memory ordering | RISC-V `sfence.vma`, timer programming |
+| Generic kernel mechanism | State machines, containers, lifetime, synchronization, shared services | task lifecycle, wait queues, VFS path lookup, page cache |
+| Strategy seam | Stable replacement interface plus its lock, lifetime, and error contracts | scheduler operations, block dispatch |
+| Default strategy | The one implementation and its parameters used by the product | 4-level MLFQ, current allocator, FIFO-style choices |
+| ABI-visible semantics | User-visible layouts, errors, ordering, and observable behavior | syscall numbers, signal frames, `clone`, `f_pos`, ELF loading |
+
+The distinction matters. A runqueue owner and task migration protocol are
+generic mechanisms; MLFQ is a policy. COW and signal-frame layout are
+user-visible mechanism/ABI behavior, not optional scheduler policy. A fixed
+VMA or PID limit is a resource configuration unless an interface explicitly
+makes it replaceable.
+
+## ABI and User-Space Terms
 
 **User-space runtime** is the static musl BusyBox image installed into the
-root filesystem. Its `init` applet is PID 1 and its `ash` applet provides the
-interactive shell. Do not call this a selectable profile: cuteOS builds this
-one user-space runtime.
+interactive root filesystem. Its `init` applet is PID 1 and its `ash` applet
+provides the shell. This is the one built-in runtime, not a selectable kernel
+profile.
 
-**User-space regression suite** is the serial corpus that validates cuteOS's
+**User-space regression suite** is the serial workload that validates
 user-visible contracts from static musl programs. It distinguishes promised
-behavior, documented probe failures, and expected future failures; an XPASS
-is a suite failure, while a crash or timeout is never an expected failure.
-Each case owns a process group so its descendants cannot outlive its result.
+behavior, documented probe failures, and expected future failures. An XPASS
+is a suite failure; a crash or timeout is never an expected failure. Each case
+owns a process group so descendants cannot outlive its result.
 
-**Test root filesystem** is the generated root filesystem that runs only the
-user-space regression suite before shutting the machine down. It is separate
-from the interactive user-space runtime.
+**Test root filesystem** is the generated filesystem used only by the
+regression suite before it requests shutdown. It is separate from the
+interactive runtime filesystem.
 
 **Test probe ELF** is a small static `ET_EXEC` program installed only in the
-test root filesystem and executed by the regression suite to validate a fresh
-program image. It is not a runner mode and does not link the test framework.
+test root filesystem to validate a fresh program image.
 
-**User-test sentinel** is the final serial line emitted by the user-space
-regression suite before it requests poweroff. It is the host workflow's
-authoritative result, with only FAIL, XPASS, CRASH, and TIMEOUT causing failure.
+**User-test sentinel** is the final serial line emitted by the regression
+suite before poweroff. The host runner treats FAIL, XPASS, CRASH, and TIMEOUT
+as failures.
 
 **vfork calling task** is the task whose `clone()` request includes
 `CLONE_VFORK` and whose syscall return is suspended until vfork completion.
-Avoid calling it the parent process: the clone caller and the child's reaper
-parent are distinct roles. Ordinary signals do not end this suspension; a
-pending `SIGKILL` may terminate the calling task without waiting for
+It is not necessarily the child's reaper parent.
+
+**vfork child** is the task created by a `CLONE_VFORK` request.
+
+**vfork completion** occurs when the child stops using its pre-exec address
+space through successful exec or termination. A failed exec attempt is not
 completion.
-
-**vfork child** is the child task created by a `CLONE_VFORK` request.
-
-**vfork completion** is the lifecycle event at which the vfork child stops
-using its pre-exec virtual memory, either through successful exec or
-termination. A failed exec attempt is not vfork completion.
 
 ## Current Runtime Model
 
-These are current facts, not goals:
+These are current facts, not future guarantees:
 
+- Target platform is QEMU `virt`, booted through OpenSBI, with RISC-V `rv64gc`,
+  Sv39, S-mode, a high-half kernel mapping, and a static ext2 root image.
 - Only hart 0 is online; secondary harts park during boot.
-- Scheduling is a single global 4-level MLFQ. Timer ticks account execution
+- Scheduling uses one global four-level MLFQ. Timer ticks account execution
   and request rescheduling; switching occurs at explicit scheduling points or
   user-return timer handling.
 - The kernel is non-preemptible. Existing irqsave locks prevent local
   interrupt interleaving only; they are not SMP locks.
-- UART and virtio-blk are polling-oriented. Platform discovery is minimal and
-  QEMU `virt` resources are mostly compile-time driver constants.
-- User VMAs use a fixed `NR_VMA` array and fault pages in lazily.
+- UART and virtio-blk are primarily polling-oriented. Platform discovery is
+  minimal and QEMU `virt` resources are mostly compile-time constants.
+- User VMAs use a fixed `NR_VMA` array and faults are handled lazily.
+- `fork` currently copies user pages rather than providing a complete COW
+  implementation. Dynamic linking, PIE, user floating-point context, swap,
+  and broad Linux compatibility are outside the current runtime promise.
 
-Do not make code depend on these facts unless its interface names the
-restriction. In particular, do not use disabling local interrupts as a
-substitute for inter-hart exclusion, and do not assume CPU 0 is a valid
-generic current-CPU implementation.
+Do not make new generic code depend on these restrictions. In particular,
+local interrupt masking is not inter-hart exclusion, CPU 0 is not a generic
+current-CPU implementation, and a global static device request is not a
+valid lifetime model for preemptible or SMP execution.
 
 ## Architecture Map
 
-| Area | Ownership |
-| --- | --- |
-| `arch/riscv/` | boot, assembly contracts, trap return, context switch, paging, TLB, SBI, PLIC and timer mechanisms |
-| `init/` | `kernel_main()` and initialization order |
-| `kernel/` | task lifecycle, fork/exec/exit/wait, PID, signals, futex, rseq, time, synchronization and tty |
-| `sched/` | scheduler orchestration and MLFQ policy |
-| `mm/` | physical allocation, user VM, VMAs, faults, mappings and uaccess |
-| `fs/vfs/` | files, fdtable, paths, mounts, dentries, inodes, poll and ioctl routing |
-| `fs/ext2/` | ext2 implementation and on-disk rules |
-| `block/` | block devices, page cache, dirty state and writeback |
-| `drivers/` | UART and virtio MMIO transport drivers |
-| `syscall/` | thin Linux riscv64 ABI adapters; no core policy |
-| `include/kernel/` | public internal interfaces and cross-subsystem contracts |
-| `include/uapi/` | user-visible ABI layouts and constants |
+| Area | Current ownership | Long-term boundary |
+| --- | --- | --- |
+| `arch/riscv/` | boot, entry/return, context switch, paging, TLB, SBI, PLIC, timer, RISC-V platform details | architecture mechanisms only; platform details should be separable |
+| `init/` | `kernel_main()` and initialization order | generic initialization orchestration |
+| `kernel/` | task lifecycle, fork/exec/exit/wait, PID, signals, futex, rseq, time, synchronization, TTY | generic kernel mechanisms and user-visible semantics |
+| `sched/` | scheduler orchestration and MLFQ | scheduler mechanism plus one default policy adapter |
+| `mm/` | physical allocation, VMAs, faults, mappings, uaccess, vmalloc | generic MM mechanisms behind arch MM interfaces |
+| `fs/vfs/` | files, fdtable, paths, mounts, dentries, inodes, poll and ioctl routing | generic VFS lifetime and namespace mechanisms |
+| `fs/ext2/` | ext2 on-disk format and operations | filesystem implementation behind VFS/block interfaces |
+| `block/` | block devices, page cache, dirty state, writeback, virtio-blk transport | generic I/O lifecycle plus one default dispatch path |
+| `drivers/` | UART driver | device mechanisms and driver policy boundaries |
+| `syscall/` | thin Linux riscv64 ABI adapters | ABI translation only; no core policy |
+| `include/kernel/` | internal types and cross-subsystem contracts | public generic interfaces and invariants |
+| `include/uapi/` | user-visible constants and layouts | architecture-independent UAPI where possible |
+
+Future multi-architecture work must separate three concerns:
+
+1. **Architecture:** boot entry, trap entry/return, context switch, atomic
+   operations, CPU-local access, timer/IPI, page tables/TLB/cache, uaccess,
+   and architecture task state.
+2. **Platform:** memory map, device discovery, interrupt controller, timer
+   source, CPU topology, firmware services, reset, UART, and virtio resources.
+3. **User ABI:** ELF machine and ABI flags, syscall trap convention, signal
+   frame, `ucontext`, time/stat layouts, toolchain, rootfs, and test binaries.
+
+The current code combines some architecture and QEMU platform details under
+`arch/riscv/`. Do not copy that coupling into generic code or assume that
+adding `arch/arm64/` alone completes the multi-architecture target.
 
 ## Stable Boundaries
 
 ### Architecture and trap
 
-`arch/` owns entry/return assembly, context layout, address-space activation,
-CPU-local access, interrupt control, timer programming, TLB operations and
-platform mechanisms. Generic code may request an operation through an
-architecture interface, but may not read CSRs, touch MMIO, or rely on a
-RISC-V trap-frame layout.
+`arch/` owns entry/return assembly, trap-frame layout, address-space
+activation, CPU-local access, interrupt control, timer programming, TLB
+operations, and platform mechanisms. Generic code requests operations through
+architecture interfaces; it does not read CSRs, touch MMIO, or depend on a
+RISC-V trap-frame offset.
 
-`struct trap_frame`, assembly offsets, kernel stack layout and the ordering of
-`rseq_resume_user()` and `do_signal()` are ABI contracts. Check assembly and
-architecture accessors before changing them. User PC/SP or register state must
-be rewritten through the established trap/user-return path only.
+`struct trap_frame`, assembly offsets, kernel-stack layout, and the ordering
+of `rseq_resume_user()` and `do_signal()` are contracts. User PC, SP, and
+register state must be changed through the established trap/user-return path.
 
 ### Syscall and user ABI
 
-The dispatcher decodes a Linux riscv64 trap frame and handlers return negative
-errno or a non-negative result. Handlers validate and copy user data, then
-delegate to their owning subsystem; they must not access VMA, ext2, fdtable or
-device internals directly.
+The dispatcher decodes Linux riscv64 registers. Handlers validate arguments,
+copy user data, return negative errno or a non-negative result, and delegate
+semantics to the owning subsystem. They must not manipulate VMA, ext2,
+fdtable, page-cache, or device internals directly.
 
 User pointers are never directly dereferenced. Use `access_ok()`,
-`copy_from_user()`, `copy_to_user()`, `strncpy_from_user()` and probes as the
-ABI requires. An installed syscall is not an implementation claim: update
-`SYSCALL.md`, the `SYSCALL_SUPPORT(...)` anchor, and tests whenever a B/C/D
-semantic boundary changes.
+`copy_from_user()`, `copy_to_user()`, `strncpy_from_user()`, and the relevant
+probe helpers. An installed syscall is not automatically a compatibility
+claim; update `SYSCALL.md`, UAPI anchors, and tests when a semantic boundary
+changes.
 
-### Task, scheduling, and concurrency
+### Task lifecycle and identity
 
 `task_struct` is a lifecycle aggregate, not a dumping ground for subsystem
-state. Signal, futex and rseq helpers remain with their owners. Clone uses a
-prepare/commit/abort transaction; syscall code must not bypass it. Exit may
-run after the task loses its `mm`, so it must not introduce late user access.
+state. Signal, futex, rseq, session, and TTY helpers remain with their owners.
 
-Task allocation reserves a PID and owns one base reference, but it does not
-publish a PID-to-task mapping. After resources and links are coherent, the
-creator calls `task_publish()`, which marks the task published and installs
-the PID mapping under the PID-registry lock as one transaction.
-`task_find_thread()` and
-`task_find_group_leader()` return a lifecycle-pinned task that every caller
-must release with `task_put()`; they never lend a raw registry pointer. Reaping
-first calls `task_unpublish()`, preventing new lookup references, then drops
-the base reference. This makes PID reuse impossible until all prior lookup
-users have left the task lifetime.
+Task creation reserves a PID and owns a base reference, but does not publish
+the PID mapping until resources, links, and state are coherent. `task_publish()`
+installs the mapping and marks the task visible as one transaction.
+`task_find_thread()` and `task_find_group_leader()` return a lifecycle-pinned
+task; every caller releases it with `task_put()`. Reaping first unpublishes
+the task, preventing new lookup references, and only then releases the base
+reference.
 
-Process identity (`SID`/`PGID`) is owned by task/process code. Cross-subsystem
-callers read the pair through `task_process_snapshot()` under the process
-identity lock; raw field access is limited to that owner or unpublished task
-construction. Identity mutations are task-private and reached only through the
-session coordinator. The session coordinator owns the linearization of operations
-that jointly change process identity and controlling-TTY policy, but does not
-write identity fields or retain task pointers. A
-controlling-TTY attachment contains only
-TTY-owned state and is protected by the TTY mutex. TTY passes foreground input
-signals to the coordinator, which snapshots `(sid, pgid)` through TTY and
-invokes signal delivery after unlocking; signal code performs the pinned task
-scan. The coordinator mutex is outermost for joint policy operations. It may
-enter task/process or TTY operations separately, but those two subsystem locks
-must never be nested. PID-registry lookup remains internal to task and signal
-operations.
+Process identity (`SID`/`PGID`) is owned by task/process code. Other
+subsystems use `task_process_snapshot()` rather than writing raw fields. The
+session coordinator linearizes operations that jointly change process
+identity and controlling-TTY policy. TTY code snapshots the target identity,
+unlocks, and then asks signal code to deliver. Do not nest task/process and
+TTY subsystem locks in the reverse order.
 
-A controlling-TTY loss caused by its session leader's detach or exit, or by a
-privileged forced takeover, is a session hangup: the former foreground process
-group receives `SIGHUP` followed by `SIGCONT`. Detaching a non-leader affects
-only that process and is not a session hangup.
+A controlling-TTY loss caused by session-leader detach/exit or privileged
+forced takeover is a session hangup: the former foreground process group gets
+`SIGHUP` followed by `SIGCONT`. Detaching a non-leader affects only that
+process. Session-leader exit updates TTY visibility before the task becomes a
+zombie; cleanup and clone-abort paths are idempotent fallbacks.
 
-For a non-thread clone, session identity inheritance and controlling-TTY
-attachment inheritance are one session-coordinator prepare transaction before
-the child is published. A failed prepare or a later clone abort removes the
-tentative attachment completely. Threads resolve their leader's attachment and
-never copy it.
+Clone uses a prepare/commit/abort transaction. A non-thread clone prepares
+session identity and TTY inheritance before publication; threads resolve the
+leader's attachment instead of copying it. Syscall code must not bypass this
+transaction.
 
-Session leader exit changes controlling-TTY visibility before the task becomes
-a zombie. It removes the session relationship and emits any resulting hangup;
-the exiting leader's attachment is then released. Reaping and clone-abort use
-an idempotent cleanup fallback and do not repeat a normal exit's hangup.
+Parent/child relations publish ordered child events with monotonic sequence
+numbers. The task interface observes or claims an event, registers waiters,
+and commits or aborts the claim atomically. A failed user copy aborts the
+claim so the event remains waitable. Exit owns wait4 selector and status
+policy; syscall code owns ABI validation and final commit/abort.
 
-A successful `setsid()` only detaches its calling process from its former
-controlling TTY before creating a new session and process group. It does not
-change the former session's terminal relationship or emit a session hangup.
+### Scheduler mechanism and default policy
 
-The minimal terminal model keeps a foreground PGID only while that session has
-a live member in the group. Session transitions clear an empty foreground
-group to `0`; terminal input then has no foreground recipient until an explicit
-foreground-group selection. This avoids treating a later reused PID number as
-the old foreground group without introducing a general process-group object.
+The scheduler owns runnable-task state, runqueue ownership, wakeup
+orchestration, and architecture switch orchestration. The current MLFQ is the
+default policy, not the generic scheduler contract.
 
-The scheduler owns runnable-task selection and architecture switch
-orchestration. Wait channels own waiter registration and wakeup observation.
-Every new shared mutable object needs a documented owner, lifetime, lock,
-lock order, IRQ/preemption state, and wakeup rule. Prefer a small deep module
-interface over exposing lock choreography to callers.
+Before SMP and preemption are enabled, the scheduler must define:
 
-Task owns every published parent/child relation and its wait-visible lifecycle
-edges. Each child keeps an ordered event FIFO with a monotonically increasing
-sequence; the task interface atomically observes or claims events, registers
-waiters, and commits or aborts claims. A failed userspace result copy aborts
-the claim, so it cannot discard the event. Task publishes the edge and wakes
-the parent while holding its relation source lock, pins a non-idle published
-parent, then delivers `SIGCHLD` only after unlocking. `exit` owns wait4
-selector and status policy; syscall code owns only Linux ABI validation,
-uaccess, and the final commit or abort.
+- whether a task is queued, running, sleeping, exiting, or migrating;
+- which CPU owns a running or queued task;
+- the linearization point for local and remote wakeup;
+- whether a remote wake requires an IPI;
+- how exit removes a task from every queue and CPU state;
+- what the policy may change in a scheduling entity.
 
-Do not add a feature that is only correct because execution happens on one
-hart. Keep task state transitions, runqueue membership, remote wakeup and
-migration as separate, explicit contracts; do not fold their policy into
-syscall handlers.
+A first SMP implementation may use one globally locked runqueue. Per-CPU
+queues, affinity, load balancing, migration, and work stealing are later
+policy choices; the no-double-run invariant is not optional.
 
-### Generic kernel containers
+### Synchronization and wait channels
 
-`kfifo` and `klifo` hold copies of fixed-size kernel objects in caller-owned
-storage. They do not own the copied objects, allocate memory, synchronize
-access, or provide wait/wake policy. The owning subsystem keeps the storage
-live and supplies the lock, IRQ, and lifetime contract. Prefer intrusive lists
-when an object participates in multiple memberships or needs identity rather
-than a copied value.
+Every shared object must document:
 
-### Kernel log
+| Contract | Required answer |
+| --- | --- |
+| Owner | Which CPU, task, or subsystem owns mutations? |
+| Lock | Which fields and transitions does it protect? |
+| Lock order | Which locks may be nested, and in what order? |
+| IRQ/preemption | Are interrupts disabled? Is preemption disabled? |
+| Sleep | May the path block, allocate, or perform I/O? |
+| Lifetime | Who holds references, cancels callbacks, and frees storage? |
+| Wakeup | Which state change wakes which waiter, and how is loss avoided? |
 
-`kernel/printk.c` owns the static printk ring, its overwrite/cursor policy,
-console formatting, ring locking and wait channel. `syscall/sys_log.c` is only
-the Linux `syslog(116)` ABI adapter: it validates user arguments, applies the
-documented UID-0 stand-in for `CAP_SYSLOG`, and delegates to the printk
-interface. The ring has a global destructive cursor for action 2 and an
-independent snapshot-clear cursor for actions 3--5; do not expose these fields
-or duplicate their synchronization in callers. See
-`docs/architecture/log.md` for lifetime, lock order, user-copy and overwrite
-semantics.
+The future spinlock must provide atomic competition, acquire/release memory
+ordering, IRQ-state handling, and preemption accounting. A mutex may keep a
+plain owner pointer if the complete owner/waiter protocol is protected by its
+internal lock; making one field atomic is not a complete mutex design.
 
-### Memory, VFS, and storage
+No path may schedule while holding a spinlock, in IRQ context, or with an
+invalid preemption state. `preempt_enable()` must service deferred
+rescheduling when its count reaches zero. Waiters, timers, and callbacks need
+references or cancellation synchronization; raw task pointers and stack
+allocated sessions are not lifetime guarantees.
+
+### Memory, uaccess, VFS, and storage
 
 MM owns VMA layout and page-table changes behind `include/kernel/mm.h`.
-Callers do not take `mm->mmap_lock` or manipulate VMAs. VFS owns file
-lifetime, fd lookup, path lookup, mount traversal and filesystem dispatch;
-syscalls and filesystems do not bypass it. The page cache is the authoritative
-cached file-data path; raw block aliases must preserve page-cache coherence.
-VFS also owns inode mode/uid/gid mutation through `vfs_inode_setattr()`;
-syscalls only adapt the ABI and pass a VFS-owned attribute request, while
-filesystem implementations persist the resulting inode state.
+Callers do not take `mm->mmap_lock` or manipulate VMAs. Any future uaccess
+implementation must define the address-space lock/fault-in/page-pin or fault-
+fixup contract, SUM restoration, preemption behavior, and error return.
 
-Keep lower layers independent of higher policy: drivers do not decide VFS or
-scheduler policy, filesystems do not access block-driver MMIO, and arch code
-does not absorb generic lifecycle policy.
+SMP MM requires an active-CPU contract for each `mm`, TLB shootdown for every
+relevant PTE change, and a completion guarantee before releasing old pages or
+page-table pages. This includes unmap, mprotect, exec, mm destruction, shared
+mm, vmalloc mappings, and permission changes, not only explicit `munmap`.
+
+VFS owns file lifetime, fd lookup, path lookup, mount traversal, filesystem
+dispatch, and shared open-file state. Filesystems do not bypass VFS. The page
+cache is the authoritative cached file-data path; raw block aliases preserve
+that coherence. Inode, dentry, file offset, mount, ext2 metadata, page busy,
+read-in, writeback, truncate, and invalidate protocols must be defined before
+claiming SMP-safe storage.
+
+Do not allocate, sleep, or start I/O under a spinlock. Define allocator,
+page-cache, inode, block-request, and writeback lock order globally; local
+locks are insufficient when reclaim and error cleanup can call back into
+another subsystem.
+
+### Time, signals, futex, and rseq
+
+Timer queues need a per-CPU or explicitly owned expiry model, a cancel-sync
+contract, and a callback context contract. After `cancel` returns, the
+documented callback state must be true; cancellation alone must not leave a
+stack timer or task pointer in the queue.
+
+Signals, futexes, and rseq must define cross-CPU target lookup, wakeup,
+delivery, exit cleanup, and migration behavior. `rseq` must not hard-code CPU
+0; it needs a real logical CPU identifier and update ordering across switch,
+preemption, signal, exec, and exit.
+
+## Policy Seams
+
+Potentially deep strategy seams include:
+
+| Policy | Current default | Mechanism that must remain generic |
+| --- | --- | --- |
+| Scheduler | four-level MLFQ | runqueue ownership, task states, wakeup, migration, switch |
+| Physical allocation | buddy plus slab | page ownership, allocation lifetime, failure semantics |
+| VM fault/reclaim | lazy fault, no complete reclaim | fault classification, page install, COW/refcount, OOM contract |
+| Page cache | bounded cache with LRU/writeback pieces | page identity, busy state, I/O completion, eviction safety |
+| Block dispatch | synchronous polling request path | request lifetime, queue, completion, timeout, cancellation |
+| Timer backend | globally ordered timer list | arm/cancel, CPU ownership, expiry, callback context |
+| TTY input | console-oriented behavior | input queue, line discipline, blocking and wakeup |
+| Filesystem selection | ext2 root filesystem | registration, mount, superblock and VFS operations |
+
+The default policy is statically linked and centrally configured. Policy
+parameters must not be duplicated in syscall, VFS, MM, or architecture
+callers. A policy replacement must not silently change ABI errors, object
+lifetime, or synchronization contracts.
+
+For scheduler work, keep MLFQ fields in policy-owned state. The generic task
+interface should expose lifecycle and opaque scheduling state rather than
+making every caller understand MLFQ levels, queues, or boost rules.
 
 ## Important Flows
 
-- **Boot:** RISC-V entry establishes the early mapping and stack, then
-  `kernel_main()` initializes memory, tasking, VFS, devices, traps and the
-  init process. Secondary-hart handling is currently park-only.
+- **Boot:** RISC-V entry establishes early mappings and a stack, then
+  `kernel_main()` initializes memory, tasking, VFS, devices, traps, and init.
+  Secondary-hart handling is currently park-only.
 - **Syscall:** user `ecall` enters the trap path; the dispatcher decodes the
   number and arguments; a thin handler copies ABI data and calls a subsystem;
-  `user_return_work()` performs rseq then signal work before return.
-- **Scheduling:** timer IRQ updates time, expired timers and MLFQ accounting.
-  A runnable task enters through scheduler wakeup; `schedule()` chooses and
-  switches tasks only at currently permitted points.
-- **Fork/exec/exit:** clone prepares child state, commits it to task/PID and
-  scheduler ownership, then exposes it. Successful exec replaces the old
-  address space. Exit performs signal/futex/task cleanup, task-owned child
-  event publication, and later reaping.
-- **File I/O:** syscall fd/path adaptation enters VFS; VFS owns lookup and
-  file lifetime; filesystem data reaches the page cache and block device.
-- **Shutdown:** BusyBox init broadcasts TERM/KILL to user processes, calls
-  VFS-wide sync for page-cache and filesystem-global state, then requests
-  restart/halt/poweroff through the platform-independent reset seam.
+  `user_return_work()` performs rseq before signal work.
+- **Scheduling:** the timer updates time, expired timers, accounting, and
+  `need_resched`; `schedule()` switches only at currently permitted points.
+- **Fork/exec/exit:** clone prepares state, commits task/PID/scheduler
+  ownership, and publishes; exec replaces the address space; exit publishes
+  task-owned child events and later reaping unpublishes the task.
+- **File I/O:** fd/path adaptation enters VFS; VFS owns lookup and file
+  lifetime; filesystem data reaches page cache and block devices.
+- **Shutdown:** BusyBox init terminates user processes, synchronizes cached
+  filesystem state, and requests reset/halt/poweroff through the reset seam.
 
 ## Non-Negotiable ABI Rules
 
-- Check Linux riscv64 and asm-generic UAPI headers for syscall numbers,
-  structures, flags and errno before changing a claimed ABI.
-- Change both sides of every shared layout, and preserve static offset/size
-  assertions.
-- Return negative errno; treat uaccess copy return values as uncopied bytes.
-- Preserve the signal/rseq user-return order and trap-frame ownership.
-- Do not dereference user memory, bypass VFS/fdtable/page cache, or place
-  subsystem policy in `syscall/`.
+- Check Linux riscv64 and asm-generic UAPI headers before changing a claimed
+  syscall number, structure, flag, layout, or errno.
+- Change both sides of every shared layout and preserve size/offset assertions.
+- Return negative errno and treat `copy_*_user()` results as uncopied bytes.
+- Preserve trap-frame ownership and the rseq-before-signal user-return order.
+- Never dereference user memory directly.
+- Do not bypass VFS, fdtable, page cache, block-device, or task lifetime APIs.
+- Do not put subsystem policy in `syscall/`.
+- Do not make generic code depend on one CPU, non-preemption, or polling
+  device serialization.
+
+## Implementation Order
+
+The target is mechanism-first. Use this order unless a documented dependency
+requires otherwise:
+
+1. Define lock, memory-order, IRQ, preemption, sleep, wakeup, and lifetime
+   contracts; add debug assertions and a lock-order inventory.
+2. Implement CPU-local access, real spinlocks, atomic publication, per-CPU
+   current/idle/kernel-stack state, and the minimum IPI platform seam.
+3. Make task ownership, runqueue state, wait/wakeup, remote wake, and reaping
+   correct on SMP. A global runqueue is acceptable for the first implementation.
+4. Close MM/uaccess/TLB protocols, including shared `mm`, page-table-page
+   lifetime, vmalloc, exec, and all PTE-changing paths.
+5. Close VFS, page-cache, ext2, and block-request lifetimes and lock order.
+6. Enable kernel preemption with unified return-path checks and context rules.
+7. Extract only justified strategy seams; keep MLFQ and current implementations
+   as the single default adapters.
+8. Validate the generic layer with a second architecture and the same ABI and
+   self-test contracts. AArch64 is the provisional second-architecture target;
+   its detailed boot, platform, and ABI design remains intentionally deferred.
 
 ## Lookup and Verification
 
@@ -295,7 +371,8 @@ does not absorb generic lifecycle policy.
 | build and boot | `Makefile`, `scripts/build.mk`, `scripts/kernel.mk`, `scripts/workflows.mk` |
 | shutdown and reset | `SYSCALL.md`, `kernel/signal.c`, `syscall/sys_misc.c`, `include/kernel/reboot.h` |
 
-Use `make help` to discover targets. `make ktest` runs kernel self-tests with a
-temporary test image; `make utest` runs user-space regression from its separate
-test root filesystem; `make check` runs both serially. When adding a source
-file, update the object manifest in `scripts/kernel.mk`.
+Use `make help` to discover targets. `make ktest` runs kernel self-tests with
+a temporary image; `make utest` runs the user regression suite from its test
+root filesystem; `make check` runs both. New source files must be added to
+`scripts/filelist.mk`. Changes to user-visible ABI require checking
+`include/uapi/`, the vendored user-space headers, and tests.

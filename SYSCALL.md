@@ -1,7 +1,7 @@
 # cuteOS syscall 语义矩阵报告
 
 本文是 cuteOS 当前 syscall 支持面的基线，记录
-`include/kernel/syscall_table.h` 中 116 个 syscall 入口的语义成熟度。它不
+`include/kernel/syscall_table.h` 中 120 个 syscall 入口的语义成熟度。它不
 是 Linux 完整兼容声明；入口存在只表示分发表安装了 handler，具体支持等级以
 本文的 A/B/C/D 矩阵为准。
 
@@ -23,11 +23,11 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 | 域 | 数量 | 主要等级 | 主要风险 |
 | --- | ---: | --- | --- |
 | 文件描述符与 I/O | 20 | A/B | fcntl/ioctl/splice/fallocate flag 子集 |
-| 路径、目录、挂载 | 16 | A/B/C | mount/umount 保持 C 级最小模型、rename/link 边界 |
+| 路径、目录、挂载 | 19 | A/B/C | mount/umount 保持 C 级最小模型、rename/link 边界 |
 | stat/statfs/statx | 5 | A/B | statx 扩展字段不置位、statfs 字段随 FS 声明 |
 | poll/select/epoll | 5 | B | edge/oneshot、嵌套 epoll、信号掩码细节 |
 | 进程、线程、等待 | 14 | A/B | clone flag、wait options、线程组细节 |
-| signal | 8 | B | restart 覆盖有限 syscall、默认动作、实时信号缺失 |
+| signal | 10 | B | restart 覆盖有限 syscall、默认动作、实时信号缺失 |
 | 时间和 timer | 14 | B/C | REALTIME、clock_settime、POSIX timer 细节 |
 | 内存管理 | 10 | B | file mmap、msync、mlock 语义深度 |
 | futex/rseq/membarrier | 5 | B/C | futex opcode 子集、rseq flag、SMP 语义 |
@@ -447,7 +447,7 @@ task-local LIFO 链。`rt_sigreturn` 只接受该链的当前栈顶地址，再�
 
 | Nr | syscall | 等级 | 当前语义 | 主要缺口 | 下一步 |
 | ---: | --- | --- | --- | --- | --- |
-| 98 | `futex` | B | 支持 WAIT/WAKE、WAIT_BITSET/WAKE_BITSET、PRIVATE aliases、wait op realtime option 和 robust exit wake；无 timeout `FUTEX_WAIT` 支持 `SA_RESTART` 重放 | requeue、PI、shared inode key 缺失 | 按 pthread 需求扩展 |
+| 98 | `futex` | B | 支持 WAIT/WAKE、WAIT_BITSET/WAKE_BITSET、PRIVATE aliases 和 robust exit wake；`FUTEX_CLOCK_REALTIME` 固定返回 `-ENOSYS`；无 timeout `FUTEX_WAIT` 支持 `SA_RESTART` 重放 | requeue、PI、shared inode key 缺失 | 按 pthread 需求扩展 |
 | 99 | `set_robust_list` | B | 登记 robust list | 仅 exit-time 遍历 | 保持并压测非法链 |
 | 100 | `get_robust_list` | B | 查询 robust list | 权限模型浅 | 补跨线程权限 |
 | 283 | `membarrier` | B | 单核 private/global/sync_core/rseq 兼容，见 cmd 支持表 | 无 SMP IPI/runqueue 语义 | SMP 前保持单核标注 |

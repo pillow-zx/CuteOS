@@ -67,7 +67,7 @@ flowchart TD
     UserMap["user_map + stack guard + signal trampoline"]
     Trap["trap_init()"]
     Task["task_init()"]
-    Timer["arch_timer_init()"]
+    Timer["timer_init()"]
     Sched["sched_init()"]
     Syscall["syscall_init()"]
     VFS["vfs_init()"]
@@ -96,7 +96,7 @@ flowchart TD
 11. `signal_user_map_init()`：注册信号 trampoline 用户映射。
 12. `trap_init()`：安装 trap 向量并打开 S 态定时器中断。
 13. `task_init()`：创建 idle task 和 CPU-local 当前任务状态。
-14. `arch_timer_init()`：设置第一次 Sstc timer 比较值。
+14. `timer_init()`：设置第一次 Sstc timer 比较值。
 15. `sched_init()`：初始化 MLFQ runqueue。
 16. `syscall_init()`：安装 syscall 表，并初始化 futex 桶。
 17. `vfs_init()`：初始化 inode cache、dentry cache 和文件系统注册表。
@@ -170,7 +170,7 @@ exec_user_path("/sbin/init");
 进入用户态。动态 `ET_DYN`、`PT_INTERP` 和 `PT_DYNAMIC` 镜像不属于当前 loader
 契约。
 
-内核只为 PID 1 安装继承的 console fd 0/1/2，不在启动期为它分配 controlling
+每个任务创建时都安装继承的 console fd 0/1/2，但启动期不分配 controlling
 TTY。BusyBox init 读取 `/etc/inittab` 后，为 `-/bin/sh` action child 执行
 `setsid()`，child 继续使用继承的 fd 0，并由 `FEATURE_INIT_SCTTY` 调用
 `TIOCSCTTY(0)` 获取 console。TTY 所有权因而来自普通用户态 ABI，而不是启动期
@@ -200,7 +200,7 @@ exec 初始栈固定映射 64 KiB，栈下方保留一个 guard page。它按 Li
 | console input | `tty_console_start()` | 每个 scheduler tick 轮询 UART，处理 TTY 输入 |
 | page cache writeback | `kernel_thread(page_cache_wb_thread)` | 周期性同步全局脏页 |
 
-idle task 使用启动栈，不走普通 `task_alloc()` 的内核栈分配路径。其他任务拥有 8 KiB 内核栈，并在栈底放置 canary。
+idle task 使用启动栈，不走普通 `task_alloc()` 的内核栈分配路径。其他任务拥有 8 KiB 内核栈。
 
 ## 启动边界
 

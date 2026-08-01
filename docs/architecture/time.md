@@ -2,7 +2,7 @@
 
 ## 时钟来源
 
-RISC-V `time` CSR 是 cuteOS 的原始单调时钟。`arch_timer_now()` 返回 QEMU
+RISC-V `time` CSR 是 cuteOS 的原始单调时钟。`timer_now()` 返回 QEMU
 `virt` 的 10 MHz mtime tick；内核 timer、调度 tick、相对 sleep 和 timeout
 只以这个时钟计算期限。
 

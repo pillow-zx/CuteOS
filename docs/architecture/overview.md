@@ -34,7 +34,7 @@ flowchart TB
     VFS["fs/vfs<br/>path / fd / inode / file / mount"]
     Ext2["fs/ext2<br/>磁盘格式与 inode/block 映射"]
     Block["block<br/>blkdev / page cache / virtio-blk"]
-    Drivers["drivers<br/>UART / virtio MMIO"]
+    Drivers["drivers<br/>UART"]
     Arch["arch/riscv<br/>boot / trap / pgtable / switch / timer"]
     HW["QEMU virt + OpenSBI"]
 
@@ -80,7 +80,7 @@ block
   块设备注册、page cache、writeback、virtio-blk
 
 drivers
-  UART、virtio MMIO transport
+  UART（virtio MMIO transport 位于 block/）
 
 lib
   基础字符串、列表、位操作、哈希和固定容量容器等内核工具
@@ -164,7 +164,7 @@ page fault
 ```text
 timer interrupt
   -> jiffies++
-  -> ktimer_run_expired()
+  -> timer_run_expired()
   -> sched_tick()
   -> MLFQ 更新当前任务预算
   -> need_resched
@@ -218,7 +218,7 @@ VFS 公共对象定义在 `include/kernel/fs.h`：
 
 ### page_mapping 和 page_cache
 
-`page_mapping` 是 page cache 的命名域。inode mapping 的 index 是文件逻辑块号，block device mapping 的 index 是磁盘物理块号。page cache 只以 `(mapping, index)` 作为 key，不嵌入 ext2 布局知识。
+`page_mapping` 是 logical-to-physical resolver。inode mapping 的 index 是文件逻辑块号，block device mapping 的 index 是磁盘物理块号。page cache 只以 `(dev_t, 物理块号)` 作为 key；mapping 只解析逻辑块，不嵌入 ext2 布局知识。
 
 ## API 边界原则
 
@@ -244,5 +244,6 @@ VFS 公共对象定义在 `include/kernel/fs.h`：
 - [vfs.md](vfs.md)：VFS 对象模型、路径、fd、挂载、字符设备和 pipe。
 - [ext2.md](ext2.md)：ext2 私有结构、inode/data/dir 操作和块映射。
 - [block.md](block.md)：块设备、page cache、writeback、virtio-blk。
+- [log.md](log.md)：printk 环形缓冲与 syslog(116)。
 
 这些文档互相引用的是架构关系，不替代头文件中的精确声明。涉及函数签名、结构字段和常量时，以代码中的头文件为准。

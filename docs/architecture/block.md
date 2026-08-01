@@ -76,14 +76,16 @@ struct page_mapping *block_device_pages(dev_t dev);
 注册块设备时，`register_block_device()` 初始化 `bdev->bd_pages`：
 
 ```c
-page_mapping_init(&bdev->bd_pages, bdev, &block_mapping_aops, NULL);
+page_mapping_init(&bdev->bd_pages, bdev, bdev->bd_dev, &block_mapping_ops);
 ```
 
 块设备 mapping 的 index 是 4 KiB 物理块号。其 ops：
 
 - `resolve()`：逻辑块号就是物理块号；实际扇区 I/O 由 page-cache 集中执行。
 
-ext2 metadata 通过 `page_cache_get_block(dev, block)` 使用这个 mapping。
+ext2 metadata 读取直接经 `page_cache_get_block(dev, block)` 按物理块访问；
+块设备 mapping 的 `resolve()` 由 `ext2_ind_bmap_readonly()` 经
+`block_device_pages()` + `page_cache_get_mapping()` 行使。
 
 ## page_mapping 抽象
 
@@ -125,7 +127,7 @@ page cache 只看 `(dev_t, physical block)`；mapping 只解释 ext2 logical blo
 - `dirty`
 - `writeback`
 - `dropped`
-- hash/LRU/mapping/dirty list 节点。
+- hash/LRU/dirty list 节点；mapping 关联在独立 `struct page_cache_assoc` 中。
 
 全局限制：
 
@@ -142,7 +144,7 @@ page cache 只看 `(dev_t, physical block)`；mapping 只解释 ext2 logical blo
 
 ```c
 struct page_cache *page_cache_get(dev_t dev, uint64_t block,
-                                  uint32_t flags);
+                                  uint32_t flags, int *error);
 struct page_cache *page_cache_get_mapping(struct page_mapping *mapping,
                                           uint64_t index,
                                           uint32_t flags,
@@ -168,16 +170,17 @@ void page_cache_invalidate_mapping(struct page_mapping *mapping);
 page cache 满 512 页时：
 
 1. 优先从 LRU 找 refcount 为 0、非 dirty、非 writeback 的 clean 页释放。
-2. 如果没有 clean victim，找一个 dirty、未引用、非 writeback 页执行 `page_cache_wb_run()`。
-3. 写回成功后再尝试回收 clean 页。
+2. 无 clean victim 时取 dirty 链表头执行 `page_cache_sync_page()` 单页写回，
+   不检查引用与写回状态；已处于 writeback 的 dirty 页返回 `-EBUSY`。
 
-`dropped` 表示页面已经从所有可发现结构中移除，但仍被调用者引用。最后一次 put 才真正释放内存。
+`dropped` 是保留字段，当前从不置位；关联移除路径改为清 dirty 并置
+`uptodate=false`。
 
 ## dirty list
 
 dirty 状态维护一个全局链表：
 
-- 全局 `dirty_pages`：后台 writeback 使用。
+- 全局 `page_cache_dirty_list`：后台 writeback 使用。
 
 局部 fsync 通过 logical association 过滤该链表，不会把其他 mapping 的
 dirty page 一并写回；全局同步才允许跨 mapping 聚合物理连续页。
@@ -186,7 +189,11 @@ dirty page 一并写回；全局同步才允许跨 mapping 聚合物理连续页
 
 ## writeback
 
-`page_cache_sync_page(page)` 同步单页：
+`page_cache_sync_page(page)` 同步单页：设置 `writeback=true`，通过物理页的
+`(dev_t, block)` 身份调用 block-device backend；成功后清 dirty，失败时保留
+data 和 dirty 以便重试。不经 wb_buf，无聚合。
+
+`page_cache_wb_run(start, mapping)` 做保守聚合：
 
 ```mermaid
 flowchart TD
@@ -202,17 +209,13 @@ flowchart TD
     Buffer --> Write --> Clean
 ```
 
-1. 设置 `writeback=true`。
-2. 通过物理页的 `(dev_t, block)` 身份调用 block-device backend。
-3. 成功后清 dirty；失败时保留 data 和 dirty 以便重试。
-
-`page_cache_wb_run(start, mapping)` 做保守聚合：
+聚合流程：
 
 - 从同一设备的物理块开始。
 - 收集物理块号连续的 dirty 页。
 - 如果 `mapping` 非空，只收集同一 logical mapping 关联的页面；
   `page_cache_sync_all()` 传入空 mapping，才允许跨 mapping 聚合。
-- 最多写入 32 页，受 `PAGE_CACHE_WB_ORDER=5` 分配的缓冲限制。
+- 最多写入 32 页（`PAGE_CACHE_WB_MAX`），缓冲按 order-5 分配，失败退化为单页。
 - 调用一次 block-device backend 写连续范围。
 
 后台线程 `page_cache_wb_thread()` 通过 `worker_run_periodic(5, ...)` 每 5 秒调用 `page_cache_sync_all()`。
@@ -246,8 +249,8 @@ sequenceDiagram
     K->>V: ACKNOWLEDGE + DRIVER
     K->>V: negotiate VIRTIO_F_VERSION_1
     V-->>K: FEATURES_OK
-    K->>Q: setup desc / avail / used rings
     K->>V: DRIVER_OK
+    K->>Q: setup desc / avail / used rings
     K->>K: register_block_device(8:0)
 ```
 
@@ -257,10 +260,12 @@ reset
   -> DRIVER
   -> feature negotiation: VIRTIO_F_VERSION_1
   -> FEATURES_OK
-  -> setup queue 0
   -> DRIVER_OK
+  -> setup queue 0
   -> register_block_device()
 ```
+
+代码在队列装配前就置 DRIVER_OK，与 virtio 规范建议的顺序不同。
 
 驱动只使用 request virtqueue，静态分配：
 

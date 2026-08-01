@@ -14,7 +14,7 @@ VFS 为 syscall、exec、mm file-backed mapping 和具体文件系统之间提�
 - `fs/vfs/namei.c`：路径解析。
 - `fs/vfs/namei_mutation.c`：create/link/unlink/mkdir/rmdir/rename/mknod。
 - `fs/vfs/file.c`：file 对象分配与打开。
-- `fs/vfs/read_write.c`：read/write/llseek/readdir/ioctl/poll 路由。
+- `fs/vfs/read_write.c`：read/write/llseek/readdir 路由；ioctl/poll 路由在 `fs/vfs/file.c`。
 - `fs/vfs/fdtable.c`：每任务 fdtable。
 - `fs/vfs/fs_struct.c`：cwd/root/umask。
 - `fs/vfs/mount.c`：挂载树。
@@ -412,7 +412,7 @@ VFS 检查 file mode 和 fop 是否存在，再调用具体 fop。普通 read/wr
 
 ## 变更操作
 
-VFS mutation API 位于 `include/kernel/vfs.h`：
+VFS mutation API 位于 `include/kernel/vfs.h`（`vfs_inode_truncate`/`vfs_fallocate_file` 在 `include/kernel/fs.h`）：
 
 ```c
 int vfs_create_at_path(...);

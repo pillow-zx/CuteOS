@@ -139,10 +139,10 @@ offset = byte_offset % BLOCK_SIZE
 
 | 类型 | i_op | i_fop | i_pages |
 | --- | --- | --- | --- |
-| directory | `ext2_dir_inode_operations` | `ext2_dir_operations` | `ext2_inode_aops` |
-| symlink | `ext2_symlink_inode_operations` | none | `ext2_inode_aops` |
+| directory | `ext2_dir_inode_operations` | `ext2_dir_operations` | `ext2_inode_mapping_ops` |
+| symlink | `ext2_symlink_inode_operations` | none | `ext2_inode_mapping_ops` |
 | char/block device | none | none | none |
-| regular/default | `ext2_file_inode_operations` | `ext2_file_operations` | `ext2_inode_aops` |
+| regular/default | `ext2_file_inode_operations` | `ext2_file_operations` | `ext2_inode_mapping_ops` |
 
 目录和块后备 symlink 在 page cache 看来都是 inode 数据页。设备特殊文件不通过 inode page cache 暴露数据。
 
@@ -157,7 +157,7 @@ page-cache 负责实际物理 I/O 和唯一 authoritative page。
 flowchart LR
     VFS["VFS file op"]
     InodeMap["inode->i_pages<br/>logical block index"]
-    Aops["ext2_inode_aops"]
+    Aops["ext2_inode_mapping_ops"]
     Bmap["ext2_bmap()<br/>direct / indirect"]
     BlockMap["block_device_pages(dev)<br/>physical block index"]
     Driver["block_device_operations<br/>virtio-blk sectors"]
@@ -175,12 +175,11 @@ flowchart LR
 写入：
 
 1. 限制到 `EXT2_MAX_FILE_SIZE`。
-2. `page_cache_grab_file_page(inode, lblock, true, &created)`。
-3. 通过 `map_block(false)` 判断逻辑块是否已有物理块。
-4. 空洞写入时 `map_block(true)` 分配物理块。
-5. 部分覆盖已有块时，先 readpage 保留未覆盖字节。
-6. 写入 page cache，标 dirty。
-7. 如果扩大文件，更新 `inode->i_size` 并 `ext2_write_inode()`。
+2. 经 `page_cache_get_mapping(&inode->i_pages, lblock, flags, &error)` 获取
+   物理页：未覆盖整个块的写入带 `PAGE_CACHE_READ` 先读入已有内容，缺块时带
+   `PAGE_CACHE_CREATE` 允许经 `ext2_resolve_block()` → `ext2_bmap()` 分配。
+3. 写入 page cache，标 dirty。
+4. 如果扩大文件，更新 `inode->i_size` 并 `ext2_write_inode()`。
 
 写入不是每次都同步数据页；dirty page 由 fsync、truncate、msync 或后台 writeback 写回。
 
@@ -195,22 +194,15 @@ hook。ext2 当前在分配数据块、分配/更新间接块、更新 `i_size/i
 ext2 inode mapping 操作：
 
 ```c
-const struct page_mapping_ops ext2_inode_aops = {
-    .readpage = ext2_readpage,
-    .map_block = ext2_map_block,
-    .writepages = ext2_writepages,
+const struct page_mapping_ops ext2_inode_mapping_ops = {
+    .resolve = ext2_resolve_block,
 };
 ```
 
-语义：
-
-- `index` 是文件逻辑块号。
-- `readpage()` 通过 `ext2_bmap_readonly()` 找物理块；空洞读返回全零页。
-- `map_block(create=false)` 查询已有映射。
-- `map_block(create=true)` 允许分配新块。
-- `writepages()` 假设调用者已经确认连续逻辑页对应连续物理块，发起一次连续块设备写。
-
-page cache 因此不需要知道 ext2 direct/indirect 结构。
+`page_mapping_ops` 只有一个 `resolve()` 回调：把文件逻辑块号解析为物理块
+号，`create=true` 时允许分配新块，并把无块（0）转换为 errno。空洞读由
+调用方零填充用户缓冲，不向缓存安装零页。page cache 因此不需要知道 ext2
+direct/indirect 结构。
 
 ## block mapping
 
@@ -230,10 +222,10 @@ ext2 inode 的 `i_block[15]` 包含：
 - 分配元数据块后会清零并同步。
 - 返回物理块号，失败返回 0。
 
-`ext2_map_block()` 对 page cache 把 0 转换成 errno：
+`ext2_resolve_block()` 对 page cache 把 0 转换成 errno：
 
 - create 模式下无块 -> `-ENOSPC`
-- readonly 无块 -> `-EIO`
+- readonly 无块 -> `-ENODATA`
 
 这样避免用物理块 0 同时表示有效块和失败。
 

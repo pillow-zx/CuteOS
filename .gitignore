@@ -28,8 +28,6 @@
 !tools/
 !tools/kconfig/
 !tools/kconfig/lxdialog/
-!.agents/
-!.agents/skills/
 !user/
 !user/busybox
 !user/libc/
@@ -95,8 +93,6 @@
 !.gitignore
 !Makefile
 !README.md
-!AGENTS.md
-!CONTEXT.md
 !SYSCALL.md
 !LICENSE
 !Doxyfile

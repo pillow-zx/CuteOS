@@ -34,7 +34,7 @@ flowchart TB
 
 ```c
 struct task_struct {
-    struct task_arch_state arch;
+    struct task_state arch;
     struct task_identity ids;
     struct task_lifecycle lifecycle;
     struct task_vfork_context vfork;
@@ -45,6 +45,8 @@ struct task_struct {
     struct task_sched_entity sched;
     struct task_cputime cputime;
     struct task_cputime child_cputime;
+    struct restart_context restart;
+    struct wait_session *active_wait;
 };
 ```
 
@@ -58,7 +60,8 @@ struct task_struct {
 - `resources`：`mm/files/fs/sighand/signal/uid/gid`。
 - `sigctx`：每线程信号状态、altstack、clear_child_tid、robust futex。
 - `rseq`：restartable sequence 注册状态。
-- `sched`：runqueue 节点、等待队列节点、MLFQ 状态。
+- `sched`：runqueue 节点、MLFQ 状态；等待注册由 wait module 持有，task 只暂存
+  opaque `active_wait` 指针供 exit 撤销。
 - `cputime`：用户态/内核态 tick。
 
 字段访问规则：
@@ -150,7 +153,7 @@ idle task 是 BSS 静态对象，不通过 `task_alloc()`，也不拥有普通�
 
 1. `task_alloc()`
 2. `task_init_resources()`
-3. `arch_task_setup_kernel_thread(task, fn, arg)`
+3. `task_setup_kthread(task, fn, arg)`
 4. 挂到当前任务 children 链表。
 5. `sched_enqueue(task)`
 
@@ -194,12 +197,6 @@ int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
 pid_t kernel_clone_commit(struct kernel_clone *clone);
 void kernel_clone_abort(struct kernel_clone *clone);
 void kernel_clone_complete_vfork(struct task_struct *task);
-ssize_t kernel_clone_from_frame(struct trap_frame *tf,
-                                unsigned long flags,
-                                uintptr_t child_stack,
-                                int *parent_tid,
-                                uintptr_t tls,
-                                int *child_tid);
 ```
 
 clone 被拆成 prepare/commit/abort，便于 syscall 层在需要写用户 TID 或处理中间失败时保持一致性。
@@ -268,7 +265,7 @@ flowchart TD
 3. 读取 program header table。
 4. 创建新的 `mm_struct`。
 5. 按 PT_LOAD 映射段，权限来自 ELF `p_flags`。
-6. 构造单页用户栈，写入 `argc/argv/envp`。
+6. 构造 64 KiB 用户栈，写入 `argc/argv/envp`。
 7. `mm_finalize()` 设置 `brk/code_start/code_end`。
 8. 若 fdtable 由 `CLONE_FILES` 共享，为执行任务复制并安装私有 fdtable。
 9. 安装新 `mm`、新 `satp` 和用户返回 trap frame，并释放旧 `mm`。
@@ -342,7 +339,8 @@ pid_detach_task(pid, task)
 free_pid(pid)
 ```
 
-signal、wait、tgkill、futex robust list 查询都依赖 PID 映射。
+signal、tgkill、futex robust list 查询依赖 PID 映射；wait4 走父任务
+children 链表与 per-child event FIFO，不查询 PID registry。
 
 ## 信号模型
 
@@ -407,11 +405,13 @@ siginfo 的 Linux riscv64 ABI 复制。
 `ppoll`、`pselect6`、`epoll_pwait` 的临时 signal mask 跨越 syscall 返回和
 handler frame 建立：可投递 signal 打断等待时，frame 保存调用前的 mask，
 handler 运行期间仍使用临时 mask，`rt_sigreturn` 再恢复调用前 mask。这样
-signal 不会在 syscall 返回边缘被重新屏蔽。`SA_RESTART` 当前仅保存于 action，
-不触发 syscall restart。
+signal 不会在 syscall 返回边缘被重新屏蔽。`SA_RESTART` 触发 syscall
+restart：`do_signal()` 把该 flag 交给 `restart_for_signal()`，改写 trap-frame
+PC/参数以重放阻塞 `read`/`write`/`wait4` 与无 timeout `FUTEX_WAIT`。
 
-`rt_sigreturn` 只接受用户地址 PC，并拒绝包含 `SPP`、`SUM` 或 `SIE` 的恢复
-状态；恢复 blocked mask 时始终清除 `SIGKILL` 和 `SIGSTOP` 位。
+`rt_sigreturn` 只接受用户地址 PC，并校验 SP 对齐/可访问、`uc_flags`、
+`uc_link`、altstack 与扩展区全零；恢复 blocked mask 时始终清除 `SIGKILL`
+和 `SIGSTOP` 位。
 
 `SIGNAL_TRAMPOLINE_ADDR = USER_STACK_GUARD_BASE - PAGE_SIZE`，通过 `user_map` 映射进每个用户页表。
 
@@ -435,8 +435,9 @@ signal 内部操作取得。
 - fork-like 新进程由 session coordinator 在一个 prepare transaction 中复制父
   SID/PGID 与 controlling-TTY attachment；失败或 clone abort 必须完整移除该
   attachment。线程通过 group leader 查找 attachment，不复制它。
-- `setsid()` 先清除调用进程的关联，再创建新 SID/PGID；它不改变旧 session 的
-  terminal owner/foreground pgrp，也不发送 hangup。
+- `setsid()` 先创建新 SID/PGID，再解除调用进程的旧 controlling-TTY 关联；
+  不发送 hangup，但若调用者是旧 foreground 组最后存活成员，旧 foreground
+  PGID 会被清为 0。
 - `TIOCSCTTY(0)` 仅允许 session leader 获取未占用 console。UID 0 的 session
   leader 可用 `TIOCSCTTY(1)` 清除旧 session 关联并强制接管；强制接管向旧
   foreground pgrp 发送 `SIGHUP`、`SIGCONT`；非 root 或参数 0 都不能抢占。
@@ -449,9 +450,9 @@ signal 内部操作取得。
   输入信号投递给尚未被 parent 回收的已退出进程。
 - terminal input signal 只投递给仍属于该 terminal session 的 foreground pgrp；
   不存在 owner 或 PGID/SID 已陈旧时返回 `-ESRCH`，不会按 PID 数字复用投递，也不
-  会回退到当前 reader。当前无完整 process-group object；当 `setpgid` 或 exit 令
-  foreground pgrp 在该 session 中无存活成员时，coordinator 将其清为 0，直到
-  `TIOCSPGRP` 显式选择新组。
+  会回退到当前 reader。当前无完整 process-group object；当 `setpgid`、
+  `setsid` 或 exit 令 foreground pgrp 在该 session 中无存活成员时，coordinator
+  将其清为 0，直到 `TIOCSPGRP` 显式选择新组。
 
 当前只存在一个 UART terminal，`/dev/console` 同时承担系统 console。完整 ash job
 control、getty/login、`/dev/tty`、多 terminal、后台读写限制和 orphaned pgrp 规则
@@ -483,9 +484,9 @@ struct futex_key {
 ```
 
 这表示 futex wait channel 按地址空间和用户地址区分。当前没有跨进程共享内存的全局 inode key。
-`FUTEX_PRIVATE_FLAG` 是 pthread 路径的稳定支持面。`FUTEX_CLOCK_REALTIME`
-在 wait op 上接受，但当前 `CLOCK_REALTIME` 与 mtime 同源，不提供真实墙钟
-差异。requeue 和 PI futex op 目前固定返回 `-ENOSYS`，避免误导 libc 探测。
+`FUTEX_PRIVATE_FLAG` 是 pthread 路径的稳定支持面。携带 `FUTEX_CLOCK_REALTIME`
+的 op 固定返回 `-ENOSYS`（尚无随 wall-clock 重排的 futex deadline）。requeue
+和 PI futex op 目前同样固定返回 `-ENOSYS`，避免误导 libc 探测。
 
 `kernel_futex()` 根据 `FUTEX_CMD_MASK` 分发。普通 `FUTEX_WAIT/WAKE` 按
 `FUTEX_BITSET_MATCH_ANY` 处理；`FUTEX_WAIT_BITSET/WAKE_BITSET` 在 waiter
@@ -555,7 +556,7 @@ exec 清除 rseq。`CLONE_VM` 清除 child rseq；fork-like clone 继承。
 #define CLOCKS_PER_TICK (MTIME_FREQ / HZ)
 ```
 
-`arch_timer_now()` 读取 `time` CSR，`arch_timer_set()` 写 `stimecmp`。timer interrupt 每 10ms 触发一次。
+`timer_now()` 读取 `time` CSR，`timer_set()` 写 `stimecmp`。timer interrupt 每 10ms 触发一次。
 
 通用 ktimer API：
 

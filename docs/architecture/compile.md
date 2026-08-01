@@ -1,6 +1,6 @@
 # 构建与链接架构
 
-本文描述 cuteOS 构建系统如何组织内核对象、用户程序、链接脚本、Kconfig 和 QEMU 镜像。顶层 `Makefile` 只提供稳定入口；所有构建编排由 `scripts/` 下的四个 Make module 实现。
+本文描述 cuteOS 构建系统如何组织内核对象、用户程序、链接脚本、Kconfig 和 QEMU 镜像。顶层 `Makefile` 只提供稳定入口；所有构建编排由 `scripts/` 下的五个 Make module 实现。
 
 ## 顶层 Makefile 结构
 
@@ -11,7 +11,7 @@ flowchart TD
     Config[".config"]
     Build["scripts/build.mk<br/>toolchain + Kconfig + output"]
     Auto["include/generated/autoconf.h<br/>include/config/auto.conf"]
-    Kernel["scripts/kernel.mk<br/>manifest + flags + link"]
+    Kernel["scripts/kernel.mk<br/>flags + link"]
     User["scripts/userspace.mk<br/>musl + BusyBox + rootfs"]
     Rootfs["build/user/rootfs<br/>staged rootfs"]
     Link["kernel.ld<br/>link cuteos ELF"]
@@ -34,7 +34,8 @@ include scripts/build.mk
 其中：
 
 - `scripts/build.mk` 选择工具链、管理输出目录与静默输出，并生成或引入 Kconfig 配置。
-- `scripts/kernel.mk` 定义内核编译/链接策略和完整对象清单。
+- `scripts/filelist.mk` 定义各模块源文件对象清单和自测对象发现。
+- `scripts/kernel.mk` 定义内核编译/链接策略，并聚合 `filelist.mk` 的清单为 `OBJ_REL`。
 - `scripts/userspace.mk` 构建 musl、compiler-rt、BusyBox、staged rootfs 与 ext2 镜像。
 - `scripts/workflows.mk` 提供 QEMU、测试、开发辅助和清理目标。
 - `scripts/tools/` 存放 ELF 检查、符号生成、镜像制作、测试运行和 BusyBox 配置工具。
@@ -56,8 +57,8 @@ LIB_OBJS
 ```
 
 普通构建中 `KERNEL_TEST_OBJS` 为空。`make ktest` 递归执行
-`KERNEL_SELFTEST=1 OUTROOT=build/test` 构建，此时 `scripts/kernel.mk` 递归发现
-`test/<subsystem>/*_test.c` 并填充
+`KERNEL_SELFTEST=1 OUTROOT=build/test` 构建，此时 `scripts/filelist.mk` 递归发现
+`test/` 下的 `.c/.S` 文件并填充
 `KERNEL_TEST_OBJS`。测试执行顺序由 `test/test.c` 的显式 registry 决定，不依赖
 链接顺序。
 
@@ -70,10 +71,10 @@ LIB_OBJS
 用户态回归由 `make utest-build` 构建独立的 static musl 测试 ELF 和测试
 rootfs；`make utest` 从该镜像启动 BusyBox init，并只执行
 `/usr/lib/cuteos-tests/utest-runner`。该 runner 在每个 case 的独立子进程组中
-执行、清理 fixture，并在完成后请求关机。`make check` 先运行 `make ktest`，
+执行、清理 fixture，并在完成后请求关机。`make ci` 先运行 `make ktest`，
 再串行运行 `make utest`。
 
-新增生产源文件时必须更新 `scripts/kernel.mk` 的对象清单，否则不会进入内核链接。
+新增生产源文件时必须更新 `scripts/filelist.mk` 的对象清单，否则不会进入内核链接。
 新增内核自测文件时放入 `test/<subsystem>/`，由同一 module 自动发现。
 
 ## 编译标志
@@ -127,11 +128,12 @@ KERNEL_VBASE = 0xFFFFFFC000000000;
 | `data` | `R/W` | `.data*`、`.sdata*`、`__global_pointer$` |
 | `bss` | `R/W` | `.sbss*`、`.bss*`、COMMON |
 
-段边界按 4 KiB 对齐，`_end` 作为 early allocator 的起点参考。
+`.text`/`.rodata` 结束与 `_end` 按 4 KiB 对齐；`.bss` 段起点仅 8 字节对齐。
+`_end` 作为 early allocator 的起点参考。
 
 ## 架构对象
 
-`scripts/kernel.mk` 的 RISC-V 对象清单当前包含：
+`scripts/filelist.mk` 的 RISC-V 对象清单当前包含：
 
 ```text
 arch/riscv/boot.o
@@ -146,6 +148,8 @@ arch/riscv/sbi.o
 arch/riscv/mm/page_table.o
 arch/riscv/mm/user_map.o
 arch/riscv/mm/tlb.o
+arch/riscv/lib/softfloat.o
+arch/riscv/lib/string.o
 ```
 
 这些对象拥有 CPU、页表、CSR、trap frame 和上下文切换语义。通用子系统不应直接复制这些低级细节，而应通过 `include/kernel/*` 或 `arch/riscv/include/arch/*` 的 facade 调用。
@@ -159,7 +163,7 @@ arch/riscv/mm/tlb.o
 - `include/config/auto.conf.cmd`
 - `include/generated/autoconf.h`
 
-内核和用户态编译都预包含 `include/generated/autoconf.h`。因此构建配置可以影响内核对象和用户测试程序。
+仅内核编译预包含 `include/generated/autoconf.h`。配置影响用户态构建的途径是该头的时间戳依赖触发 rootfs 重建，而非预包含。
 
 `KCONFIG_SKIP_GOALS` 让 `clean`、`help`、`format`、`defconfig` 等目标不强制
 要求已有配置。
@@ -256,7 +260,7 @@ QEMU 启动时使用：
 
 - 顶层 `Makefile` 只提供构建入口。
 - `scripts/build.mk` 负责工具链、Kconfig 与共享构建设置。
-- `scripts/kernel.mk` 负责内核对象清单、编译/链接约束和分析。
+- `scripts/filelist.mk` 负责内核对象清单；`scripts/kernel.mk` 负责编译/链接约束和分析。
 - `scripts/userspace.mk` 负责完整静态 musl BusyBox 用户态与镜像。
 - `scripts/workflows.mk` 负责运行、测试和开发工作流。
 - `kernel.ld` 定义内核 ABI 布局。

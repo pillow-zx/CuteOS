@@ -12,7 +12,7 @@ cuteOS 当前调度器是单核、非抢占内核模型下的 4 级 MLFQ。timer
 - `sched/internal.h`：调度内部接口。
 - `arch/riscv/switch.S`：低级 callee-saved 上下文切换。
 - `arch/riscv/task.c`：地址空间切换和 task 架构状态。
-- `kernel/wait channel.c`：等待队列。
+- `kernel/waitqueue.c`：等待队列。
 - `kernel/sync.c`：mutex。
 
 调度器只负责选择 runnable task 和调用架构切换。task 生命周期、信号、futex、wait4 等语义不应塞进调度策略层。
@@ -37,7 +37,6 @@ if (!preemptible())
 ```c
 struct task_sched_entity {
     struct list_head run_list;
-    struct wait_entry wait_entry;
     volatile uint8_t need_resched;
     uint8_t sched_level;
     uint8_t time_slice;
@@ -49,7 +48,7 @@ struct task_sched_entity {
 其中：
 
 - `run_list` 是 MLFQ 队列节点。
-- `wait_entry` 是等待队列节点。
+- 等待注册不在调度实体中：`task_struct` 只暂存 opaque 活动等待指针供 exit 撤销（见等待队列一节）。
 - `need_resched` 由 timer tick 设置，用户 trap 返回点消费。
 - `sched_level` 是 MLFQ 层级，0 最高。
 - `time_slice` 是当前层剩余预算。
@@ -115,7 +114,7 @@ tick 规则：
 - 重置该 level 的时间片。
 - 设置 `need_resched=1`。
 
-每当 `jiffies % HZ == 0`，执行全局 boost：所有队列中任务和当前 running task 回到 level 0。
+每当 `jiffies != 0` 且 `jiffies % HZ == 0`，执行全局 boost：所有队列中任务和当前 running task 回到 level 0。
 
 ## schedule()
 
@@ -131,8 +130,8 @@ flowchart TD
     Pick["mlfq_pick_next()"]
     Same{"next == prev?"}
     Requeue["requeue prev if still running"]
-    SwitchAS["arch_task_switch_address_space()"]
-    Switch["arch_task_switch()"]
+    SwitchAS["task_switch_address_space()"]
+    Switch["task_switch()"]
     Return["return"]
 
     Enter --> Preempt
@@ -156,11 +155,10 @@ flowchart TD
    - `next = mlfq_pick_next()`。
    - 如果 next 是 prev，返回。
    - 如果 prev 非 idle 且仍 running 且不在 runqueue，将 prev 重新入队。
-   - 检查 prev 栈 canary。
    - `rseq_sched_switch(prev)`。
    - `set_current_task(next)`。
-   - `arch_task_switch_address_space(prev, next)`。
-   - `arch_task_switch(prev, next)`。
+   - `task_switch_address_space(prev, next)`。
+   - `task_switch(prev, next)`。
 
 运行中的 task 通常不在 runqueue 中。被切走时，如果仍 `TASK_RUNNING`，调度器才重新入队。
 
@@ -169,10 +167,10 @@ flowchart TD
 调度核心通过架构层切换：
 
 ```c
-void arch_task_switch_address_space(const struct task_struct *prev,
-                                    const struct task_struct *next);
-void arch_task_switch(struct task_struct *prev,
-                      struct task_struct *next);
+void task_switch_address_space(const struct task_struct *prev,
+                               const struct task_struct *next);
+void task_switch(struct task_struct *prev,
+                 struct task_struct *next);
 ```
 
 地址空间切换选择 next 的 `satp`，若为 0 则使用 kernel page table。不同 `satp` 时写 CSR 并 flush TLB。
@@ -186,7 +184,7 @@ timer interrupt 中：
 ```text
 handle_timer_irq()
   -> jiffies++
-  -> arch_timer_set(next)
+  -> timer_set(next)
   -> timer_run_expired(now)
   -> sched_tick()
 ```
@@ -212,7 +210,7 @@ schedule();
 
 ## 等待队列
 
-等待队列定义在 `include/kernel/wait.h`，实现位于 `kernel/wait channel.c`。
+等待队列定义在 `include/kernel/wait.h`，实现位于 `kernel/waitqueue.c`。
 
 基本对象和 interface：
 
@@ -223,8 +221,8 @@ struct wait_channel {
 };
 
 struct wait_request {
-    enum wait_type type;
-    wait_check_fn probe;
+    enum wait_kind kind;
+    wait_check_fn check;
     void *arg;
     uint32_t channel_limit;
 };
@@ -262,7 +260,6 @@ int wait_for(const struct wait_request *request,
                   wait_outcome_t *outcome);
 void wait_cancel_task(struct task_struct *task);
 struct task_struct *wait_channel_wake_one(struct wait_channel *channel);
-void wait_channel_wake_one(struct wait_channel *channel);
 void wait_channel_wake_all(struct wait_channel *channel);
 ```
 

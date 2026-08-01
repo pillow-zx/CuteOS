@@ -137,9 +137,10 @@ flowchart TD
 | 用户访问错误 | instruction/load/store access fault | `SIGSEGV/SEGV_ACCERR` |
 | 用户非法指令 | `EXC_ILLEGAL_INST` | `SIGILL/ILL_ILLOPC` |
 | 用户断点 | `EXC_BREAKPOINT` | `SIGTRAP/TRAP_BRKPT`，不自动推进 PC |
+| `EXC_ECALL_S` | exception + cause 9 | `SIGILL/ILL_ILLTRP`，无告警 |
 | 未知用户同步异常 | 其他 cause | `SIGILL/SI_KERNEL` 并告警 |
 
-未知中断和所有无法处理的内核来源同步异常进入 panic，并输出来源、pid、
+未知中断和所有无法处理的内核来源同步异常进入 panic，并输出来源、
 `scause`、`sepc`、`stval`。
 
 ## Signal frame 与返回
@@ -160,14 +161,14 @@ pending 都为每个标准 signal 保存一个 `siginfo_t` slot；pending bit �
 timer 中断处理函数执行：
 
 ```text
-now = arch_timer_now()
+now = timer_now()
 jiffies++
-arch_timer_set(now + CLOCKS_PER_TICK)
+timer_set(now + CLOCKS_PER_TICK)
 timer_run_expired(now)
 sched_tick()
 ```
 
-`sched_tick()` 更新当前任务用户/内核 tick 计费，并让 MLFQ 策略消耗时间片。时间片耗尽时只设置 `task->sched.need_resched`。
+`sched_tick()` 更新当前任务用户/内核 tick 计费，并让 MLFQ 策略消耗时间片。时间片耗尽时 MLFQ 提升调度等级并重置预算，然后设置 `need_resched`。
 
 如果 timer trap 来源是用户态，且当前任务需要重调度，`trap_handler()` 会清除 `need_resched` 并调用 `schedule()`。这就是当前用户态时钟抢占点。
 
@@ -207,7 +208,7 @@ ssize_t handler(struct trap_frame *tf);
 - 调用 `map_page()` 建立用户 PTE。
 - flush 对应 TLB 页。
 
-非法地址、权限不匹配或已有 PTE 权限不允许访问时，用户态来源会投递或触发 `SIGSEGV`，内核态来源会终止当前任务。
+非法地址、权限不匹配或已有 PTE 权限不允许访问时，用户态来源投递或触发 `SIGSEGV`；内核态来源无法修复则直接 panic。
 
 ## 用户返回工作
 
@@ -276,7 +277,9 @@ void trap_setup_signal_handler(struct trap_frame *tf,
                                uintptr_t handler,
                                uintptr_t restorer,
                                uintptr_t sp,
-                               uintptr_t arg0);
+                               uintptr_t arg0,
+                               uintptr_t arg1,
+                               uintptr_t arg2);
 void trap_setup_user_return(struct trap_frame *tf,
                             uintptr_t pc,
                             uintptr_t sp);

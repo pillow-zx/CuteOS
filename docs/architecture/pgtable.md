@@ -42,7 +42,7 @@ DRAM 恒等映射
 DRAM 高半区 4 KiB 映射
 ```
 
-用户页表复制内核高 256 个 PGD 项，因此用户态 trap 进入内核后仍能访问内核 text/data/stack/MMIO 映射。用户低半区 PGD 项由 `mm` 和 `user_map` 填充。
+用户页表复制内核高 256 个 PGD 项，因此用户态 trap 进入内核后仍能访问内核 text/data/stack。低地址 MMIO 窗口（UART/virtio）不在高半区，由 `user_map` 在创建用户页表时逐页表安装。用户低半区 PGD 项由 `mm` 和 `user_map` 填充。
 
 ## PTE 定义
 
@@ -153,6 +153,7 @@ int map_page(pte_t *root, uintptr_t va, uintptr_t pa, uint64_t perm);
 
 特殊用户映射通过 `include/kernel/user_map.h` 注册。当前启动时注册：
 
+- 低地址 MMIO 窗口（UART/virtio）。
 - 用户栈保护区保留范围。
 - signal trampoline 页面。
 
@@ -160,7 +161,7 @@ int map_page(pte_t *root, uintptr_t va, uintptr_t pa, uint64_t perm);
 
 ## 地址空间切换
 
-调度切换时，`arch_task_switch_address_space(prev, next)` 选择 next 的地址空间：
+调度切换时，`task_switch_address_space(prev, next)` 选择 next 的地址空间：
 
 ```text
 next->arch.satp != 0 -> 使用 next 用户页表
@@ -188,7 +189,7 @@ void flush_tlb_page(uintptr_t va);
 当前实现偏保守：
 
 - 地址空间切换刷新全部 TLB。
-- 单页映射或权限变化刷新对应页。
+- 单页映射刷新对应页；mprotect 与 mremap 移动刷新全部 TLB。
 - `pagetable_write_current()` 写当前页表已有映射后刷新该页。
 
 mm 层在 page fault、munmap、mprotect、mremap、madvise 等路径中负责调用对应刷新函数。

@@ -35,7 +35,7 @@ trap 层在 `EXC_ECALL_U` 分支中先执行 `sepc += 4` 跳过 `ecall`，再调
 
 ## 号表来源
 
-Linux riscv64 syscall number 定义在 `include/uapi/syscall.h`。该头由内核和用户态最小 libc 共享。
+Linux riscv64 syscall number 定义在 `include/uapi/syscall.h`。该头只供内核使用；用户态 libc 是 vendored musl，自带其 syscall 定义。
 
 示例：
 
@@ -47,8 +47,9 @@ Linux riscv64 syscall number 定义在 `include/uapi/syscall.h`。该头由内�
 #define SYS_execve 221
 #define SYS_rseq   293
 #define SYS_faccessat2 439
+#define SYS_fchmodat2  452
 
-#define NR_SYSCALL (SYS_faccessat2 + 1)
+#define NR_SYSCALL (SYS_fchmodat2 + 1)
 ```
 
 该文件还用 `_Static_assert` 校验部分 timer syscall 号，防止 ABI 偏移。
@@ -159,12 +160,11 @@ syscall_arg(tf, 5);
 | `sys_membarrier.c` | membarrier |
 | `sys_file_io.c` | read/write/readv/writev/pread/pwrite/sendfile/splice |
 | `sys_file_path.c` | openat、mkdirat、linkat、unlinkat、renameat2、mount、chdir 等 |
-| `sys_file_stat.c` | stat/fstat/statx/statfs/faccessat |
+| `sys_file_stat.c` | stat/fstat/statx/statfs |
 | `sys_file_poll.c` | ppoll/pselect/epoll stubs or routing |
 | `sys_file_helpers.c` | fd/path/stat helper |
 | `sys_misc.c` | uid/gid/groups/umask/uname/sysinfo/prlimit/getrusage/getrandom |
 | `sys_log.c` | syslog |
-| `sys_stub.c` | 真正 probe-safe、unsupported 或 reserved 的占位入口 |
 
 实际行为以 handler 和下层子系统代码为准；文件名只是组织方式。
 
