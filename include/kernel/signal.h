@@ -79,14 +79,14 @@ static_assert(sizeof(struct rt_sigframe) == 1088,
 
 struct task_struct;
 
-static inline __must_check __pure struct signal_struct *
-task_signal_state(const struct task_struct *task)
+__must_check __pure
+static inline struct signal_struct *task_signal_state(const struct task_struct *task)
 {
 	return task ? task->resources.signal : NULL;
 }
 
-static inline __must_check __pure struct sighand_struct *
-task_sighand(const struct task_struct *task)
+__must_check __pure
+static inline struct sighand_struct *task_sighand(const struct task_struct *task)
 {
 	return task ? task->resources.sighand : NULL;
 }
@@ -105,8 +105,8 @@ static inline void task_set_signal_state(struct task_struct *task,
 		task->resources.signal = signal;
 }
 
-static inline __must_check __pure uint64_t
-task_blocked_mask(const struct task_struct *task)
+__must_check __pure
+static inline uint64_t task_blocked_mask(const struct task_struct *task)
 {
 	return task ? task->sigctx.blocked : 0;
 }
@@ -132,8 +132,8 @@ static inline void task_and_blocked_mask(struct task_struct *task,
 		task->sigctx.blocked &= mask;
 }
 
-static inline __must_check __pure uint64_t
-task_pending_mask(const struct task_struct *task)
+__must_check __pure
+static inline uint64_t task_pending_mask(const struct task_struct *task)
 {
 	return task ? task->sigctx.pending : 0;
 }
@@ -159,14 +159,14 @@ static inline void task_and_pending_mask(struct task_struct *task,
 		task->sigctx.pending &= mask;
 }
 
-static inline __must_check __pure __nonnull(1) __returns_nonnull
-	struct stack_t *task_altstack(struct task_struct *task)
+__must_check __pure __nonnull(1) __returns_nonnull
+static inline struct stack_t *task_altstack(struct task_struct *task)
 {
 	return &task->sigctx.sas;
 }
 
-static inline __must_check __pure struct stack_t *
-task_altstack_safe(struct task_struct *task)
+__must_check __pure
+static inline struct stack_t *task_altstack_safe(struct task_struct *task)
 {
 	return task ? task_altstack(task) : NULL;
 }
@@ -304,11 +304,10 @@ int signal_sigsuspend(uint64_t mask);
  * @param info Consumed signal information.
  * @return Signal number on success, or a negative errno.
  */
-int __must_check __nonnull(3) __access_no_size(read_only, 2)
-	__access_no_size(write_only, 3)
-		signal_wait_pending(uint64_t set,
-				    const struct timespec *timeout,
-				    siginfo_t *info);
+__must_check __nonnull(3)
+__access_no_size(read_only, 2) __access_no_size(write_only, 3)
+int signal_wait_pending(uint64_t set, const struct timespec *timeout,
+		siginfo_t *info);
 
 /**
  * @brief Restore a userspace context from a signal frame.

@@ -59,7 +59,8 @@ static_assert(sizeof(struct epoll_event) == 16,
 static_assert(offsetof(struct epoll_event, data) == 8,
 	      "epoll_event data ABI offset mismatch");
 
-static __must_check __pure size_t sys_fdset_nwords(size_t nfds)
+__must_check __pure
+static size_t sys_fdset_nwords(size_t nfds)
 {
 	if (nfds == 0)
 		return 0;
@@ -67,25 +68,27 @@ static __must_check __pure size_t sys_fdset_nwords(size_t nfds)
 	return (nfds + __NFDBITS - 1) / __NFDBITS;
 }
 
-static __must_check __pure size_t sys_fdset_nbytes(size_t nfds)
+__must_check __pure
+static size_t sys_fdset_nbytes(size_t nfds)
 {
 	return sys_fdset_nwords(nfds) * sizeof(unsigned long);
 }
 
-static __must_check __pure bool
-sys_epoll_create1_flags_ok(int flags)
+__must_check __pure
+static bool sys_epoll_create1_flags_ok(int flags)
 {
 	return (flags & ~EPOLL_CLOEXEC) == 0;
 }
 
-static __must_check __pure bool sys_epoll_op_valid(int op)
+__must_check __pure
+static bool sys_epoll_op_valid(int op)
 {
 	return op == EPOLL_CTL_ADD || op == EPOLL_CTL_MOD ||
 	       op == EPOLL_CTL_DEL;
 }
 
-static __must_check __pure bool
-sys_epoll_wait_sigmask_ok(const unsigned long *usigmask, size_t sigsetsize)
+__must_check __pure
+static bool sys_epoll_wait_sigmask_ok(const unsigned long *usigmask, size_t sigsetsize)
 {
 	if (usigmask)
 		return sigsetsize == sizeof(unsigned long);
@@ -93,8 +96,8 @@ sys_epoll_wait_sigmask_ok(const unsigned long *usigmask, size_t sigsetsize)
 	return sigsetsize == 0 || sigsetsize == sizeof(unsigned long);
 }
 
-static __must_check __pure bool
-sys_fdset_test(const fd_set *set, int fd)
+__must_check __pure
+static bool sys_fdset_test(const fd_set *set, int fd)
 {
 	return set && FD_ISSET(fd, set);
 }
@@ -110,7 +113,8 @@ static void sys_fdset_assign(fd_set *set, int fd, bool ready)
 		FD_CLR(fd, set);
 }
 
-static __must_check __pure uint32_t poll_req(uint32_t events)
+__must_check __pure
+static uint32_t poll_req(uint32_t events)
 {
 	uint32_t req = events;
 
@@ -124,8 +128,8 @@ static __must_check __pure uint32_t poll_req(uint32_t events)
 	return req;
 }
 
-static __must_check __pure uint32_t poll_res(uint32_t mask,
-							     uint32_t requested)
+__must_check __pure
+static uint32_t poll_res(uint32_t mask, uint32_t requested)
 {
 	uint32_t res = mask;
 

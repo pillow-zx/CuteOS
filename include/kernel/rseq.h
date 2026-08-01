@@ -22,14 +22,15 @@ struct trap_frame;
  * @param sig Userspace signature value.
  * @return 0 on success, or a negative errno.
  */
-ssize_t __must_check kernel_rseq(struct rseq *area, uint32_t len, int flags,
-				 uint32_t sig);
+__must_check
+ssize_t kernel_rseq(struct rseq *area, uint32_t len, int flags, uint32_t sig);
 
 /**
  * @brief Clear rseq state across execve.
  * @param task Task that just installed a new program image.
  */
-void __nonnull(1) rseq_execve(struct task_struct *task);
+__nonnull(1)
+void rseq_execve(struct task_struct *task);
 
 /**
  * @brief Copy or clear rseq registration for clone according to flags.
@@ -37,8 +38,8 @@ void __nonnull(1) rseq_execve(struct task_struct *task);
  * @param parent Source task.
  * @param flags Linux clone flags.
  */
-void __nonnull(1, 2) rseq_clone(struct task_struct *child,
-				const struct task_struct *parent,
+__nonnull(1, 2)
+void rseq_clone(struct task_struct *child, const struct task_struct *parent,
 				unsigned long flags);
 
 /**
@@ -52,13 +53,15 @@ void rseq_sched_switch(struct task_struct *prev);
  * @param tf Trap frame for the returning user context.
  * @return 0 on success, or a negative errno converted to signal/fault path.
  */
-int __must_check __nonnull(1) rseq_resume_user(struct trap_frame *tf);
+__must_check __nonnull(1)
+int rseq_resume_user(struct trap_frame *tf);
 
 /**
  * @brief Abort an active rseq critical section before signal delivery.
  * @param tf Trap frame that signal delivery will rewrite.
  * @return 0 on success, or a negative errno.
  */
-int __must_check __nonnull(1) rseq_signal_deliver(struct trap_frame *tf);
+__must_check __nonnull(1)
+int rseq_signal_deliver(struct trap_frame *tf);
 
 #endif

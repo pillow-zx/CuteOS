@@ -5,7 +5,8 @@
 #include <kernel/compiler.h>
 #include <kernel/types.h>
 
-static __always_inline __must_check bool user_access_begin(void)
+__always_inline __must_check
+static inline bool user_access_begin(void)
 {
 	bool had_sum = (csr_read(sstatus) & SSTATUS_SUM) != 0;
 
@@ -14,7 +15,8 @@ static __always_inline __must_check bool user_access_begin(void)
 	return had_sum;
 }
 
-static __always_inline void user_access_end(bool had_sum)
+__always_inline
+static inline void user_access_end(bool had_sum)
 {
 	if (!had_sum)
 		csr_clear(sstatus, SSTATUS_SUM);

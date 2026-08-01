@@ -61,7 +61,8 @@ static struct task_struct *user_trap_test_runner_task;
 static uintptr_t user_trap_test_user_sp;
 static uintptr_t user_trap_test_ecall_va;
 
-static void __noreturn user_trap_test_resume(void);
+__noreturn
+static void user_trap_test_resume(void);
 
 static bool user_trap_test_hook(struct trap_frame *tf)
 {
@@ -158,7 +159,8 @@ intercept:
 #undef USER_TRAP_CHECK
 }
 
-static void __noreturn user_trap_test_resume(void)
+__noreturn
+static void user_trap_test_resume(void)
 {
 	struct task_struct *prev = current_task();
 	struct task_struct *next = user_trap_test_runner_task;

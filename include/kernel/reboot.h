@@ -11,6 +11,7 @@ enum kernel_reboot_command {
 	KERNEL_REBOOT_POWER_OFF,
 };
 
-int kernel_reboot(enum kernel_reboot_command command) __must_check;
+__must_check
+int kernel_reboot(enum kernel_reboot_command command);
 
 #endif

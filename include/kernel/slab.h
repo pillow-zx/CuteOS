@@ -20,7 +20,8 @@ void slab_init(void);
  * @param size Requested object size in bytes.
  * @return Allocated object, or NULL.
  */
-void *kmalloc(size_t size) __must_check __malloc __alloc_size(1);
+__must_check __malloc __alloc_size(1)
+void *kmalloc(size_t size) ;
 
 /**
  * @brief Allocate n * size space
@@ -28,7 +29,8 @@ void *kmalloc(size_t size) __must_check __malloc __alloc_size(1);
  * @param size per size of requirement obj
  * @return Allocated objects, or NULL
  */
-static inline void *__must_check kmalloc_array(size_t n, size_t size)
+__must_check
+static inline void *kmalloc_array(size_t n, size_t size)
 {
 	size_t bytes;
 
@@ -52,8 +54,8 @@ CLEANUP_DEFINE(kfree, void *, if (_T) kfree(_T));
  * @param size Requested object size in bytes.
  * @return Zero-filled object, or NULL.
  */
-static inline void *__must_check __malloc __alloc_size(1)
-	kzalloc(size_t size)
+__must_check __malloc __alloc_size(1)
+static inline void *kzalloc(size_t size)
 {
 	void *ptr = kmalloc(size);
 	if (ptr)

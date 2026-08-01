@@ -35,9 +35,8 @@ void rlimits_init(struct rlimit64 rlimits[RLIM_NLIMITS]);
  * @param dst Destination counter updated in place.
  * @param src Counter to add.
  */
-static inline __nonnull(1, 2)
-	__access_no_size(read_write, 1) __access_no_size(read_only, 2)
-void cputime_add(struct task_cputime *dst, const struct task_cputime *src)
+__nonnull(1, 2) __access_no_size(read_write, 1) __access_no_size(read_only, 2)
+static inline void cputime_add(struct task_cputime *dst, const struct task_cputime *src)
 {
 	dst->utime_ticks += src->utime_ticks;
 	dst->stime_ticks += src->stime_ticks;
@@ -48,8 +47,8 @@ void cputime_add(struct task_cputime *dst, const struct task_cputime *src)
  * @param ticks CPU time measured in scheduler ticks.
  * @param tv Output timeval.
  */
-static inline __nonnull(2) __access_no_size(write_only, 2)
-void cputime_timeval(uint64_t ticks, struct timeval *tv)
+__nonnull(2) __access_no_size(write_only, 2)
+static inline void cputime_timeval(uint64_t ticks, struct timeval *tv)
 {
 	uint64_t sec = ticks / HZ;
 	uint64_t rem = ticks % HZ;
@@ -63,9 +62,8 @@ void cputime_timeval(uint64_t ticks, struct timeval *tv)
  * @param time User/system tick counters.
  * @param ru Output rusage with CPU fields populated.
  */
-static inline __nonnull(1, 2)
-	__access_no_size(read_only, 1) __access_no_size(write_only, 2)
-void cputime_rusage(const struct task_cputime *time, struct rusage *ru)
+__nonnull(1, 2) __access_no_size(read_only, 1) __access_no_size(write_only, 2)
+static inline void cputime_rusage(const struct task_cputime *time, struct rusage *ru)
 {
 	struct timeval utime;
 	struct timeval stime;
@@ -79,10 +77,9 @@ void cputime_rusage(const struct task_cputime *time, struct rusage *ru)
 	};
 }
 
-static inline __nonnull(1, 2)
-	__access_no_size(read_only, 1) __access_no_size(write_only, 2)
-void task_cputime_total(const struct task_struct *task,
-			struct task_cputime *time)
+
+__nonnull(1, 2) __access_no_size(read_only, 1) __access_no_size(write_only, 2)
+static inline void task_cputime_total(const struct task_struct *task, struct task_cputime *time)
 {
 	*time = (struct task_cputime){
 		.utime_ticks = task->cputime.utime_ticks,
@@ -91,17 +88,15 @@ void task_cputime_total(const struct task_struct *task,
 	cputime_add(time, &task->child_cputime);
 }
 
-static inline __nonnull(1, 2)
-	__access_no_size(read_write, 1) __access_no_size(read_only, 2)
-void task_add_child_time(struct task_struct *task,
-			 const struct task_cputime *time)
+
+__nonnull(1, 2) __access_no_size(read_write, 1) __access_no_size(read_only, 2)
+static inline void task_add_child_time(struct task_struct *task, const struct task_cputime *time)
 {
 	cputime_add(&task_group_leader(task)->child_cputime, time);
 }
 
-static inline __nonnull(1, 2)
-	__access_no_size(read_only, 1) __access_no_size(write_only, 2)
-void task_rusage_self(const struct task_struct *task, struct rusage *ru)
+__nonnull(1, 2)
+static inline void task_rusage_self(const struct task_struct *task, struct rusage *ru)
 {
 	struct task_cputime time = {
 		.utime_ticks = task_user_ticks(task),
@@ -111,9 +106,8 @@ void task_rusage_self(const struct task_struct *task, struct rusage *ru)
 	cputime_rusage(&time, ru);
 }
 
-static inline __nonnull(1, 2)
-	__access_no_size(read_only, 1) __access_no_size(write_only, 2)
-void task_rusage_children(const struct task_struct *task, struct rusage *ru)
+__nonnull(1, 2) __access_no_size(read_only, 1) __access_no_size(write_only, 2)
+static inline  void task_rusage_children(const struct task_struct *task, struct rusage *ru)
 {
 	cputime_rusage(&task->ids.group_leader->child_cputime, ru);
 }

@@ -13,19 +13,22 @@
  * @brief Terminate the current task with a normal userspace exit code.
  * @param code Userspace exit code; only its low 8 bits are wait-visible.
  */
-void __noreturn do_exit(int code);
+__noreturn
+void do_exit(int code);
 
 /**
  * @brief Terminate every task in the current thread group with one exit code.
  * @param code Userspace exit code; only its low 8 bits are wait-visible.
  */
-void __noreturn do_exit_group(int code);
+__noreturn
+void do_exit_group(int code);
 
 /**
  * @brief Terminate the current task because a signal used its default action.
  * @param sig Linux signal number exposed through WTERMSIG.
  */
-void __noreturn do_exit_signal(int sig);
+__noreturn
+void do_exit_signal(int sig);
 bool exited_threads_pending(void);
 void reap_exited_threads(void);
 

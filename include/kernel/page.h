@@ -47,20 +47,20 @@ struct page {
 	struct list_head lru;
 };
 
-static inline __must_check __pure
-	__nonnull(1) bool page_test_flag(const struct page *page, uint32_t flag)
+__must_check __pure __nonnull(1)
+static inline bool page_test_flag(const struct page *page, uint32_t flag)
 {
 	return test_bit(page->flags, flag);
 }
 
-static inline __nonnull(1) void page_set_flag(struct page *page,
-						       uint32_t flag)
+__nonnull(1)
+static inline void page_set_flag(struct page *page, uint32_t flag)
 {
 	set_bit(page->flags, flag);
 }
 
-static inline __nonnull(1) void page_clear_flag(struct page *page,
-							 uint32_t flag)
+__nonnull(1)
+static inline void page_clear_flag(struct page *page, uint32_t flag)
 {
 	clr_bit(page->flags, flag);
 }

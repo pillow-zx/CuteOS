@@ -19,7 +19,8 @@
 
 #include "internal.h"
 
-static int __must_check mm_unmap_range_locked(struct mm_struct *mm,
+__must_check
+static int mm_unmap_range_locked(struct mm_struct *mm,
 					      uintptr_t addr, uintptr_t end);
 
 #define MM_MMAP_COMPAT_FLAGS                                                   \
@@ -229,8 +230,8 @@ void mm_unmap_user_pages_locked(struct mm_struct *mm,
 	}
 }
 
-static int __must_check __nonnull(1)
-	mm_map_user_pte_like(pte_t *root, uintptr_t va, paddr_t pa,
+__must_check __nonnull(1)
+static int mm_map_user_pte_like(pte_t *root, uintptr_t va, paddr_t pa,
 			     pte_t old_entry)
 {
 	pgprot_t perm = pte_leaf_prot(old_entry);
@@ -842,8 +843,8 @@ out:
 	return ret;
 }
 
-static int __must_check __nonnull(3, 4)
-	mm_mlock_range(uintptr_t addr, size_t len, uintptr_t *start,
+__must_check __nonnull(3, 4)
+static int mm_mlock_range(uintptr_t addr, size_t len, uintptr_t *start,
 		       uintptr_t *end)
 {
 	uintptr_t raw_end;
@@ -870,8 +871,8 @@ static int __must_check __nonnull(3, 4)
 	return 0;
 }
 
-static int __must_check __nonnull(1)
-	mm_mlock_validate_range(struct mm_struct *mm, uintptr_t start,
+__must_check __nonnull(1)
+static int mm_mlock_validate_range(struct mm_struct *mm, uintptr_t start,
 				uintptr_t end)
 {
 	int ret = 0;
@@ -949,9 +950,8 @@ int mm_munlock(struct mm_struct *mm, uintptr_t addr, size_t len)
 	return mm_mlock_validate_range(mm, start, end);
 }
 
-static ssize_t __must_check __nonnull(1, 2)
-	mremap_move_locked(struct mm_struct *mm,
-			   const struct vm_area_struct *old_vma,
+__must_check __nonnull(1, 2)
+static ssize_t mremap_move_locked(struct mm_struct *mm, const struct vm_area_struct *old_vma,
 			   uintptr_t old_addr, uintptr_t old_end,
 			   size_t old_len, size_t new_len, uintptr_t fixed_addr,
 			   bool fixed)

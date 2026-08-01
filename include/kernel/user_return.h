@@ -15,7 +15,8 @@ struct trap_frame;
  * @brief Run pending work before resuming a user-mode trap frame.
  * @param tf User trap frame that will be restored by the arch trap return.
  */
-void __nonnull(1) user_return_work(struct trap_frame *tf);
+__nonnull(1)
+void user_return_work(struct trap_frame *tf);
 
 #ifdef KERNEL_SELFTEST
 typedef void (*user_return_test_hook_t)(struct trap_frame *tf);

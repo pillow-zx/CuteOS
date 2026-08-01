@@ -61,8 +61,8 @@ bool eventpoll_file(struct file *file)
 	return file && file->f_op == &eventpoll_fops;
 }
 
-static __must_check __pure bool
-eventpoll_events_ok(uint32_t events)
+__must_check __pure
+static bool eventpoll_events_ok(uint32_t events)
 {
 	const uint32_t supported = EPOLLIN | EPOLLOUT | EPOLLPRI | EPOLLERR |
 				   EPOLLHUP | EPOLLRDNORM | EPOLLRDBAND |
@@ -72,8 +72,8 @@ eventpoll_events_ok(uint32_t events)
 	return (events & ~supported) == 0;
 }
 
-static __must_check __pure uint32_t
-epoll_res(uint32_t events, uint32_t requested)
+__must_check __pure
+static uint32_t epoll_res(uint32_t events, uint32_t requested)
 {
 	uint32_t res = events;
 
@@ -89,8 +89,8 @@ epoll_res(uint32_t events, uint32_t requested)
 	return res;
 }
 
-static __must_check __pure uint32_t
-epoll_poll_events(struct file *file, const struct epoll_event *event)
+__must_check __pure
+static uint32_t epoll_poll_events(struct file *file, const struct epoll_event *event)
 {
 	uint32_t events = 0;
 
@@ -111,8 +111,8 @@ epoll_poll_events(struct file *file, const struct epoll_event *event)
 	return events;
 }
 
-static __must_check __pure uint32_t
-epoll_result_events(const struct epoll_event *event, uint32_t mask)
+__must_check __pure
+static uint32_t epoll_result_events(const struct epoll_event *event, uint32_t mask)
 {
 	uint32_t events = 0;
 	uint32_t wanted;

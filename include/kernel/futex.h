@@ -33,7 +33,8 @@ struct kernel_futex_args {
 	int val3;
 };
 
-static inline __must_check __pure int *
+__must_check __pure
+static inline int *
 task_clear_child_tid(struct task_struct *task)
 {
 	return task ? task->sigctx.clear_child_tid : NULL;
@@ -46,13 +47,15 @@ static inline void task_set_clear_child_tid(struct task_struct *task,
 		task->sigctx.clear_child_tid = uaddr;
 }
 
-static inline __must_check __pure struct robust_list_head *
+__must_check __pure
+static inline struct robust_list_head *
 task_robust_list(struct task_struct *task)
 {
 	return task ? task->sigctx.robust_list : NULL;
 }
 
-static inline __must_check __pure size_t
+__must_check __pure
+static inline size_t
 task_robust_list_len(struct task_struct *task)
 {
 	return task ? task->sigctx.robust_list_len : 0;

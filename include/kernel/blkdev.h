@@ -83,13 +83,15 @@ int register_block_device(struct block_device *bdev);
  * @param dev Device number.
  * @return Matching block device, or NULL.
  */
-struct block_device *__must_check lookup_block_device(dev_t dev);
+__must_check
+struct block_device *lookup_block_device(dev_t dev);
 
 /**
  * @brief Return the raw page-cache mapping for a block device.
  * @param dev Device number.
  * @return Page mapping, or NULL when @p dev is unknown.
  */
-struct page_mapping *__must_check block_device_pages(dev_t dev);
+__must_check
+struct page_mapping *block_device_pages(dev_t dev);
 
 #endif

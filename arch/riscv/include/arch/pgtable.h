@@ -10,18 +10,29 @@
 typedef pte_t pgprot_t;
 
 void pagetable_use_buddy(void);
-pte_t *__must_check current_pt(void);
-pte_t *__must_check kernel_pt(void);
-uintptr_t __must_check kernel_satp(void);
-pte_t *__must_check pagetable_lookup_current(uintptr_t va);
-pte_t *__must_check __nonnull(1)
-	pagetable_lookup(pte_t *root, uintptr_t va);
-void pagetable_write_current(uintptr_t va, uintptr_t pa, pte_t perm);
-int __must_check __nonnull(1)
-	map_page(pte_t *root, uintptr_t va, uintptr_t pa, uint64_t perm);
 
-static inline __must_check __const pgprot_t
-pgprot_user(bool read, bool write, bool exec)
+__must_check
+pte_t *current_pt(void);
+
+__must_check
+pte_t *kernel_pt(void);
+
+__must_check
+uintptr_t kernel_satp(void);
+
+__must_check
+pte_t *pagetable_lookup_current(uintptr_t va);
+
+__must_check __nonnull(1)
+pte_t *pagetable_lookup(pte_t *root, uintptr_t va);
+
+void pagetable_write_current(uintptr_t va, uintptr_t pa, pte_t perm);
+
+__must_check __nonnull(1)
+int map_page(pte_t *root, uintptr_t va, uintptr_t pa, uint64_t perm);
+
+__must_check __const
+static inline  pgprot_t pgprot_user(bool read, bool write, bool exec)
 {
 	pgprot_t flags = PTE_V | PTE_U | PTE_A | PTE_D;
 
@@ -35,7 +46,8 @@ pgprot_user(bool read, bool write, bool exec)
 	return flags;
 }
 
-static inline __must_check __const pgprot_t
+__must_check __const
+static inline pgprot_t
 pgprot_kernel(bool read, bool write, bool exec)
 {
 	pgprot_t flags = PTE_V | PTE_G | PTE_A | PTE_D;
@@ -50,80 +62,89 @@ pgprot_kernel(bool read, bool write, bool exec)
 	return flags;
 }
 
-static inline __must_check __pure bool pte_is_present(pte_t pte)
+__must_check __const
+static inline bool pte_is_present(pte_t pte)
 {
 	return asm_pte_present(pte);
 }
 
-static inline __must_check __pure bool pte_is_user_page(pte_t pte)
+__must_check __pure
+static inline  bool pte_is_user_page(pte_t pte)
 {
 	return asm_pte_user_page(pte);
 }
 
-static inline __must_check __pure bool
-pte_allows_user_read(pte_t pte)
+__must_check __pure
+static inline bool pte_allows_user_read(pte_t pte)
 {
 	return pte_is_present(pte) && (pte & PTE_U) && (pte & PTE_R);
 }
 
-static inline __must_check __pure bool
-pte_allows_user_write(pte_t pte)
+__must_check __pure
+static inline bool pte_allows_user_write(pte_t pte)
 {
 	return pte_is_present(pte) && (pte & PTE_U) && (pte & PTE_W);
 }
 
-static inline __must_check __pure bool
-pte_allows_user_exec(pte_t pte)
+__must_check __pure
+static inline bool pte_allows_user_exec(pte_t pte)
 {
 	return pte_is_present(pte) && (pte & PTE_U) && (pte & PTE_X);
 }
 
-static inline __must_check __pure paddr_t pte_phys_addr(pte_t pte)
+__must_check __pure
+static inline paddr_t pte_phys_addr(pte_t pte)
 {
 	return asm_pte_to_pa(pte);
 }
 
-static inline __must_check __pure pgprot_t
-pte_leaf_prot(pte_t pte)
+__must_check __pure
+static inline pgprot_t pte_leaf_prot(pte_t pte)
 {
 	return pte & MASK(PTE_PPN_SHIFT);
 }
 
-static inline __must_check __pure pte_t
-pte_make(paddr_t pa, pgprot_t prot)
+__must_check __pure
+static inline pte_t pte_make(paddr_t pa, pgprot_t prot)
 {
 	return PA_TO_PTE(pa) | prot;
 }
 
-static inline __nonnull(1) void pte_clear_present(pte_t *pte)
+__nonnull(1)
+static inline void pte_clear_present(pte_t *pte)
 {
 	*pte &= ~PTE_V;
 }
 
-static inline __must_check __pure uintptr_t
+__must_check __pure
+static inline  uintptr_t
 pgtable_make_user_token(const pte_t *pgd)
 {
 	return SATP_MODE_SV39 | (__pa((uintptr_t)pgd) >> PAGE_SHIFT);
 }
 
-static __always_inline void pgtable_activate_kernel(void)
+__always_inline
+static inline void pgtable_activate_kernel(void)
 {
 	csr_write(satp, kernel_satp());
 	tlb_flush_all();
 }
 
-static __always_inline void flush_tlb_all(void)
+__always_inline
+static inline void flush_tlb_all(void)
 {
 	tlb_flush_all();
 }
 
-static __always_inline void flush_tlb_page(uintptr_t va)
+__always_inline
+static inline void flush_tlb_page(uintptr_t va)
 {
 	tlb_flush_page(va);
 }
 
 #ifdef KERNEL_SELFTEST
-static inline __must_check __nonnull(1) pte_t *pagetable_walk(
+__must_check __nonnull(1)
+static inline pte_t *pagetable_walk(
 	pte_t *root, uintptr_t va, bool alloc)
 {
 	if (alloc)

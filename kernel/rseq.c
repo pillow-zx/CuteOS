@@ -25,26 +25,26 @@ enum rseq_restart_event {
 	RSEQ_RESTART_ON_SIGNAL,
 };
 
-static __must_check __pure struct rseq *
-rseq_task_area(const struct task_struct *task)
+__must_check __pure
+static struct rseq *rseq_task_area(const struct task_struct *task)
 {
 	return task ? task->rseq.area : NULL;
 }
 
-static __must_check __pure uint32_t
-rseq_task_len(const struct task_struct *task)
+__must_check __pure
+static uint32_t rseq_task_len(const struct task_struct *task)
 {
 	return task ? task->rseq.len : 0;
 }
 
-static __must_check __pure uint32_t
-rseq_task_sig(const struct task_struct *task)
+__must_check __pure
+static uint32_t rseq_task_sig(const struct task_struct *task)
 {
 	return task ? task->rseq.sig : 0;
 }
 
-static __must_check __pure uint8_t
-rseq_task_need_update(const struct task_struct *task)
+__must_check __pure
+static uint8_t rseq_task_need_update(const struct task_struct *task)
 {
 	return task ? task->rseq.need_update : 0;
 }
@@ -74,13 +74,14 @@ static void rseq_task_set_need_update(struct task_struct *task,
 		task->rseq.need_update = val;
 }
 
-static __must_check __pure bool
-rseq_area_aligned(const struct rseq *area)
+__must_check __pure
+static bool rseq_area_aligned(const struct rseq *area)
 {
 	return IS_ALIGNED((uintptr_t)area, RSEQ_ORIG_SIZE);
 }
 
-static int __must_check __nonnull(1) rseq_write_initial_area(struct rseq *area)
+__must_check __nonnull(1)
+static int rseq_write_initial_area(struct rseq *area)
 {
 	unsigned int zero = 0;
 	unsigned long rseq_cs = 0;
@@ -96,7 +97,8 @@ static int __must_check __nonnull(1) rseq_write_initial_area(struct rseq *area)
 	return 0;
 }
 
-static int __must_check __nonnull(1) rseq_write_current_ids(struct rseq *area)
+__must_check __nonnull(1)
+static int rseq_write_current_ids(struct rseq *area)
 {
 	unsigned int value;
 
@@ -117,8 +119,8 @@ static int __must_check __nonnull(1) rseq_write_current_ids(struct rseq *area)
 	return 0;
 }
 
-static int __must_check __nonnull(1)
-	rseq_write_unregistered_area(struct rseq *area)
+__must_check __nonnull(1)
+static int rseq_write_unregistered_area(struct rseq *area)
 {
 	unsigned int cpu_id = RSEQ_CPU_ID_UNINITIALIZED;
 
@@ -128,8 +130,8 @@ static int __must_check __nonnull(1)
 	return 0;
 }
 
-static int __must_check __nonnull(1, 2)
-	rseq_copy_cs(struct rseq_cs *dst, const struct rseq_cs *src)
+__must_check __nonnull(1, 2)
+static int rseq_copy_cs(struct rseq_cs *dst, const struct rseq_cs *src)
 {
 	if ((uintptr_t)src >= TASK_SIZE)
 		return -EFAULT;
@@ -139,7 +141,8 @@ static int __must_check __nonnull(1, 2)
 	return 0;
 }
 
-static int __must_check rseq_read_signature(uintptr_t abort_ip, uint32_t *sig)
+__must_check
+static int rseq_read_signature(uintptr_t abort_ip, uint32_t *sig)
 {
 	uint32_t *usig;
 
@@ -155,7 +158,8 @@ static int __must_check rseq_read_signature(uintptr_t abort_ip, uint32_t *sig)
 	return 0;
 }
 
-static int __must_check __nonnull(1) rseq_clear_user_cs(struct rseq *area)
+__must_check __nonnull(1)
+static int rseq_clear_user_cs(struct rseq *area)
 {
 	unsigned long zero = 0;
 
@@ -176,8 +180,8 @@ static bool rseq_cs_suppresses_restart(const struct rseq_cs *cs,
 	return false;
 }
 
-static int __must_check __nonnull(1, 2)
-	rseq_handle_cs(struct task_struct *task, struct trap_frame *tf,
+__must_check __nonnull(1, 2)
+static int rseq_handle_cs(struct task_struct *task, struct trap_frame *tf,
 		       unsigned long csaddr, enum rseq_restart_event event)
 {
 	struct rseq_cs cs;
@@ -219,8 +223,8 @@ static int __must_check __nonnull(1, 2)
 	return 0;
 }
 
-static int __must_check __nonnull(1, 2)
-	rseq_update_user(struct task_struct *task, struct trap_frame *tf,
+__must_check __nonnull(1, 2)
+static int rseq_update_user(struct task_struct *task, struct trap_frame *tf,
 			 enum rseq_restart_event event, bool force)
 {
 	struct rseq *area = rseq_task_area(task);
@@ -246,7 +250,8 @@ static int __must_check __nonnull(1, 2)
 	return rseq_handle_cs(task, tf, csaddr, event);
 }
 
-static int __must_check rseq_reregister(struct rseq *area, uint32_t len,
+__must_check
+static int rseq_reregister(struct rseq *area, uint32_t len,
 					uint32_t sig)
 {
 	struct task_struct *task = current_task();
@@ -259,7 +264,8 @@ static int __must_check rseq_reregister(struct rseq *area, uint32_t len,
 	return -EBUSY;
 }
 
-static int __must_check rseq_register(struct rseq *area, uint32_t len,
+__must_check
+static int rseq_register(struct rseq *area, uint32_t len,
 				      uint32_t sig)
 {
 	struct task_struct *task = current_task();
@@ -282,7 +288,8 @@ static int __must_check rseq_register(struct rseq *area, uint32_t len,
 	return 0;
 }
 
-static int __must_check rseq_unregister(struct rseq *area, uint32_t len,
+__must_check
+static int rseq_unregister(struct rseq *area, uint32_t len,
 					int flags, uint32_t sig)
 {
 	struct task_struct *task = current_task();

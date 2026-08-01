@@ -68,8 +68,8 @@ struct kfifo {
 	static struct kfifo name =                                             \
 		KFIFO_INIT(name##_storage, sizeof(type), (nr_elements))
 
-static inline __must_check __pure bool
-kfifo_config_valid(const void *storage, size_t elem_size, size_t capacity)
+__must_check __pure
+static inline bool kfifo_config_valid(const void *storage, size_t elem_size, size_t capacity)
 {
 	size_t storage_bytes;
 
@@ -80,7 +80,8 @@ kfifo_config_valid(const void *storage, size_t elem_size, size_t capacity)
 /**
  * @brief Return whether a kfifo descriptor satisfies its invariants.
  */
-static inline __must_check __pure bool kfifo_valid(const struct kfifo *fifo)
+__must_check __pure
+static inline bool kfifo_valid(const struct kfifo *fifo)
 {
 	return fifo != NULL &&
 	       kfifo_config_valid(fifo->storage, fifo->elem_size,
@@ -93,8 +94,8 @@ static inline __must_check __pure bool kfifo_valid(const struct kfifo *fifo)
  * @brief Initialize a kfifo over external fixed-size object storage.
  * @return 0 on success or -EINVAL for an invalid descriptor or configuration.
  */
-static inline __must_check int kfifo_init(struct kfifo *fifo, void *storage,
-					  size_t elem_size, size_t capacity)
+__must_check
+static inline int kfifo_init(struct kfifo *fifo, void *storage, size_t elem_size, size_t capacity)
 {
 	if (fifo == NULL)
 		return -EINVAL;
@@ -109,23 +110,26 @@ static inline __must_check int kfifo_init(struct kfifo *fifo, void *storage,
 	return 0;
 }
 
-static inline __must_check __pure bool kfifo_empty(const struct kfifo *fifo)
+__must_check __pure
+static inline bool kfifo_empty(const struct kfifo *fifo)
 {
 	return fifo->count == 0;
 }
 
-static inline __must_check __pure bool kfifo_full(const struct kfifo *fifo)
+__must_check __pure
+static inline bool kfifo_full(const struct kfifo *fifo)
 {
 	return fifo->count == fifo->capacity;
 }
 
-static inline __must_check __pure size_t kfifo_size(const struct kfifo *fifo)
+__must_check __pure
+static inline size_t kfifo_size(const struct kfifo *fifo)
 {
 	return fifo->count;
 }
 
-static inline __must_check __pure size_t
-kfifo_capacity(const struct kfifo *fifo)
+__must_check __pure
+static inline size_t kfifo_capacity(const struct kfifo *fifo)
 {
 	return fifo->capacity;
 }
@@ -133,7 +137,8 @@ kfifo_capacity(const struct kfifo *fifo)
 /**
  * @brief Discard all objects while retaining the storage binding.
  */
-static inline __must_check int kfifo_reset(struct kfifo *fifo)
+__must_check
+static inline int kfifo_reset(struct kfifo *fifo)
 {
 	if (!kfifo_valid(fifo))
 		return -EINVAL;
@@ -158,8 +163,8 @@ static inline size_t kfifo_next(const struct kfifo *fifo, size_t index)
  * @brief Copy one object onto the FIFO tail.
  * @return 0, -EINVAL, or -ENOSPC when the FIFO is full.
  */
-static inline __must_check int kfifo_put(struct kfifo *fifo,
-					 const void *element)
+__must_check
+static inline int kfifo_put(struct kfifo *fifo, const void *element)
 {
 	if (!kfifo_valid(fifo) || element == NULL)
 		return -EINVAL;
@@ -176,7 +181,8 @@ static inline __must_check int kfifo_put(struct kfifo *fifo,
  * @brief Copy and remove one object from the FIFO head.
  * @return 0, -EINVAL, or -ENODATA when the FIFO is empty.
  */
-static inline __must_check int kfifo_get(struct kfifo *fifo, void *element)
+__must_check
+static inline int kfifo_get(struct kfifo *fifo, void *element)
 {
 	if (!kfifo_valid(fifo) || element == NULL)
 		return -EINVAL;
@@ -193,8 +199,8 @@ static inline __must_check int kfifo_get(struct kfifo *fifo, void *element)
  * @brief Copy, without removing, the object at the FIFO head.
  * @return 0, -EINVAL, or -ENODATA when the FIFO is empty.
  */
-static inline __must_check int kfifo_peek(const struct kfifo *fifo,
-					  void *element)
+__must_check
+static inline int kfifo_peek(const struct kfifo *fifo, void *element)
 {
 	if (!kfifo_valid(fifo) || element == NULL)
 		return -EINVAL;
@@ -209,9 +215,8 @@ static inline __must_check int kfifo_peek(const struct kfifo *fifo,
  * @brief Copy up to @p nr_elements objects into the FIFO.
  * @return Number of objects copied; zero for no space or invalid arguments.
  */
-static inline __must_check size_t kfifo_in(struct kfifo *fifo,
-					   const void *elements,
-					   size_t nr_elements)
+__must_check
+static inline size_t kfifo_in(struct kfifo *fifo, const void *elements, size_t nr_elements)
 {
 	const char *source = elements;
 	size_t nr_copy;
@@ -237,8 +242,8 @@ static inline __must_check size_t kfifo_in(struct kfifo *fifo,
  * @brief Copy and remove up to @p nr_elements objects from the FIFO.
  * @return Number of objects copied; zero for an empty FIFO or invalid input.
  */
-static inline __must_check size_t kfifo_out(struct kfifo *fifo, void *elements,
-					    size_t nr_elements)
+__must_check
+static inline size_t kfifo_out(struct kfifo *fifo, void *elements, size_t nr_elements)
 {
 	char *destination = elements;
 	size_t nr_copy;

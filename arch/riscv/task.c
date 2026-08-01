@@ -10,8 +10,8 @@
 #include <arch/trap.h>
 #include <asm/csr.h>
 
-static __must_check __pure uintptr_t
-task_pgroot(const struct task_struct *task)
+__must_check __pure
+static uintptr_t task_pgroot(const struct task_struct *task)
 {
 	uint64_t satp = task_address_space_satp(task);
 

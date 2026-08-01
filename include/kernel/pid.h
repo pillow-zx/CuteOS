@@ -29,7 +29,8 @@ void pid_init(void);
  * @brief Allocate a free positive PID/TID.
  * @return PID on success, or a negative errno.
  */
-int32_t __must_check alloc_pid(void);
+__must_check
+int32_t alloc_pid(void);
 
 /**
  * @brief Release a PID allocated by alloc_pid().
@@ -37,6 +38,7 @@ int32_t __must_check alloc_pid(void);
  */
 void free_pid(pid_t pid);
 
-uint16_t __must_check pid_count_tasks(void);
+__must_check
+uint16_t pid_count_tasks(void);
 
 #endif

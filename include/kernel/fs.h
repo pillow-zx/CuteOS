@@ -385,7 +385,8 @@ struct file {
  * @param mode Creation mode before umask handling.
  * @return File descriptor, or a negative errno.
  */
-int __must_check vfs_open(const char *path, uint32_t flags, uint32_t mode);
+__must_check
+int vfs_open(const char *path, uint32_t flags, uint32_t mode);
 
 /**
  * @brief Open a path relative to an explicit base path.
@@ -395,8 +396,8 @@ int __must_check vfs_open(const char *path, uint32_t flags, uint32_t mode);
  * @param mode Creation mode before umask handling.
  * @return File descriptor, or a negative errno.
  */
-int __must_check vfs_openat_path(const struct path *base, const char *path,
-				 uint32_t flags, uint32_t mode);
+__must_check
+int vfs_openat_path(const struct path *base, const char *path, uint32_t flags, uint32_t mode);
 
 /**
  * @brief Open a path relative to a base dentry.
@@ -406,10 +407,14 @@ int __must_check vfs_openat_path(const struct path *base, const char *path,
  * @param mode Creation mode before umask handling.
  * @return File descriptor, or a negative errno.
  */
-int __must_check vfs_openat(struct dentry *base, const char *path,
-			    uint32_t flags, uint32_t mode);
-int __must_check file_get_status_flags(struct file *file);
-int __must_check file_set_status_flags(struct file *file, uint32_t flags);
+__must_check
+int vfs_openat(struct dentry *base, const char *path, uint32_t flags, uint32_t mode);
+
+__must_check
+int file_get_status_flags(struct file *file);
+
+__must_check
+int file_set_status_flags(struct file *file, uint32_t flags);
 
 /**
  * @brief Read from an open file at and advancing f_pos.
@@ -418,7 +423,8 @@ int __must_check file_set_status_flags(struct file *file, uint32_t flags);
  * @param count Maximum bytes to read.
  * @return Bytes read, 0 at EOF, or a negative errno.
  */
-ssize_t __must_check vfs_read(struct file *file, char *buf, size_t count);
+__must_check
+ssize_t vfs_read(struct file *file, char *buf, size_t count);
 
 /**
  * @brief Write to an open file at and advancing f_pos.
@@ -427,8 +433,8 @@ ssize_t __must_check vfs_read(struct file *file, char *buf, size_t count);
  * @param count Bytes to write.
  * @return Bytes written, or a negative errno.
  */
-ssize_t __must_check vfs_write(struct file *file, const char *buf,
-			       size_t count);
+__must_check
+ssize_t vfs_write(struct file *file, const char *buf, size_t count);
 
 /**
  * @brief Positional read that uses @p pos instead of file->f_pos.
@@ -438,8 +444,8 @@ ssize_t __must_check vfs_write(struct file *file, const char *buf,
  * @param pos File offset pointer updated by the operation.
  * @return Bytes read, 0 at EOF, or a negative errno.
  */
-ssize_t __must_check vfs_read_pos(struct file *file, char *buf, size_t count,
-				  loff_t *pos);
+__must_check
+ssize_t vfs_read_pos(struct file *file, char *buf, size_t count, loff_t *pos);
 
 /**
  * @brief Positional write that uses @p pos instead of file->f_pos.
@@ -449,13 +455,15 @@ ssize_t __must_check vfs_read_pos(struct file *file, char *buf, size_t count,
  * @param pos File offset pointer updated by the operation.
  * @return Bytes written, or a negative errno.
  */
-ssize_t __must_check vfs_write_pos(struct file *file, const char *buf,
-				   size_t count, loff_t *pos);
+__must_check
+ssize_t vfs_write_pos(struct file *file, const char *buf, size_t count, loff_t *pos);
+
 void vfs_rewind_pos(struct file *file, loff_t count);
-ssize_t __must_check vfs_copy_file_buffered(struct file *out_file,
-					    struct file *in_file,
-					    loff_t *in_pos, loff_t *out_pos,
-					    size_t len);
+
+__must_check
+ssize_t vfs_copy_file_buffered(struct file *out_file, struct file *in_file, loff_t *in_pos,
+                loff_t *out_pos, size_t len);
+
 /**
  * @brief Reposition an open file according to Linux SEEK_* semantics.
  * @param file Open file.
@@ -463,7 +471,8 @@ ssize_t __must_check vfs_copy_file_buffered(struct file *out_file,
  * @param whence SEEK_SET, SEEK_CUR, SEEK_END, or supported extension.
  * @return New file position, or a negative errno.
  */
-loff_t __must_check vfs_llseek(struct file *file, loff_t offset, int whence);
+__must_check
+loff_t vfs_llseek(struct file *file, loff_t offset, int whence);
 
 /**
  * @brief Iterate directory entries for an open directory file.
@@ -472,29 +481,47 @@ loff_t __must_check vfs_llseek(struct file *file, loff_t offset, int whence);
  * @param filldir Callback receiving Linux dirent-style fields.
  * @return 0 on success, or a negative errno.
  */
-int __must_check vfs_readdir(struct file *file, void *ctx, filldir_t filldir);
-int __must_check vfs_truncate_file(struct file *file, uint64_t size);
-int __must_check vfs_fallocate_file(struct file *file, int mode,
-				    uint64_t offset, uint64_t len);
-int __must_check vfs_inode_truncate(struct inode *inode, uint64_t size);
-int __must_check vfs_inode_writeback(struct inode *inode);
-int __must_check vfs_inode_datasync(struct inode *inode);
-int __must_check vfs_inode_set_timestamps(struct inode *inode,
-					  int64_t atime_sec, int64_t mtime_sec,
+__must_check
+int vfs_readdir(struct file *file, void *ctx, filldir_t filldir);
+
+__must_check
+int vfs_truncate_file(struct file *file, uint64_t size);
+
+__must_check
+int vfs_fallocate_file(struct file *file, int mode, uint64_t offset, uint64_t len);
+
+__must_check
+int vfs_inode_truncate(struct inode *inode, uint64_t size);
+
+__must_check
+int vfs_inode_writeback(struct inode *inode);
+
+__must_check
+int vfs_inode_datasync(struct inode *inode);
+
+__must_check
+int vfs_inode_set_timestamps(struct inode *inode, int64_t atime_sec, int64_t mtime_sec,
 					  bool set_atime, bool set_mtime);
-int __must_check vfs_inode_touch(struct inode *inode, bool atime, bool mtime,
-				 bool ctime);
-int __must_check vfs_inode_setattr(struct inode *inode,
-				   const struct vfs_inode_attrs *attrs);
-int __must_check vfs_datasync_file(struct file *file);
-int __must_check vfs_sync_file(struct file *file);
+
+__must_check
+int vfs_inode_touch(struct inode *inode, bool atime, bool mtime, bool ctime);
+
+__must_check
+int vfs_inode_setattr(struct inode *inode, const struct vfs_inode_attrs *attrs);
+
+__must_check
+int vfs_datasync_file(struct file *file);
+
+__must_check
+int vfs_sync_file(struct file *file);
 /**
  * @brief Convert an inode into Linux stat ABI fields.
  * @param inode Inode to snapshot.
  * @param st Kernel buffer receiving struct stat.
  * @return 0 on success, or a negative errno.
  */
-int __must_check vfs_stat_inode(const struct inode *inode, struct stat *st);
+__must_check
+int vfs_stat_inode(const struct inode *inode, struct stat *st);
 
 /**
  * @brief Stat an open file through its inode.
@@ -502,8 +529,11 @@ int __must_check vfs_stat_inode(const struct inode *inode, struct stat *st);
  * @param st Kernel buffer receiving struct stat.
  * @return 0 on success, or a negative errno.
  */
-int __must_check vfs_stat_file(struct file *file, struct stat *st);
-int __must_check vfs_statfs(struct super_block *sb, struct statfs64 *buf);
+__must_check
+int vfs_stat_file(struct file *file, struct stat *st);
+
+__must_check
+int vfs_statfs(struct super_block *sb, struct statfs64 *buf);
 /**
  * @brief Poll one file for Linux POLL* readiness bits.
  * @param file Open file.
@@ -511,104 +541,94 @@ int __must_check vfs_statfs(struct super_block *sb, struct statfs64 *buf);
  * @param context Optional wait session used to watch readiness channels.
  * @return Ready event mask, or a negative errno.
  */
-int __must_check vfs_poll(struct file *file, uint32_t events,
+__must_check
+int vfs_poll(struct file *file, uint32_t events,
 			  struct wait_session *context);
-int __must_check vfs_ioctl(struct file *file, uint64_t cmd, uint64_t arg);
-int __must_check vfs_getcwd_path(const struct path *cwd, char *buf,
+
+__must_check
+int vfs_ioctl(struct file *file, uint64_t cmd, uint64_t arg);
+
+__must_check
+int vfs_getcwd_path(const struct path *cwd, char *buf,
 				 size_t size);
 
-static inline __must_check __pure uint64_t
-vfs_inode_size(const struct inode *inode)
+__must_check __pure
+static inline uint64_t vfs_inode_size(const struct inode *inode)
 {
 	return inode ? inode->i_size : 0;
 }
-
-static inline __must_check __pure uint64_t
-vfs_inode_blocks(const struct inode *inode)
+__must_check __pure
+static inline uint64_t vfs_inode_blocks(const struct inode *inode)
 {
 	return inode ? inode->i_blocks : 0;
 }
-
-static inline __must_check __pure uint64_t
-vfs_inode_number(const struct inode *inode)
+__must_check __pure
+static inline uint64_t vfs_inode_number(const struct inode *inode)
 {
 	return inode ? inode->i_ino : 0;
 }
-
-static inline __must_check __pure uint32_t
-vfs_inode_mode(const struct inode *inode)
+__must_check __pure
+static inline uint32_t vfs_inode_mode(const struct inode *inode)
 {
 	return inode ? inode->i_mode : 0;
 }
-
-static inline __must_check __pure dev_t
-vfs_inode_rdev(const struct inode *inode)
+__must_check __pure
+static inline dev_t vfs_inode_rdev(const struct inode *inode)
 {
 	return inode ? inode->i_rdev : 0;
 }
-
-static inline __must_check __pure uint32_t
-vfs_inode_uid(const struct inode *inode)
+__must_check __pure
+static inline uint32_t vfs_inode_uid(const struct inode *inode)
 {
 	return inode ? inode->i_uid : 0;
 }
-
-static inline __must_check __pure uint32_t
-vfs_inode_gid(const struct inode *inode)
+__must_check __pure
+static inline uint32_t vfs_inode_gid(const struct inode *inode)
 {
 	return inode ? inode->i_gid : 0;
 }
-
-static inline __must_check __pure uint32_t
-vfs_inode_nlink(const struct inode *inode)
+__must_check __pure
+static inline uint32_t vfs_inode_nlink(const struct inode *inode)
 {
 	return inode ? inode->i_nlink : 0;
 }
-
-static inline __must_check __pure int64_t
-vfs_inode_atime_sec(const struct inode *inode)
+__must_check __pure
+static inline int64_t vfs_inode_atime_sec(const struct inode *inode)
 {
 	return inode ? inode->i_atime_sec : 0;
 }
-
-static inline __must_check __pure int64_t
-vfs_inode_mtime_sec(const struct inode *inode)
+__must_check __pure
+static inline int64_t vfs_inode_mtime_sec(const struct inode *inode)
 {
 	return inode ? inode->i_mtime_sec : 0;
 }
-
-static inline __must_check __pure int64_t
-vfs_inode_ctime_sec(const struct inode *inode)
+__must_check __pure
+static inline int64_t vfs_inode_ctime_sec(const struct inode *inode)
 {
 	return inode ? inode->i_ctime_sec : 0;
 }
-
-static inline __must_check __pure dev_t
-vfs_inode_dev(const struct inode *inode)
+__must_check __pure
+static inline dev_t vfs_inode_dev(const struct inode *inode)
 {
 	return inode && inode->i_sb ? inode->i_sb->s_dev : 0;
 }
-
-static inline __must_check __pure struct inode *
-vfs_dentry_inode(struct dentry *dentry)
+__must_check __pure
+static inline struct inode *vfs_dentry_inode(struct dentry *dentry)
 {
 	return dentry ? dentry->d_inode : NULL;
 }
-
-static inline __must_check __pure struct dentry *
-vfs_dentry_parent(struct dentry *dentry)
+__must_check __pure
+static inline struct dentry *vfs_dentry_parent(struct dentry *dentry)
 {
 	return dentry ? dentry->d_parent : NULL;
 }
-
-static inline __must_check __pure const char *
-vfs_dentry_name(struct dentry *dentry)
+__must_check __pure
+static inline const char *vfs_dentry_name(struct dentry *dentry)
 {
 	return dentry ? dentry->d_name : NULL;
 }
-
-static inline __must_check __pure size_t
-vfs_dentry_namelen(struct dentry *dentry)
+__must_check __pure
+static inline size_t vfs_dentry_namelen(struct dentry *dentry)
 {
 	return dentry ? dentry->d_namelen : 0;
 }

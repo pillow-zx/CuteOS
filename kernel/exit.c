@@ -89,7 +89,8 @@ static void detach_task_queues(struct task_struct *task)
 		sched_dequeue(task);
 }
 
-static void __nonnull(1) finish_task_exit(struct task_struct *task, int status)
+__nonnull(1)
+static void finish_task_exit(struct task_struct *task, int status)
 {
 	bool leader;
 
@@ -168,7 +169,8 @@ static void reap_other_threads(struct task_struct *leader, int status)
 	}
 }
 
-static void __noreturn do_exit_status(int status)
+__noreturn
+static void do_exit_status(int status)
 {
 	struct task_struct *task = current_task();
 
@@ -185,12 +187,14 @@ static void __noreturn do_exit_status(int status)
 	unreachable();
 }
 
-void __noreturn do_exit(int code)
+__noreturn
+void do_exit(int code)
 {
 	do_exit_status(WEXITCODE(code));
 }
 
-void __noreturn do_exit_group(int code)
+__noreturn
+void do_exit_group(int code)
 {
 	struct task_struct *task = current_task();
 	struct task_struct *leader;
@@ -211,7 +215,8 @@ void __noreturn do_exit_group(int code)
 	unreachable();
 }
 
-void __noreturn do_exit_signal(int sig)
+__noreturn
+void do_exit_signal(int sig)
 {
 	int status = sig & 0x7f;
 

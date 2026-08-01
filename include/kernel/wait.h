@@ -116,9 +116,9 @@ struct wait_channel {
 		.waiters = LIST_HEAD_INIT((name).waiters),                     \
 	}
 
-int wait_session_watch(struct wait_session *session,
-		       struct wait_channel *channel) __must_check
-	__access_no_size(read_write, 1) __access_no_size(read_write, 2);
+__must_check __access_no_size(read_write, 1) __access_no_size(read_write, 2)
+int wait_session_watch(struct wait_session *session, struct wait_channel *channel);
+
 /**
  * @brief Wait for an event, signal, or deadline.
  *

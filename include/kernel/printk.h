@@ -35,9 +35,12 @@ void printk_log_clear(void);
 
 int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap);
 int vsprintf(char *buf, const char *fmt, va_list ap);
-int __printk(int level, const char *fmt, ...) __printf(2, 3) __nonnull(2);
-void __noreturn __panic(const char *fmt, ...) __printf(1, 2) __nonnull(1)
-	__cold;
+
+__printf(2, 3) __nonnull(2)
+int __printk(int level, const char *fmt, ...) ;
+
+__noreturn __printf(1, 2) __nonnull(1) __cold
+void __panic(const char *fmt, ...);
 
 #define _Log(level, ...)                                                       \
 	do {                                                                   \

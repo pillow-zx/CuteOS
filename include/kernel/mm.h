@@ -14,7 +14,8 @@
  * @brief Create an empty user address space.
  * @return New mm with a user page table, or NULL on allocation failure.
  */
-struct mm_struct *__must_check mm_create_user(void);
+__must_check
+struct mm_struct *mm_create_user(void);
 
 /**
  * @brief Take a reference to an mm_struct.
@@ -28,7 +29,9 @@ void mm_get(struct mm_struct *mm);
  */
 void mm_put(struct mm_struct *mm);
 void mm_membarrier_register(struct mm_struct *mm, uint32_t cmd);
-uint32_t __must_check mm_membarrier_registrations(const struct mm_struct *mm);
+
+__must_check
+uint32_t mm_membarrier_registrations(const struct mm_struct *mm);
 
 /**
  * @brief Duplicate a user address space for fork/clone.
@@ -38,29 +41,36 @@ uint32_t __must_check mm_membarrier_registrations(const struct mm_struct *mm);
  * The current implementation copies user mappings rather than installing a
  * copy-on-write contract.
  */
-struct mm_struct *__must_check dup_mm(struct mm_struct *oldmm);
+__must_check
+struct mm_struct *dup_mm(struct mm_struct *oldmm);
 
 /**
  * @brief Return the architecture SATP value for entering a user mm.
  * @param mm Address space to inspect.
  * @return RISC-V satp value, or 0 for NULL.
  */
-uintptr_t __must_check mm_user_satp(const struct mm_struct *mm);
+__must_check
+uintptr_t mm_user_satp(const struct mm_struct *mm);
 
-int __must_check mm_user_page_resident(struct mm_struct *mm, uintptr_t addr,
-				       bool *resident);
+__must_check
+int mm_user_page_resident(struct mm_struct *mm, uintptr_t addr, bool *resident);
 
-int __must_check mm_map_page(struct mm_struct *mm, uintptr_t va, void *page,
-			     int prot);
-int __must_check mm_map_segment(struct mm_struct *mm, uintptr_t start,
-				uintptr_t end, int prot);
-int __must_check mm_map_file_segment(struct mm_struct *mm, struct file *file,
+__must_check
+int mm_map_page(struct mm_struct *mm, uintptr_t va, void *page, int prot);
+
+__must_check
+int mm_map_segment(struct mm_struct *mm, uintptr_t start, uintptr_t end, int prot);
+
+__must_check
+int mm_map_file_segment(struct mm_struct *mm, struct file *file,
 				     uintptr_t start, uintptr_t end, int prot,
 				     uint64_t file_offset);
-int __must_check mm_add_stack(struct mm_struct *mm, const void *stack,
-			      size_t stack_size);
-int __must_check mm_finalize(struct mm_struct *mm, uintptr_t first_vaddr,
-			     uintptr_t last_end);
+
+__must_check
+int mm_add_stack(struct mm_struct *mm, const void *stack, size_t stack_size);
+
+__must_check
+int mm_finalize(struct mm_struct *mm, uintptr_t first_vaddr, uintptr_t last_end);
 
 /**
  * @brief Implement Linux brk heap query/growth semantics for one mm.
@@ -68,7 +78,8 @@ int __must_check mm_finalize(struct mm_struct *mm, uintptr_t first_vaddr,
  * @param addr Requested program break, or 0 to query current break.
  * @return Current program break after validation.
  */
-uintptr_t __must_check mm_brk(struct mm_struct *mm, uintptr_t addr);
+__must_check
+uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr);
 
 /**
  * @brief Create an anonymous user mapping.
@@ -79,8 +90,8 @@ uintptr_t __must_check mm_brk(struct mm_struct *mm, uintptr_t addr);
  * @param flags Linux MAP_* bits accepted by cuteOS.
  * @return Mapped user address, or a negative errno.
  */
-ssize_t __must_check mm_mmap(struct mm_struct *mm, uintptr_t addr,
-			     size_t length, int prot, int flags);
+__must_check
+ssize_t mm_mmap(struct mm_struct *mm, uintptr_t addr, size_t length, int prot, int flags);
 
 /**
  * @brief Create a file-backed user mapping.
@@ -93,9 +104,9 @@ ssize_t __must_check mm_mmap(struct mm_struct *mm, uintptr_t addr,
  * @param offset File offset in bytes; must satisfy page-alignment rules.
  * @return Mapped user address, or a negative errno.
  */
-ssize_t __must_check mm_mmap_file(struct mm_struct *mm, uintptr_t addr,
-				  size_t length, int prot, int flags, int fd,
-				  uint64_t offset);
+__must_check
+ssize_t mm_mmap_file(struct mm_struct *mm, uintptr_t addr, size_t length, int prot, int flags,
+		int fd, uint64_t offset);
 
 /**
  * @brief Remove mappings from a user address range.
@@ -104,14 +115,17 @@ ssize_t __must_check mm_mmap_file(struct mm_struct *mm, uintptr_t addr,
  * @param length Range length in bytes.
  * @return 0 on success, or a negative errno.
  */
-int __must_check mm_munmap(struct mm_struct *mm, uintptr_t addr, size_t length);
+__must_check
+int mm_munmap(struct mm_struct *mm, uintptr_t addr, size_t length);
 
-int __must_check mm_madvise(struct mm_struct *mm, uintptr_t addr, size_t len,
-			    int advice);
-int __must_check __nonnull(1)
-	mm_mlock(struct mm_struct *mm, uintptr_t addr, size_t len);
-int __must_check __nonnull(1)
-	mm_munlock(struct mm_struct *mm, uintptr_t addr, size_t len);
+__must_check
+int mm_madvise(struct mm_struct *mm, uintptr_t addr, size_t len, int advice);
+
+__must_check __nonnull(1)
+int mm_mlock(struct mm_struct *mm, uintptr_t addr, size_t len);
+
+ __must_check __nonnull(1)
+int mm_munlock(struct mm_struct *mm, uintptr_t addr, size_t len);
 
 /**
  * @brief Change VMA and resident PTE permissions for a user range.
@@ -121,13 +135,15 @@ int __must_check __nonnull(1)
  * @param prot Linux PROT_* permission mask.
  * @return 0 on success, or a negative errno.
  */
-int __must_check mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len,
-			     int prot);
-ssize_t __must_check mm_mremap(struct mm_struct *mm, uintptr_t old_addr,
-			       size_t old_size, size_t new_size, int flags,
-			       uintptr_t new_addr);
-int __must_check mm_msync(struct mm_struct *mm, uintptr_t addr, size_t len,
-			  int flags);
+__must_check
+int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot);
+
+__must_check
+ssize_t mm_mremap(struct mm_struct *mm, uintptr_t old_addr, size_t old_size, size_t new_size,
+		int flags, uintptr_t new_addr);
+
+__must_check
+int mm_msync(struct mm_struct *mm, uintptr_t addr, size_t len, int flags);
 
 /**
  * @brief Validate that a user pointer range is inside user virtual memory.
@@ -135,7 +151,8 @@ int __must_check mm_msync(struct mm_struct *mm, uintptr_t addr, size_t len,
  * @param size Number of bytes in the range.
  * @return true when the range is a valid user address interval.
  */
-bool __must_check access_ok(const void *addr, size_t size);
+__must_check
+bool access_ok(const void *addr, size_t size);
 
 /**
  * @brief Probe that a user range is mapped and has requested access.
@@ -144,7 +161,8 @@ bool __must_check access_ok(const void *addr, size_t size);
  * @param write true when write permission is required.
  * @return 0 on success, or a negative errno.
  */
-int __must_check user_range_probe(const void *addr, size_t size, bool write);
+__must_check
+int user_range_probe(const void *addr, size_t size, bool write);
 
 /**
  * @brief Copy bytes from kernel memory to userspace.
@@ -156,8 +174,9 @@ int __must_check user_range_probe(const void *addr, size_t size, bool write);
  * User memory must cross the kernel/userspace boundary through this helper or
  * an equivalent uaccess helper, never through direct dereference.
  */
-size_t __must_check copy_to_user(void *to, const void *from, size_t n)
-	__access(write_only, 1, 3) __access(read_only, 2, 3);
+__must_check  __access(write_only, 1, 3) __access(read_only, 2, 3)
+size_t copy_to_user(void *to, const void *from, size_t n);
+
 
 /**
  * @brief Copy bytes from userspace to kernel memory.
@@ -166,8 +185,9 @@ size_t __must_check copy_to_user(void *to, const void *from, size_t n)
  * @param n Number of bytes requested.
  * @return Number of bytes not copied; 0 means complete success.
  */
-size_t __must_check copy_from_user(void *to, const void *from, size_t n)
-	__access(write_only, 1, 3) __access(read_only, 2, 3);
+__must_check __access(write_only, 1, 3) __access(read_only, 2, 3)
+size_t copy_from_user(void *to, const void *from, size_t n);
+
 
 /**
  * @brief Copy a NUL-terminated string from userspace.
@@ -176,14 +196,14 @@ size_t __must_check copy_from_user(void *to, const void *from, size_t n)
  * @param maxlen Maximum bytes to copy, including the terminator.
  * @return String length excluding NUL, or a negative errno.
  */
-ssize_t __must_check strncpy_from_user(char *dst, const char *src,
-				       size_t maxlen) __access(write_only, 1, 3)
-	__access(read_only, 2, 3);
+__must_check __access(read_only, 2, 3) __access(write_only, 1, 3)
+ssize_t strncpy_from_user(char *dst, const char *src, size_t maxlen);
 
 /**
  * @brief Resolve a user instruction/load/store page fault.
  * @param tf Trap frame holding faulting user context and scause/stval state.
  */
-void __nonnull(1) do_page_fault(struct trap_frame *tf);
+__nonnull(1)
+void do_page_fault(struct trap_frame *tf);
 
 #endif

@@ -64,8 +64,8 @@ struct klifo {
 	static struct klifo name =                                             \
 		KLIFO_INIT(name##_storage, sizeof(type), (nr_elements))
 
-static inline __must_check __pure bool
-klifo_config_valid(const void *storage, size_t elem_size, size_t capacity)
+__must_check __pure
+static inline bool klifo_config_valid(const void *storage, size_t elem_size, size_t capacity)
 {
 	size_t storage_bytes;
 
@@ -76,7 +76,8 @@ klifo_config_valid(const void *storage, size_t elem_size, size_t capacity)
 /**
  * @brief Return whether a klifo descriptor satisfies its invariants.
  */
-static inline __must_check __pure bool klifo_valid(const struct klifo *lifo)
+__must_check __pure
+static inline bool klifo_valid(const struct klifo *lifo)
 {
 	return lifo != NULL &&
 	       klifo_config_valid(lifo->storage, lifo->elem_size,
@@ -88,8 +89,8 @@ static inline __must_check __pure bool klifo_valid(const struct klifo *lifo)
  * @brief Initialize a klifo over external fixed-size object storage.
  * @return 0 on success or -EINVAL for an invalid descriptor or configuration.
  */
-static inline __must_check int klifo_init(struct klifo *lifo, void *storage,
-					  size_t elem_size, size_t capacity)
+__must_check
+static inline int klifo_init(struct klifo *lifo, void *storage, size_t elem_size, size_t capacity)
 {
 	if (lifo == NULL)
 		return -EINVAL;
@@ -104,23 +105,26 @@ static inline __must_check int klifo_init(struct klifo *lifo, void *storage,
 	return 0;
 }
 
-static inline __must_check __pure bool klifo_empty(const struct klifo *lifo)
+__must_check __pure
+static inline bool klifo_empty(const struct klifo *lifo)
 {
 	return lifo->count == 0;
 }
 
-static inline __must_check __pure bool klifo_full(const struct klifo *lifo)
+__must_check __pure
+static inline bool klifo_full(const struct klifo *lifo)
 {
 	return lifo->count == lifo->capacity;
 }
 
-static inline __must_check __pure size_t klifo_size(const struct klifo *lifo)
+__must_check __pure
+static inline size_t klifo_size(const struct klifo *lifo)
 {
 	return lifo->count;
 }
 
-static inline __must_check __pure size_t
-klifo_capacity(const struct klifo *lifo)
+__must_check __pure
+static inline size_t klifo_capacity(const struct klifo *lifo)
 {
 	return lifo->capacity;
 }
@@ -128,7 +132,8 @@ klifo_capacity(const struct klifo *lifo)
 /**
  * @brief Discard all objects while retaining the storage binding.
  */
-static inline __must_check int klifo_reset(struct klifo *lifo)
+__must_check
+static inline int klifo_reset(struct klifo *lifo)
 {
 	if (!klifo_valid(lifo))
 		return -EINVAL;
@@ -146,7 +151,8 @@ static inline void *klifo_slot(const struct klifo *lifo, size_t index)
  * @brief Copy one object onto the LIFO top.
  * @return 0, -EINVAL, or -ENOSPC when the LIFO is full.
  */
-static inline __must_check int klifo_push(struct klifo *lifo,
+__must_check
+static inline int klifo_push(struct klifo *lifo,
 					  const void *element)
 {
 	if (!klifo_valid(lifo) || element == NULL)
@@ -163,7 +169,8 @@ static inline __must_check int klifo_push(struct klifo *lifo,
  * @brief Copy and remove the object at the LIFO top.
  * @return 0, -EINVAL, or -ENODATA when the LIFO is empty.
  */
-static inline __must_check int klifo_pop(struct klifo *lifo, void *element)
+__must_check
+static inline int klifo_pop(struct klifo *lifo, void *element)
 {
 	if (!klifo_valid(lifo) || element == NULL)
 		return -EINVAL;
@@ -179,7 +186,8 @@ static inline __must_check int klifo_pop(struct klifo *lifo, void *element)
  * @brief Copy, without removing, the object at the LIFO top.
  * @return 0, -EINVAL, or -ENODATA when the LIFO is empty.
  */
-static inline __must_check int klifo_peek(const struct klifo *lifo,
+__must_check
+static inline int klifo_peek(const struct klifo *lifo,
 					  void *element)
 {
 	if (!klifo_valid(lifo) || element == NULL)

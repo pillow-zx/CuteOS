@@ -5,7 +5,11 @@
 #include <kernel/types.h>
 
 void vmalloc_init(void);
-void *__must_check __malloc __alloc_size(1) vmalloc(size_t size);
-void __nonnull(1) vfree(void *ptr);
+
+__must_check __malloc __alloc_size(1)
+void *vmalloc(size_t size);
+
+__nonnull(1)
+void vfree(void *ptr);
 
 #endif

@@ -5,6 +5,7 @@
 #include <kernel/types.h>
 #include <asm/csr.h>
 
+__always_inline
 static inline void local_sfence_vma(uintptr_t addr, uintptr_t asid)
 {
 	asm volatile("sfence.vma %0, %1" : : "r"(addr), "r"(asid) : "memory");

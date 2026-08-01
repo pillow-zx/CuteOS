@@ -11,12 +11,23 @@
 
 typedef int (*user_map_fn_t)(pte_t *pgd);
 
-int __must_check user_map_register(const char *name, user_map_fn_t map);
-int __must_check user_map_register_reserved(const char *name, vaddr_t start,
-						    vaddr_t end, user_map_fn_t map);
-int __must_check user_map_reserve(const char *name, vaddr_t start, vaddr_t end);
-int __must_check user_map_apply(pte_t *pgd);
-bool __must_check __pure user_map_reserved_contains(vaddr_t addr);
-bool __must_check __pure user_map_reserved_overlaps(vaddr_t start, vaddr_t end);
+__must_check
+int user_map_register(const char *name, user_map_fn_t map);
+
+__must_check
+int user_map_register_reserved(const char *name, vaddr_t start, vaddr_t end,
+		user_map_fn_t map);
+
+__must_check
+int user_map_reserve(const char *name, vaddr_t start, vaddr_t end);
+
+__must_check
+int user_map_apply(pte_t *pgd);
+
+__must_check __pure
+bool user_map_reserved_contains(vaddr_t addr);
+
+__must_check __pure
+bool user_map_reserved_overlaps(vaddr_t start, vaddr_t end);
 
 #endif

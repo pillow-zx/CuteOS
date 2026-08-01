@@ -40,89 +40,93 @@ extern uint32_t nr_cpu_ids;
 
 void cpu_boot_init(struct task_struct *idle);
 
-static __always_inline __must_check __pure __returns_nonnull struct cpu *
-current_cpu(void)
+__always_inline __must_check __pure __returns_nonnull
+static inline  struct cpu *current_cpu(void)
 {
 	return &cpu_table[0];
 }
-
-static __always_inline __must_check __pure struct cpu *cpu_by_id(uint32_t id)
+__always_inline __must_check __pure
+static inline struct cpu *cpu_by_id(uint32_t id)
 {
 	return id < NR_CPUS ? &cpu_table[id] : NULL;
 }
 
-static __always_inline __must_check __pure bool cpu_is_online(uint32_t id)
+__always_inline __must_check __pure
+static inline bool cpu_is_online(uint32_t id)
 {
 	struct cpu *cpu = cpu_by_id(id);
 
 	return cpu && cpu->state == CPU_ONLINE;
 }
 
-static __always_inline __must_check __pure __nonnull(1)
-struct task_struct *cpu_current_task(const struct cpu *cpu)
+__always_inline __must_check __pure __nonnull(1)
+static inline struct task_struct *cpu_current_task(const struct cpu *cpu)
 {
 	return cpu->current_task;
 }
 
-static __always_inline __nonnull(1)
-void cpu_set_task(struct cpu *cpu, struct task_struct *task)
+__always_inline __nonnull(1)
+static inline void cpu_set_task(struct cpu *cpu, struct task_struct *task)
 {
 	cpu->current_task = task;
 }
 
-static __always_inline __must_check __pure
-struct task_struct *current_task(void)
+__always_inline __must_check __pure
+static inline struct task_struct *current_task(void)
 {
 	return cpu_current_task(current_cpu());
 }
 
-static __always_inline void set_current_task(struct task_struct *task)
+__always_inline
+static inline void set_current_task(struct task_struct *task)
 {
 	cpu_set_task(current_cpu(), task);
 }
 
-static __always_inline __must_check __pure __nonnull(1)
-struct task_struct *cpu_idle_task(const struct cpu *cpu)
+__always_inline __must_check __pure __nonnull(1)
+static inline struct task_struct *cpu_idle_task(const struct cpu *cpu)
 {
 	return cpu->idle_task;
 }
 
-static __always_inline __must_check __pure __nonnull(1)
-int cpu_preempt_count(const struct cpu *cpu)
+__always_inline __must_check __pure __nonnull(1)
+static inline int cpu_preempt_count(const struct cpu *cpu)
 {
 	return cpu->preempt_count;
 }
 
-static __always_inline __nonnull(1) void cpu_set_preempt_count(struct cpu *cpu,
-							       int count)
+__always_inline __nonnull(1)
+static inline void cpu_set_preempt_count(struct cpu *cpu, int count)
 {
 	cpu->preempt_count = count;
 }
 
-static __always_inline __nonnull(1) void cpu_inc_preempt_count(struct cpu *cpu)
+__always_inline __nonnull(1)
+static inline void cpu_inc_preempt_count(struct cpu *cpu)
 {
 	cpu->preempt_count++;
 }
 
-static __always_inline __nonnull(1) void cpu_dec_preempt_count(struct cpu *cpu)
+__always_inline __nonnull(1)
+static inline void cpu_dec_preempt_count(struct cpu *cpu)
 {
 	cpu->preempt_count--;
 }
 
-static __always_inline __must_check __pure __nonnull(1)
-uint32_t cpu_irq_nesting(const struct cpu *cpu)
+__always_inline __must_check __pure __nonnull(1)
+static inline uint32_t cpu_irq_nesting(const struct cpu *cpu)
 {
 	return cpu->irq_nesting;
 }
 
-static __always_inline __nonnull(1) void
-cpu_inc_irq_nesting(struct cpu *cpu)
+__always_inline __nonnull(1)
+static inline void cpu_inc_irq_nesting(struct cpu *cpu)
 {
 	cpu->irq_nesting++;
 }
 
-static __always_inline __nonnull(1) void
-cpu_dec_irq_nesting(struct cpu *cpu)
+__always_inline __nonnull(1)
+static inline void cpu_dec_irq_nesting(struct cpu *cpu)
 {
 	cpu->irq_nesting--;
 }

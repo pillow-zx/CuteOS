@@ -9,13 +9,14 @@
 #include <uapi/syslog.h>
 #include <kernel/trap.h>
 
-static inline __must_check __pure bool syslog_action_valid(const int type)
+__must_check __pure
+static inline bool syslog_action_valid(const int type)
 {
 	return type >= SYSLOG_ACTION_CLOSE && type <= SYSLOG_ACTION_SIZE_BUFFER;
 }
 
-static inline __must_check __pure bool
-syslog_action_requires_root(const int type)
+__must_check __pure
+static inline bool syslog_action_requires_root(const int type)
 {
 	switch (type) {
 	case SYSLOG_ACTION_READ_ALL:

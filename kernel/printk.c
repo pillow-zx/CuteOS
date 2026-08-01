@@ -330,7 +330,8 @@ int __printk(int level, const char *fmt, ...)
 	return ret;
 }
 
-void __noreturn __panic(const char *fmt, ...)
+__noreturn
+void __panic(const char *fmt, ...)
 {
 	pr_err("\nKERNEL PANIC: ");
 

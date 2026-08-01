@@ -5,27 +5,32 @@
 #include <kernel/types.h>
 #include <asm/csr.h>
 
-static __always_inline void wait_for_interrupt(void)
+__always_inline
+static inline void wait_for_interrupt(void)
 {
 	wfi();
 }
 
-static __always_inline __must_check uintptr_t trap_pc(void)
+__always_inline __must_check
+static inline uintptr_t trap_pc(void)
 {
 	return csr_read(sepc);
 }
 
-static __always_inline __must_check uintptr_t trap_cause(void)
+__always_inline __must_check
+static inline uintptr_t trap_cause(void)
 {
 	return csr_read(scause);
 }
 
-static __always_inline __must_check uintptr_t trap_value(void)
+__always_inline __must_check
+static inline uintptr_t trap_value(void)
 {
 	return csr_read(stval);
 }
 
-static __always_inline void flush_icache(void)
+__always_inline
+static inline void flush_icache(void)
 {
 	icache_flush();
 }

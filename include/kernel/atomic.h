@@ -14,7 +14,7 @@
 
 #define ATOMIC_DEFINE_TYPE(name, value_type)                                   \
 	typedef struct {                                                       \
-		value_type __aligned(sizeof(value_type)) counter;              \
+		value_type counter;              \
 	} name
 
 ATOMIC_DEFINE_TYPE(atomic_t, int32_t);
@@ -80,96 +80,106 @@ static_assert(compiler_atomic_always_lock_free(sizeof(isize), 0),
 #define atomic_signal_fence(order) compiler_atomic_signal_fence(order)
 
 #define ATOMIC_DEFINE_INIT_API(prefix, atomic_type, value_type)                \
-	static __always_inline void prefix##_init(atomic_type *v,              \
-						  value_type value)            \
+	__always_inline							       \
+	static inline void prefix##_init(atomic_type *v, value_type value)     \
 	{                                                                      \
 		compiler_atomic_store_n(&v->counter, value,                    \
 					ATOMIC_ORDER_RELAXED);                 \
 	}
 
 #define ATOMIC_DEFINE_ACCESS_API(prefix, atomic_type, value_type)              \
-	static __always_inline value_type prefix##_read_relaxed(               \
-		const atomic_type *v)                                          \
+	__always_inline          					       \
+	static inline value_type prefix##_read_relaxed(const atomic_type *v)   \
 	{                                                                      \
 		return compiler_atomic_load_n(&v->counter,                     \
 					      ATOMIC_ORDER_RELAXED);           \
 	}                                                                      \
-	static __always_inline value_type prefix##_read_consume(               \
-		const atomic_type *v)                                          \
+	__always_inline                                                        \
+	static inline value_type prefix##_read_consume(const atomic_type *v)   \
 	{                                                                      \
 		return compiler_atomic_load_n(&v->counter,                     \
 					      ATOMIC_ORDER_CONSUME);           \
-	}                                                                      \
-	static __always_inline value_type prefix##_read_acquire(               \
-		const atomic_type *v)                                          \
+	}								       \
+	__always_inline                                                        \
+	static inline value_type prefix##_read_acquire(const atomic_type *v)   \
 	{                                                                      \
 		return compiler_atomic_load_n(&v->counter,                     \
 					      ATOMIC_ORDER_ACQUIRE);           \
 	}                                                                      \
-	static __always_inline value_type prefix##_read_seq_cst(               \
-		const atomic_type *v)                                          \
+	__always_inline							       \
+	static inline value_type prefix##_read_seq_cst(const atomic_type *v)   \
 	{                                                                      \
 		return compiler_atomic_load_n(&v->counter,                     \
 					      ATOMIC_ORDER_SEQ_CST);           \
-	}                                                                      \
-	static __always_inline value_type prefix##_read(const atomic_type *v)  \
+	}								       \
+	__always_inline							       \
+	static inline value_type prefix##_read(const atomic_type *v)	       \
 	{                                                                      \
 		return prefix##_read_seq_cst(v);                               \
-	}                                                                      \
-	static __always_inline void prefix##_set_relaxed(atomic_type *v,       \
+	}								       \
+	__always_inline							       \
+	static inline void prefix##_set_relaxed(atomic_type *v,		       \
 							 value_type value)     \
 	{                                                                      \
 		compiler_atomic_store_n(&v->counter, value,                    \
 					ATOMIC_ORDER_RELAXED);                 \
-	}                                                                      \
-	static __always_inline void prefix##_set_release(atomic_type *v,       \
+	}								       \
+	__always_inline							       \
+	static inline void prefix##_set_release(atomic_type *v,		       \
 							 value_type value)     \
 	{                                                                      \
 		compiler_atomic_store_n(&v->counter, value,                    \
 					ATOMIC_ORDER_RELEASE);                 \
-	}                                                                      \
-	static __always_inline void prefix##_set_seq_cst(atomic_type *v,       \
+	}								       \
+	__always_inline							       \
+	static inline void prefix##_set_seq_cst(atomic_type *v,		       \
 							 value_type value)     \
 	{                                                                      \
 		compiler_atomic_store_n(&v->counter, value,                    \
 					ATOMIC_ORDER_SEQ_CST);                 \
-	}                                                                      \
-	static __always_inline void prefix##_set(atomic_type *v,               \
-						 value_type value)             \
+	}								       \
+	__always_inline							       \
+	static inline void prefix##_set(atomic_type *v, value_type value)      \
 	{                                                                      \
 		prefix##_set_seq_cst(v, value);                                \
-	}                                                                      \
-	static __always_inline value_type prefix##_xchg_relaxed(               \
-		atomic_type *v, value_type value)                              \
+	}								       \
+	__always_inline							       \
+	static inline value_type prefix##_xchg_relaxed(			       \
+			atomic_type *v,	value_type value)                      \
 	{                                                                      \
 		return compiler_atomic_exchange_n(&v->counter, value,          \
 						  ATOMIC_ORDER_RELAXED);       \
-	}                                                                      \
-	static __always_inline value_type prefix##_xchg_acquire(               \
+	}								       \
+	__always_inline							       \
+	static inline value_type prefix##_xchg_acquire(			       \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return compiler_atomic_exchange_n(&v->counter, value,          \
 						  ATOMIC_ORDER_ACQUIRE);       \
-	}                                                                      \
-	static __always_inline value_type prefix##_xchg_release(               \
+	}								       \
+	__always_inline							       \
+	static inline value_type prefix##_xchg_release(			       \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return compiler_atomic_exchange_n(&v->counter, value,          \
 						  ATOMIC_ORDER_RELEASE);       \
-	}                                                                      \
-	static __always_inline value_type prefix##_xchg_acq_rel(               \
+	}								       \
+	__always_inline                                                        \
+	static inline value_type prefix##_xchg_acq_rel(                        \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return compiler_atomic_exchange_n(&v->counter, value,          \
 						  ATOMIC_ORDER_ACQ_REL);       \
-	}                                                                      \
-	static __always_inline value_type prefix##_xchg_seq_cst(               \
+	}								       \
+	__always_inline							       \
+	static inline value_type prefix##_xchg_seq_cst(                        \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return compiler_atomic_exchange_n(&v->counter, value,          \
 						  ATOMIC_ORDER_SEQ_CST);       \
-	}                                                                      \
-	static __always_inline value_type prefix##_xchg(atomic_type *v,        \
+	}								       \
+	__always_inline							       \
+	static inline value_type prefix##_xchg(atomic_type *v,		       \
 							value_type value)      \
 	{                                                                      \
 		return prefix##_xchg_seq_cst(v, value);                        \
@@ -177,7 +187,8 @@ static_assert(compiler_atomic_always_lock_free(sizeof(isize), 0),
 
 #define ATOMIC_DEFINE_CMPXCHG_ORDER(prefix, atomic_type, value_type, suffix,   \
 				    success_order, failure_order)              \
-	static __always_inline value_type prefix##_cmpxchg_##suffix(           \
+        __always_inline                                                        \
+	static inline value_type prefix##_cmpxchg_##suffix(                    \
 		atomic_type *v, value_type old, value_type desired)            \
 	{                                                                      \
 		compiler_atomic_compare_exchange_n(&v->counter, &old, desired, \
@@ -185,7 +196,8 @@ static_assert(compiler_atomic_always_lock_free(sizeof(isize), 0),
 						   failure_order);             \
 		return old;                                                    \
 	}                                                                      \
-	static __always_inline bool prefix##_try_cmpxchg_##suffix(             \
+        __always_inline                                                        \
+	static inline bool prefix##_try_cmpxchg_##suffix(                      \
 		atomic_type *v, value_type *old, value_type desired)           \
 	{                                                                      \
 		return compiler_atomic_compare_exchange_n(                     \
@@ -209,12 +221,14 @@ static_assert(compiler_atomic_always_lock_free(sizeof(isize), 0),
 	ATOMIC_DEFINE_CMPXCHG_ORDER(prefix, atomic_type, value_type, seq_cst,  \
 				    ATOMIC_ORDER_SEQ_CST,                      \
 				    ATOMIC_ORDER_SEQ_CST)                      \
-	static __always_inline value_type prefix##_cmpxchg(                    \
+        __always_inline                                                        \
+	static inline value_type prefix##_cmpxchg(                             \
 		atomic_type *v, value_type old, value_type desired)            \
 	{                                                                      \
 		return prefix##_cmpxchg_seq_cst(v, old, desired);              \
 	}                                                                      \
-	static __always_inline bool prefix##_try_cmpxchg(                      \
+        __always_inline                                                        \
+	static inline bool prefix##_try_cmpxchg(                               \
 		atomic_type *v, value_type *old, value_type desired)           \
 	{                                                                      \
 		return prefix##_try_cmpxchg_seq_cst(v, old, desired);          \
@@ -222,250 +236,300 @@ static_assert(compiler_atomic_always_lock_free(sizeof(isize), 0),
 
 #define ATOMIC_DEFINE_RMW_ORDER(prefix, atomic_type, value_type, suffix,       \
 				order)                                         \
-	static __always_inline value_type prefix##_fetch_add_##suffix(         \
+        __always_inline                                                        \
+	static inline value_type prefix##_fetch_add_##suffix(                  \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return compiler_atomic_fetch_add_n(&v->counter, value, order); \
 	}                                                                      \
-	static __always_inline value_type prefix##_add_fetch_##suffix(         \
+        __always_inline                                                        \
+	static inline value_type prefix##_add_fetch_##suffix(                  \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return compiler_atomic_add_fetch_n(&v->counter, value, order); \
 	}                                                                      \
-	static __always_inline value_type prefix##_fetch_sub_##suffix(         \
+        __always_inline                                                        \
+	static inline value_type prefix##_fetch_sub_##suffix(                  \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return compiler_atomic_fetch_sub_n(&v->counter, value, order); \
 	}                                                                      \
-	static __always_inline value_type prefix##_sub_fetch_##suffix(         \
+        __always_inline                                                        \
+	static inline value_type prefix##_sub_fetch_##suffix(                  \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return compiler_atomic_sub_fetch_n(&v->counter, value, order); \
 	}                                                                      \
-	static __always_inline value_type prefix##_fetch_and_##suffix(         \
+        __always_inline                                                        \
+	static inline value_type prefix##_fetch_and_##suffix(                  \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return compiler_atomic_fetch_and_n(&v->counter, value, order); \
 	}                                                                      \
-	static __always_inline value_type prefix##_and_fetch_##suffix(         \
+        __always_inline                                                        \
+	static inline value_type prefix##_and_fetch_##suffix(                  \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return compiler_atomic_and_fetch_n(&v->counter, value, order); \
 	}                                                                      \
-	static __always_inline value_type prefix##_fetch_or_##suffix(          \
+        __always_inline                                                        \
+	static inline value_type prefix##_fetch_or_##suffix(                   \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return compiler_atomic_fetch_or_n(&v->counter, value, order);  \
 	}                                                                      \
-	static __always_inline value_type prefix##_or_fetch_##suffix(          \
+        __always_inline                                                        \
+	static inline value_type prefix##_or_fetch_##suffix(                   \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return compiler_atomic_or_fetch_n(&v->counter, value, order);  \
 	}                                                                      \
-	static __always_inline value_type prefix##_fetch_xor_##suffix(         \
+        __always_inline                                                        \
+	static inline value_type prefix##_fetch_xor_##suffix(                  \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return compiler_atomic_fetch_xor_n(&v->counter, value, order); \
 	}                                                                      \
-	static __always_inline value_type prefix##_xor_fetch_##suffix(         \
+        __always_inline                                                        \
+	static inline value_type prefix##_xor_fetch_##suffix(                  \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return compiler_atomic_xor_fetch_n(&v->counter, value, order); \
 	}                                                                      \
-	static __always_inline value_type prefix##_fetch_andnot_##suffix(      \
+        __always_inline                                                        \
+	static inline value_type prefix##_fetch_andnot_##suffix(               \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return compiler_atomic_fetch_and_n(&v->counter, ~value,        \
 						   order);                     \
 	}                                                                      \
-	static __always_inline value_type prefix##_andnot_fetch_##suffix(      \
+        __always_inline                                                        \
+	static inline value_type prefix##_andnot_fetch_##suffix(               \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return compiler_atomic_and_fetch_n(&v->counter, ~value,        \
 						   order);                     \
 	}                                                                      \
-	static __always_inline value_type prefix##_add_return_##suffix(        \
+        __always_inline                                                        \
+	static inline value_type prefix##_add_return_##suffix(                 \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return prefix##_add_fetch_##suffix(v, value);                  \
 	}                                                                      \
-	static __always_inline value_type prefix##_sub_return_##suffix(        \
+        __always_inline                                                        \
+	static inline value_type prefix##_sub_return_##suffix(                 \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return prefix##_sub_fetch_##suffix(v, value);                  \
 	}                                                                      \
-	static __always_inline void prefix##_add_##suffix(atomic_type *v,      \
+        __always_inline                                                        \
+	static inline void prefix##_add_##suffix(atomic_type *v,               \
 							  value_type value)    \
 	{                                                                      \
 		(void)prefix##_add_fetch_##suffix(v, value);                   \
 	}                                                                      \
-	static __always_inline void prefix##_sub_##suffix(atomic_type *v,      \
+        __always_inline                                                        \
+	static inline void prefix##_sub_##suffix(atomic_type *v,               \
 							  value_type value)    \
 	{                                                                      \
 		(void)prefix##_sub_fetch_##suffix(v, value);                   \
 	}                                                                      \
-	static __always_inline void prefix##_and_##suffix(atomic_type *v,      \
+        __always_inline                                                        \
+	static inline void prefix##_and_##suffix(atomic_type *v,               \
 							  value_type value)    \
 	{                                                                      \
 		(void)prefix##_fetch_and_##suffix(v, value);                   \
 	}                                                                      \
-	static __always_inline void prefix##_or_##suffix(atomic_type *v,       \
+        __always_inline                                                        \
+	static inline void prefix##_or_##suffix(atomic_type *v,                \
 							 value_type value)     \
 	{                                                                      \
 		(void)prefix##_fetch_or_##suffix(v, value);                    \
 	}                                                                      \
-	static __always_inline void prefix##_xor_##suffix(atomic_type *v,      \
+        __always_inline                                                        \
+	static inline void prefix##_xor_##suffix(atomic_type *v,               \
 							  value_type value)    \
 	{                                                                      \
 		(void)prefix##_fetch_xor_##suffix(v, value);                   \
 	}                                                                      \
-	static __always_inline void prefix##_andnot_##suffix(atomic_type *v,   \
+        __always_inline                                                        \
+	static inline void prefix##_andnot_##suffix(atomic_type *v,            \
 							     value_type value) \
 	{                                                                      \
 		(void)prefix##_fetch_andnot_##suffix(v, value);                \
 	}                                                                      \
-	static __always_inline value_type prefix##_inc_return_##suffix(        \
+        __always_inline                                                        \
+	static inline value_type prefix##_inc_return_##suffix(                 \
 		atomic_type *v)                                                \
 	{                                                                      \
 		return prefix##_add_return_##suffix(v, 1);                     \
 	}                                                                      \
-	static __always_inline value_type prefix##_dec_return_##suffix(        \
+        __always_inline                                                        \
+	static inline value_type prefix##_dec_return_##suffix(                 \
 		atomic_type *v)                                                \
 	{                                                                      \
 		return prefix##_sub_return_##suffix(v, 1);                     \
 	}                                                                      \
-	static __always_inline void prefix##_inc_##suffix(atomic_type *v)      \
+        __always_inline                                                        \
+	static inline void prefix##_inc_##suffix(atomic_type *v)               \
 	{                                                                      \
 		(void)prefix##_inc_return_##suffix(v);                         \
 	}                                                                      \
-	static __always_inline void prefix##_dec_##suffix(atomic_type *v)      \
+        __always_inline                                                        \
+	static inline void prefix##_dec_##suffix(atomic_type *v)               \
 	{                                                                      \
 		(void)prefix##_dec_return_##suffix(v);                         \
 	}                                                                      \
-	static __always_inline bool prefix##_dec_and_test_##suffix(            \
+        __always_inline                                                        \
+	static inline bool prefix##_dec_and_test_##suffix(                     \
 		atomic_type *v)                                                \
 	{                                                                      \
 		return prefix##_dec_return_##suffix(v) == 0;                   \
 	}
 
 #define ATOMIC_DEFINE_RMW_DEFAULT(prefix, atomic_type, value_type)             \
-	static __always_inline value_type prefix##_fetch_add(atomic_type *v,   \
+        __always_inline                                                        \
+	static inline value_type prefix##_fetch_add(atomic_type *v,            \
 							     value_type value) \
 	{                                                                      \
 		return prefix##_fetch_add_seq_cst(v, value);                   \
 	}                                                                      \
-	static __always_inline value_type prefix##_add_fetch(atomic_type *v,   \
+        __always_inline                                                        \
+	static inline value_type prefix##_add_fetch(atomic_type *v,            \
 							     value_type value) \
 	{                                                                      \
 		return prefix##_add_fetch_seq_cst(v, value);                   \
 	}                                                                      \
-	static __always_inline value_type prefix##_fetch_sub(atomic_type *v,   \
+        __always_inline                                                        \
+	static inline value_type prefix##_fetch_sub(atomic_type *v,            \
 							     value_type value) \
 	{                                                                      \
 		return prefix##_fetch_sub_seq_cst(v, value);                   \
 	}                                                                      \
-	static __always_inline value_type prefix##_sub_fetch(atomic_type *v,   \
+        __always_inline                                                        \
+	static inline value_type prefix##_sub_fetch(atomic_type *v,            \
 							     value_type value) \
 	{                                                                      \
 		return prefix##_sub_fetch_seq_cst(v, value);                   \
 	}                                                                      \
-	static __always_inline value_type prefix##_fetch_and(atomic_type *v,   \
+        __always_inline                                                        \
+	static inline value_type prefix##_fetch_and(atomic_type *v,            \
 							     value_type value) \
 	{                                                                      \
 		return prefix##_fetch_and_seq_cst(v, value);                   \
 	}                                                                      \
-	static __always_inline value_type prefix##_and_fetch(atomic_type *v,   \
+        __always_inline                                                        \
+	static inline value_type prefix##_and_fetch(atomic_type *v,            \
 							     value_type value) \
 	{                                                                      \
 		return prefix##_and_fetch_seq_cst(v, value);                   \
 	}                                                                      \
-	static __always_inline value_type prefix##_fetch_or(atomic_type *v,    \
+        __always_inline                                                        \
+	static inline value_type prefix##_fetch_or(atomic_type *v,             \
 							    value_type value)  \
 	{                                                                      \
 		return prefix##_fetch_or_seq_cst(v, value);                    \
 	}                                                                      \
-	static __always_inline value_type prefix##_or_fetch(atomic_type *v,    \
+        __always_inline                                                        \
+	static inline value_type prefix##_or_fetch(atomic_type *v,             \
 							    value_type value)  \
 	{                                                                      \
 		return prefix##_or_fetch_seq_cst(v, value);                    \
 	}                                                                      \
-	static __always_inline value_type prefix##_fetch_xor(atomic_type *v,   \
+        __always_inline                                                        \
+	static inline value_type prefix##_fetch_xor(atomic_type *v,            \
 							     value_type value) \
 	{                                                                      \
 		return prefix##_fetch_xor_seq_cst(v, value);                   \
 	}                                                                      \
-	static __always_inline value_type prefix##_xor_fetch(atomic_type *v,   \
+        __always_inline                                                        \
+	static inline value_type prefix##_xor_fetch(atomic_type *v,            \
 							     value_type value) \
 	{                                                                      \
 		return prefix##_xor_fetch_seq_cst(v, value);                   \
 	}                                                                      \
-	static __always_inline value_type prefix##_fetch_andnot(               \
+        __always_inline                                                        \
+	static inline value_type prefix##_fetch_andnot(                        \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return prefix##_fetch_andnot_seq_cst(v, value);                \
 	}                                                                      \
-	static __always_inline value_type prefix##_andnot_fetch(               \
+        __always_inline                                                        \
+	static inline value_type prefix##_andnot_fetch(                        \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return prefix##_andnot_fetch_seq_cst(v, value);                \
 	}                                                                      \
-	static __always_inline value_type prefix##_add_return(                 \
+        __always_inline                                                        \
+	static inline value_type prefix##_add_return(                          \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return prefix##_add_return_seq_cst(v, value);                  \
 	}                                                                      \
-	static __always_inline value_type prefix##_sub_return(                 \
+        __always_inline                                                        \
+	static inline value_type prefix##_sub_return(                          \
 		atomic_type *v, value_type value)                              \
 	{                                                                      \
 		return prefix##_sub_return_seq_cst(v, value);                  \
 	}                                                                      \
-	static __always_inline void prefix##_add(atomic_type *v,               \
+        __always_inline                                                        \
+	static inline void prefix##_add(atomic_type *v,                        \
 						 value_type value)             \
 	{                                                                      \
 		prefix##_add_seq_cst(v, value);                                \
 	}                                                                      \
-	static __always_inline void prefix##_sub(atomic_type *v,               \
+        __always_inline                                                        \
+	static inline void prefix##_sub(atomic_type *v,                        \
 						 value_type value)             \
 	{                                                                      \
 		prefix##_sub_seq_cst(v, value);                                \
 	}                                                                      \
-	static __always_inline void prefix##_and(atomic_type *v,               \
+        __always_inline                                                        \
+	static inline void prefix##_and(atomic_type *v,                        \
 						 value_type value)             \
 	{                                                                      \
 		prefix##_and_seq_cst(v, value);                                \
 	}                                                                      \
-	static __always_inline void prefix##_or(atomic_type *v,                \
+        __always_inline                                                        \
+	static inline void prefix##_or(atomic_type *v,                         \
 						value_type value)              \
 	{                                                                      \
 		prefix##_or_seq_cst(v, value);                                 \
 	}                                                                      \
-	static __always_inline void prefix##_xor(atomic_type *v,               \
+        __always_inline                                                        \
+	static inline void prefix##_xor(atomic_type *v,                        \
 						 value_type value)             \
 	{                                                                      \
 		prefix##_xor_seq_cst(v, value);                                \
 	}                                                                      \
-	static __always_inline void prefix##_andnot(atomic_type *v,            \
+        __always_inline                                                        \
+	static inline void prefix##_andnot(atomic_type *v,                     \
 						    value_type value)          \
 	{                                                                      \
 		prefix##_andnot_seq_cst(v, value);                             \
 	}                                                                      \
-	static __always_inline value_type prefix##_inc_return(atomic_type *v)  \
+        __always_inline                                                        \
+	static inline value_type prefix##_inc_return(atomic_type *v)           \
 	{                                                                      \
 		return prefix##_inc_return_seq_cst(v);                         \
 	}                                                                      \
-	static __always_inline value_type prefix##_dec_return(atomic_type *v)  \
+        __always_inline                                                        \
+	static inline value_type prefix##_dec_return(atomic_type *v)           \
 	{                                                                      \
 		return prefix##_dec_return_seq_cst(v);                         \
 	}                                                                      \
-	static __always_inline void prefix##_inc(atomic_type *v)               \
+        __always_inline                                                        \
+	static inline void prefix##_inc(atomic_type *v)                        \
 	{                                                                      \
 		prefix##_inc_seq_cst(v);                                       \
 	}                                                                      \
-	static __always_inline void prefix##_dec(atomic_type *v)               \
+        __always_inline                                                        \
+	static inline void prefix##_dec(atomic_type *v)                        \
 	{                                                                      \
 		prefix##_dec_seq_cst(v);                                       \
 	}                                                                      \
-	static __always_inline bool prefix##_dec_and_test(atomic_type *v)      \
+        __always_inline                                                        \
+	static inline bool prefix##_dec_and_test(atomic_type *v)               \
 	{                                                                      \
 		return prefix##_dec_and_test_seq_cst(v);                       \
 	}

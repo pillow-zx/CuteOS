@@ -34,14 +34,16 @@ struct fs_struct {
  * @brief Allocate a filesystem context.
  * @return New fs_struct, or NULL.
  */
-struct fs_struct *__must_check fs_alloc(void);
+__must_check
+struct fs_struct *fs_alloc(void);
 
 /**
  * @brief Duplicate a filesystem context for fork without CLONE_FS.
  * @param old Source context.
  * @return New context with referenced paths, or NULL.
  */
-struct fs_struct *__must_check fs_dup(struct fs_struct *old);
+__must_check
+struct fs_struct *fs_dup(struct fs_struct *old);
 void fs_get(struct fs_struct *fs);
 void fs_put(struct fs_struct *fs);
 
@@ -51,7 +53,8 @@ void fs_put(struct fs_struct *fs);
  * @param path Output path receiving references.
  * @return 0 on success, or a negative errno.
  */
-int __must_check fs_get_root_path(struct fs_struct *fs, struct path *path);
+__must_check
+int fs_get_root_path(struct fs_struct *fs, struct path *path);
 
 /**
  * @brief Snapshot the current working directory path.
@@ -59,7 +62,8 @@ int __must_check fs_get_root_path(struct fs_struct *fs, struct path *path);
  * @param path Output path receiving references.
  * @return 0 on success, or a negative errno.
  */
-int __must_check fs_get_cwd_path(struct fs_struct *fs, struct path *path);
+__must_check
+int fs_get_cwd_path(struct fs_struct *fs, struct path *path);
 
 /**
  * @brief Replace the current working directory.
@@ -67,13 +71,22 @@ int __must_check fs_get_cwd_path(struct fs_struct *fs, struct path *path);
  * @param path New cwd path.
  * @return 0 on success, or a negative errno.
  */
-int __must_check fs_set_cwd_path(struct fs_struct *fs, const struct path *path);
-uint32_t __must_check fs_get_umask(struct fs_struct *fs);
+__must_check
+int fs_set_cwd_path(struct fs_struct *fs, const struct path *path);
+
+__must_check
+uint32_t fs_get_umask(struct fs_struct *fs);
+
 uint32_t fs_set_umask(struct fs_struct *fs, uint32_t mask);
+
 void fs_set_root_if_empty(struct fs_struct *fs, struct dentry *root);
 
-int __must_check init_fs(struct task_struct *task);
-int __must_check copy_fs(struct task_struct *child, bool share);
+__must_check
+int init_fs(struct task_struct *task);
+
+__must_check
+int copy_fs(struct task_struct *child, bool share);
+
 void exit_fs(struct task_struct *task);
 
 #endif

@@ -51,7 +51,8 @@ void buddy_init(void);
  * @param order Buddy order; allocation size is PAGE_SIZE << order.
  * @return Direct-map virtual address of the block, or NULL.
  */
-void *__must_check __malloc get_free_page(uint32_t order);
+__must_check __malloc
+void *get_free_page(uint32_t order);
 
 
 /**
@@ -59,14 +60,20 @@ void *__must_check __malloc get_free_page(uint32_t order);
  * @param addr Direct-map virtual address of the block.
  * @param order Buddy order used for the allocation.
  */
-void __nonnull(1) free_page(void *addr, uint32_t order);
+__nonnull(1)
+void free_page(void *addr, uint32_t order);
 
 
 CLEANUP_DEFINE(page0, char *, if (_T) free_page(_T, 0));
 
-size_t __must_check __pure buddy_free_pages(void);
-struct page *__must_check __pure virt_to_page(const void *addr);
-void *__must_check __pure __nonnull(1) page_to_virt(const struct page *page);
+__must_check __pure
+size_t buddy_free_pages(void);
+
+__must_check __pure
+struct page *virt_to_page(const void *addr);
+
+__must_check __pure __nonnull(1)
+void *page_to_virt(const struct page *page);
 
 #ifdef KERNEL_SELFTEST
 void buddy_test_validate(void);

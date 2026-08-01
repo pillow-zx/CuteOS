@@ -35,8 +35,8 @@ struct files_struct {
  * @param private_data File-type-private state.
  * @return New referenced file, or NULL.
  */
-struct file *__must_check file_alloc(const struct file_operations *f_op,
-				     uint32_t mode, void *private_data);
+__must_check
+struct file *file_alloc(const struct file_operations *f_op, uint32_t mode, void *private_data);
 
 /**
  * @brief Allocate a path-backed file object.
@@ -45,23 +45,27 @@ struct file *__must_check file_alloc(const struct file_operations *f_op,
  * @param mode FMODE_* access bits.
  * @return New referenced file, or NULL.
  */
-struct file *__must_check file_alloc_path(const struct path *path,
-					  uint32_t flags, uint32_t mode);
+__must_check
+struct file *file_alloc_path(const struct path *path, uint32_t flags, uint32_t mode);
+
 void file_get(struct file *file);
+
 void file_put(struct file *file);
 
 /**
  * @brief Allocate an empty fdtable.
  * @return New files_struct, or NULL.
  */
-struct files_struct *__must_check files_alloc(void);
+__must_check
+struct files_struct *files_alloc(void);
 
 /**
  * @brief Duplicate an fdtable for fork without CLONE_FILES.
  * @param old Source table.
  * @return New table with referenced files, or NULL.
  */
-struct files_struct *__must_check files_dup(struct files_struct *old);
+__must_check
+struct files_struct *files_dup(struct files_struct *old);
 void files_get(struct files_struct *files);
 void files_put(struct files_struct *files);
 void files_install_standard_fds(struct files_struct *files);
@@ -75,14 +79,16 @@ void files_close_on_exec(struct files_struct *files);
  * A successful exec must undo CLONE_FILES before close-on-exec descriptors
  * are detached, so another task sharing the old table keeps its descriptors.
  */
-int __must_check files_unshare_for_exec(struct task_struct *task);
+__must_check
+int files_unshare_for_exec(struct task_struct *task);
 
 /**
  * @brief Install a referenced file in the lowest free fd slot.
  * @param file File to install.
  * @return Allocated fd, or a negative errno.
  */
-int __must_check fd_alloc(struct file *file);
+__must_check
+int fd_alloc(struct file *file);
 
 /**
  * @brief Install a file descriptor with Linux fd flags.
@@ -90,24 +96,42 @@ int __must_check fd_alloc(struct file *file);
  * @param flags O_CLOEXEC-compatible flags.
  * @return Allocated fd, or a negative errno.
  */
-int __must_check fd_alloc_flags(struct file *file, int flags);
+__must_check
+int fd_alloc_flags(struct file *file, int flags);
 
 /**
  * @brief Get a referenced file from the current task fdtable.
  * @param fd File descriptor number.
  * @return Referenced file, or NULL.
  */
-struct file *__must_check fd_get(int fd);
-struct file *__must_check fd_get_checked(int fd);
-int __must_check fd_get_close_on_exec(int fd);
-int __must_check fd_set_close_on_exec(int fd, bool close_on_exec);
-int fd_close(int fd);
-int __must_check fd_dup(int oldfd);
-int __must_check fd_dup_from(int oldfd, unsigned long minfd, int cloexec);
-int __must_check fd_dup2(int oldfd, int newfd, int cloexec);
+__must_check
+struct file *fd_get(int fd);
 
-int __must_check init_files(struct task_struct *task);
-int __must_check copy_files(struct task_struct *child, bool share);
+__must_check
+struct file *fd_get_checked(int fd);
+
+__must_check
+int fd_get_close_on_exec(int fd);
+
+__must_check
+int fd_set_close_on_exec(int fd, bool close_on_exec);
+
+int fd_close(int fd);
+
+__must_check
+int fd_dup(int oldfd);
+
+__must_check
+int fd_dup_from(int oldfd, unsigned long minfd, int cloexec);
+
+__must_check
+int fd_dup2(int oldfd, int newfd, int cloexec);
+
+__must_check
+int init_files(struct task_struct *task);
+__must_check
+int copy_files(struct task_struct *child, bool share);
+
 void close_files(struct task_struct *task);
 
 CLEANUP_DEFINE(file, struct file *, if (_T) file_put(_T));

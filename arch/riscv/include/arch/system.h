@@ -9,6 +9,7 @@ enum system_reset_mode {
 	ARCH_SYSTEM_RESET_POWER_OFF,
 };
 
-void __noreturn system_reset(enum system_reset_mode mode);
+__noreturn
+void system_reset(enum system_reset_mode mode);
 
 #endif

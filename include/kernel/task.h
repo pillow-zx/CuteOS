@@ -392,8 +392,8 @@ extern struct task_struct *init_task;
  * @param task Task to inspect, or NULL.
  * @return The task mm, or NULL for NULL/kernel-only tasks.
  */
-static inline __must_check __pure struct mm_struct *
-task_mm(const struct task_struct *task)
+__must_check __pure
+static inline struct mm_struct *task_mm(const struct task_struct *task)
 {
 	return task ? task->resources.mm : NULL;
 }
@@ -409,14 +409,14 @@ static inline void task_set_mm(struct task_struct *task, struct mm_struct *mm)
 		task->resources.mm = mm;
 }
 
-static inline __must_check __pure
-	__nonnull(1) struct files_struct *task_files(struct task_struct *task)
+__must_check __pure __nonnull(1)
+static inline struct files_struct *task_files(struct task_struct *task)
 {
 	return task->resources.files;
 }
 
-static inline __must_check __pure struct files_struct *
-task_files_safe(struct task_struct *task)
+__must_check __pure
+static inline struct files_struct *task_files_safe(struct task_struct *task)
 {
 	return task ? task_files(task) : NULL;
 }
@@ -428,8 +428,8 @@ static inline void task_set_files(struct task_struct *task,
 		task->resources.files = files;
 }
 
-static inline __must_check __pure struct fs_struct *
-task_fs(struct task_struct *task)
+__must_check __pure
+static inline struct fs_struct *task_fs(struct task_struct *task)
 {
 	return task ? task->resources.fs : NULL;
 }
@@ -440,20 +440,20 @@ static inline void task_set_fs(struct task_struct *task, struct fs_struct *fs)
 		task->resources.fs = fs;
 }
 
-static inline __must_check __pure __nonnull(1) uid_t
-	task_uid(const struct task_struct *task)
+__must_check __pure __nonnull(1)
+static inline uid_t task_uid(const struct task_struct *task)
 {
 	return task->resources.uid;
 }
 
-static inline __must_check __pure __nonnull(1) gid_t
-	task_gid(const struct task_struct *task)
+__must_check __pure __nonnull(1)
+static inline gid_t task_gid(const struct task_struct *task)
 {
 	return task->resources.gid;
 }
 
-static inline __must_check __pure __nonnull(1) pid_t
-	task_pid(const struct task_struct *task)
+__must_check __pure __nonnull(1)
+static inline pid_t task_pid(const struct task_struct *task)
 {
 	return task->ids.pid;
 }
@@ -463,8 +463,8 @@ static inline __must_check __pure __nonnull(1) pid_t
  * @param task Non-NULL task.
  * @return Thread-group id; equal to the group leader pid.
  */
-static inline __must_check __pure __nonnull(1) pid_t
-	task_tgid(const struct task_struct *task)
+__must_check __pure __nonnull(1)
+static inline  pid_t task_tgid(const struct task_struct *task)
 {
 	return task->ids.tgid;
 }
@@ -481,14 +481,14 @@ static inline void task_set_gid(struct task_struct *task, gid_t gid)
 	task->resources.gid = gid;
 }
 
-static inline __must_check __pure __nonnull(1) uint32_t
-	task_state(const struct task_struct *task)
+__must_check __pure __nonnull(1)
+static inline uint32_t task_state(const struct task_struct *task)
 {
 	return task->lifecycle.state;
 }
 
-static inline __must_check __pure uint32_t
-task_state_safe(const struct task_struct *task)
+__must_check __pure
+static inline uint32_t task_state_safe(const struct task_struct *task)
 {
 	return task ? task_state(task) : TASK_DEAD;
 }
@@ -524,14 +524,14 @@ static inline void task_mark_stopped(struct task_struct *task)
 	task_set_state(task, TASK_STOPPED);
 }
 
-static inline __must_check __pure __nonnull(
-	1) struct task_struct *task_group_leader(struct task_struct *task)
+__must_check __pure __nonnull(1)
+static inline struct task_struct *task_group_leader(struct task_struct *task)
 {
 	return task->ids.group_leader;
 }
 
-static inline __must_check __pure struct task_struct *
-task_group_leader_safe(struct task_struct *task)
+__must_check __pure
+static inline struct task_struct *task_group_leader_safe(struct task_struct *task)
 {
 	return task ? task_group_leader(task) : NULL;
 }
@@ -557,7 +557,8 @@ void task_unlink_child(struct task_struct *task);
 /**
  * @brief Count direct children of one parent.
  */
-uint32_t __must_check task_child_count(const struct task_struct *parent);
+__must_check
+uint32_t task_child_count(const struct task_struct *parent);
 
 /**
  * @brief Publish a group leader's stop edge and notify its wait parent.
@@ -583,9 +584,9 @@ void task_child_publish_exit(struct task_struct *task, int status);
  * @param event_mask Bitset of TASK_CHILD_EVENT_MASK_* values.
  * @param claim Output held event when TASK_CHILD_WAIT_EVENT is returned.
  */
-enum task_child_wait_state __must_check task_child_event_claim_next(
-	struct task_struct *parent, pid_t pid, uint32_t event_mask,
-	struct task_child_event_claim *claim) __nonnull(1, 4);
+__must_check __nonnull(1, 4)
+enum task_child_wait_state task_child_event_claim_next( struct task_struct *parent,
+                pid_t pid, uint32_t event_mask, struct task_child_event_claim *claim);
 
 /**
  * @brief Atomically observe matching child events and register a wait channel.
@@ -593,35 +594,38 @@ enum task_child_wait_state __must_check task_child_event_claim_next(
  * Returns 1 when a child disappeared or a matching event is available, 0 when
  * the session was registered with no matching event, or a negative errno.
  */
-int __must_check task_child_event_watch(struct wait_session *session,
-					struct task_struct *parent, pid_t pid,
-					uint32_t event_mask) __nonnull(1, 2);
+__must_check __nonnull(1, 2)
+int task_child_event_watch(struct wait_session *session, struct task_struct *parent,
+		pid_t pid, uint32_t event_mask);
 
 /**
  * @brief Commit a held child event after userspace result copies succeed.
  * @return true when the exact claimed sequence was consumed.
  */
-bool __must_check task_child_event_commit(
-	const struct task_child_event_claim *claim) __nonnull(1);
+__must_check __nonnull(1)
+bool task_child_event_commit(const struct task_child_event_claim *claim);
 
 /**
  * @brief Return a held event to the queue after a failed userspace copy.
  */
-void task_child_event_abort(const struct task_child_event_claim *claim)
-	__nonnull(1);
+__nonnull(1)
+void task_child_event_abort(const struct task_child_event_claim *claim);
 
 /**
  * @brief Detach and mark a reaped zombie dead before PID unpublication.
  */
-void task_child_release_zombie(struct task_struct *task) __nonnull(1);
+__nonnull(1)
+void task_child_release_zombie(struct task_struct *task) ;
 
-static inline __must_check __pure struct list_head *
+__must_check __pure
+static inline struct list_head *
 task_thread_group(struct task_struct *task)
 {
 	return task ? &task->links.thread_group : NULL;
 }
 
-static inline __must_check __pure struct list_head *
+__must_check __pure
+static inline struct list_head *
 task_thread_node(struct task_struct *task)
 {
 	return task ? &task->links.thread_node : NULL;
@@ -642,19 +646,22 @@ static inline void task_unlink_thread(struct task_struct *task)
 	list_del_init(&task->links.thread_node);
 }
 
-static inline __must_check __pure uint64_t
+__must_check __pure
+static inline uint64_t
 task_user_ticks(const struct task_struct *task)
 {
 	return task ? task->cputime.utime_ticks : 0;
 }
 
-static inline __must_check __pure uint64_t
+__must_check __pure
+static inline uint64_t
 task_system_ticks(const struct task_struct *task)
 {
 	return task ? task->cputime.stime_ticks : 0;
 }
 
-static inline __must_check __pure int task_exit_code(struct task_struct *task)
+__must_check __pure
+static inline int task_exit_code(struct task_struct *task)
 {
 	return task ? task->lifecycle.exit_code : 0;
 }
@@ -665,7 +672,8 @@ static inline void task_set_exit_code(struct task_struct *task, int code)
 		task->lifecycle.exit_code = code;
 }
 
-static inline __must_check __pure int task_exit_signal(struct task_struct *task)
+__must_check __pure
+static inline int task_exit_signal(struct task_struct *task)
 {
 	return task ? task->lifecycle.exit_signal : 0;
 }
@@ -676,18 +684,21 @@ static inline void task_set_exit_signal(struct task_struct *task, int sig)
 		task->lifecycle.exit_signal = sig;
 }
 
-static inline __must_check __pure struct list_head *
+__must_check __pure
+static inline struct list_head *
 task_run_list(struct task_struct *task)
 {
 	return task ? &task->sched.run_list : NULL;
 }
 
-static inline __must_check __pure bool task_is_queued(struct task_struct *task)
+__must_check __pure
+static inline bool task_is_queued(struct task_struct *task)
 {
 	return task && !list_empty(&task->sched.run_list);
 }
 
-static inline __must_check __pure uint8_t
+__must_check __pure
+static inline uint8_t
 task_need_resched(struct task_struct *task)
 {
 	return task ? task->sched.need_resched : 0;
@@ -711,14 +722,16 @@ void task_init(void);
  * invisible to PID lookup until task_publish() commits it.
  * @return New task on success, or NULL when allocation fails.
  */
-struct task_struct *__must_check task_alloc(void);
+__must_check
+struct task_struct *task_alloc(void);
 
 /**
  * @brief Initialize reference-counted resources for a new task.
  * @param task Task returned by task_alloc().
  * @return 0 on success, or a negative errno.
  */
-int __must_check task_init_resources(struct task_struct *task);
+__must_check
+int task_init_resources(struct task_struct *task);
 
 /**
  * @brief Drop all resources held by a task.
@@ -740,7 +753,8 @@ void task_free(struct task_struct *task);
  * A successful PID lookup returns an additional lifecycle reference; it never
  * returns an unpinned raw task pointer.
  */
-void __nonnull(1) task_publish(struct task_struct *task);
+__nonnull(1)
+void task_publish(struct task_struct *task);
 
 /**
  * @brief Remove a task from PID/TID lookup before dropping its base reference.
@@ -749,7 +763,8 @@ void __nonnull(1) task_publish(struct task_struct *task);
  * Existing lookup references remain valid and must be released with
  * task_put().  This is normally the last step of zombie reaping.
  */
-void __nonnull(1) task_unpublish(struct task_struct *task);
+__nonnull(1)
+void task_unpublish(struct task_struct *task);
 
 /**
  * @brief Drop one task lifecycle reference.
@@ -761,7 +776,8 @@ void task_put(struct task_struct *task);
  * @brief Initialize architecture-owned task fields.
  * @param task Non-NULL task being prepared for execution.
  */
-void __nonnull(1) arch_task_init(struct task_struct *task);
+__nonnull(1)
+void arch_task_init(struct task_struct *task);
 
 /**
  * @brief Build the initial kernel-thread return frame.
@@ -769,9 +785,8 @@ void __nonnull(1) arch_task_init(struct task_struct *task);
  * @param fn Kernel function to run.
  * @param arg Opaque argument passed to @p fn.
  */
-void __nonnull(1, 2)
-	task_setup_kthread(struct task_struct *task,
-				      void (*fn)(void *), void *arg);
+__nonnull(1, 2)
+void task_setup_kthread(struct task_struct *task, void (*fn)(void *), void *arg);
 
 /**
  * @brief Build the child trap frame for clone/fork.
@@ -781,9 +796,8 @@ void __nonnull(1, 2)
  * @param child_stack Optional userspace stack pointer override.
  * @param tls Optional thread-local storage value for clone.
  */
-void __nonnull(1, 2)
-	task_setup_clone_frame(struct task_struct *child,
-				    const struct trap_frame *parent_tf,
+ __nonnull(1, 2)
+void task_setup_clone_frame(struct task_struct *child, const struct trap_frame *parent_tf,
 				    unsigned long flags, uintptr_t child_stack,
 				    uintptr_t tls);
 
@@ -792,8 +806,8 @@ void __nonnull(1, 2)
  * @param prev Task being switched out.
  * @param next Task being switched in.
  */
-void __nonnull(1, 2)
-	task_switch_address_space(const struct task_struct *prev,
+ __nonnull(1, 2)
+void task_switch_address_space(const struct task_struct *prev,
 				       const struct task_struct *next);
 
 /**
@@ -801,25 +815,28 @@ void __nonnull(1, 2)
  * @param prev Current task.
  * @param next Next scheduled task.
  */
-void __nonnull(1, 2)
-	task_switch(struct task_struct *prev, struct task_struct *next);
+__nonnull(1, 2)
+void task_switch(struct task_struct *prev, struct task_struct *next);
 
 /**
  * @brief Check whether the saved trap frame came from user mode.
  * @param task Task whose architecture state is inspected.
  * @return true when the saved trap frame represents user context.
  */
-bool __must_check __pure
-task_trap_frome_user(const struct task_struct *task);
+__must_check __pure
+bool task_trap_frome_user(const struct task_struct *task);
 
 #ifdef KERNEL_SELFTEST
-bool __must_check __pure arch_task_test_kernel_thread_setup(
-	const struct task_struct *task, void (*fn)(void *), void *arg);
-bool __must_check __pure arch_task_test_layout_contract(void);
-void __nonnull(1)
-	arch_task_test_setup_user_return(struct task_struct *task,
-					 size_t user_pc, size_t user_sp,
-					 size_t user_sstatus);
+__pure
+bool arch_task_test_kernel_thread_setup(const struct task_struct *task,
+		void (*fn)(void *), void *arg);
+
+__must_check __pure
+bool arch_task_test_layout_contract(void);
+
+__nonnull(1)
+void arch_task_test_setup_user_return(struct task_struct *task, size_t user_pc,
+		size_t user_sp, size_t user_sstatus);
 #endif
 
 /**
@@ -828,7 +845,8 @@ void __nonnull(1)
  * @param arg Opaque argument passed to @p fn.
  * @return New task on success, or NULL on allocation/setup failure.
  */
-struct task_struct *__must_check kernel_thread(void (*fn)(void *), void *arg);
+__must_check
+struct task_struct *kernel_thread(void (*fn)(void *), void *arg);
 
 /**
  * @brief Publish the process that becomes PID 1 after exec.
@@ -841,15 +859,16 @@ void set_init_task(struct task_struct *task);
  * @param task Task to inspect.
  * @return true when task->pid equals task->tgid.
  */
-bool __must_check __pure task_is_group_leader(const struct task_struct *task);
+__must_check __pure
+bool task_is_group_leader(const struct task_struct *task);
 
 /**
  * @brief Check whether a thread group contains tasks besides its leader.
  * @param task Any task in the group.
  * @return true when another task shares the same tgid.
  */
-bool __must_check __pure
-task_group_has_other_threads(const struct task_struct *task);
+__must_check __pure
+bool task_group_has_other_threads(const struct task_struct *task);
 
 /**
  * @brief Find a thread-group leader by TGID.
@@ -858,7 +877,8 @@ task_group_has_other_threads(const struct task_struct *task);
  *
  * Call task_put() after the task is no longer needed.
  */
-struct task_struct *__must_check task_find_group_leader(pid_t tgid);
+__must_check
+struct task_struct *task_find_group_leader(pid_t tgid);
 
 /**
  * @brief Find a task by Linux TID.
@@ -867,7 +887,8 @@ struct task_struct *__must_check task_find_group_leader(pid_t tgid);
  *
  * Call task_put() after the task is no longer needed.
  */
-struct task_struct *__must_check task_find_thread(pid_t tid);
+__must_check
+struct task_struct *task_find_thread(pid_t tid);
 
 /**
  * @brief Check whether a task belongs to a thread group.
@@ -875,7 +896,8 @@ struct task_struct *__must_check task_find_thread(pid_t tid);
  * @param tgid Thread-group id.
  * @return true when @p task is in @p tgid.
  */
-bool __must_check __pure task_in_thread_group(const struct task_struct *task,
+__must_check __pure
+bool task_in_thread_group(const struct task_struct *task,
 					      pid_t tgid);
 
 /**
@@ -886,7 +908,8 @@ bool __must_check __pure task_in_thread_group(const struct task_struct *task,
  * @param task Task to inspect.
  * @return true when @p task is a user-process group leader.
  */
-bool __must_check __pure task_is_user_process(const struct task_struct *task);
+__must_check __pure
+bool task_is_user_process(const struct task_struct *task);
 
 /**
  * @brief Check whether a process group has a live member in one session.
@@ -895,7 +918,8 @@ bool __must_check __pure task_is_user_process(const struct task_struct *task);
  * @param ignored Optional task that must not count as a member.
  * @return true if a live task other than @p ignored has both ids.
  */
-bool __must_check task_pgid_has_live_member_except(
+__must_check
+bool task_pgid_has_live_member_except(
 	pid_t pgid, pid_t sid, const struct task_struct *ignored);
 
 /**
@@ -904,7 +928,8 @@ bool __must_check task_pgid_has_live_member_except(
  * @param identity Output process identity snapshot.
  * @return 0 on success, or a negative errno.
  */
-int __must_check task_process_snapshot(const struct task_struct *task,
+__must_check
+int task_process_snapshot(const struct task_struct *task,
 				       struct task_process_identity *identity);
 
 #ifdef KERNEL_SELFTEST

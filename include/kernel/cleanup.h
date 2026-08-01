@@ -27,7 +27,8 @@
  * re-exports a typed local variable named `_T` inside @p _cleanup.
  */
 #define CLEANUP_DEFINE(_name, _type, _cleanup)                                 \
-	static __always_inline void __cleanup_##_name(void *p)                 \
+        __always_inline                                                        \
+	static inline void __cleanup_##_name(void *p)                          \
 	{                                                                      \
 		_type _T = *(_type *)p;                                        \
 		_cleanup;                                                      \
@@ -46,9 +47,8 @@
 #define __get_and_null(p, nullvalue)                                           \
 	statement_expr(auto __ptr = &(p); auto __val = *__ptr;                 \
 		       *__ptr = (nullvalue); __val;)
-
-static __always_inline __must_check uintptr_t
-__cleanup_must_check(const volatile void *val)
+__always_inline __must_check
+static inline uintptr_t __cleanup_must_check(const volatile void *val)
 {
 	return (uintptr_t)val;
 }
@@ -85,12 +85,14 @@ __cleanup_must_check(const volatile void *val)
  */
 #define SCOPE_DEFINE(_name, _type, exit_expr, init_expr, init_args...)         \
 	typedef _type scope_##_name##_t;                                       \
-	static __always_inline void scope_##_name##_exit(_type *p)             \
+	__always_inline                                                        \
+	static inline void scope_##_name##_exit(_type *p)                      \
 	{                                                                      \
 		_type _T = *p;                                                 \
 		exit_expr;                                                     \
 	}                                                                      \
-	static __always_inline _type scope_##_name##_init(init_args)           \
+	__always_inline							       \
+	static inline _type scope_##_name##_init(init_args)                    \
 	{                                                                      \
 		_type t = init_expr;                                           \
 		return t;                                                      \
@@ -102,12 +104,14 @@ __cleanup_must_check(const volatile void *val)
  */
 #define SCOPE_EXTEND(_name, ext, init_expr, init_args...)                      \
 	typedef scope_##_name##_t scope_##_name##ext##_t;                      \
-	static __always_inline void scope_##_name##ext##_exit(                 \
+        __always_inline                                                        \
+	static inline void scope_##_name##ext##_exit(                          \
 		scope_##_name##ext##_t *p)                                     \
 	{                                                                      \
 		scope_##_name##_exit(p);                                       \
 	}                                                                      \
-	static __always_inline scope_##_name##_t scope_##_name##ext##_init(    \
+        __always_inline                                                        \
+	static inline scope_##_name##_t scope_##_name##ext##_init(             \
 		init_args)                                                     \
 	{                                                                      \
 		scope_##_name##_t t = init_expr;                               \

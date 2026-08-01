@@ -7,7 +7,8 @@
 
 typedef unsigned long irq_flags_t;
 
-static __always_inline __must_check irq_flags_t local_irq_save(void)
+__always_inline __must_check
+static inline irq_flags_t local_irq_save(void)
 {
 	irq_flags_t flags = csr_read(sstatus);
 
@@ -15,7 +16,8 @@ static __always_inline __must_check irq_flags_t local_irq_save(void)
 	return flags;
 }
 
-static __always_inline void local_irq_restore(irq_flags_t flags)
+__always_inline
+static inline void local_irq_restore(irq_flags_t flags)
 {
 	if (flags & SSTATUS_SIE)
 		csr_set(sstatus, SSTATUS_SIE);
@@ -23,17 +25,20 @@ static __always_inline void local_irq_restore(irq_flags_t flags)
 		csr_clear(sstatus, SSTATUS_SIE);
 }
 
-static __always_inline void local_irq_enable(void)
+__always_inline
+static inline void local_irq_enable(void)
 {
 	csr_set(sstatus, SSTATUS_SIE);
 }
 
-static __always_inline void local_irq_disable(void)
+__always_inline
+static inline void local_irq_disable(void)
 {
 	csr_clear(sstatus, SSTATUS_SIE);
 }
 
-static __always_inline __must_check bool irqs_disabled(void)
+__always_inline __must_check
+static inline bool irqs_disabled(void)
 {
 	return (csr_read(sstatus) & SSTATUS_SIE) == 0;
 }

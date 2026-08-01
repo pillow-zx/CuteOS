@@ -52,7 +52,7 @@
 #define EXT2_S_IFCHR  0x2000
 #define EXT2_S_IFIFO  0x1000
 
-struct ext2_super_block {
+struct __packed ext2_super_block {
 	uint32_t s_inodes_count;
 	uint32_t s_blocks_count;
 	uint32_t s_r_blocks_count;
@@ -102,9 +102,9 @@ struct ext2_super_block {
 	uint32_t s_default_mount_opts;
 	uint32_t s_first_meta_bg;
 	uint32_t s_reserved[190];
-} __packed;
+};
 
-struct ext2_group_desc {
+struct __packed ext2_group_desc {
 	uint32_t bg_block_bitmap;
 	uint32_t bg_inode_bitmap;
 	uint32_t bg_inode_table;
@@ -113,9 +113,9 @@ struct ext2_group_desc {
 	uint16_t bg_used_dirs_count;
 	uint16_t bg_pad;
 	uint32_t bg_reserved[3];
-} __packed;
+};
 
-struct ext2_inode {
+struct __packed ext2_inode {
 	uint16_t i_mode;
 	uint16_t i_uid;
 	uint32_t i_size;
@@ -134,15 +134,15 @@ struct ext2_inode {
 	uint32_t i_dir_acl;
 	uint32_t i_faddr;
 	uint8_t i_osd2[12];
-} __packed;
+};
 
-struct ext2_dir_entry_2 {
+struct __packed ext2_dir_entry_2 {
 	uint32_t inode;
 	uint16_t rec_len;
 	uint8_t name_len;
 	uint8_t file_type;
 	char name[];
-} __packed;
+};
 
 struct ext2_sb_info {
 	struct ext2_super_block s_es;

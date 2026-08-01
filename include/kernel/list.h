@@ -105,8 +105,8 @@ static inline void list_move_tail(struct list_head *list,
 	list_add_tail(list, head);
 }
 
-static inline __must_check __pure bool
-list_empty(const struct list_head *head)
+__must_check __pure
+static inline bool list_empty(const struct list_head *head)
 {
 	return head->next == head;
 }

@@ -14,14 +14,15 @@ typedef struct {
 #define SPINLOCK_INIT	      {.locked = ATOMIC_INIT(0)}
 #define DEFINE_SPINLOCK(name) spinlock_t name = SPINLOCK_INIT
 
-static __always_inline void spin_lock_init(spinlock_t *lock)
+__always_inline
+static inline void spin_lock_init(spinlock_t *lock)
 {
 	BUG_ON(!lock);
 	atomic_set(&lock->locked, 0);
 }
 
-static __always_inline void spin_lock_irqsave(spinlock_t *lock,
-					      irq_flags_t *flags)
+__always_inline
+static inline void spin_lock_irqsave(spinlock_t *lock, irq_flags_t *flags)
 {
 	int expected;
 
@@ -34,8 +35,8 @@ static __always_inline void spin_lock_irqsave(spinlock_t *lock,
 	} while (!atomic_try_cmpxchg_acquire(&lock->locked, &expected, 1));
 }
 
-static __always_inline void spin_unlock_irqrestore(spinlock_t *lock,
-						   irq_flags_t flags)
+__always_inline
+static inline void spin_unlock_irqrestore(spinlock_t *lock, irq_flags_t flags)
 {
 	int old;
 

@@ -16,8 +16,9 @@ struct exec_args_envp {
 	char envp[EXEC_MAX_ENVS][EXEC_MAX_ENV_LEN];
 };
 
-int kernel_execve(const char *path, const struct exec_args_envp *args,
-		  struct trap_frame *tf);
-void exec_user_path(const char *path) __noreturn;
+int kernel_execve(const char *path, const struct exec_args_envp *args, struct trap_frame *tf);
+
+__noreturn
+void exec_user_path(const char *path);
 
 #endif
