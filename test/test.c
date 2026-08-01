@@ -184,6 +184,7 @@ static const struct ktest_case trap_cases[] = {
 	KTEST_CASE(test_trap_from_user),
 	KTEST_CASE(test_trap_context_layout),
 	KTEST_CASE(test_trap_irq_codes),
+	KTEST_CASE(test_irq_nesting_context),
 	KTEST_CASE(test_trap_user_exception_classification),
 	KTEST_CASE(test_signal_riscv_frame_abi),
 };

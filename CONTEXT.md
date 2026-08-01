@@ -29,6 +29,16 @@ programs and use the Linux riscv64 ABI as a compatibility boundary for the
 semantics cuteOS explicitly supports. This is evidence about cuteOS only; it
 is not a Linux performance or compatibility claim.
 
+## Kernel Context Terms
+
+**IRQ context** is execution while the current CPU is inside a hard IRQ
+handler. It is distinct from disabled interrupts, a synchronous trap, and
+preemption-disabled context.
+
+**Preemption-disabled context** is execution while the current CPU has a
+nonzero `preempt_count`. It may overlap with IRQ context, but the two
+conditions are tracked independently.
+
 ## Five-Layer Model
 
 Do not reduce all design decisions to a binary mechanism/policy split. Keep
@@ -92,7 +102,9 @@ These are current facts, not future guarantees:
 - Scheduling uses one global four-level MLFQ. Timer ticks account execution
   and request rescheduling; switching occurs at explicit scheduling points or
   user-return timer handling.
-- The kernel is non-preemptible. irqsave spinlocks use atomic lock words and
+- The kernel is non-preemptible. `preempt_count` tracks explicit
+  preemption-disabled sections, while IRQ context has an independent
+  CPU-local nesting depth. irqsave spinlocks use atomic lock words and
   protect local interrupt interleaving; only hart 0 is online, so SMP
   execution is not yet enabled.
 - UART and virtio-blk are primarily polling-oriented. Platform discovery is

@@ -21,14 +21,26 @@ cuteOS 当前调度器是单核、非抢占内核模型下的 4 级 MLFQ。timer
 
 当前 `task_init()` 只让 CPU 0 online。调度器全局队列没有 per-CPU 分片，也没有跨 CPU 负载均衡。spinlock 和 wait channel 使用 irqsave 既保护中断上下文交错，锁字也使用原子竞争；但多核执行仍未启用。
 
-`preempt_disable()`/`preempt_enable()` 修改 `current_cpu()->preempt_count`。`schedule()` 开头检查：
+`preempt_disable()`/`preempt_enable()` 只修改
+`current_cpu()->preempt_count`。IRQ handler 通过独立的
+`irq_enter()`/`irq_exit()` 维护 IRQ nesting，`in_irq()` 不读取或修改
+`preempt_count`。`preemptible()` 只检查 `preempt_count`，不会把 IRQ
+nesting 编码进抢占计数。
+
+`schedule()` 入口先检查 IRQ context：在 hard IRQ handler 内调用是内核
+错误并触发 `BUG_ON(in_irq())`。随后使用独立的调度上下文 guard；它同时
+要求不在 IRQ context 且 `preempt_count == 0`。`preemptible()` 本身仍然只
+检查 `preempt_count`。
 
 ```c
-if (!preemptible())
+BUG_ON(in_irq());
+if (!sched_context_can_schedule())
     return;
 ```
 
-因此内核临界区内不会主动切换。
+因此内核临界区内不会主动切换。timer handler 返回并执行
+`irq_exit()` 后，来自用户态的 timer trap 才能在返回安全点调用
+`schedule()`。
 
 ## 调度实体
 
@@ -262,6 +274,10 @@ void wait_cancel_task(struct task_struct *task);
 struct task_struct *wait_channel_wake_one(struct wait_channel *channel);
 void wait_channel_wake_all(struct wait_channel *channel);
 ```
+
+`wait_for()` 只能从 task context 调用，不能处于 hard IRQ 或禁抢占
+context；违反此契约会触发 `BUG_ON`。它返回时恢复调用者进入前的本地 IRQ
+状态，并清理等待登记和 timeout。
 
 wait outcome 是内核语义结果，不是 errno。sleep、futex、pipe、poll 和
 child-wait adapter 分别把 EVENT、SIGNAL、TIMEOUT 映射为所属 ABI 的返回值。timeout

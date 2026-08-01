@@ -26,6 +26,7 @@ struct cpu {
 	struct task_struct *idle_task;
 	struct task_struct *current_task;
 	volatile int preempt_count;
+	volatile uint32_t irq_nesting;
 };
 
 static_assert(offsetof(struct cpu, current_task) == CPU_CURRENT_TASK,
@@ -106,6 +107,24 @@ static __always_inline __nonnull(1) void cpu_inc_preempt_count(struct cpu *cpu)
 static __always_inline __nonnull(1) void cpu_dec_preempt_count(struct cpu *cpu)
 {
 	cpu->preempt_count--;
+}
+
+static __always_inline __must_check __pure __nonnull(1)
+uint32_t cpu_irq_nesting(const struct cpu *cpu)
+{
+	return cpu->irq_nesting;
+}
+
+static __always_inline __nonnull(1) void
+cpu_inc_irq_nesting(struct cpu *cpu)
+{
+	cpu->irq_nesting++;
+}
+
+static __always_inline __nonnull(1) void
+cpu_dec_irq_nesting(struct cpu *cpu)
+{
+	cpu->irq_nesting--;
 }
 
 #endif

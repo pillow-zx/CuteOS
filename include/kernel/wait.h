@@ -8,6 +8,7 @@
 
 #include <kernel/list.h>
 #include <kernel/compiler.h>
+#include <kernel/irq.h>
 #include <kernel/spinlock.h>
 #include <kernel/types.h>
 
@@ -42,6 +43,18 @@ struct wait_deadline {
 	bool active;
 	uint64_t expires;
 };
+
+/**
+ * @brief Test whether the current context may enter wait_for().
+ *
+ * Waiting requires task context, a preemptible CPU, and no hard-IRQ handler.
+ * This read-only guard does not change IRQ state, preempt_count, or task state.
+ * wait_for() diagnoses a false result with BUG_ON before touching its inputs.
+ */
+static inline bool wait_context_can_sleep(void)
+{
+	return !in_irq() && cpu_preempt_count(current_cpu()) == 0;
+}
 
 /**
  * @brief Inspect or claim an event and register its wait channels.
@@ -109,12 +122,19 @@ int wait_session_watch(struct wait_session *session,
 /**
  * @brief Wait for an event, signal, or deadline.
  *
+ * The caller must be in task context, outside hard-IRQ context, and
+ * preemption-enabled. The function may block and may allocate wait-session
+ * state; it preserves the caller's local IRQ state on return. It acquires
+ * wait-channel locks only through the request callback and owns no caller lock.
+ * The request, deadline, and outcome storage must remain valid until return.
  * Outcome priority is EVENT, then SIGNAL, then TIMEOUT.
  * `WAIT_FLAG_INTERRUPTIBLE` reports an unblocked pending signal;
  * `WAIT_FLAG_KILLABLE` reports only a pending `SIGKILL`. Wakeups that do not
  * make any outcome true are retried internally. On every return the current
  * task is running and all channel watches and timeout state are cleaned. A
  * negative return is an operation error and leaves outcome set to zero.
+ * Calling this function when wait_context_can_sleep() is false is a kernel
+ * context violation and triggers BUG_ON.
  */
 int wait_for(const struct wait_request *request, wait_flags_t flags,
 	     const struct wait_deadline *deadline,

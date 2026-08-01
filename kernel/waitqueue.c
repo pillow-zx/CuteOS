@@ -235,6 +235,7 @@ static void wait_block_current(uint32_t sleep_state)
 {
 	bool enabled_irq_for_sleep = false;
 
+	BUG_ON(!wait_context_can_sleep());
 	if (task_state(current_task()) != sleep_state)
 		return;
 	if (sched_has_runnable()) {
@@ -264,6 +265,7 @@ int wait_for(const struct wait_request *request, wait_flags_t flags,
 	int probe_result;
 	int ret;
 
+	BUG_ON(!wait_context_can_sleep());
 	if (!outcome)
 		return -EINVAL;
 	*outcome = 0;

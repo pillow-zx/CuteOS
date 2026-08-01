@@ -39,6 +39,7 @@ int test_trap_frame_layout(void);
 int test_trap_from_user(void);
 int test_trap_context_layout(void);
 int test_trap_irq_codes(void);
+int test_irq_nesting_context(void);
 int test_trap_user_exception_classification(void);
 int test_signal_riscv_frame_abi(void);
 int test_trap_user_return_task_setup(void);

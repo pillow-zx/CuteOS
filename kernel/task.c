@@ -294,6 +294,7 @@ void cpu_boot_init(struct task_struct *idle)
 		cpu_table[id].idle_task = NULL;
 		cpu_table[id].current_task = NULL;
 		cpu_table[id].preempt_count = 0;
+		cpu_table[id].irq_nesting = 0;
 	}
 
 	nr_cpu_ids = 1;

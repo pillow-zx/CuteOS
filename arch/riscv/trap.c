@@ -13,6 +13,7 @@
 #include <kernel/syscall.h>
 #include <kernel/mm.h>
 #include <kernel/exit.h>
+#include <kernel/irq.h>
 #include <kernel/signal.h>
 #include <kernel/user_return.h>
 
@@ -128,9 +129,11 @@ void trap_handler(struct trap_frame *tf)
 #endif
 
 	if (is_interrupt) {
+		irq_enter();
 		switch (code) {
 		case IRQ_S_TIMER:
 			handle_timer_irq();
+			irq_exit();
 			if (user && current_task() &&
 			    task_need_resched(current_task())) {
 				task_set_need_resched(current_task(), 0);
@@ -140,6 +143,7 @@ void trap_handler(struct trap_frame *tf)
 				user_return_work(tf);
 			return;
 		default:
+			irq_exit();
 			panic("unhandled interrupt: origin=%s scause=0x%lx "
 			      "code=%lu "
 			      "sepc=%p stval=%p",

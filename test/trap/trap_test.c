@@ -1,7 +1,30 @@
 #include <kernel/test.h>
+#include <kernel/irq.h>
+#include <kernel/sched.h>
 #include <kernel/signal.h>
+#include <kernel/task.h>
+#include <kernel/time.h>
+#include <kernel/timer.h>
 #include <kernel/trap.h>
 #include <uapi/signal.h>
+
+struct irq_context_test_state {
+	bool called;
+	bool in_handler;
+	uint32_t nesting;
+	int preempt_count;
+};
+
+static void irq_context_test_callback(struct ktimer *timer, void *arg)
+{
+	struct irq_context_test_state *state = arg;
+
+	(void)timer;
+	state->called = true;
+	state->in_handler = in_irq();
+	state->nesting = irq_nesting();
+	state->preempt_count = cpu_preempt_count(current_cpu());
+}
 
 int test_trap_frame_layout(void)
 {
@@ -88,6 +111,92 @@ int test_trap_irq_codes(void)
 	return __test_ret;
 fail:
 	TEST_FAIL("trap: IRQ/exception codes", "see above");
+
+	return __test_ret;
+}
+
+int test_irq_nesting_context(void)
+{
+	struct irq_context_test_state state = {0};
+	struct trap_frame tf = {0};
+	struct trap_frame *saved_tf = task_trap_frame(current_task());
+	struct ktimer timer = {0};
+	irq_flags_t saved_flags = local_irq_save();
+	int saved_preempt_count = cpu_preempt_count(current_cpu());
+	uint32_t saved_nesting = irq_nesting();
+
+	TEST_BEGIN("irq: nesting is independent from preempt count");
+	{
+		TEST_ASSERT_EQ(saved_nesting, (uint32_t)0);
+		TEST_ASSERT_EQ(saved_preempt_count, 0);
+		TEST_ASSERT(sched_context_can_schedule());
+		TEST_ASSERT(wait_context_can_sleep());
+
+		local_irq_enable();
+		irq_enter();
+		TEST_ASSERT(in_irq());
+		TEST_ASSERT(!sched_context_can_schedule());
+		TEST_ASSERT(!wait_context_can_sleep());
+		TEST_ASSERT_EQ(irq_nesting(), (uint32_t)1);
+		TEST_ASSERT_EQ(cpu_preempt_count(current_cpu()), 0);
+		TEST_ASSERT(!irqs_disabled());
+
+		preempt_disable();
+		TEST_ASSERT_EQ(cpu_preempt_count(current_cpu()), 1);
+		TEST_ASSERT(!sched_context_can_schedule());
+		TEST_ASSERT(!wait_context_can_sleep());
+		TEST_ASSERT_EQ(irq_nesting(), (uint32_t)1);
+
+		irq_enter();
+		TEST_ASSERT_EQ(irq_nesting(), (uint32_t)2);
+		TEST_ASSERT_EQ(cpu_preempt_count(current_cpu()), 1);
+		TEST_ASSERT(in_irq());
+
+		irq_exit();
+		preempt_enable();
+		irq_exit();
+		TEST_ASSERT(!in_irq());
+		TEST_ASSERT(sched_context_can_schedule());
+		TEST_ASSERT(wait_context_can_sleep());
+		TEST_ASSERT_EQ(irq_nesting(), (uint32_t)0);
+		TEST_ASSERT_EQ(cpu_preempt_count(current_cpu()), 0);
+		TEST_ASSERT(!irqs_disabled());
+
+		local_irq_disable();
+		irq_enter();
+		irq_exit();
+		TEST_ASSERT(irqs_disabled());
+
+		ktimer_init(&timer, irq_context_test_callback, &state);
+		TEST_ASSERT_EQ(ktimer_arm(&timer, timer_now(), 0), 0);
+		trap_set_kernel_return(&tf, 0);
+		tf.scause = SCAUSE_IRQ_FLAG | IRQ_S_TIMER;
+		trap_handler(&tf);
+
+		TEST_ASSERT(state.called);
+		TEST_ASSERT(state.in_handler);
+		TEST_ASSERT_EQ(state.nesting, (uint32_t)1);
+		TEST_ASSERT_EQ(state.preempt_count, 0);
+		TEST_ASSERT_EQ(irq_nesting(), (uint32_t)0);
+		TEST_ASSERT(!in_irq());
+	}
+	TEST_END("irq: nesting is independent from preempt count");
+	goto cleanup;
+fail:
+	TEST_FAIL("irq: nesting is independent from preempt count",
+		  "see above");
+cleanup:
+	if (ktimer_active(&timer)) {
+		bool cancelled = ktimer_cancel(&timer);
+
+		(void)cancelled;
+	}
+	while (irq_nesting() > saved_nesting)
+		irq_exit();
+	while (cpu_preempt_count(current_cpu()) > saved_preempt_count)
+		preempt_enable();
+	task_set_trap_frame(current_task(), saved_tf);
+	local_irq_restore(saved_flags);
 
 	return __test_ret;
 }

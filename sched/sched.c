@@ -82,7 +82,8 @@ void schedule(void)
 	struct task_struct *prev;
 	struct task_struct *next;
 
-	if (!preemptible())
+	BUG_ON(in_irq());
+	if (!sched_context_can_schedule())
 		return;
 
 	if (exited_threads_pending())

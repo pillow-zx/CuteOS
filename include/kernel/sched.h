@@ -8,6 +8,7 @@
 
 #include <kernel/list.h>
 #include <kernel/task.h>
+#include <kernel/irq.h>
 
 /**
  * @def SCHED_MLFQ_LEVELS
@@ -79,6 +80,20 @@ static inline void preempt_enable(void)
 static inline bool preemptible(void)
 {
 	return cpu_preempt_count(current_cpu()) == 0;
+}
+
+/**
+ * @brief Test whether the current context may enter the scheduler.
+ *
+ * This read-only guard is false in hard-IRQ context and while preemption is
+ * disabled. It does not change either counter, hardware IRQ state, task state,
+ * or scheduling ownership. The schedule() entry point diagnoses IRQ context
+ * with BUG_ON and retains the existing no-op behavior for preemption-disabled
+ * context.
+ */
+static inline bool sched_context_can_schedule(void)
+{
+	return !in_irq() && preemptible();
 }
 
 #ifdef KERNEL_SELFTEST

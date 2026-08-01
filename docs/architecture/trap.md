@@ -168,6 +168,12 @@ timer_run_expired(now)
 sched_tick()
 ```
 
+trap 分发器只在实际 IRQ handler 执行期间进入 IRQ context：调用
+`irq_enter()` 后运行上述 timer handler，handler 返回后立即调用
+`irq_exit()`。IRQ nesting 与 `preempt_count` 独立，且这段记账不改变硬件
+IRQ enable 状态。来自用户态的重调度和 `user_return_work()` 位于
+`irq_exit()` 之后，不属于 IRQ handler context。
+
 `sched_tick()` 更新当前任务用户/内核 tick 计费，并让 MLFQ 策略消耗时间片。时间片耗尽时 MLFQ 提升调度等级并重置预算，然后设置 `need_resched`。
 
 如果 timer trap 来源是用户态，且当前任务需要重调度，`trap_handler()` 会清除 `need_resched` 并调用 `schedule()`。这就是当前用户态时钟抢占点。
