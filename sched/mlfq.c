@@ -1,12 +1,11 @@
-
-
-#include "internal.h"
-
+#include <kernel/bitmap.h>
 #include <kernel/printk.h>
 #include <kernel/timer.h>
 
+#include "internal.h"
+
 static struct list_head queues[SCHED_MLFQ_LEVELS];
-static uint8_t nonempty_bitmap;
+BITMAP_DECLARE_STATIC(nonempty_levels, SCHED_MLFQ_LEVELS);
 static uint32_t runnable_count;
 
 uint8_t mlfq_level_slice(uint8_t level)
@@ -17,13 +16,13 @@ uint8_t mlfq_level_slice(uint8_t level)
 
 static void mark_nonempty(uint8_t level)
 {
-	nonempty_bitmap |= (uint8_t)(1U << level);
+	bitmap_set(&nonempty_levels, level);
 }
 
 static void refresh_empty_mark(uint8_t level)
 {
 	if (list_empty(&queues[level]))
-		nonempty_bitmap &= (uint8_t)~(1U << level);
+		bitmap_clear(&nonempty_levels, level);
 }
 
 static void reset_budget(struct task_struct *task)
@@ -43,7 +42,7 @@ void mlfq_init(void)
 	for (uint8_t i = 0; i < SCHED_MLFQ_LEVELS; i++)
 		INIT_LIST_HEAD(&queues[i]);
 
-	nonempty_bitmap = 0;
+	bitmap_zero(&nonempty_levels);
 	runnable_count = 0;
 }
 
@@ -95,7 +94,7 @@ void mlfq_wakeup(struct task_struct *task)
 
 bool mlfq_empty(void)
 {
-	return nonempty_bitmap == 0;
+	return bitmap_empty(&nonempty_levels);
 }
 
 uint32_t mlfq_count(void)
@@ -105,16 +104,13 @@ uint32_t mlfq_count(void)
 
 struct task_struct *mlfq_peek_next(void)
 {
-	for (uint8_t level = 0; level < SCHED_MLFQ_LEVELS; level++) {
-		if ((nonempty_bitmap & (uint8_t)(1U << level)) == 0)
-			continue;
-		if (!list_empty(&queues[level]))
-			return list_first_entry(&queues[level],
-						struct task_struct,
-						sched.run_list);
-	}
+	size_t level = bitmap_find_first_set(&nonempty_levels);
 
-	return NULL;
+	if (level >= SCHED_MLFQ_LEVELS)
+		return NULL;
+	BUG_ON(list_empty(&queues[level]));
+	return list_first_entry(&queues[level], struct task_struct,
+				sched.run_list);
 }
 
 struct task_struct *mlfq_pick_next(void)
