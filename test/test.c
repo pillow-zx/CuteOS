@@ -17,7 +17,11 @@ static const struct ktest_case arch_interface_cases[] = {
 
 static const struct ktest_case bitmap_cases[] = {
 	KTEST_CASE(test_bitmap),
+	KTEST_CASE(test_bitmap_ranges),
+	KTEST_CASE(test_bitmap_find_first_set),
 	KTEST_CASE(test_bitmap_find_first_zero),
+	KTEST_CASE(test_bitmap_find_next),
+	KTEST_CASE(test_bitmap_weight),
 	KTEST_CASE(test_bitmap_odd_bits),
 };
 

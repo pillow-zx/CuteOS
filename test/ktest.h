@@ -4,7 +4,11 @@
 int test_arch_interface_static_contracts(void);
 
 int test_bitmap(void);
+int test_bitmap_ranges(void);
+int test_bitmap_find_first_set(void);
 int test_bitmap_find_first_zero(void);
+int test_bitmap_find_next(void);
+int test_bitmap_weight(void);
 int test_bitmap_odd_bits(void);
 
 int test_kfifo_order_and_wrap(void);
