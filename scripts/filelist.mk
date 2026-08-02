@@ -23,7 +23,7 @@ KERNEL_OBJS = \
 	kernel/printk.o         \
 	kernel/ksyms.o          \
 	kernel/stacktrace.o     \
-	kernel/sync.o           \
+	kernel/mutex.o          \
 	kernel/task.o           \
 	kernel/fork.o           \
 	kernel/futex.o          \

@@ -1,7 +1,7 @@
 #include <kernel/atomic.h>
 #include <kernel/irq.h>
 #include <kernel/refcount.h>
-#include <kernel/sync.h>
+#include <kernel/mutex.h>
 #include <kernel/test.h>
 
 #include "../ktest.h"

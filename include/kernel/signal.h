@@ -8,7 +8,7 @@
 
 #include <kernel/types.h>
 #include <kernel/refcount.h>
-#include <kernel/sync.h>
+#include <kernel/mutex.h>
 #include <kernel/resource.h>
 #include <kernel/task.h>
 #include <kernel/time.h>

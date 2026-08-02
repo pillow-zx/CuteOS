@@ -5,7 +5,7 @@
 #include <kernel/bitops.h>
 #include <kernel/cleanup.h>
 #include <kernel/refcount.h>
-#include <kernel/sync.h>
+#include <kernel/mutex.h>
 #include <kernel/tools.h>
 #include <kernel/types.h>
 #include <uapi/mman.h>

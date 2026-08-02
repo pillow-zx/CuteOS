@@ -5,7 +5,7 @@
 #include <kernel/errno.h>
 #include <kernel/session.h>
 #include <kernel/signal.h>
-#include <kernel/sync.h>
+#include <kernel/mutex.h>
 #include <kernel/task.h>
 #include <uapi/signal.h>
 

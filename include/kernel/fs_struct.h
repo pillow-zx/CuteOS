@@ -8,7 +8,7 @@
 
 #include <kernel/fs.h>
 #include <kernel/refcount.h>
-#include <kernel/sync.h>
+#include <kernel/mutex.h>
 #include <kernel/types.h>
 
 /**

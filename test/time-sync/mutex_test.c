@@ -1,6 +1,6 @@
 #include <kernel/exit.h>
 #include <kernel/sched.h>
-#include <kernel/sync.h>
+#include <kernel/mutex.h>
 #include <kernel/task.h>
 #include <kernel/test.h>
 

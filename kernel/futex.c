@@ -2,7 +2,7 @@
 #include <kernel/errno.h>
 #include <kernel/list.h>
 #include <kernel/mm.h>
-#include <kernel/sync.h>
+#include <kernel/mutex.h>
 #include <kernel/task.h>
 #include <kernel/wait.h>
 #include <kernel/processor.h>

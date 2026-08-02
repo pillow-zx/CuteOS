@@ -8,7 +8,7 @@
 #include <kernel/page_cache.h>
 #include <kernel/slab.h>
 #include <kernel/stat.h>
-#include <kernel/sync.h>
+#include <kernel/mutex.h>
 #include <kernel/printk.h>
 #include <kernel/vfs.h>
 

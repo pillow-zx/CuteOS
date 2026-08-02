@@ -11,7 +11,7 @@
 #include <kernel/printk.h>
 #include <kernel/sched.h>
 #include <kernel/signal.h>
-#include <kernel/sync.h>
+#include <kernel/mutex.h>
 #include <kernel/fdtable.h>
 #include <kernel/fs_struct.h>
 #include <kernel/vfs.h>

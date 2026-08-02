@@ -5,7 +5,7 @@
 #include <kernel/errno.h>
 #include <kernel/list.h>
 #include <kernel/slab.h>
-#include <kernel/sync.h>
+#include <kernel/mutex.h>
 #include <kernel/task.h>
 #include <kernel/tty.h>
 

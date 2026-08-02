@@ -11,7 +11,7 @@
 #include <kernel/sbi.h>
 #include <kernel/slab.h>
 #include <kernel/spinlock.h>
-#include <kernel/sync.h>
+#include <kernel/mutex.h>
 #include <kernel/wait.h>
 #include <drivers/uart.h>
 

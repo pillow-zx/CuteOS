@@ -6,7 +6,7 @@
 #include <kernel/bitmap.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <kernel/sync.h>
+#include <kernel/mutex.h>
 
 #include "pid_internal.h"
 #include "task_internal.h"
