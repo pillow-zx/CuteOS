@@ -18,6 +18,17 @@ static inline uint32_t irq_nesting(void)
 }
 
 /**
+ * @brief Return the current CPU's explicit preemption-disable depth.
+ *
+ * This query is independent from IRQ nesting and hardware IRQ state.
+ */
+__always_inline __must_check __pure
+static inline int preempt_count(void)
+{
+	return cpu_preempt_count(current_cpu());
+}
+
+/**
  * @brief Test whether execution is inside a hard-IRQ handler.
  *
  * The query has no side effects, cannot block, and does not imply that local
@@ -27,6 +38,22 @@ __always_inline __must_check __pure
 static inline bool in_irq(void)
 {
 	return irq_nesting() != 0;
+}
+
+/**
+ * @brief Test whether execution belongs to a non-idle task context.
+ *
+ * IRQ-disabled task execution remains task context. Hard-IRQ nesting is the
+ * only IRQ condition excluded here; preempt_count and hardware IRQ state are
+ * intentionally queried independently.
+ */
+__always_inline __must_check __pure
+static inline bool in_task_context(void)
+{
+	struct cpu *cpu = current_cpu();
+	struct task_struct *task = cpu_current_task(cpu);
+
+	return task && task != cpu_idle_task(cpu) && !in_irq();
 }
 
 /**

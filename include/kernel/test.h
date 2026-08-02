@@ -123,4 +123,8 @@ struct ktest_summary {
 
 int kernel_test_run(struct ktest_summary *summary);
 
+#ifdef KERNEL_PANIC_TEST
+__noreturn void kernel_panic_test_run(void);
+#endif
+
 #endif

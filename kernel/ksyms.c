@@ -2,7 +2,8 @@
 #include <kernel/compiler.h>
 
 #ifdef CONFIG_KSYMS
-const struct ksym ksym_table[1] __weak = {
+__weak
+const struct ksym ksym_table[1] = {
 	{0, NULL},
 };
 const size_t ksym_count __weak;

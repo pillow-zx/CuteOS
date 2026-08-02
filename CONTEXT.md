@@ -39,6 +39,24 @@ preemption-disabled context.
 nonzero `preempt_count`. It may overlap with IRQ context, but the two
 conditions are tracked independently.
 
+**Task context** is execution with a non-null, non-idle `current_task` outside
+hard IRQ context. IRQ-disabled and preemption-disabled execution can still be
+task context; hardware IRQ state, IRQ nesting, preemption depth, and held-lock
+state are separate queries.
+
+**IRQ-off task context** is task context with local hardware interrupts
+disabled. It is a valid state for selected handoff paths, but a caller must not
+infer that every IRQ-off path may sleep, allocate, or schedule.
+
+**Held-lock state** is the current CPU's record of successfully acquired
+spinlocks. The stable generic query is whether any lock is held; address-level
+membership is a debug diagnostic and is not a lock-order policy.
+
+The detailed synchronization and context contract is in
+[`docs/architecture/sync.md`](docs/architecture/sync.md), with scheduler and
+trap-specific details in [`sched.md`](docs/architecture/sched.md) and
+[`trap.md`](docs/architecture/trap.md).
+
 ## Five-Layer Model
 
 Do not reduce all design decisions to a binary mechanism/policy split. Keep
@@ -104,9 +122,9 @@ These are current facts, not future guarantees:
   user-return timer handling.
 - The kernel is non-preemptible. `preempt_count` tracks explicit
   preemption-disabled sections, while IRQ context has an independent
-  CPU-local nesting depth. irqsave spinlocks use atomic lock words and
-  protect local interrupt interleaving; only hart 0 is online, so SMP
-  execution is not yet enabled.
+  CPU-local nesting depth. Local interrupt masking and held-lock state are
+  separate context facts; only hart 0 is online, so SMP execution is not yet
+  enabled.
 - UART and virtio-blk are primarily polling-oriented. Platform discovery is
   minimal and QEMU `virt` resources are mostly compile-time constants.
 - User VMAs use a fixed `NR_VMA` array and faults are handled lazily.
@@ -247,9 +265,11 @@ Every shared object must document:
 | Lifetime | Who holds references, cancels callbacks, and frees storage? |
 | Wakeup | Which state change wakes which waiter, and how is loss avoided? |
 
-The future spinlock must provide atomic competition, acquire/release memory
-ordering, IRQ-state handling, and preemption accounting. A mutex may keep a
-plain owner pointer if the complete owner/waiter protocol is protected by its
+Synchronization primitives must state their atomicity, IRQ/preemption,
+lock-order, sleep, lifetime, wakeup, and error contracts. Holding a spinlock
+does not by itself authorize scheduling, sleeping, or allocation; scheduler,
+wait, and allocator interfaces own those decisions. A mutex may keep a plain
+owner pointer if the complete owner/waiter protocol is protected by its
 internal lock; making one field atomic is not a complete mutex design.
 
 No path may schedule while holding a spinlock, in IRQ context, or with an

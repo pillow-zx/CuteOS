@@ -14,7 +14,7 @@ flowchart TD
     Kernel["scripts/kernel.mk<br/>flags + link"]
     User["scripts/userspace.mk<br/>musl + BusyBox + rootfs"]
     Rootfs["build/user/rootfs<br/>staged rootfs"]
-    Link["kernel.ld<br/>link cuteos ELF"]
+    Link["arch/riscv/kernel.ld<br/>link cuteos ELF"]
     Image["rootfs image<br/>mkimg + staged rootfs"]
     Qemu["QEMU virt<br/>-kernel cuteos + virtio-blk image"]
 
@@ -65,8 +65,16 @@ LIB_OBJS
 `KERNEL_SELFTEST` 同时进入 CFLAGS 和 ASFLAGS。除链接测试对象外，它还让
 `init/main.c` 创建 self-test 内核线程，而不是创建 PID 1。普通构建和测试构建
 都使用 8 KiB 启动栈；深层回归路径运行在 self-test 线程的普通 task 栈上。
-`make ktest` 构建测试 rootfs，运行脚本再复制临时镜像交给 QEMU，避免
-自测写入污染后续运行。
+`make ktest` 构建只服务于内核自测的最小 ext2 测试镜像，运行脚本再复制临时镜像
+交给 QEMU，避免自测写入污染后续运行。该镜像来自 `test/rootfs/`，只提供内核
+VFS 用例需要的路径（当前为普通文件 `/bin/sh`）；它不依赖
+`scripts/userspace.mk`，因此不会触发 musl、compiler-rt 或 BusyBox 构建。
+
+held-lock 和 `preempt_count` 的不可恢复错误由独立的 `make kpanic
+CASE=<case>` harness 验证。它为每个 case 使用独立的 `build/kpanic/<case>`
+输出目录，在 QEMU 中观察预期 panic；可用 case 为
+`preempt-underflow`、`preempt-overflow`、`spinlock-wrong-unlock`、
+`spinlock-recursive` 和 `spinlock-capacity`。这些故障注入不属于 `make ci`。
 
 用户态回归由 `make utest-build` 构建独立的 static musl 测试 ELF 和测试
 rootfs；`make utest` 从该镜像启动 BusyBox init，并只执行
@@ -88,13 +96,11 @@ rootfs；`make utest` 从该镜像启动 BusyBox init，并只执行
 - include 路径：`include` 和 `arch/riscv/include`
 - 全局预包含：`include/generated/autoconf.h`、`include/kernel/compiler.h`
 
-优化等级、调试信息、frame pointer、LTO、UBSAN、section GC 都由 Kconfig 控制。
-
-`CONFIG_LTO=y` 时，内核链接器从 `ld` 切换为 `$(CC)`，并通过 `-Wl,-T,kernel.ld` 使用同一个链接脚本。`lib/string.o` 和 `lib/softfloat.o` 被列为 `KERNEL_NO_LTO_OBJS`，在 LTO 构建中排除 LTO 编译标志。
+`CONFIG_LTO=y` 时，内核链接器从 `ld` 切换为 `$(CC)`，并通过 `-Wl,-T,arch/riscv/kernel.ld` 使用同一个链接脚本。`arch/riscv/lib/*.S` 通过 `ASFLAGS` 编译，本身不会生成 LTO 中间表示；其余 C 对象通过 `CFLAGS` 接受 `-flto=auto`。
 
 ## 内核链接布局
 
-内核链接脚本是顶层 `kernel.ld`。关键常量为：
+内核链接脚本是架构目录下的 `arch/riscv/kernel.ld`。关键常量为：
 
 ```mermaid
 flowchart LR
@@ -218,6 +224,10 @@ F/D 扩展。`scripts/tools/check-user-elf.sh` 在链接后强制检查这些约
 rootfs 装配 Interface：它安装 BusyBox 本体、`/sbin/init` 与 applet symlink，
 并安装 `/etc/inittab`；不会创建项目 `/init` 或用它覆盖 `/bin/init`。
 
+内核自测使用独立的 `$(TEST_KERNEL_IMG)`。它由 `test/rootfs/` 复制到测试输出目录
+后直接制作为 ext2，不经过 musl、compiler-rt 或 BusyBox；测试仍然挂载该镜像，
+因为 VFS、ext2、page-cache 和 virtio-blk 自测需要真实的 `ROOT_DEV`。
+
 `$(KERNEL_IMG)` 再由 `$(MKIMG)` 将 staged rootfs 转换为 ext2：
 
 ```make
@@ -263,7 +273,7 @@ QEMU 启动时使用：
 - `scripts/filelist.mk` 负责内核对象清单；`scripts/kernel.mk` 负责编译/链接约束和分析。
 - `scripts/userspace.mk` 负责完整静态 musl BusyBox 用户态与镜像。
 - `scripts/workflows.mk` 负责运行、测试和开发工作流。
-- `kernel.ld` 定义内核 ABI 布局。
+- `arch/riscv/kernel.ld` 定义 RISC-V 内核 ABI 布局。
 - Kconfig 只通过生成头和 `auto.conf` 影响编译，不应在源码中硬编码可配置项的替代路径。
 
 新增模块时，应同时考虑：对象清单、头文件边界、Kconfig 选项、链接布局和是否需要用户态测试程序。

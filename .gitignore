@@ -4,6 +4,7 @@
 !arch/riscv/include/
 !arch/riscv/include/arch/
 !arch/riscv/include/asm/
+!arch/riscv/kernel.ld
 !include/
 !include/compiler/
 !include/uapi/
@@ -16,6 +17,7 @@
 !init/
 !test/
 !test/**/
+!test/rootfs/bin/sh
 !docs/
 !scripts/
 !scripts/tools/
@@ -97,6 +99,5 @@
 !LICENSE
 !Doxyfile
 !.agents/skills/**/*
-!kernel.ld
 tools/kconfig/build/
 tools/kconfig/build/**/*

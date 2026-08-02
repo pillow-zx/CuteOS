@@ -163,3 +163,85 @@ fail:
 
 	return __test_ret;
 }
+
+int test_spinlock_held_tracking(void)
+{
+	spinlock_t outer = SPINLOCK_INIT;
+	spinlock_t inner = SPINLOCK_INIT;
+	irq_flags_t saved_flags = local_irq_save();
+	irq_flags_t outer_flags;
+	irq_flags_t inner_flags;
+	bool outer_held = false;
+	bool inner_held = false;
+
+	TEST_BEGIN("sync: spinlock held-lock tracking");
+	{
+		spin_lock_init(&outer);
+		spin_lock_init(&inner);
+		TEST_ASSERT_EQ(lock_depth(), (uint32_t)0);
+		TEST_ASSERT(!spinlock_held());
+
+		spin_lock_irqsave(&outer, &outer_flags);
+		outer_held = true;
+		TEST_ASSERT_EQ(lock_depth(), (uint32_t)1);
+		TEST_ASSERT(spinlock_held());
+#ifdef CONFIG_DEBUG_CONTEXT
+		TEST_ASSERT(spinlock_is_held_by_current(&outer));
+		TEST_ASSERT(!spinlock_is_held_by_current(&inner));
+#endif
+
+		spin_lock_irqsave(&inner, &inner_flags);
+		inner_held = true;
+		TEST_ASSERT_EQ(lock_depth(), (uint32_t)2);
+#ifdef CONFIG_DEBUG_CONTEXT
+		TEST_ASSERT(spinlock_is_held_by_current(&outer));
+		TEST_ASSERT(spinlock_is_held_by_current(&inner));
+#endif
+
+		/* The tracking set permits non-LIFO release and compacts the gap. */
+		spin_unlock_irqrestore(&outer, outer_flags);
+		outer_held = false;
+		TEST_ASSERT_EQ(lock_depth(), (uint32_t)1);
+		TEST_ASSERT(spinlock_held());
+#ifdef CONFIG_DEBUG_CONTEXT
+		TEST_ASSERT(!spinlock_is_held_by_current(&outer));
+		TEST_ASSERT(spinlock_is_held_by_current(&inner));
+#endif
+
+		spin_unlock_irqrestore(&inner, inner_flags);
+		inner_held = false;
+		TEST_ASSERT_EQ(lock_depth(), (uint32_t)0);
+		TEST_ASSERT(!spinlock_held());
+
+		/* Non-LIFO release must keep IRQs off until the last lock is gone. */
+		local_irq_enable();
+		TEST_ASSERT(!irqs_disabled());
+		spin_lock_irqsave(&outer, &outer_flags);
+		outer_held = true;
+		spin_lock_irqsave(&inner, &inner_flags);
+		inner_held = true;
+		TEST_ASSERT(irqs_disabled());
+
+		spin_unlock_irqrestore(&outer, outer_flags);
+		outer_held = false;
+		TEST_ASSERT(irqs_disabled());
+		TEST_ASSERT_EQ(lock_depth(), (uint32_t)1);
+
+		spin_unlock_irqrestore(&inner, inner_flags);
+		inner_held = false;
+		TEST_ASSERT(!irqs_disabled());
+		TEST_ASSERT_EQ(lock_depth(), (uint32_t)0);
+	}
+	TEST_END("sync: spinlock held-lock tracking");
+	goto cleanup;
+fail:
+	TEST_FAIL("sync: spinlock held-lock tracking", "see above");
+cleanup:
+	if (inner_held)
+		spin_unlock_irqrestore(&inner, inner_flags);
+	if (outer_held)
+		spin_unlock_irqrestore(&outer, outer_flags);
+	local_irq_restore(saved_flags);
+
+	return __test_ret;
+}

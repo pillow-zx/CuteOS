@@ -30,6 +30,7 @@ struct printk_ring {
 };
 
 static void (*console_putc)(int ch);
+static bool printk_panic_mode;
 
 static struct printk_ring printk_ring = {
 	.lock = SPINLOCK_INIT,
@@ -313,6 +314,11 @@ static int vprintk(int level, const char *fmt, va_list ap)
 		size = sizeof(message) - 1;
 	if (size == 0)
 		return formatted;
+	if (printk_panic_mode) {
+		if (console_putc)
+			console_write(message);
+		return formatted;
+	}
 	printk_ring_append_message(level, message, size);
 	if (console_putc)
 		console_write(message);
@@ -333,6 +339,9 @@ int __printk(int level, const char *fmt, ...)
 __noreturn
 void __panic(const char *fmt, ...)
 {
+	/* Panic logging must remain usable even when the failure fills tracking. */
+	printk_panic_mode = true;
+	local_irq_disable();
 	pr_err("\nKERNEL PANIC: ");
 
 	va_list ap;

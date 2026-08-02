@@ -4,7 +4,7 @@ cuteOS 在 RISC-V 64 上使用 Sv39 三层页表。页表层负责虚拟地址�
 
 ## 地址空间布局
 
-关键常量由架构页头和链接脚本共同决定：
+关键常量由架构页头和 `arch/riscv/kernel.ld` 共同决定：
 
 ```mermaid
 flowchart TB

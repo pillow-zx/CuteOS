@@ -124,6 +124,8 @@ LIB_OBJS = \
 	lib/vsprintf.o
 
 KERNEL_SELFTEST ?= 0
+KERNEL_PANIC ?= 0
+KERNEL_PANIC_CASE ?=
 
 ifeq ($(KERNEL_SELFTEST),1)
 CFLAGS += -DKERNEL_SELFTEST
@@ -135,4 +137,24 @@ else
 KERNEL_TEST_OBJS =
 endif
 
+ifeq ($(KERNEL_PANIC),1)
+CFLAGS += -DKERNEL_PANIC_TEST
+# Panic cases intentionally exercise debug-only held-lock diagnostics even
+# when the caller's regular .config has disabled the diagnostic footprint.
+CFLAGS += -DCONFIG_DEBUG_CONTEXT=1
+KERNEL_PANIC_OBJS = test/kpanic.o
+ifeq ($(KERNEL_PANIC_CASE),preempt-underflow)
+CFLAGS += -DKPANIC_CASE_PREEMPT_UNDERFLOW
+else ifeq ($(KERNEL_PANIC_CASE),preempt-overflow)
+CFLAGS += -DKPANIC_CASE_PREEMPT_OVERFLOW
+else ifeq ($(KERNEL_PANIC_CASE),spinlock-wrong-unlock)
+CFLAGS += -DKPANIC_CASE_SPINLOCK_WRONG_UNLOCK
+else ifeq ($(KERNEL_PANIC_CASE),spinlock-recursive)
+CFLAGS += -DKPANIC_CASE_SPINLOCK_RECURSIVE
+else ifeq ($(KERNEL_PANIC_CASE),spinlock-capacity)
+CFLAGS += -DKPANIC_CASE_SPINLOCK_CAPACITY
+endif
+else
+KERNEL_PANIC_OBJS =
+endif
 

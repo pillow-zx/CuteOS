@@ -5,7 +5,6 @@ KERNEL_ARCH_FLAGS = -march=rv64gc -mabi=lp64 -mcmodel=medany
 COMMON_SECTION_CFLAGS = -ffunction-sections -fdata-sections
 COMMON_NO_STACK_PROTECTOR_CFLAGS = -fno-stack-protector
 COMMON_NO_PIE_CFLAGS = -fno-pie -no-pie
-COMMON_NO_LTO_CFLAGS = -fno-lto
 COMMON_DEBUG_INFO_CFLAGS = -g3 -ggdb -gdwarf-4
 COMMON_DEBUG_INFO_ASFLAGS = -g
 COMMON_LTO_CFLAGS = -flto=auto
@@ -34,10 +33,10 @@ CFLAGS += -Wno-maybe-uninitialized
 LDFLAGS = -z max-page-size=4096
 
 KERNEL_LD = $(LD)
-KERNEL_LD_SCRIPT = -T kernel.ld
+KERNEL_LINKER_SCRIPT = arch/riscv/kernel.ld
+KERNEL_LD_SCRIPT = -T $(KERNEL_LINKER_SCRIPT)
 KERNEL_LDFLAGS = $(LDFLAGS)
 KERNEL_LINK_WITH_CC = 0
-KERNEL_NO_LTO_OBJS = lib/string.o lib/softfloat.o
 KERNEL_GC_SECTIONS = 0
 
 ifeq ($(CONFIG_CC_OPTIMIZE_O0),y)
@@ -76,7 +75,7 @@ ifneq ($(COMMON_LTO_CFLAGS),)
 CFLAGS += $(COMMON_LTO_CFLAGS)
 KERNEL_LD = $(CC)
 KERNEL_LINK_WITH_CC = 1
-KERNEL_LD_SCRIPT = -Wl,-T,kernel.ld
+KERNEL_LD_SCRIPT = -Wl,-T,$(KERNEL_LINKER_SCRIPT)
 KERNEL_LDFLAGS = $(KERNEL_ARCH_FLAGS)
 KERNEL_LDFLAGS += -nostdlib -nostartfiles -fno-pie -no-pie
 KERNEL_LDFLAGS += $(COMMON_LTO_CFLAGS)
@@ -117,6 +116,7 @@ OBJ_REL = \
 	$(SCHED_OBJS)       \
 	$(SYSCALL_OBJS)     \
 	$(KERNEL_TEST_OBJS) \
+	$(KERNEL_PANIC_OBJS) \
 	$(LIB_OBJS)
 
 KERNEL_NAME = cuteos
@@ -139,7 +139,7 @@ all: check-gcc-version $(KERNEL)
 
 $(KERNEL_NAME): $(KERNEL)
 
-$(KERNEL): check-gcc-version $(OBJS) kernel.ld
+$(KERNEL): check-gcc-version $(OBJS) $(KERNEL_LINKER_SCRIPT)
 	$(Q)mkdir -p $(dir $@)
 	$(QUIET_LD)
 	$(Q)$(KERNEL_LD) $(KERNEL_LDFLAGS) $(KERNEL_LD_SCRIPT) -o $@ $(OBJS)
@@ -149,7 +149,7 @@ $(KERNEL): check-gcc-version $(OBJS) kernel.ld
 	$(Q)$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $@.sym
 
 ifeq ($(CONFIG_KSYMS),y)
-$(KERNEL_STAGE1): $(OBJS_NOKSYMS) kernel.ld
+$(KERNEL_STAGE1): $(OBJS_NOKSYMS) $(KERNEL_LINKER_SCRIPT)
 	$(Q)mkdir -p $(dir $@)
 	$(QUIET_LD_STAGE1)
 	$(Q)$(KERNEL_LD) $(KERNEL_LDFLAGS) $(KERNEL_LD_SCRIPT) -o $@ $(OBJS_NOKSYMS)
@@ -169,10 +169,6 @@ $(OUTDIR)/%.o: %.c $(AUTOCONF_H)
 	$(Q)mkdir -p $(dir $@)
 	$(QUIET_CC)
 	$(Q)$(CC) $(CFLAGS) -c -o $@ $<
-
-ifeq ($(CONFIG_LTO),y)
-$(addprefix $(OUTDIR)/,$(KERNEL_NO_LTO_OBJS)): CFLAGS := $(filter-out -flto%,$(CFLAGS)) $(COMMON_NO_LTO_CFLAGS)
-endif
 
 $(OUTDIR)/%.o: %.S $(AUTOCONF_H)
 	$(Q)mkdir -p $(dir $@)

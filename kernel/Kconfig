@@ -1,4 +1,4 @@
-menu "Build & Debug"
+menu "Build & Debugging"
 
 choice
 	prompt "Optimization level"
@@ -39,13 +39,22 @@ config LTO
 	bool "Link-time optimization"
 	default n
 
+config FRAME_POINTER
+	bool "Frame pointer"
+	default y
+
+
 config DEBUG_INFO
 	bool "Debug information"
 	default y
 
-config FRAME_POINTER
-	bool "Frame pointer"
-	default y
+config DEBUG_CONTEXT
+	bool "CPU context and spinlock tracking"
+	default n
+	help
+	  Keep per-CPU held-spinlock addresses for context diagnostics. This
+	  enables membership, recursive-lock, and lock-capacity checks while
+	  the lock depth and any-held query remain available in every build.
 
 config UBSAN
 	bool "Undefined behavior sanitizer"

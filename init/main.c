@@ -23,7 +23,7 @@
 #include <kernel/user_map_arch.h>
 #include <kernel/tty.h>
 
-#ifdef KERNEL_SELFTEST
+#if defined(KERNEL_SELFTEST) || defined(KERNEL_PANIC_TEST)
 #include <kernel/test.h>
 #endif
 
@@ -69,7 +69,7 @@ void kernel_main(void)
 	pr_info("| $$      | $$  | $$  | $$    | $$$$$$$$| $$  | $$ \\____  $$\n");
 	pr_info("| $$    $$| $$  | $$  | $$ /$$| $$_____/| $$  | $$ /$$  \\ $$\n");
 	pr_info("|  $$$$$$/|  $$$$$$/  |  $$$$/|  $$$$$$$|  $$$$$$/|  $$$$$$/\n");
-	pr_info(" \\______/  \\______/    \\___/   \\_______/ \\______/  \\______/ \n");
+	pr_info(" \\______/  \\______/    \\___/   \\_______/ \\______/  \\______/\n");
 	pr_info("\n");
 
 	pagetable_init();
@@ -92,6 +92,10 @@ void kernel_main(void)
 
 	task_init();
 	pr_info("task: init successfully\n");
+
+#ifdef KERNEL_PANIC_TEST
+	kernel_panic_test_run();
+#endif
 
 	timer_init();
 	pr_info("timer: init successfully\n");

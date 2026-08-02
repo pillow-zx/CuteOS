@@ -295,6 +295,12 @@ void cpu_boot_init(struct task_struct *idle)
 		cpu_table[id].current_task = NULL;
 		cpu_table[id].preempt_count = 0;
 		cpu_table[id].irq_nesting = 0;
+		cpu_table[id].lock_depth = 0;
+		cpu_table[id].lock_irq_flags = 0;
+#ifdef CONFIG_DEBUG_CONTEXT
+		for (uint32_t lock = 0; lock < CPU_LOCK_MAX; lock++)
+			cpu_table[id].locks[lock] = NULL;
+#endif
 	}
 
 	nr_cpu_ids = 1;

@@ -47,7 +47,7 @@ flowchart TD
 | `L2[2]` | DRAM 恒等映射 | `0x80000000` 起 | `V/R/W/X/G` |
 | `L2[258]` | 内核高半区 DRAM 映射 | `0x80000000` 起 | `V/R/W/X/G` |
 
-其中 `L2[258]` 对应 `KERNEL_VBASE + DRAM_BASE` 所在的 Sv39 根项。`kernel.ld` 将内核链接到：
+其中 `L2[258]` 对应 `KERNEL_VBASE + DRAM_BASE` 所在的 Sv39 根项。`arch/riscv/kernel.ld` 将内核链接到：
 
 - 物理加载基址：`BASE_ADDRESS = 0x80200000`
 - 虚拟链接基址：`KERNEL_VBASE + BASE_ADDRESS`
@@ -110,8 +110,9 @@ flowchart TD
 24. `kernel_thread(page_cache_wb_thread, NULL)`：创建页缓存后台写回线程。
 25. idle 循环反复调用 `schedule()` 和 `wait_for_interrupt()`。
 
-`make ktest` 使用 `KERNEL_SELFTEST=1` 构建单独的测试内核。该内核在根文件系统
-挂载后创建 self-test 内核线程，然后进入普通 idle 调度循环。self-test 线程在
+`make ktest` 使用 `KERNEL_SELFTEST=1` 构建单独的测试内核，并配套一个不含用户态
+运行时的最小 ext2 测试镜像。该内核在根文件系统挂载后创建 self-test 内核线程，
+然后进入普通 idle 调度循环。self-test 线程在
 普通 8 KiB task 栈上运行 `kernel_test_run()`，输出 `[KTEST] done ...` 结果哨兵，
 然后通过 SBI 关机，不再创建 PID 1。
 

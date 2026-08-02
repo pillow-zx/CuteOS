@@ -5,6 +5,7 @@
 #include <kernel/irq.h>
 #include <kernel/buddy.h>
 #include <kernel/printk.h>
+#include <kernel/spinlock.h>
 #include <kernel/test.h>
 #include <kernel/types.h>
 
@@ -172,6 +173,7 @@ static const struct ktest_case waitqueue_cases[] = {
 static const struct ktest_case sync_cases[] = {
 	KTEST_CASE(test_atomic_basic),
 	KTEST_CASE(test_spinlock_irqsave),
+	KTEST_CASE(test_spinlock_held_tracking),
 };
 
 static const struct ktest_case mutex_cases[] = {
@@ -185,6 +187,7 @@ static const struct ktest_case trap_cases[] = {
 	KTEST_CASE(test_trap_context_layout),
 	KTEST_CASE(test_trap_irq_codes),
 	KTEST_CASE(test_irq_nesting_context),
+	KTEST_CASE(test_task_context_matrix),
 	KTEST_CASE(test_trap_user_exception_classification),
 	KTEST_CASE(test_signal_riscv_frame_abi),
 };
@@ -424,6 +427,30 @@ static const struct ktest_subsystem ktest_subsystems[] = {
 	KTEST_SUBSYSTEM("abi", abi_modules),
 };
 
+#define KTEST_CONTEXT_LEAK (-2)
+
+static bool ktest_context_is_clean(const char *name)
+{
+	bool clean = true;
+
+	if (spinlock_held()) {
+		pr_err("    [LEAK] %s left held locks (depth=%u)\n", name,
+		       lock_depth());
+		clean = false;
+	}
+	if (preempt_count() != 0) {
+		pr_err("    [LEAK] %s left preempt_count=%d\n", name,
+		       preempt_count());
+		clean = false;
+	}
+	if (irq_nesting() != 0) {
+		pr_err("    [LEAK] %s left irq_nesting=%u\n", name,
+		       irq_nesting());
+		clean = false;
+	}
+	return clean;
+}
+
 static int ktest_run_module(const struct ktest_subsystem *subsystem,
 			    const struct ktest_module *module,
 			    struct ktest_summary *summary)
@@ -440,6 +467,15 @@ static int ktest_run_module(const struct ktest_subsystem *subsystem,
 		local_irq_disable();
 		ret = test->run();
 		local_irq_disable();
+		if (!ktest_context_is_clean(test->name)) {
+			failed_cases++;
+			summary->failed_cases++;
+			pr_err("[FAIL] context leak after %s; stopping ktests\n",
+			       test->name);
+			summary->modules++;
+			summary->failed_modules++;
+			return KTEST_CONTEXT_LEAK;
+		}
 		buddy_test_validate();
 		if (ret < 0) {
 			failed_cases++;
@@ -476,11 +512,14 @@ int kernel_test_run(struct ktest_summary *summary)
 
 		result.subsystems++;
 		pr_info("[KTEST] subsystem %s\n", subsystem->name);
-		for (uint32_t j = 0; j < subsystem->nr_modules; j++)
-			ktest_run_module(subsystem, subsystem->modules[j],
-					 &result);
+		for (uint32_t j = 0; j < subsystem->nr_modules; j++) {
+			if (ktest_run_module(subsystem, subsystem->modules[j],
+					 &result) == KTEST_CONTEXT_LEAK)
+				goto done;
+		}
 	}
 
+done:
 	if (summary)
 		*summary = result;
 

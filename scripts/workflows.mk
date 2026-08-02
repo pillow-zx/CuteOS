@@ -37,11 +37,42 @@ qemu-gdb: check-gcc-version $(KERNEL) $(KERNEL_IMG) .gdbinit
 
 TEST_OUTROOT ?= build/test
 TEST_KERNEL = $(TEST_OUTROOT)/kernel/$(KERNEL_NAME)
-TEST_KERNEL_IMG = $(TEST_KERNEL).img
+TEST_KERNEL_IMG = $(TEST_OUTROOT)/kernel/$(KERNEL_NAME)-test.img
+KTEST_ROOTFS_SRC = test/rootfs
+KTEST_ROOTFS = $(TEST_OUTROOT)/rootfs
+KTEST_ROOTFS_STAMP = $(TEST_OUTROOT)/rootfs.stamp
+KTEST_ROOTFS_FILES := $(sort $(shell find $(KTEST_ROOTFS_SRC) -type f))
+
+$(KTEST_ROOTFS_STAMP): $(KTEST_ROOTFS_FILES)
+	$(Q)rm -rf $(KTEST_ROOTFS)
+	$(Q)mkdir -p $(KTEST_ROOTFS)
+	$(Q)cp -a $(KTEST_ROOTFS_SRC)/. $(KTEST_ROOTFS)/
+	$(Q)touch $@
+
+$(TEST_KERNEL_IMG): $(KTEST_ROOTFS_STAMP) $(MKIMG) $(AUTO_CONF)
+	$(Q)mkdir -p $(dir $@)
+	$(QUIET_FSIMG)
+	$(Q)MKIMG_SIZE_MB=$(CONFIG_ROOTFS_IMAGE_SIZE_MB) $(MKIMG) $@ \
+		$(KTEST_ROOTFS)
+
+KPANIC_OUTROOT ?= build/kpanic/$(CASE)
+KPANIC_KERNEL = $(KPANIC_OUTROOT)/kernel/$(KERNEL_NAME)
+
+kpanic: check-gcc-version check-qemu-version
+	@case "$(CASE)" in \
+		preempt-underflow|preempt-overflow|spinlock-wrong-unlock|spinlock-recursive|spinlock-capacity) ;; \
+		*) echo "ERROR: use CASE=preempt-underflow|preempt-overflow|spinlock-wrong-unlock|spinlock-recursive|spinlock-capacity" >&2; exit 2 ;; \
+	esac
+	$(Q)$(MAKE) KERNEL_PANIC=1 KERNEL_PANIC_CASE="$(CASE)" \
+		OUTROOT="$(KPANIC_OUTROOT)" all
+	$(Q)scripts/tools/run-kernel-panic.sh \
+		"$(QEMU)" "$(KPANIC_KERNEL)" "$(CONFIG_DRAM_SIZE_MB)" \
+		"$(CPUS)" "$(CASE)"
 
 ktest: check-gcc-version check-qemu-version
 	$(Q)rm -f $(TEST_KERNEL_IMG)
-	$(Q)$(MAKE) KERNEL_SELFTEST=1 OUTROOT=$(TEST_OUTROOT) all $(KERNEL_NAME).img
+	$(Q)$(MAKE) KERNEL_SELFTEST=1 OUTROOT=$(TEST_OUTROOT) \
+		TEST_OUTROOT=$(TEST_OUTROOT) all $(TEST_KERNEL_IMG)
 	$(Q)scripts/tools/run-kernel-tests.sh \
 		"$(QEMU)" "$(TEST_KERNEL)" "$(TEST_KERNEL_IMG)" \
 		"$(CONFIG_DRAM_SIZE_MB)" "$(CPUS)"
@@ -89,16 +120,14 @@ gtags:
 
 FMT_FILES := $(shell find . \( -name '*.c' -o -name '*.h' \))
 
-format:
-	$(Q)clang-format -i $(FMT_FILES)
-
 help:
 	@printf 'CuteOS build usage:\n'
 	@printf '  make                         Build kernel ELF using .config\n'
 	@printf '  make defconfig               Reset .config from configs/cuteos_defconfig\n'
 	@printf '  make menuconfig              Configure build options\n'
 	@printf '  make qemu                    Build image and boot QEMU\n'
-	@printf '  make ktest                   Build and run kernel self-test regression suite\n'
+	@printf '  make ktest                   Build test image and run kernel self-test regression suite\n'
+	@printf '  make kpanic CASE=<case>      Run one expected-panic diagnostic case\n'
 	@printf '  make utest-build             Build user-space test ELFs and rootfs image\n'
 	@printf '  make utest                   Boot the user-space regression suite\n'
 	@printf '  make check                   Run kernel and user-space regression suites\n'
@@ -131,6 +160,6 @@ clean: clean-user clean-kernel
 
 FORCE:
 
-.PHONY: help qemu qemu-gdb ktest utest check check-qemu-version print-gdbport \
+.PHONY: help qemu qemu-gdb ktest kpanic utest check check-qemu-version print-gdbport \
 	print-toolprefix
-.PHONY: tags gtags format clean FORCE
+.PHONY: tags gtags clean FORCE

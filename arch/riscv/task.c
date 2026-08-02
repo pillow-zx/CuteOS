@@ -84,10 +84,23 @@ bool task_trap_frome_user(const struct task_struct *task)
 #ifdef KERNEL_SELFTEST
 bool arch_task_test_layout_contract(void)
 {
-	return offsetof(struct task_struct, arch.kstack) == TASK_KSTACK &&
-	       offsetof(struct task_struct, arch.satp) == TASK_SATP &&
-	       offsetof(struct cpu, current_task) == CPU_CURRENT_TASK &&
-	       offsetof(struct cpu, preempt_count) == CPU_PREEMPT_COUNT;
+	bool contract =
+		offsetof(struct task_struct, arch.kstack) == TASK_KSTACK &&
+		offsetof(struct task_struct, arch.satp) == TASK_SATP &&
+		offsetof(struct cpu, current_task) == CPU_CURRENT_TASK &&
+		offsetof(struct cpu, preempt_count) == CPU_PREEMPT_COUNT &&
+		offsetof(struct cpu, irq_nesting) > CPU_PREEMPT_COUNT &&
+		offsetof(struct cpu, lock_depth) >
+			offsetof(struct cpu, irq_nesting) &&
+		offsetof(struct cpu, lock_irq_flags) >
+			offsetof(struct cpu, lock_depth);
+
+#ifdef CONFIG_DEBUG_CONTEXT
+	contract = contract &&
+		   offsetof(struct cpu, held_locks) >
+				offsetof(struct cpu, held_lock_irq_flags);
+#endif
+	return contract;
 }
 
 bool arch_task_test_kernel_thread_setup(const struct task_struct *task,

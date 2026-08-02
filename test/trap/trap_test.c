@@ -129,6 +129,7 @@ int test_irq_nesting_context(void)
 	{
 		TEST_ASSERT_EQ(saved_nesting, (uint32_t)0);
 		TEST_ASSERT_EQ(saved_preempt_count, 0);
+		TEST_ASSERT_EQ(preempt_count(), 0);
 		TEST_ASSERT(sched_context_can_schedule());
 		TEST_ASSERT(wait_context_can_sleep());
 
@@ -196,6 +197,66 @@ cleanup:
 	while (cpu_preempt_count(current_cpu()) > saved_preempt_count)
 		preempt_enable();
 	task_set_trap_frame(current_task(), saved_tf);
+	local_irq_restore(saved_flags);
+
+	return __test_ret;
+}
+
+int test_task_context_matrix(void)
+{
+	struct task_struct *saved_task = current_task();
+	irq_flags_t saved_flags = local_irq_save();
+	int saved_preempt_count = preempt_count();
+	uint32_t saved_nesting = irq_nesting();
+
+	TEST_BEGIN("irq: task-context matrix");
+	{
+		TEST_ASSERT_NOT_NULL(saved_task);
+		TEST_ASSERT_NE(saved_task, &idle_task);
+		TEST_ASSERT_EQ(saved_nesting, (uint32_t)0);
+		TEST_ASSERT_EQ(saved_preempt_count, 0);
+
+		/* IRQ-off task context remains task context. */
+		local_irq_disable();
+		TEST_ASSERT(irqs_disabled());
+		TEST_ASSERT(!in_irq());
+		TEST_ASSERT_EQ(preempt_count(), 0);
+		TEST_ASSERT(in_task_context());
+
+		/* Hard IRQ context is independent from the hardware IRQ bit. */
+		local_irq_enable();
+		irq_enter();
+		TEST_ASSERT(!irqs_disabled());
+		TEST_ASSERT(in_irq());
+		TEST_ASSERT(!in_task_context());
+		TEST_ASSERT_EQ(preempt_count(), 0);
+		irq_exit();
+
+		/* Explicit preemption disable does not stop being task context. */
+		preempt_disable();
+		TEST_ASSERT(!preemptible());
+		TEST_ASSERT(!in_irq());
+		TEST_ASSERT(in_task_context());
+		preempt_enable();
+		TEST_ASSERT_EQ(preempt_count(), 0);
+
+		set_current_task(NULL);
+		TEST_ASSERT(!in_task_context());
+		set_current_task(&idle_task);
+		TEST_ASSERT(!in_task_context());
+		set_current_task(saved_task);
+		TEST_ASSERT(in_task_context());
+	}
+	TEST_END("irq: task-context matrix");
+	goto cleanup;
+fail:
+	TEST_FAIL("irq: task-context matrix", "see above");
+cleanup:
+	set_current_task(saved_task);
+	while (irq_nesting() > saved_nesting)
+		irq_exit();
+	while (preempt_count() > saved_preempt_count)
+		preempt_enable();
 	local_irq_restore(saved_flags);
 
 	return __test_ret;

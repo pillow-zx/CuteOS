@@ -40,6 +40,7 @@ int test_trap_from_user(void);
 int test_trap_context_layout(void);
 int test_trap_irq_codes(void);
 int test_irq_nesting_context(void);
+int test_task_context_matrix(void);
 int test_trap_user_exception_classification(void);
 int test_signal_riscv_frame_abi(void);
 int test_trap_user_return_task_setup(void);
@@ -67,6 +68,7 @@ int test_ktimer_interval_rearms_after_expiry(void);
 
 int test_atomic_basic(void);
 int test_spinlock_irqsave(void);
+int test_spinlock_held_tracking(void);
 int test_mutex_blocking(void);
 int test_mutex_uncontended_preserves_sleep_state(void);
 

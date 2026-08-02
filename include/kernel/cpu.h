@@ -7,7 +7,10 @@
 
 #include <kernel/types.h>
 #include <kernel/compiler.h>
+#include <kernel/tools.h>
+#include <kernel/printk.h>
 #include <arch/cpu.h>
+#include <arch/irq.h>
 
 constexpr uint32_t NR_CPUS = CONFIG_QEMU_CPUS;
 
@@ -15,8 +18,10 @@ constexpr uint32_t CPU_OFFLINE = 0u;
 constexpr uint32_t CPU_BOOTING = 1u;
 constexpr uint32_t CPU_ONLINE = 2u;
 constexpr uint32_t CPU_PARKED = 3u;
+constexpr uint32_t CPU_LOCK_MAX = 16u;
 
 struct task_struct;
+struct spinlock;
 
 struct cpu {
 	uint32_t id;
@@ -27,6 +32,9 @@ struct cpu {
 	struct task_struct *current_task;
 	volatile int preempt_count;
 	volatile uint32_t irq_nesting;
+	uint32_t lock_depth;
+	irq_flags_t lock_irq_flags;
+	IFDEF(CONFIG_DEBUG_CONTEXT, struct spinlock *locks[CPU_LOCK_MAX];)
 };
 
 static_assert(offsetof(struct cpu, current_task) == CPU_CURRENT_TASK,
@@ -98,19 +106,34 @@ static inline int cpu_preempt_count(const struct cpu *cpu)
 __always_inline __nonnull(1)
 static inline void cpu_set_preempt_count(struct cpu *cpu, int count)
 {
+	BUG_ON(count < 0);
 	cpu->preempt_count = count;
 }
 
 __always_inline __nonnull(1)
 static inline void cpu_inc_preempt_count(struct cpu *cpu)
 {
+	BUG_ON(cpu_preempt_count(cpu) == INT32_MAX);
 	cpu->preempt_count++;
 }
 
 __always_inline __nonnull(1)
 static inline void cpu_dec_preempt_count(struct cpu *cpu)
 {
+	BUG_ON(cpu_preempt_count(cpu) <= 0);
 	cpu->preempt_count--;
+}
+
+__always_inline __must_check __pure __nonnull(1)
+static inline uint32_t cpu_lock_depth(const struct cpu *cpu)
+{
+	return cpu->lock_depth;
+}
+
+__always_inline __must_check __pure
+static inline uint32_t lock_depth(void)
+{
+	return cpu_lock_depth(current_cpu());
 }
 
 __always_inline __must_check __pure __nonnull(1)
