@@ -127,6 +127,9 @@ These are current facts, not future guarantees:
   enabled.
 - UART and virtio-blk are primarily polling-oriented. Platform discovery is
   minimal and QEMU `virt` resources are mostly compile-time constants.
+- Normal boot uses an ext2 root image through virtio-blk. `KERNEL_SELFTEST=1`
+  deliberately skips filesystem registration, virtio-blk initialization, and
+  root mounting; kernel tests use in-memory block/file adapters instead.
 - User VMAs use a fixed `NR_VMA` array and faults are handled lazily.
 - `fork` currently copies user pages rather than providing a complete COW
   implementation. Dynamic linking, PIE, user floating-point context, swap,
@@ -297,6 +300,12 @@ that coherence. Inode, dentry, file offset, mount, ext2 metadata, page busy,
 read-in, writeback, truncate, and invalidate protocols must be defined before
 claiming SMP-safe storage.
 
+The kernel self-test seam stops before real storage integration. KTEST crosses
+the page-cache, block-device, and file-mapping interfaces with an in-memory
+block device and synthetic regular file. On-disk ext2, path-tree, root-mount,
+and virtio-blk integration are user-space test responsibilities; normal boot
+still owns the production assembly of those adapters.
+
 Do not allocate, sleep, or start I/O under a spinlock. Define allocator,
 page-cache, inode, block-request, and writeback lock order globally; local
 locks are insufficient when reclaim and error cleanup can call back into
@@ -342,7 +351,8 @@ making every caller understand MLFQ levels, queues, or boost rules.
 
 - **Boot:** RISC-V entry establishes early mappings and a stack, then
   `kernel_main()` initializes memory, tasking, VFS, devices, traps, and init.
-  Secondary-hart handling is currently park-only.
+  Normal boot mounts ext2 through virtio-blk; KTEST stops after `vfs_init()` and
+  runs with in-memory fixtures. Secondary-hart handling is currently park-only.
 - **Syscall:** user `ecall` enters the trap path; the dispatcher decodes the
   number and arguments; a thin handler copies ABI data and calls a subsystem;
   `user_return_work()` performs rseq before signal work.
@@ -404,8 +414,9 @@ requires otherwise:
 | build and boot | `Makefile`, `scripts/build.mk`, `scripts/kernel.mk`, `scripts/workflows.mk` |
 | shutdown and reset | `SYSCALL.md`, `kernel/signal.c`, `syscall/sys_misc.c`, `include/kernel/reboot.h` |
 
-Use `make help` to discover targets. `make ktest` runs kernel self-tests with
-a temporary image; `make utest` runs the user regression suite from its test
-root filesystem; `make check` runs both. New source files must be added to
+Use `make help` to discover targets. `make ktest` runs kernel self-tests in a
+diskless QEMU with in-memory fixtures; `make utest` runs the user regression
+suite from its test root filesystem and exercises the real rootfs storage path;
+`make check` runs both. New source files must be added to
 `scripts/filelist.mk`. Changes to user-visible ABI require checking
 `include/uapi/`, the vendored user-space headers, and tests.

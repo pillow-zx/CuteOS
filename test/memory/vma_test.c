@@ -481,12 +481,9 @@ int test_mm_msync_shared_mapping_writes_back(void)
 {
 	static uint8_t initial[PAGE_SIZE];
 	static uint8_t raw[PAGE_SIZE];
+	struct ktest_memory_file fixture = {0};
 	struct mm_struct *mm = NULL;
-	struct file *file = NULL;
 	uintptr_t base = MM_TEST_BASE + 11 * MM_TEST_GAP;
-	int fd = -1;
-
-	(void)vfs_unlink_at_path(NULL, MM_MSYNC_TEST_FILE, 0);
 
 	TEST_BEGIN("mm: msync shared mapping writes back");
 	{
@@ -495,30 +492,23 @@ int test_mm_msync_shared_mapping_writes_back(void)
 
 		for (size_t i = 0; i < sizeof(initial); i++)
 			initial[i] = (uint8_t)(0x31 + (i & 0x1f));
-
-		fd = vfs_open(MM_MSYNC_TEST_FILE, O_RDWR | O_CREAT | O_TRUNC,
-			      0644);
-		TEST_ASSERT(fd >= 0);
-		file = fd_get(fd);
-		TEST_ASSERT_NOT_NULL(file);
-		TEST_ASSERT_EQ(
-			vfs_write(file, (const char *)initial, sizeof(initial)),
-			(ssize_t)sizeof(initial));
-		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
+		TEST_ASSERT_EQ(ktest_memory_file_init(&fixture,
+						     KTEST_MEMORY_DEV(45), 0),
+				       0);
+		TEST_ASSERT_EQ(ktest_memory_file_seed_block(&fixture, 0, initial),
+				       0);
 
 		memset(raw, 0, sizeof(raw));
-		TEST_ASSERT_EQ(mm_test_read_raw_file_page(file, 0, raw), 0);
+		TEST_ASSERT_EQ(mm_test_read_raw_file_page(&fixture, 0, raw), 0);
 		TEST_ASSERT_EQ(memcmp(raw, initial, sizeof(raw)), 0);
 
 		mm = mm_test_alloc();
 		TEST_ASSERT_NOT_NULL(mm);
-		TEST_ASSERT_EQ(mm_mmap_file(mm, base, PAGE_SIZE,
-					    PROT_READ | PROT_WRITE,
-					    MAP_SHARED | MAP_FIXED, fd, 0),
-			       (ssize_t)base);
+		TEST_ASSERT_EQ(mm_test_map_shared_file(mm, &fixture.file, base,
+							   base + PAGE_SIZE,
+							   PROT_READ | PROT_WRITE, 0), 0);
 		TEST_ASSERT_EQ(fault_in_user_range(mm, base, PAGE_SIZE,
-						   USER_FAULT_WRITE),
-			       0);
+						   USER_FAULT_WRITE), 0);
 
 		pte = pagetable_walk(mm->pgd, base, false);
 		TEST_ASSERT(pte && pte_is_user_page(*pte));
@@ -527,65 +517,59 @@ int test_mm_msync_shared_mapping_writes_back(void)
 		mapped[PAGE_SIZE - 19] = 0x7b;
 
 		memset(raw, 0, sizeof(raw));
-		TEST_ASSERT_EQ(mm_test_read_raw_file_page(file, 0, raw), 0);
+		TEST_ASSERT_EQ(mm_test_read_raw_file_page(&fixture, 0, raw), 0);
 		TEST_ASSERT_NE(raw[17], 0x6a);
 		TEST_ASSERT_NE(raw[PAGE_SIZE - 19], 0x7b);
 
 		TEST_ASSERT_EQ(mm_msync(mm, base, PAGE_SIZE, MS_SYNC), 0);
 
 		memset(raw, 0, sizeof(raw));
-		TEST_ASSERT_EQ(mm_test_read_raw_file_page(file, 0, raw), 0);
+		TEST_ASSERT_EQ(mm_test_read_raw_file_page(&fixture, 0, raw), 0);
 		TEST_ASSERT_EQ(raw[17], 0x6a);
 		TEST_ASSERT_EQ(raw[PAGE_SIZE - 19], 0x7b);
 	}
 	TEST_END("mm: msync shared mapping writes back");
-	goto cleanup;
-fail:
-	TEST_FAIL("mm: msync shared mapping writes back", "see above");
-cleanup:
 	if (mm)
 		mm_destroy(mm);
-	if (file)
-		file_put(file);
-	if (fd >= 0)
-		fd_close(fd);
-	(void)vfs_unlink_at_path(NULL, MM_MSYNC_TEST_FILE, 0);
-
+	ktest_memory_file_destroy(&fixture);
+	return __test_ret;
+fail:
+	TEST_FAIL("mm: msync shared mapping writes back", "see above");
+	if (mm)
+		mm_destroy(mm);
+	ktest_memory_file_destroy(&fixture);
 	return __test_ret;
 }
 
 int test_mm_sparse_shared_mapping_writes_back(void)
 {
 	static uint8_t raw[PAGE_SIZE];
+	static uint8_t sparse[PAGE_SIZE];
+	struct ktest_memory_file fixture = {0};
 	struct mm_struct *mm = NULL;
-	struct file *file = NULL;
 	uintptr_t base = MM_TEST_BASE + 12 * MM_TEST_GAP;
 	uint8_t marker = 0x7d;
-	int fd = -1;
-
-	(void)vfs_unlink_at_path(NULL, "/mm_sparse_shared_test", 0);
 
 	TEST_BEGIN("mm: sparse shared mapping writes back");
 	{
 		pte_t *pte;
 		uint8_t *mapped;
 
-		fd = vfs_open("/mm_sparse_shared_test",
-			      O_RDWR | O_CREAT | O_TRUNC, 0644);
-		TEST_ASSERT(fd >= 0);
-		file = fd_get(fd);
-		TEST_ASSERT_NOT_NULL(file);
-		file->f_pos = PAGE_SIZE;
-		TEST_ASSERT_EQ(vfs_write(file, (const char *)&marker, 1), 1);
-		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
-		TEST_ASSERT_EQ(mm_test_read_raw_file_page(file, 0, raw), -ENOENT);
+		memset(sparse, 0, sizeof(sparse));
+		sparse[0] = marker;
+		TEST_ASSERT_EQ(ktest_memory_file_init(&fixture,
+						     KTEST_MEMORY_DEV(46), 0),
+				       0);
+		TEST_ASSERT_EQ(ktest_memory_file_seed_block(&fixture, 1, sparse),
+				       0);
+		TEST_ASSERT_EQ(mm_test_read_raw_file_page(&fixture, 0, raw),
+				       -ENODATA);
 
 		mm = mm_test_alloc();
 		TEST_ASSERT_NOT_NULL(mm);
-		TEST_ASSERT_EQ(mm_mmap_file(mm, base, PAGE_SIZE,
-					    PROT_READ | PROT_WRITE,
-					    MAP_SHARED | MAP_FIXED, fd, 0),
-				       (ssize_t)base);
+		TEST_ASSERT_EQ(mm_test_map_shared_file(mm, &fixture.file, base,
+							   base + PAGE_SIZE,
+							   PROT_READ | PROT_WRITE, 0), 0);
 		TEST_ASSERT_EQ(fault_in_user_range(mm, base, PAGE_SIZE,
 						   USER_FAULT_READ), 0);
 		pte = pagetable_walk(mm->pgd, base, false);
@@ -596,21 +580,18 @@ int test_mm_sparse_shared_mapping_writes_back(void)
 
 		mapped[37] = marker;
 		TEST_ASSERT_EQ(mm_msync(mm, base, PAGE_SIZE, MS_SYNC), 0);
-		TEST_ASSERT_EQ(mm_test_read_raw_file_page(file, 0, raw), 0);
+		TEST_ASSERT_EQ(mm_test_read_raw_file_page(&fixture, 0, raw), 0);
 		TEST_ASSERT_EQ(raw[37], marker);
 	}
 	TEST_END("mm: sparse shared mapping writes back");
-	goto cleanup;
-fail:
-	TEST_FAIL("mm: sparse shared mapping writes back", "see above");
-cleanup:
 	if (mm)
 		mm_destroy(mm);
-	if (file)
-		file_put(file);
-	if (fd >= 0)
-		fd_close(fd);
-	(void)vfs_unlink_at_path(NULL, "/mm_sparse_shared_test", 0);
-
+	ktest_memory_file_destroy(&fixture);
+	return __test_ret;
+fail:
+	TEST_FAIL("mm: sparse shared mapping writes back", "see above");
+	if (mm)
+		mm_destroy(mm);
+	ktest_memory_file_destroy(&fixture);
 	return __test_ret;
 }

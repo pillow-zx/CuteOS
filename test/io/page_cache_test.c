@@ -1,12 +1,12 @@
-#include <drivers/virtio_blk.h>
-#include <kernel/blkdev.h>
+/* Page-cache and writeback mechanism tests using synthetic storage. */
+
+#include "memory_fixture.h"
+
 #include <kernel/errno.h>
-#include <kernel/fdtable.h>
 #include <kernel/page_cache.h>
 #include <kernel/test.h>
 #include <kernel/vfs.h>
 
-#include "../../fs/ext2/ext2.h"
 #include "../ktest.h"
 
 static void fill_pattern(uint8_t *buf, size_t len, uint8_t seed)
@@ -34,35 +34,6 @@ static const struct page_mapping_ops page_cache_key_test_ops = {
 	.resolve = page_cache_key_test_resolve,
 };
 
-static int open_test_file(const char *path, uint32_t flags, struct file **file)
-{
-	int fd = vfs_open(path, flags, 0644);
-
-	if (fd < 0)
-		return fd;
-
-	*file = fd_get(fd);
-	if (!*file) {
-		fd_close(fd);
-		return -EIO;
-	}
-
-	return fd;
-}
-
-static void close_test_file(int fd, struct file *file)
-{
-	if (file)
-		file_put(file);
-	if (fd >= 0)
-		fd_close(fd);
-}
-
-static void unlink_test_path(const char *path)
-{
-	(void)vfs_unlink_at_path(NULL, path, 0);
-}
-
 static int datasync_test_writebacks;
 static int datasync_test_hooks;
 
@@ -89,197 +60,52 @@ static const struct super_operations datasync_hook_sops = {
 	.datasync_inode = datasync_test_datasync_inode,
 };
 
-static int read_raw_file_page(struct file *file, uint32_t index, uint8_t *buf)
-{
-	struct block_device *bdev;
-	uint32_t pblock = 0;
-	int ret;
-
-	if (!file || !file->f_inode || !buf)
-		return -EINVAL;
-
-	ret = ext2_bmap(file->f_inode, index, false, &pblock);
-	if (ret < 0)
-		return ret;
-	if (!pblock)
-		return -ENOENT;
-
-	bdev = lookup_block_device(file->f_inode->i_sb->s_dev);
-	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->read_sectors)
-		return -ENXIO;
-	return bdev->bd_ops->read_sectors(bdev, buf,
-					 pblock * BLOCK_SECTORS, BLOCK_SECTORS);
-}
-
-static int read_raw_inode(struct inode *inode, struct ext2_inode *raw)
-{
-	static uint8_t block_buf[BLOCK_SIZE];
-	struct ext2_sb_info *sbi;
-	struct block_device *bdev;
-	uint32_t ino;
-	uint32_t group;
-	uint32_t index;
-	uint32_t byte_offset;
-	uint32_t block;
-	uint32_t offset;
-	int ret;
-
-	if (!inode || !inode->i_sb || !raw)
-		return -EINVAL;
-
-	sbi = EXT2_SB(inode->i_sb);
-	ino = (uint32_t)inode->i_ino;
-	if (!sbi || ino == 0)
-		return -EINVAL;
-
-	group = (ino - 1) / sbi->s_inodes_per_group;
-	index = (ino - 1) % sbi->s_inodes_per_group;
-	if (group >= sbi->s_groups_count)
-		return -EINVAL;
-
-	byte_offset = index * sbi->s_inode_size;
-	block = sbi->s_group_desc[group].bg_inode_table +
-		byte_offset / BLOCK_SIZE;
-	offset = byte_offset % BLOCK_SIZE;
-	if (offset + sizeof(*raw) > BLOCK_SIZE)
-		return -EIO;
-
-	bdev = lookup_block_device(inode->i_sb->s_dev);
-	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->read_sectors)
-		return -ENXIO;
-	ret = bdev->bd_ops->read_sectors(bdev, block_buf,
-					 block * BLOCK_SECTORS, BLOCK_SECTORS);
-	if (ret < 0)
-		return ret;
-
-	memcpy(raw, block_buf + offset, sizeof(*raw));
-	return 0;
-}
-
-static int read_block_alias(struct file *file, uint32_t index, uint8_t *buf)
-{
-	int ret;
-	struct page_cache *page;
-	uint32_t pblock = 0;
-
-	if (!file || !file->f_inode || !buf)
-		return -EINVAL;
-
-	ret = ext2_bmap(file->f_inode, index, false, &pblock);
-	if (ret < 0)
-		return ret;
-	if (!pblock)
-		return -ENOENT;
-
-
-	page = page_cache_get_block(file->f_inode->i_sb->s_dev, pblock);
-	if (!page)
-		return -EIO;
-
-	memcpy(buf, page_cache_data(page), BLOCK_SIZE);
-	page_cache_put_page(page);
-	return 0;
-}
-
-static int write_raw_file_page(struct file *file, uint32_t index,
-			       const uint8_t *buf)
-{
-	int ret;
-	struct page_cache *page;
-	uint32_t pblock = 0;
-
-	if (!file || !file->f_inode || !buf)
-		return -EINVAL;
-
-	ret = ext2_bmap(file->f_inode, index, false, &pblock);
-	if (ret < 0)
-		return ret;
-	if (!pblock)
-		return -ENOENT;
-
-	page = page_cache_get_block(file->f_inode->i_sb->s_dev, pblock);
-	if (!page)
-		return -EIO;
-	memcpy(page_cache_data(page), buf, BLOCK_SIZE);
-	page_cache_mark_dirty(page);
-	ret = page_cache_sync_page(page);
-	page_cache_put_page(page);
-	return ret;
-}
-
-static bool dir_page_has_entry(const uint8_t *data, const char *name)
-{
-	size_t namelen = strlen(name);
-	uint32_t offset = 0;
-
-	while (offset + 8 <= BLOCK_SIZE) {
-		const struct ext2_dir_entry_2 *de =
-			(const struct ext2_dir_entry_2 *)(data + offset);
-
-		if (de->rec_len < 8 || offset + de->rec_len > BLOCK_SIZE)
-			break;
-		if (de->inode && de->name_len == namelen &&
-		    memcmp(de->name, name, namelen) == 0)
-			return true;
-		offset += de->rec_len;
-	}
-
-	return false;
-}
-
 int test_page_cache_dirty_write_visibility(void)
 {
 	static uint8_t wbuf[BLOCK_SIZE];
 	static uint8_t raw[BLOCK_SIZE];
-	struct file *file = NULL;
-	int fd = -1;
+	struct ktest_memory_file file;
 
 	TEST_BEGIN("page cache: dirty write stays off disk");
 	{
-		unlink_test_path("/pcache-dirty");
+		TEST_ASSERT_EQ(ktest_memory_file_init(&file,
+						     KTEST_MEMORY_DEV(10), 0),
+				       0);
 		fill_pattern(wbuf, sizeof(wbuf), 0x31);
 		memset(raw, 0, sizeof(raw));
 
-		fd = open_test_file("/pcache-dirty", O_CREAT | O_TRUNC | O_RDWR,
-				    &file);
-		TEST_ASSERT(fd >= 0);
-		TEST_ASSERT_EQ(
-			vfs_write(file, (const char *)wbuf, sizeof(wbuf)),
-			(ssize_t)sizeof(wbuf));
-		TEST_ASSERT_EQ(read_raw_file_page(file, 0, raw), 0);
+		TEST_ASSERT_EQ(vfs_write(&file.file, (const char *)wbuf,
+					 sizeof(wbuf)), (ssize_t)sizeof(wbuf));
+		TEST_ASSERT_EQ(ktest_memory_file_read_block(&file, 0, raw), 0);
 		TEST_ASSERT_NE(memcmp(raw, wbuf, sizeof(wbuf)), 0);
+		TEST_ASSERT_EQ(vfs_sync_file(&file.file), 0);
+		TEST_ASSERT_EQ(ktest_memory_file_read_block(&file, 0, raw), 0);
+		TEST_ASSERT_EQ(memcmp(raw, wbuf, sizeof(wbuf)), 0);
 	}
 	TEST_END("page cache: dirty write stays off disk");
-	goto cleanup;
+	ktest_memory_file_destroy(&file);
+	return __test_ret;
 fail:
 	TEST_FAIL("page cache: dirty write stays off disk", "see above");
-cleanup:
-	close_test_file(fd, file);
-	unlink_test_path("/pcache-dirty");
-
+	ktest_memory_file_destroy(&file);
 	return __test_ret;
 }
 
 int test_page_cache_physical_key_identity(void)
 {
-	struct block_device *bdev;
 	struct page_mapping first = {0};
 	struct page_mapping second = {0};
 	struct page_cache *first_page = NULL;
 	struct page_cache *second_page = NULL;
-	uint64_t blocks;
 
 	TEST_BEGIN("page cache: physical key identity");
 	{
-		bdev = lookup_block_device(ROOT_DEV);
-		TEST_ASSERT_NOT_NULL(bdev);
-		blocks = bdev->bd_sectors / BLOCK_SECTORS;
-		TEST_ASSERT(blocks > 4);
-		page_cache_key_test_block = blocks - 2;
-		page_mapping_init(&first, &first, ROOT_DEV,
+		TEST_ASSERT_EQ(ktest_memory_device_init(), 0);
+		page_cache_key_test_block = 7;
+		page_mapping_init(&first, &first, KTEST_MEMORY_DEV(11),
 				  &page_cache_key_test_ops);
-		page_mapping_init(&second, &second, ROOT_DEV,
-				  &page_cache_key_test_ops);
+		page_mapping_init(&second, &second, KTEST_MEMORY_DEV(11),
+				   &page_cache_key_test_ops);
 
 		first_page = page_cache_get_mapping(&first, 3, PAGE_CACHE_READ,
 						    NULL);
@@ -305,26 +131,22 @@ int test_page_cache_writeback_retry(void)
 {
 	static uint8_t pattern[BLOCK_SIZE];
 	static uint8_t raw[BLOCK_SIZE];
+	struct ktest_memory_file file;
 	struct page_cache *page = NULL;
-	struct file *file = NULL;
-	uint32_t block = 0;
-	int fd = -1;
 
 	TEST_BEGIN("page cache: failed writeback retries");
 	{
-		unlink_test_path("/pcache-writeback-retry");
+		TEST_ASSERT_EQ(ktest_memory_file_init(&file,
+						     KTEST_MEMORY_DEV(12), 0),
+				       0);
 		fill_pattern(pattern, sizeof(pattern), 0xa4);
-		fd = open_test_file("/pcache-writeback-retry",
-				    O_CREAT | O_TRUNC | O_RDWR, &file);
-		TEST_ASSERT(fd >= 0);
-		TEST_ASSERT_EQ(vfs_write(file, (const char *)pattern,
+		TEST_ASSERT_EQ(vfs_write(&file.file, (const char *)pattern,
 					 sizeof(pattern)), (ssize_t)sizeof(pattern));
-		TEST_ASSERT_EQ(ext2_bmap(file->f_inode, 0, false, &block), 0);
-		TEST_ASSERT_NE(block, 0u);
-		page = page_cache_get_block(file->f_inode->i_sb->s_dev, block);
+		page = page_cache_get_mapping(&file.inode.i_pages, 0,
+						      PAGE_CACHE_READ, NULL);
 		TEST_ASSERT_NOT_NULL(page);
 
-		virtio_blk_test_fail_next_write(-EIO);
+		ktest_memory_device_fail_next_write(-EIO);
 		TEST_ASSERT_EQ(page_cache_sync_page(page), -EIO);
 		TEST_ASSERT(page_cache_is_dirty(page));
 		TEST_ASSERT_EQ(memcmp(page_cache_data(page), pattern,
@@ -332,20 +154,20 @@ int test_page_cache_writeback_retry(void)
 
 		TEST_ASSERT_EQ(page_cache_sync_page(page), 0);
 		TEST_ASSERT(!page_cache_is_dirty(page));
-		TEST_ASSERT_EQ(read_raw_file_page(file, 0, raw), 0);
+		TEST_ASSERT_EQ(ktest_memory_file_read_block(&file, 0, raw), 0);
 		TEST_ASSERT_EQ(memcmp(raw, pattern, sizeof(raw)), 0);
 	}
 	TEST_END("page cache: failed writeback retries");
-	goto cleanup;
-fail:
-	virtio_blk_test_fail_next_write(0);
-	TEST_FAIL("page cache: failed writeback retries", "see above");
-cleanup:
 	if (page)
 		page_cache_put_page(page);
-	close_test_file(fd, file);
-	unlink_test_path("/pcache-writeback-retry");
-
+	ktest_memory_file_destroy(&file);
+	return __test_ret;
+fail:
+	TEST_FAIL("page cache: failed writeback retries", "see above");
+	ktest_memory_device_fail_next_write(0);
+	if (page)
+		page_cache_put_page(page);
+	ktest_memory_file_destroy(&file);
 	return __test_ret;
 }
 
@@ -354,56 +176,45 @@ int test_page_cache_fsync_inode_scope(void)
 	static uint8_t abuf[BLOCK_SIZE];
 	static uint8_t bbuf[BLOCK_SIZE];
 	static uint8_t raw[BLOCK_SIZE];
-	struct file *file_a = NULL;
-	struct file *file_b = NULL;
-	int fd_a = -1;
-	int fd_b = -1;
+	struct ktest_memory_file file_a;
+	struct ktest_memory_file file_b;
 
 	TEST_BEGIN("page cache: fsync flushes one inode");
 	{
-		unlink_test_path("/pcache-fsync-a");
-		unlink_test_path("/pcache-fsync-b");
+		TEST_ASSERT_EQ(ktest_memory_file_init(&file_a,
+						     KTEST_MEMORY_DEV(13), 0),
+				       0);
+		TEST_ASSERT_EQ(ktest_memory_file_init(&file_b,
+						     KTEST_MEMORY_DEV(14), 1024),
+				       0);
 		fill_pattern(abuf, sizeof(abuf), 0x51);
 		fill_pattern(bbuf, sizeof(bbuf), 0x91);
 
-		fd_a = open_test_file("/pcache-fsync-a",
-				      O_CREAT | O_TRUNC | O_RDWR, &file_a);
-		fd_b = open_test_file("/pcache-fsync-b",
-				      O_CREAT | O_TRUNC | O_RDWR, &file_b);
-		TEST_ASSERT(fd_a >= 0);
-		TEST_ASSERT(fd_b >= 0);
-
-		TEST_ASSERT_EQ(
-			vfs_write(file_a, (const char *)abuf, sizeof(abuf)),
-			(ssize_t)sizeof(abuf));
-		TEST_ASSERT_EQ(
-			vfs_write(file_b, (const char *)bbuf, sizeof(bbuf)),
-			(ssize_t)sizeof(bbuf));
+		TEST_ASSERT_EQ(vfs_write(&file_a.file, (const char *)abuf,
+					 sizeof(abuf)), (ssize_t)sizeof(abuf));
+		TEST_ASSERT_EQ(vfs_write(&file_b.file, (const char *)bbuf,
+					 sizeof(bbuf)), (ssize_t)sizeof(bbuf));
 
 		memset(raw, 0, sizeof(raw));
-		TEST_ASSERT_EQ(read_raw_file_page(file_a, 0, raw), 0);
+		TEST_ASSERT_EQ(ktest_memory_file_read_block(&file_a, 0, raw), 0);
 		TEST_ASSERT_NE(memcmp(raw, abuf, sizeof(abuf)), 0);
-		TEST_ASSERT_EQ(read_raw_file_page(file_b, 0, raw), 0);
+		TEST_ASSERT_EQ(ktest_memory_file_read_block(&file_b, 0, raw), 0);
 		TEST_ASSERT_NE(memcmp(raw, bbuf, sizeof(bbuf)), 0);
 
-		TEST_ASSERT_EQ(vfs_sync_file(file_a), 0);
-
-		memset(raw, 0, sizeof(raw));
-		TEST_ASSERT_EQ(read_raw_file_page(file_a, 0, raw), 0);
+		TEST_ASSERT_EQ(vfs_sync_file(&file_a.file), 0);
+		TEST_ASSERT_EQ(ktest_memory_file_read_block(&file_a, 0, raw), 0);
 		TEST_ASSERT_EQ(memcmp(raw, abuf, sizeof(abuf)), 0);
-		TEST_ASSERT_EQ(read_raw_file_page(file_b, 0, raw), 0);
+		TEST_ASSERT_EQ(ktest_memory_file_read_block(&file_b, 0, raw), 0);
 		TEST_ASSERT_NE(memcmp(raw, bbuf, sizeof(bbuf)), 0);
 	}
 	TEST_END("page cache: fsync flushes one inode");
-	goto cleanup;
+	ktest_memory_file_destroy(&file_a);
+	ktest_memory_file_destroy(&file_b);
+	return __test_ret;
 fail:
 	TEST_FAIL("page cache: fsync flushes one inode", "see above");
-cleanup:
-	close_test_file(fd_a, file_a);
-	close_test_file(fd_b, file_b);
-	unlink_test_path("/pcache-fsync-a");
-	unlink_test_path("/pcache-fsync-b");
-
+	ktest_memory_file_destroy(&file_a);
+	ktest_memory_file_destroy(&file_b);
 	return __test_ret;
 }
 
@@ -437,207 +248,124 @@ int test_vfs_datasync_metadata_policy(void)
 	return __test_ret;
 fail:
 	TEST_FAIL("vfs: fdatasync metadata hook policy", "see above");
-
 	return __test_ret;
 }
 
 int test_page_cache_datasync_skips_pure_inode_metadata(void)
 {
-	static uint8_t wbuf[BLOCK_SIZE];
+	static uint8_t data[BLOCK_SIZE];
 	static uint8_t raw[BLOCK_SIZE];
-	struct ext2_inode before;
-	struct ext2_inode after_datasync;
-	struct ext2_inode after_fsync;
-	struct file *file = NULL;
-	uint32_t changed_atime;
-	int fd = -1;
+	struct ktest_memory_file file;
 
-	TEST_BEGIN("page cache: fdatasync skips pure inode metadata");
+	TEST_BEGIN("page cache: fdatasync flushes data and uses hook");
 	{
-		unlink_test_path("/pcache-datasync-data-only");
-		fill_pattern(wbuf, sizeof(wbuf), 0xb5);
-		memset(raw, 0, sizeof(raw));
-		memset(&before, 0, sizeof(before));
-		memset(&after_datasync, 0, sizeof(after_datasync));
-		memset(&after_fsync, 0, sizeof(after_fsync));
+		TEST_ASSERT_EQ(ktest_memory_file_init(&file,
+						     KTEST_MEMORY_DEV(15), 0),
+				       0);
+		file.sb.s_op = &datasync_hook_sops;
+		datasync_test_writebacks = 0;
+		datasync_test_hooks = 0;
+		fill_pattern(data, sizeof(data), 0xb5);
+		TEST_ASSERT_EQ(vfs_write(&file.file, (const char *)data,
+					 sizeof(data)), (ssize_t)sizeof(data));
+		TEST_ASSERT_EQ(ktest_memory_file_read_block(&file, 0, raw), 0);
+		TEST_ASSERT_NE(memcmp(raw, data, sizeof(data)), 0);
 
-		fd = open_test_file("/pcache-datasync-data-only",
-				    O_CREAT | O_TRUNC | O_RDWR, &file);
-		TEST_ASSERT(fd >= 0);
-		TEST_ASSERT_EQ(
-			vfs_write(file, (const char *)wbuf, sizeof(wbuf)),
-			(ssize_t)sizeof(wbuf));
-		TEST_ASSERT_EQ(read_raw_file_page(file, 0, raw), 0);
-		TEST_ASSERT_NE(memcmp(raw, wbuf, sizeof(wbuf)), 0);
-		TEST_ASSERT_EQ(read_raw_inode(file->f_inode, &before), 0);
-
-		changed_atime = before.i_atime + 1;
-		if (before.i_atime == UINT32_MAX)
-			changed_atime = before.i_atime - 1;
-		file->f_inode->i_atime_sec = changed_atime;
-
-		TEST_ASSERT_EQ(vfs_datasync_file(file), 0);
-		memset(raw, 0, sizeof(raw));
-		TEST_ASSERT_EQ(read_raw_file_page(file, 0, raw), 0);
-		TEST_ASSERT_EQ(memcmp(raw, wbuf, sizeof(wbuf)), 0);
-		TEST_ASSERT_EQ(read_raw_inode(file->f_inode, &after_datasync),
-			       0);
-		TEST_ASSERT_EQ(after_datasync.i_atime, before.i_atime);
-
-		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
-		TEST_ASSERT_EQ(read_raw_inode(file->f_inode, &after_fsync), 0);
-		TEST_ASSERT_EQ(after_fsync.i_atime, changed_atime);
+		TEST_ASSERT_EQ(vfs_datasync_file(&file.file), 0);
+		TEST_ASSERT_EQ(datasync_test_hooks, 1);
+		TEST_ASSERT_EQ(datasync_test_writebacks, 0);
+		TEST_ASSERT_EQ(ktest_memory_file_read_block(&file, 0, raw), 0);
+		TEST_ASSERT_EQ(memcmp(raw, data, sizeof(data)), 0);
 	}
-	TEST_END("page cache: fdatasync skips pure inode metadata");
-	goto cleanup;
+	TEST_END("page cache: fdatasync flushes data and uses hook");
+	ktest_memory_file_destroy(&file);
+	return __test_ret;
 fail:
-	TEST_FAIL("page cache: fdatasync skips pure inode metadata",
-		  "see above");
-cleanup:
-	close_test_file(fd, file);
-	unlink_test_path("/pcache-datasync-data-only");
-
+	TEST_FAIL("page cache: fdatasync flushes data and uses hook", "see above");
+	ktest_memory_file_destroy(&file);
 	return __test_ret;
 }
 
 int test_page_cache_raw_alias_fsync(void)
 {
-	static uint8_t wbuf[BLOCK_SIZE];
-	static uint8_t cached[BLOCK_SIZE];
-	struct file *file = NULL;
-	int fd = -1;
-
-	TEST_BEGIN("page cache: block mapping refreshed after fsync");
-	{
-		unlink_test_path("/pcache-block-mapping-refresh");
-		fill_pattern(wbuf, sizeof(wbuf), 0x73);
-		memset(cached, 0, sizeof(cached));
-
-		fd = open_test_file("/pcache-block-mapping-refresh",
-				    O_CREAT | O_TRUNC | O_RDWR, &file);
-		TEST_ASSERT(fd >= 0);
-		TEST_ASSERT_EQ(
-			vfs_write(file, (const char *)wbuf, sizeof(wbuf)),
-			(ssize_t)sizeof(wbuf));
-		TEST_ASSERT_EQ(read_block_alias(file, 0, cached), 0);
-		TEST_ASSERT_EQ(memcmp(cached, wbuf, sizeof(wbuf)), 0);
-
-
-		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
-
-		memset(cached, 0, sizeof(cached));
-		TEST_ASSERT_EQ(read_block_alias(file, 0, cached), 0);
-		TEST_ASSERT_EQ(memcmp(cached, wbuf, sizeof(wbuf)), 0);
-	}
-	TEST_END("page cache: block mapping refreshed after fsync");
-	goto cleanup;
-fail:
-	TEST_FAIL("page cache: block mapping refreshed after fsync",
-		  "see above");
-cleanup:
-	close_test_file(fd, file);
-	unlink_test_path("/pcache-block-mapping-refresh");
-
-	return __test_ret;
-}
-
-int test_page_cache_directory_alias_refresh(void)
-{
-	int ret;
-	static uint8_t cached[BLOCK_SIZE];
-	struct path dir_path = {0};
-	struct path file_path = {0};
+	static uint8_t data[BLOCK_SIZE];
+	static uint8_t raw[BLOCK_SIZE];
+	struct ktest_memory_file file;
 	struct page_cache *raw_page = NULL;
-	uint32_t pblock = 0;
 
-	TEST_BEGIN("page cache: directory alias refresh after create");
+	TEST_BEGIN("page cache: block mapping aliases file mapping");
 	{
-		(void)vfs_unlink_at_path(NULL, "/pcache-alias-dir/child", 0);
-		(void)vfs_unlink_at_path(NULL, "/pcache-alias-dir",
-					  AT_REMOVEDIR);
-
-		TEST_ASSERT_EQ(
-			vfs_mkdir_at_path(NULL, "/pcache-alias-dir", 0755), 0);
-		TEST_ASSERT_EQ(path_lookupat_path(NULL, "/pcache-alias-dir", 0,
-						  &dir_path),
-			       0);
-		TEST_ASSERT_NOT_NULL(dir_path.dentry);
-		TEST_ASSERT_NOT_NULL(dir_path.dentry->d_inode);
-
-		ret = ext2_bmap(dir_path.dentry->d_inode, 0, false, &pblock);
-		TEST_ASSERT(ret >= 0);
-		TEST_ASSERT_NE(pblock, 0u);
-		raw_page = page_cache_get_block(
-			dir_path.dentry->d_inode->i_sb->s_dev, pblock);
+		TEST_ASSERT_EQ(ktest_memory_file_init(&file,
+						     KTEST_MEMORY_DEV(16), 0),
+				       0);
+		fill_pattern(data, sizeof(data), 0x73);
+		TEST_ASSERT_EQ(vfs_write(&file.file, (const char *)data,
+					 sizeof(data)), (ssize_t)sizeof(data));
+		raw_page = page_cache_get_block(file.dev, 0);
 		TEST_ASSERT_NOT_NULL(raw_page);
-		TEST_ASSERT(!dir_page_has_entry(page_cache_data(raw_page),
-						"child"));
-
-		ret = vfs_create_at_path(NULL, "/pcache-alias-dir/child", 0644,
-					 &file_path);
-		TEST_ASSERT_EQ(ret, 0);
-		TEST_ASSERT_NOT_NULL(file_path.dentry);
-		path_put(&file_path);
-
-		memset(cached, 0, sizeof(cached));
-		memcpy(cached, page_cache_data(raw_page), BLOCK_SIZE);
-		TEST_ASSERT(dir_page_has_entry(cached, "child"));
+		TEST_ASSERT_EQ(memcmp(page_cache_data(raw_page), data,
+				      sizeof(data)), 0);
+		TEST_ASSERT_EQ(vfs_sync_file(&file.file), 0);
+		TEST_ASSERT_EQ(ktest_memory_file_read_block(&file, 0, raw), 0);
+		TEST_ASSERT_EQ(memcmp(raw, data, sizeof(raw)), 0);
 	}
-	TEST_END("page cache: directory alias refresh after create");
-	goto cleanup;
-fail:
-	TEST_FAIL("page cache: directory alias refresh after create",
-		  "see above");
-cleanup:
+	TEST_END("page cache: block mapping aliases file mapping");
 	if (raw_page)
 		page_cache_put_page(raw_page);
-	path_put(&file_path);
-	path_put(&dir_path);
-	(void)vfs_unlink_at_path(NULL, "/pcache-alias-dir/child", 0);
-	(void)vfs_unlink_at_path(NULL, "/pcache-alias-dir", AT_REMOVEDIR);
-
+	ktest_memory_file_destroy(&file);
+	return __test_ret;
+fail:
+	TEST_FAIL("page cache: block mapping aliases file mapping", "see above");
+	if (raw_page)
+		page_cache_put_page(raw_page);
+	ktest_memory_file_destroy(&file);
 	return __test_ret;
 }
 
 int test_page_cache_raw_alias_drop(void)
 {
-	static uint8_t old_buf[BLOCK_SIZE];
-	static uint8_t new_buf[BLOCK_SIZE];
-	static uint8_t cached[BLOCK_SIZE];
-	struct file *file = NULL;
-	int fd = -1;
+	static uint8_t old_data[BLOCK_SIZE];
+	static uint8_t new_data[BLOCK_SIZE];
+	struct ktest_memory_file file;
+	struct page_cache *page = NULL;
 
-	TEST_BEGIN("page cache: alias invalidate reloads raw block");
+	TEST_BEGIN("page cache: mapping invalidation reloads raw alias");
 	{
-		unlink_test_path("/pcache-alias-invalidate");
-		fill_pattern(old_buf, sizeof(old_buf), 0x19);
-		fill_pattern(new_buf, sizeof(new_buf), 0xe3);
+		TEST_ASSERT_EQ(ktest_memory_file_init(&file,
+						     KTEST_MEMORY_DEV(17), 0),
+				       0);
+		fill_pattern(old_data, sizeof(old_data), 0x19);
+		fill_pattern(new_data, sizeof(new_data), 0xe3);
+		TEST_ASSERT_EQ(ktest_memory_file_seed_block(&file, 0, old_data), 0);
 
-		fd = open_test_file("/pcache-alias-invalidate",
-				    O_CREAT | O_TRUNC | O_RDWR, &file);
-		TEST_ASSERT(fd >= 0);
-		TEST_ASSERT_EQ(
-			vfs_write(file, (const char *)old_buf, sizeof(old_buf)),
-			(ssize_t)sizeof(old_buf));
-		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
-		TEST_ASSERT_EQ(read_block_alias(file, 0, cached), 0);
-		TEST_ASSERT_EQ(memcmp(cached, old_buf, sizeof(cached)), 0);
+		page = page_cache_get_mapping(&file.inode.i_pages, 0,
+					      PAGE_CACHE_READ, NULL);
+		TEST_ASSERT_NOT_NULL(page);
+		TEST_ASSERT_EQ(memcmp(page_cache_data(page), old_data,
+				      sizeof(old_data)), 0);
+		page_cache_put_page(page);
+		page = NULL;
 
-		TEST_ASSERT_EQ(write_raw_file_page(file, 0, new_buf), 0);
-
-		memset(cached, 0, sizeof(cached));
-		TEST_ASSERT_EQ(read_block_alias(file, 0, cached), 0);
-		TEST_ASSERT_EQ(memcmp(cached, new_buf, sizeof(cached)), 0);
+		TEST_ASSERT_EQ(ktest_memory_file_write_block(&file, 0, new_data),
+				       0);
+		page_cache_invalidate_mapping(&file.inode.i_pages);
+		page = page_cache_get_mapping(&file.inode.i_pages, 0,
+					      PAGE_CACHE_READ, NULL);
+		TEST_ASSERT_NOT_NULL(page);
+		TEST_ASSERT_EQ(memcmp(page_cache_data(page), new_data,
+				      sizeof(new_data)), 0);
 	}
-	TEST_END("page cache: alias invalidate reloads raw block");
-	goto cleanup;
+	TEST_END("page cache: mapping invalidation reloads raw alias");
+	if (page)
+		page_cache_put_page(page);
+	ktest_memory_file_destroy(&file);
+	return __test_ret;
 fail:
-	TEST_FAIL("page cache: alias invalidate reloads raw block",
+	TEST_FAIL("page cache: mapping invalidation reloads raw alias",
 		  "see above");
-cleanup:
-	close_test_file(fd, file);
-	unlink_test_path("/pcache-alias-invalidate");
-
+	if (page)
+		page_cache_put_page(page);
+	ktest_memory_file_destroy(&file);
 	return __test_ret;
 }
 
@@ -646,24 +374,18 @@ int test_page_cache_pressure_eviction(void)
 	enum { NR_PRESSURE_PAGES = 513 };
 	static uint8_t page_buf[BLOCK_SIZE];
 	static uint8_t raw[BLOCK_SIZE];
-	struct file *dirty_file = NULL;
-	struct file *clean_file = NULL;
-	int dirty_fd = -1;
-	int clean_fd = -1;
+	struct ktest_memory_file dirty_file;
+	struct ktest_memory_file clean_file;
 
 	TEST_BEGIN("page cache: pressure eviction and progress");
 	{
-		unlink_test_path("/pcache-pressure");
-		unlink_test_path("/pcache-clean");
-
-		dirty_fd =
-			open_test_file("/pcache-pressure",
-				       O_CREAT | O_TRUNC | O_RDWR, &dirty_file);
-		TEST_ASSERT(dirty_fd >= 0);
-
+		TEST_ASSERT_EQ(ktest_memory_file_init(&dirty_file,
+						     KTEST_MEMORY_DEV(18), 0),
+				       0);
 		for (uint32_t i = 0; i < NR_PRESSURE_PAGES; i++) {
 			fill_pattern(page_buf, sizeof(page_buf), (uint8_t)i);
-			TEST_ASSERT_EQ(vfs_write(dirty_file,
+			dirty_file.file.f_pos = (loff_t)i * BLOCK_SIZE;
+			TEST_ASSERT_EQ(vfs_write(&dirty_file.file,
 						 (const char *)page_buf,
 						 sizeof(page_buf)),
 				       (ssize_t)sizeof(page_buf));
@@ -671,85 +393,66 @@ int test_page_cache_pressure_eviction(void)
 
 		fill_pattern(page_buf, sizeof(page_buf), 0);
 		memset(raw, 0, sizeof(raw));
-		TEST_ASSERT_EQ(read_raw_file_page(dirty_file, 0, raw), 0);
+		TEST_ASSERT_EQ(ktest_memory_file_read_block(&dirty_file, 0, raw),
+				       0);
 		TEST_ASSERT_EQ(memcmp(raw, page_buf, sizeof(page_buf)), 0);
+		TEST_ASSERT_EQ(vfs_sync_file(&dirty_file.file), 0);
 
-		TEST_ASSERT_EQ(vfs_sync_file(dirty_file), 0);
-
-		clean_fd =
-			open_test_file("/pcache-clean",
-				       O_CREAT | O_TRUNC | O_RDWR, &clean_file);
-		TEST_ASSERT(clean_fd >= 0);
+		TEST_ASSERT_EQ(ktest_memory_file_init(&clean_file,
+						     KTEST_MEMORY_DEV(19), 1024),
+				       0);
 		fill_pattern(page_buf, sizeof(page_buf), 0xa7);
-		TEST_ASSERT_EQ(vfs_write(clean_file, (const char *)page_buf,
-					 sizeof(page_buf)),
-			       (ssize_t)sizeof(page_buf));
+		TEST_ASSERT_EQ(vfs_write(&clean_file.file, (const char *)page_buf,
+					 sizeof(page_buf)), (ssize_t)sizeof(page_buf));
 		memset(raw, 0, sizeof(raw));
-		TEST_ASSERT_EQ(read_raw_file_page(clean_file, 0, raw), 0);
+		TEST_ASSERT_EQ(ktest_memory_file_read_block(&clean_file, 0, raw),
+				       0);
 		TEST_ASSERT_NE(memcmp(raw, page_buf, sizeof(page_buf)), 0);
 	}
 	TEST_END("page cache: pressure eviction and progress");
-	goto cleanup;
+	ktest_memory_file_destroy(&clean_file);
+	ktest_memory_file_destroy(&dirty_file);
+	return __test_ret;
 fail:
 	TEST_FAIL("page cache: pressure eviction and progress", "see above");
-cleanup:
-	close_test_file(clean_fd, clean_file);
-	close_test_file(dirty_fd, dirty_file);
-	unlink_test_path("/pcache-clean");
-	unlink_test_path("/pcache-pressure");
-
+	ktest_memory_file_destroy(&clean_file);
+	ktest_memory_file_destroy(&dirty_file);
 	return __test_ret;
 }
 
 int test_page_cache_clustered_writeback(void)
 {
-	int ret;
 	static uint8_t page_buf[BLOCK_SIZE];
-	struct virtio_blk_test_stats stats;
-	uint32_t pblocks[3];
-	bool contiguous = true;
-	struct file *file = NULL;
-	int fd = -1;
+	struct ktest_memory_file file;
+	struct ktest_memory_stats stats;
 
 	TEST_BEGIN("page cache: clustered writeback");
 	{
-		unlink_test_path("/pcache-cluster");
-		fd = open_test_file("/pcache-cluster",
-				    O_CREAT | O_TRUNC | O_RDWR, &file);
-		TEST_ASSERT(fd >= 0);
-
+		TEST_ASSERT_EQ(ktest_memory_file_init(&file,
+						     KTEST_MEMORY_DEV(20), 0),
+				       0);
 		for (uint32_t i = 0; i < 3; i++) {
-			fill_pattern(page_buf, sizeof(page_buf),
-				     (uint8_t)(0xc0 + i));
-			TEST_ASSERT_EQ(vfs_write(file, (const char *)page_buf,
+			fill_pattern(page_buf, sizeof(page_buf), (uint8_t)(0xc0 + i));
+			file.file.f_pos = (loff_t)i * BLOCK_SIZE;
+			TEST_ASSERT_EQ(vfs_write(&file.file, (const char *)page_buf,
 						 sizeof(page_buf)),
 				       (ssize_t)sizeof(page_buf));
 		}
-		for (uint32_t i = 0; i < 3; i++) {
-			ret = ext2_bmap(file->f_inode, i, false, &pblocks[i]);
-			TEST_ASSERT(ret >= 0);
-			TEST_ASSERT_NE(pblocks[i], 0u);
-			if (i > 0 && pblocks[i] != pblocks[i - 1] + 1)
-				contiguous = false;
-		}
 
-		virtio_blk_test_reset_stats();
-		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
+		ktest_memory_device_reset_stats();
+		TEST_ASSERT_EQ(vfs_sync_file(&file.file), 0);
 		memset(&stats, 0, sizeof(stats));
-		virtio_blk_test_get_stats(&stats);
+		ktest_memory_device_get_stats(&stats);
 		TEST_ASSERT_EQ(stats.read_reqs, 0u);
 		TEST_ASSERT(stats.write_reqs >= 1);
-		if (contiguous)
-			TEST_ASSERT(stats.max_write_nsec >= 3 * BLOCK_SECTORS);
+		TEST_ASSERT(stats.max_write_nsec >= 3 * BLOCK_SECTORS);
 	}
 	TEST_END("page cache: clustered writeback");
-	goto cleanup;
+	ktest_memory_file_destroy(&file);
+	return __test_ret;
 fail:
 	TEST_FAIL("page cache: clustered writeback", "see above");
-cleanup:
-	close_test_file(fd, file);
-	unlink_test_path("/pcache-cluster");
-
+	ktest_memory_file_destroy(&file);
 	return __test_ret;
 }
 
@@ -761,134 +464,57 @@ int test_page_cache_indirect_reclaim_progress(void)
 	};
 	static uint8_t page_buf[BLOCK_SIZE];
 	static uint8_t raw[BLOCK_SIZE];
-	struct file *file = NULL;
-	int fd = -1;
+	struct ktest_memory_file file;
 
 	TEST_BEGIN("page cache: indirect reclaim progress");
 	{
-		unlink_test_path("/pcache-indirect-reclaim");
-		fd = open_test_file("/pcache-indirect-reclaim",
-				    O_CREAT | O_TRUNC | O_RDWR, &file);
-		TEST_ASSERT(fd >= 0);
-
-		file->f_pos = (loff_t)START_INDEX * BLOCK_SIZE;
+		TEST_ASSERT_EQ(ktest_memory_file_init(&file,
+						     KTEST_MEMORY_DEV(21), 0),
+				       0);
+		file.file.f_pos = (loff_t)START_INDEX * BLOCK_SIZE;
 		for (uint32_t i = 0; i < NR_INDIRECT_PAGES; i++) {
-			fill_pattern(page_buf, sizeof(page_buf),
-				     (uint8_t)(0x20 + i));
-			TEST_ASSERT_EQ(vfs_write(file, (const char *)page_buf,
+			fill_pattern(page_buf, sizeof(page_buf), (uint8_t)(0x20 + i));
+			TEST_ASSERT_EQ(vfs_write(&file.file, (const char *)page_buf,
 						 sizeof(page_buf)),
 				       (ssize_t)sizeof(page_buf));
 		}
 
-		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
-
+		TEST_ASSERT_EQ(vfs_sync_file(&file.file), 0);
 		fill_pattern(page_buf, sizeof(page_buf), 0x20);
 		memset(raw, 0, sizeof(raw));
-		TEST_ASSERT_EQ(read_raw_file_page(file, START_INDEX, raw), 0);
+		TEST_ASSERT_EQ(ktest_memory_file_read_block(&file, START_INDEX,
+							   raw), 0);
 		TEST_ASSERT_EQ(memcmp(raw, page_buf, sizeof(page_buf)), 0);
 	}
 	TEST_END("page cache: indirect reclaim progress");
-	goto cleanup;
+	ktest_memory_file_destroy(&file);
+	return __test_ret;
 fail:
 	TEST_FAIL("page cache: indirect reclaim progress", "see above");
-cleanup:
-	close_test_file(fd, file);
-	unlink_test_path("/pcache-indirect-reclaim");
-
-	return __test_ret;
-}
-
-int test_page_cache_truncate_extend_zero_fill(void)
-{
-	enum {
-		INITIAL_LEN = 5000,
-		EXTENDED_LEN = 10000,
-		READ_OFF = 4800,
-		READ_LEN = 2800,
-		TAIL_INDEX = 1,
-	};
-	static uint8_t initial[INITIAL_LEN];
-	static uint8_t raw[BLOCK_SIZE];
-	static uint8_t got[READ_LEN];
-	static uint8_t want[READ_LEN];
-	struct file *file = NULL;
-	int fd = -1;
-
-	TEST_BEGIN("page cache: truncate extend zero-fills tail");
-	{
-		unlink_test_path("/pcache-extend-tail");
-		fill_pattern(initial, sizeof(initial), 0x44);
-		memset(raw, 0, sizeof(raw));
-		memset(got, 0, sizeof(got));
-		memset(want, 0, sizeof(want));
-
-		fd = open_test_file("/pcache-extend-tail",
-				    O_CREAT | O_TRUNC | O_RDWR, &file);
-		TEST_ASSERT(fd >= 0);
-		TEST_ASSERT_EQ(
-			vfs_write(file, (const char *)initial, sizeof(initial)),
-			(ssize_t)sizeof(initial));
-		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
-		TEST_ASSERT_EQ(read_raw_file_page(file, TAIL_INDEX, raw), 0);
-
-		for (uint32_t i = INITIAL_LEN - BLOCK_SIZE; i < BLOCK_SIZE; i++)
-			raw[i] = 0xa5;
-		TEST_ASSERT_EQ(write_raw_file_page(file, TAIL_INDEX, raw), 0);
-
-		page_cache_invalidate_inode(file->f_inode);
-		TEST_ASSERT_EQ(vfs_truncate_file(file, EXTENDED_LEN), 0);
-		TEST_ASSERT_EQ(vfs_llseek(file, READ_OFF, 0), (loff_t)READ_OFF);
-		TEST_ASSERT_EQ(vfs_read(file, (char *)got, sizeof(got)),
-			       (ssize_t)sizeof(got));
-
-		memcpy(want, initial + READ_OFF, INITIAL_LEN - READ_OFF);
-		TEST_ASSERT_EQ(memcmp(got, want, sizeof(got)), 0);
-
-		TEST_ASSERT_EQ(vfs_sync_file(file), 0);
-		page_cache_invalidate_inode(file->f_inode);
-		memset(got, 0, sizeof(got));
-		TEST_ASSERT_EQ(vfs_llseek(file, READ_OFF, 0), (loff_t)READ_OFF);
-		TEST_ASSERT_EQ(vfs_read(file, (char *)got, sizeof(got)),
-			       (ssize_t)sizeof(got));
-		TEST_ASSERT_EQ(memcmp(got, want, sizeof(got)), 0);
-	}
-	TEST_END("page cache: truncate extend zero-fills tail");
-	goto cleanup;
-fail:
-	TEST_FAIL("page cache: truncate extend zero-fills tail", "see above");
-cleanup:
-	close_test_file(fd, file);
-	unlink_test_path("/pcache-extend-tail");
-
+	ktest_memory_file_destroy(&file);
 	return __test_ret;
 }
 
 int test_page_cache_large_offset_rejected(void)
 {
 	static uint8_t byte = 0x5a;
-	struct file *file = NULL;
-	int fd = -1;
+	struct ktest_memory_file file;
 
 	TEST_BEGIN("page cache: large offset rejected");
 	{
-		unlink_test_path("/pcache-large-offset");
-
-		fd = open_test_file("/pcache-large-offset",
-				    O_CREAT | O_TRUNC | O_RDWR, &file);
-		TEST_ASSERT(fd >= 0);
-
-		file->f_pos = (loff_t)UINT32_MAX + 1;
-		TEST_ASSERT_EQ(vfs_write(file, (const char *)&byte, 1),
-			       (ssize_t)-EFBIG);
-		TEST_ASSERT_EQ(file->f_inode->i_size, 0ULL);
+		TEST_ASSERT_EQ(ktest_memory_file_init(&file,
+						     KTEST_MEMORY_DEV(22), 0),
+				       0);
+		file.file.f_pos = (loff_t)UINT32_MAX + 1;
+		TEST_ASSERT_EQ(vfs_write(&file.file, (const char *)&byte, 1),
+				       (ssize_t)-EFBIG);
+		TEST_ASSERT_EQ(file.inode.i_size, 0ULL);
 	}
 	TEST_END("page cache: large offset rejected");
-	goto cleanup;
+	ktest_memory_file_destroy(&file);
+	return __test_ret;
 fail:
 	TEST_FAIL("page cache: large offset rejected", "see above");
-cleanup:
-	close_test_file(fd, file);
-	unlink_test_path("/pcache-large-offset");
-
+	ktest_memory_file_destroy(&file);
 	return __test_ret;
 }

@@ -202,18 +202,6 @@ static const struct ktest_case user_trap_cases[] = {
 	KTEST_CASE(test_trap_user_return_task_setup),
 };
 
-static const struct ktest_case fs_at_cases[] = {
-	KTEST_CASE(test_fs_at_path_lookup_basics),
-	KTEST_CASE(test_fs_at_empty_path_error),
-	KTEST_CASE(test_fs_at_mkdir_rmdir_cycle),
-	KTEST_CASE(test_fs_at_readlink_not_symlink),
-	KTEST_CASE(test_fs_at_lookup_nofollow_on_dir),
-	KTEST_CASE(test_fs_at_non_directory_parent_error),
-	KTEST_CASE(test_fs_at_openat_regular_file),
-	KTEST_CASE(test_fs_mount_ext2_on_directory),
-	KTEST_CASE(test_ext2_bgdt_uses_vmalloc_for_large_tables),
-};
-
 static const struct ktest_case vfs_root_cases[] = {
 	KTEST_CASE(test_vfs_root_autodetect_missing_device),
 	KTEST_CASE(test_vfs_root_autodetect_no_match),
@@ -238,18 +226,11 @@ static const struct ktest_case page_cache_cases[] = {
 	KTEST_CASE(test_vfs_datasync_metadata_policy),
 	KTEST_CASE(test_page_cache_datasync_skips_pure_inode_metadata),
 	KTEST_CASE(test_page_cache_raw_alias_fsync),
-	KTEST_CASE(test_page_cache_directory_alias_refresh),
 	KTEST_CASE(test_page_cache_raw_alias_drop),
 	KTEST_CASE(test_page_cache_pressure_eviction),
 	KTEST_CASE(test_page_cache_clustered_writeback),
 	KTEST_CASE(test_page_cache_indirect_reclaim_progress),
-	KTEST_CASE(test_page_cache_truncate_extend_zero_fill),
 	KTEST_CASE(test_page_cache_large_offset_rejected),
-};
-
-static const struct ktest_case virtio_blk_cases[] = {
-	KTEST_CASE(test_virtio_blk),
-	KTEST_CASE(test_virtio_blk_errors),
 };
 
 static const struct ktest_case syscall_compat_cases[] = {
@@ -280,7 +261,6 @@ static const struct ktest_case syscall_compat_cases[] = {
 	KTEST_CASE(test_kill_all_processes),
 	KTEST_CASE(test_kill_process_groups),
 	KTEST_CASE(test_shutdown_syscall_contract),
-	KTEST_CASE(test_root_statfs_fields),
 	KTEST_CASE(test_pipe2_file_alloc_failure_cleanup),
 };
 
@@ -345,16 +325,12 @@ static const struct ktest_module trap_user_return_module =
 static const struct ktest_module trap_user_trap_module =
 	KTEST_MODULE("user_trap", user_trap_cases);
 
-static const struct ktest_module io_fs_at_module =
-	KTEST_MODULE("fs_at", fs_at_cases);
 static const struct ktest_module io_vfs_root_module =
 	KTEST_MODULE("vfs_root", vfs_root_cases);
 static const struct ktest_module io_page_cache_metadata_module =
 	KTEST_MODULE("page_cache_metadata", page_cache_metadata_cases);
 static const struct ktest_module io_page_cache_module =
 	KTEST_MODULE("page_cache", page_cache_cases);
-static const struct ktest_module io_virtio_blk_module =
-	KTEST_MODULE("virtio_blk", virtio_blk_cases);
 
 static const struct ktest_module abi_syscall_compat_module =
 	KTEST_MODULE("syscall_compat", syscall_compat_cases);
@@ -400,11 +376,9 @@ static const struct ktest_module *const trap_modules[] = {
 };
 
 static const struct ktest_module *const io_modules[] = {
-	&io_fs_at_module,
 	&io_vfs_root_module,
 	&io_page_cache_metadata_module,
 	&io_page_cache_module,
-	&io_virtio_blk_module,
 };
 
 static const struct ktest_module *const abi_modules[] = {

@@ -1,11 +1,9 @@
 #include <kernel/fs.h>
-#include <kernel/blkdev.h>
 #include <kernel/errno.h>
 #include <kernel/pipe.h>
 #include <kernel/pid.h>
 #include <kernel/resource.h>
 #include <kernel/signal.h>
-#include <kernel/statfs.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <kernel/test.h>
@@ -1522,38 +1520,6 @@ int test_shutdown_syscall_contract(void)
 fail:
 	TEST_FAIL("syscall compat: shutdown syscall contract", "see above");
 	task_set_uid(task, saved_uid);
-
-	return __test_ret;
-}
-
-int test_root_statfs_fields(void)
-{
-	struct statfs64 st;
-	int i;
-
-	TEST_BEGIN("syscall compat: root statfs fields");
-	{
-		TEST_ASSERT_NOT_NULL(root_dentry);
-		TEST_ASSERT_NOT_NULL(root_dentry->d_sb);
-		TEST_ASSERT_EQ(vfs_statfs(root_dentry->d_sb, &st), 0);
-		TEST_ASSERT_EQ(st.f_type, (int64_t)0xef53);
-		TEST_ASSERT_EQ(st.f_bsize, (int64_t)BLOCK_SIZE);
-		TEST_ASSERT_EQ(st.f_frsize, (int64_t)BLOCK_SIZE);
-		TEST_ASSERT(st.f_blocks > 0);
-		TEST_ASSERT(st.f_bfree <= st.f_blocks);
-		TEST_ASSERT(st.f_bavail <= st.f_bfree);
-		TEST_ASSERT(st.f_files > 0);
-		TEST_ASSERT(st.f_ffree <= st.f_files);
-		TEST_ASSERT(st.f_fsid[0] != 0 || st.f_fsid[1] != 0);
-		TEST_ASSERT_EQ(st.f_namelen, (int64_t)255);
-		TEST_ASSERT_EQ(st.f_flags, 0);
-		for (i = 0; i < 4; i++)
-			TEST_ASSERT_EQ(st.f_spare[i], 0);
-	}
-	TEST_END("syscall compat: root statfs fields");
-	return __test_ret;
-fail:
-	TEST_FAIL("syscall compat: root statfs fields", "see above");
 
 	return __test_ret;
 }

@@ -1,9 +1,7 @@
-/*
- * test/page_cache_metadata_test.c - Page cache metadata block self-tests
- */
+/* Page-cache block mapping tests backed by an in-memory block adapter. */
 
-#include <drivers/virtio_blk.h>
-#include <kernel/blkdev.h>
+#include "memory_fixture.h"
+
 #include <kernel/errno.h>
 #include <kernel/page_cache.h>
 #include <kernel/test.h>
@@ -12,28 +10,22 @@
 
 int test_page_cache_metadata_basic(void)
 {
+	static uint8_t disk_buf[BLOCK_SIZE];
 	struct block_device *bdev;
 	struct page_cache *page;
 	struct page_cache *again;
-	static uint8_t disk_buf[BLOCK_SIZE];
-	uint64_t block;
-	uint64_t sector;
 	uint8_t *data;
+	uint64_t block = 3;
 	int ret;
 
 	TEST_BEGIN("page cache metadata: get/sync/reget");
 	{
-		TEST_ASSERT_EQ(BLOCK_SIZE, 4096u);
-		TEST_ASSERT_EQ(BLOCK_SECTORS, 8u);
-
-		bdev = lookup_block_device(ROOT_DEV);
+		TEST_ASSERT_EQ(ktest_memory_device_init(), 0);
+		bdev = lookup_block_device(KTEST_MEMORY_DEV(1));
 		TEST_ASSERT_NOT_NULL(bdev);
-		TEST_ASSERT(bdev->bd_sectors > BLOCK_SECTORS + 4);
+		TEST_ASSERT(bdev->bd_sectors > (block + 1) * BLOCK_SECTORS);
 
-		block = (bdev->bd_sectors - BLOCK_SECTORS - 2) / BLOCK_SECTORS;
-		sector = block * BLOCK_SECTORS;
-
-		page = page_cache_get_block(ROOT_DEV, block);
+		page = page_cache_get_block(KTEST_MEMORY_DEV(1), block);
 		TEST_ASSERT_NOT_NULL(page);
 		data = page_cache_data(page);
 		TEST_ASSERT_NOT_NULL(data);
@@ -45,12 +37,12 @@ int test_page_cache_metadata_basic(void)
 		TEST_ASSERT_EQ(ret, 0);
 
 		memset(disk_buf, 0, sizeof(disk_buf));
-		ret = bdev->bd_ops->read_sectors(bdev, disk_buf, sector,
-						 BLOCK_SECTORS);
+		ret = bdev->bd_ops->read_sectors(
+			bdev, disk_buf, block * BLOCK_SECTORS, BLOCK_SECTORS);
 		TEST_ASSERT_EQ(ret, 0);
 		TEST_ASSERT_EQ(memcmp(data, disk_buf, BLOCK_SIZE), 0);
 
-		again = page_cache_get_block(ROOT_DEV, block);
+		again = page_cache_get_block(KTEST_MEMORY_DEV(1), block);
 		TEST_ASSERT_EQ(again, page);
 		page_cache_put_page(again);
 		page_cache_put_page(page);
@@ -59,7 +51,6 @@ int test_page_cache_metadata_basic(void)
 	return __test_ret;
 fail:
 	TEST_FAIL("page cache metadata: get/sync/reget", "see above");
-
 	return __test_ret;
 }
 
@@ -70,6 +61,7 @@ int test_page_cache_metadata_errors(void)
 
 	TEST_BEGIN("page cache metadata: error paths");
 	{
+		TEST_ASSERT_EQ(ktest_memory_device_init(), 0);
 		page = page_cache_get_block(MKDEV(9, 0), 0);
 		TEST_ASSERT_NULL(page);
 
@@ -80,7 +72,6 @@ int test_page_cache_metadata_errors(void)
 	return __test_ret;
 fail:
 	TEST_FAIL("page cache metadata: error paths", "see above");
-
 	return __test_ret;
 }
 
@@ -90,8 +81,8 @@ int test_page_cache_block_zero_writeback(void)
 
 	TEST_BEGIN("page cache metadata: block zero writeback");
 	{
-
-		page = page_cache_get_block(ROOT_DEV, 0);
+		TEST_ASSERT_EQ(ktest_memory_device_init(), 0);
+		page = page_cache_get_block(KTEST_MEMORY_DEV(2), 0);
 		TEST_ASSERT_NOT_NULL(page);
 
 		page_cache_mark_dirty(page);
@@ -102,29 +93,19 @@ int test_page_cache_block_zero_writeback(void)
 	return __test_ret;
 fail:
 	TEST_FAIL("page cache metadata: block zero writeback", "see above");
-
 	return __test_ret;
 }
 
 int test_page_cache_metadata_eviction(void)
 {
-	struct block_device *bdev;
-	uint64_t blocks;
-	uint64_t start;
+	struct page_cache *page;
+	uint64_t start = 1300;
 
 	TEST_BEGIN("page cache metadata: eviction");
 	{
-		bdev = lookup_block_device(ROOT_DEV);
-		TEST_ASSERT_NOT_NULL(bdev);
-
-		blocks = bdev->bd_sectors / BLOCK_SECTORS;
-		TEST_ASSERT(blocks > 700);
-		start = blocks - 700;
-
+		TEST_ASSERT_EQ(ktest_memory_device_init(), 0);
 		for (uint32_t i = 0; i < 600; i++) {
-			struct page_cache *page =
-				page_cache_get_block(ROOT_DEV, start + i);
-
+			page = page_cache_get_block(KTEST_MEMORY_DEV(3), start + i);
 			TEST_ASSERT_NOT_NULL(page);
 			page_cache_put_page(page);
 		}
@@ -133,6 +114,5 @@ int test_page_cache_metadata_eviction(void)
 	return __test_ret;
 fail:
 	TEST_FAIL("page cache metadata: eviction", "see above");
-
 	return __test_ret;
 }

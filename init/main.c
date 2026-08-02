@@ -56,8 +56,8 @@ void kernel_main(void)
 #else
 	struct task_struct *init;
 	struct task_struct *writeback;
-#endif
 	int ret;
+#endif
 
 	console_init_sbi();
 
@@ -109,6 +109,10 @@ void kernel_main(void)
 	vfs_init();
 	pr_info("vfs: init successfully\n");
 
+#ifdef KERNEL_SELFTEST
+	/* KTEST exercises kernel mechanisms with in-memory fixtures. */
+	pr_info("storage: skipped for kernel self-test\n");
+#else
 	ret = filesystems_init();
 	if (ret < 0)
 		panic("filesystems: init failed (%d)", ret);
@@ -118,6 +122,7 @@ void kernel_main(void)
 	ret = vfs_mount_root(ROOT_DEV);
 	if (ret < 0)
 		panic("VFS: root mount failed (%d)", ret);
+#endif
 
 #ifdef KERNEL_SELFTEST
 	selftest = kernel_thread(kernel_selftest_thread, NULL);

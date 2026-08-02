@@ -1,6 +1,8 @@
 # 块设备与页缓存架构
 
-块层连接文件系统和具体设备驱动。cuteOS 当前存储栈由块设备注册表、统一 4 KiB page cache、后台 writeback 和 virtio-blk MMIO 轮询驱动组成。
+块层连接文件系统和具体设备驱动。普通运行时的存储栈由块设备注册表、统一 4 KiB
+page cache、后台 writeback 和 virtio-blk MMIO 轮询驱动组成。内核自测不装配这条
+真实存储栈，而是在相同接口上使用内存 fixture 验证内核机制。
 
 ## 代码边界
 
@@ -17,6 +19,19 @@
 - `block/virtio_blk.c`：QEMU virtio-blk modern MMIO 驱动。
 
 文件系统只能通过 block device/page cache 发起 I/O；驱动只实现扇区读写，不知道 VFS 或 ext2。
+
+## 自测边界
+
+`test/io/memory_fixture.[ch]` 提供两个测试 Adapter：一个注册到 block-device
+接口的内存设备，以及一个带 regular-file `struct file` 和 page mapping 的合成文件。
+它们让 KTEST 可以验证 page-cache identity、dirty/writeback、alias、reclaim、
+同步和文件映射等机制，而不需要路径树、挂载点、on-disk ext2 格式或 MMIO 设备。
+
+因此 `KERNEL_SELFTEST=1` 只执行 `vfs_init()`，不会执行
+`filesystems_init()`、`virtio_blk_init()` 或 `vfs_mount_root()`。ext2 的磁盘格式、
+路径和挂载语义，以及 virtio-blk 驱动与真实块设备的集成，由用户态程序从测试
+rootfs 运行时通过 `make utest` 验证；普通 `make qemu` 仍使用同一 ext2 + virtio-blk
+启动路径。
 
 ## 块设备抽象
 
@@ -308,7 +323,7 @@ write_sectors(bdev, buf, sector, nsec)
 
 当前同一时刻只有一个 in-flight 请求，因此静态 ring 和 request 结构足够。
 
-## 初始化与 rootfs
+## 普通启动的初始化与 rootfs
 
 `kernel_main()` 中：
 
@@ -318,6 +333,9 @@ filesystems_init()
 virtio_blk_init()
 vfs_mount_root(ROOT_DEV)
 ```
+
+这是普通内核的启动路径。KTEST 在 `vfs_init()` 后停止，不执行后三个存储初始化
+步骤，也不创建 rootfs。
 
 顺序要求：
 

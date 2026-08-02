@@ -150,7 +150,6 @@ int test_init_signal_protection(void);
 int test_kill_all_processes(void);
 int test_kill_process_groups(void);
 int test_shutdown_syscall_contract(void);
-int test_root_statfs_fields(void);
 int test_pipe2_file_alloc_failure_cleanup(void);
 
 int test_sched_init(void);
@@ -162,9 +161,6 @@ int test_sched_boost(void);
 
 int test_kernel_thread_basic(void);
 int test_kernel_thread_ctx_setup(void);
-
-int test_virtio_blk(void);
-int test_virtio_blk_errors(void);
 
 int test_page_cache_metadata_basic(void);
 int test_page_cache_metadata_errors(void);
@@ -178,23 +174,11 @@ int test_page_cache_fsync_inode_scope(void);
 int test_vfs_datasync_metadata_policy(void);
 int test_page_cache_datasync_skips_pure_inode_metadata(void);
 int test_page_cache_raw_alias_fsync(void);
-int test_page_cache_directory_alias_refresh(void);
 int test_page_cache_raw_alias_drop(void);
 int test_page_cache_pressure_eviction(void);
 int test_page_cache_clustered_writeback(void);
 int test_page_cache_indirect_reclaim_progress(void);
-int test_page_cache_truncate_extend_zero_fill(void);
 int test_page_cache_large_offset_rejected(void);
-
-int test_fs_at_path_lookup_basics(void);
-int test_fs_at_empty_path_error(void);
-int test_fs_at_mkdir_rmdir_cycle(void);
-int test_fs_at_readlink_not_symlink(void);
-int test_fs_at_lookup_nofollow_on_dir(void);
-int test_fs_at_non_directory_parent_error(void);
-int test_fs_at_openat_regular_file(void);
-int test_fs_mount_ext2_on_directory(void);
-int test_ext2_bgdt_uses_vmalloc_for_large_tables(void);
 
 int test_vfs_root_autodetect_missing_device(void);
 int test_vfs_root_autodetect_no_match(void);

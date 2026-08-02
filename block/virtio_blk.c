@@ -56,11 +56,6 @@ static struct vblk_used vblk_used __aligned(VRING_USED_ALIGN_SIZE);
 static struct virtio_blk_req vblk_req;
 static struct virtio_blk_dev vblk_dev;
 
-#ifdef KERNEL_SELFTEST
-static struct virtio_blk_test_stats vblk_test_stats;
-static int vblk_test_write_error;
-#endif
-
 static int virtio_blk_read_sectors(struct block_device *bdev, void *buf,
 				   uint64_t sector, uint32_t nsec);
 static int virtio_blk_write_sectors(struct block_device *bdev, const void *buf,
@@ -183,23 +178,6 @@ static int virtio_blk_rw(struct block_device *bdev, bool write,
 	if (nsec > vd->capacity || sector > vd->capacity - nsec)
 		return -EINVAL;
 
-#ifdef KERNEL_SELFTEST
-	if (write && vblk_test_write_error) {
-		int error = vblk_test_write_error;
-
-		vblk_test_write_error = 0;
-		return error;
-	}
-	if (write) {
-		vblk_test_stats.write_reqs++;
-		vblk_test_stats.last_write_nsec = nsec;
-		if (nsec > vblk_test_stats.max_write_nsec)
-			vblk_test_stats.max_write_nsec = nsec;
-	} else {
-		vblk_test_stats.read_reqs++;
-	}
-#endif
-
 	vblk_build_req(buf_addr, sector, nsec, write);
 	expected = (uint16_t)(vblk_avail.idx + 1);
 	return vblk_submit_and_wait(vd->mmio_base, expected);
@@ -262,23 +240,3 @@ void virtio_blk_init(void)
 		(unsigned long long)vblk_dev.capacity,
 		(unsigned long long)(vblk_dev.capacity >> 11));
 }
-
-#ifdef KERNEL_SELFTEST
-void virtio_blk_test_reset_stats(void)
-{
-	memset(&vblk_test_stats, 0, sizeof(vblk_test_stats));
-}
-
-void virtio_blk_test_get_stats(struct virtio_blk_test_stats *stats)
-{
-	if (!stats)
-		return;
-
-	*stats = vblk_test_stats;
-}
-
-void virtio_blk_test_fail_next_write(int error)
-{
-	vblk_test_write_error = error;
-}
-#endif

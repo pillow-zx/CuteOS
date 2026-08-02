@@ -3,26 +3,20 @@
 
 #include <kernel/errno.h>
 #include <kernel/buddy.h>
-#include <kernel/blkdev.h>
 #include <kernel/fdtable.h>
 #include <kernel/fs.h>
 #include <kernel/mm.h>
-#include <kernel/syscall.h>
 #include <kernel/test.h>
 #include <kernel/vmalloc.h>
-#include <kernel/vfs.h>
 #include <kernel/page.h>
 #include <kernel/pgtable.h>
-#include <kernel/page_cache.h>
 
-#include "../../fs/ext2/ext2.h"
 #include "../../mm/internal.h"
+#include "../io/memory_fixture.h"
 #include "../ktest.h"
 
 #define MM_TEST_BASE		0x00400000UL
 #define MM_TEST_GAP		0x00100000UL
-#define MM_TEST_FILE		"/mm_exec_text_test"
-#define MM_MSYNC_TEST_FILE	"/mm_msync_shared_test"
 #define MM_TEST_VMALLOC_SIZE	(128UL << 20)
 #define MM_TEST_VMALLOC_L0_SIZE (512UL * PAGE_SIZE)
 
@@ -39,27 +33,46 @@ static inline struct mm_struct *mm_test_alloc(void)
 	return mm_create_user();
 }
 
-static inline int mm_test_read_raw_file_page(struct file *file, uint32_t index,
-					      uint8_t *buf)
+static inline int mm_test_map_shared_file(struct mm_struct *mm,
+						 struct file *file, uintptr_t start,
+						 uintptr_t end, int prot,
+						 uint64_t file_offset)
 {
-	struct block_device *bdev;
-	uint32_t pblock = 0;
-	int ret;
+	struct vm_area_struct *vma;
 
-	if (!file || !file->f_inode || !buf)
+	if (!mm || !file || start >= end || (start & (PAGE_SIZE - 1)) ||
+	    (end & (PAGE_SIZE - 1)) ||
+	    (file_offset & (PAGE_SIZE - 1)))
 		return -EINVAL;
+	mm_lock(mm);
+	if (vma_range_overlaps(mm, start, end)) {
+		mm_unlock(mm);
+		return -EINVAL;
+	}
+	vma = vma_alloc_slot(mm);
+	if (!vma) {
+		mm_unlock(mm);
+		return -ENOMEM;
+	}
+	vma->vm_start = start;
+	vma->vm_end = end;
+	vma->vm_flags = mm_prot_to_vm_flags(prot);
+	vma->vm_type = VMA_MMAP;
+	vma->vm_file = file;
+	vma->vm_offset = file_offset;
+	vma->vm_shared = true;
+	vma->used = true;
+	file_get(file);
+	mm_unlock(mm);
+	return 0;
+}
 
-	ret = ext2_bmap(file->f_inode, index, false, &pblock);
-	if (ret < 0)
-		return ret;
-	if (!pblock)
-		return -ENOENT;
-
-	bdev = lookup_block_device(file->f_inode->i_sb->s_dev);
-	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->read_sectors)
-		return -ENXIO;
-	return bdev->bd_ops->read_sectors(bdev, buf,
-					 pblock * BLOCK_SECTORS, BLOCK_SECTORS);
+static inline int mm_test_read_raw_file_page(struct ktest_memory_file *file,
+						      uint32_t index, uint8_t *buf)
+{
+	if (!file || !buf)
+		return -EINVAL;
+	return ktest_memory_file_read_block(file, index, buf);
 }
 
 static inline int mm_test_count_vmas(struct mm_struct *mm)

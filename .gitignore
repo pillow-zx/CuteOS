@@ -17,7 +17,6 @@
 !init/
 !test/
 !test/**/
-!test/rootfs/bin/sh
 !docs/
 !scripts/
 !scripts/tools/

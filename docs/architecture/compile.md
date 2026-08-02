@@ -65,10 +65,10 @@ LIB_OBJS
 `KERNEL_SELFTEST` 同时进入 CFLAGS 和 ASFLAGS。除链接测试对象外，它还让
 `init/main.c` 创建 self-test 内核线程，而不是创建 PID 1。普通构建和测试构建
 都使用 8 KiB 启动栈；深层回归路径运行在 self-test 线程的普通 task 栈上。
-`make ktest` 构建只服务于内核自测的最小 ext2 测试镜像，运行脚本再复制临时镜像
-交给 QEMU，避免自测写入污染后续运行。该镜像来自 `test/rootfs/`，只提供内核
-VFS 用例需要的路径（当前为普通文件 `/bin/sh`）；它不依赖
-`scripts/userspace.mk`，因此不会触发 musl、compiler-rt 或 BusyBox 构建。
+`make ktest` 不构建测试 rootfs，也不向 QEMU 附加 virtio-blk 设备；它只运行
+内核 ELF。需要后端的 page-cache、writeback 和文件映射用例使用
+`test/io/memory_fixture.[ch]` 提供的内存 block/file fixture，因此不会触发
+`scripts/userspace.mk`、ext2 镜像制作或 BusyBox 构建。
 
 held-lock 和 `preempt_count` 的不可恢复错误由独立的 `make kpanic
 CASE=<case>` harness 验证。它为每个 case 使用独立的 `build/kpanic/<case>`
@@ -218,15 +218,15 @@ F/D 扩展。`scripts/tools/check-user-elf.sh` 在链接后强制检查这些约
 2. 用 `scripts/tools/gen-ksyms.sh` 从 stage1 符号表生成 `kernel/ksyms.generated.c`。
 3. 将生成对象纳入最终链接。
 
-## 根文件系统镜像
+## 用户态根文件系统镜像
 
 `scripts/userspace.mk` 将 BusyBox 安装到 `$(USER_OUTROOT)/rootfs`。该 staged 目录是
 rootfs 装配 Interface：它安装 BusyBox 本体、`/sbin/init` 与 applet symlink，
 并安装 `/etc/inittab`；不会创建项目 `/init` 或用它覆盖 `/bin/init`。
 
-内核自测使用独立的 `$(TEST_KERNEL_IMG)`。它由 `test/rootfs/` 复制到测试输出目录
-后直接制作为 ext2，不经过 musl、compiler-rt 或 BusyBox；测试仍然挂载该镜像，
-因为 VFS、ext2、page-cache 和 virtio-blk 自测需要真实的 `ROOT_DEV`。
+内核自测不生成根文件系统镜像。`KERNEL_SELFTEST=1` 的 QEMU 命令只传入 kernel、
+内存和 CPU 参数，不注册 virtio-blk 设备；真实 rootfs、ext2 和 virtio-blk 由普通
+启动及用户态回归测试负责。
 
 `$(KERNEL_IMG)` 再由 `$(MKIMG)` 将 staged rootfs 转换为 ext2：
 
@@ -263,6 +263,10 @@ QEMU 启动时使用：
 ```
 
 `virtio-mmio.force-legacy=false` 与 `block/virtio_blk.c` 的 modern virtio 1.x 初始化路径一致。驱动只协商 `VIRTIO_F_VERSION_1`。
+
+这组 QEMU 存储参数只用于 `make qemu`、`make qemu-gdb` 和 `make utest` 的普通
+内核启动。`make ktest` 使用无磁盘 QEMU，并通过内存 fixture 覆盖内核内部的 I/O
+生命周期和 page-cache 机制。
 
 ## 构建边界
 

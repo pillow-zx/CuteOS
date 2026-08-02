@@ -6,6 +6,8 @@
 
 QEMU `virt` 平台通过 OpenSBI 将控制权交给内核 `_start`。入口位于 `arch/riscv/boot.S`，运行时仍处于 S 模式，MMU 关闭，地址访问使用物理地址。
 
+普通启动路径如下；`KERNEL_SELFTEST=1` 的分支见下文。
+
 ```mermaid
 flowchart TD
     OpenSBI["OpenSBI<br/>进入 S-mode"]
@@ -110,15 +112,21 @@ flowchart TD
 24. `kernel_thread(page_cache_wb_thread, NULL)`：创建页缓存后台写回线程。
 25. idle 循环反复调用 `schedule()` 和 `wait_for_interrupt()`。
 
-`make ktest` 使用 `KERNEL_SELFTEST=1` 构建单独的测试内核，并配套一个不含用户态
-运行时的最小 ext2 测试镜像。该内核在根文件系统挂载后创建 self-test 内核线程，
-然后进入普通 idle 调度循环。self-test 线程在
-普通 8 KiB task 栈上运行 `kernel_test_run()`，输出 `[KTEST] done ...` 结果哨兵，
-然后通过 SBI 关机，不再创建 PID 1。
+`make ktest` 使用 `KERNEL_SELFTEST=1` 构建单独的测试内核，但不构建、附加或挂载
+rootfs。该配置在 `vfs_init()` 后跳过 `filesystems_init()`、`virtio_blk_init()`
+和 `vfs_mount_root(ROOT_DEV)`，直接创建 self-test 内核线程，然后进入普通 idle
+调度循环。self-test 线程在普通 8 KiB task 栈上运行 `kernel_test_run()`，使用
+`test/io/memory_fixture.[ch]` 提供的内存 block/file fixture，输出
+`[KTEST] done ...` 结果哨兵，然后通过 SBI 关机，不创建 PID 1。
+
+KTEST 只验证内核机制、生命周期、错误路径和接口契约。page cache、writeback、
+文件映射等需要后端的用例通过 fixture 验证；ext2 on-disk 格式、路径树、rootfs
+挂载以及 virtio-blk MMIO 驱动的集成不属于 KTEST。它们由普通启动和 `make utest`
+中的用户程序共同验证。
 
 普通内核和测试内核都使用 8 KiB 启动栈。启动栈只承载早期启动路径和 idle
-task；VFS/ext2/page-cache/virtio 等深层回归路径由 self-test 线程的 task 栈
-承载。runner 在每个 case 前后都会关闭本地中断：许多内核自测会直接改写
+task；page-cache、文件映射等深层机制回归路径由 self-test 线程的 task 栈承载。
+runner 在每个 case 前后都会关闭本地中断：许多内核自测会直接改写
 `current_task`、runqueue、`jiffies` 等调度状态，不能被 trap/schedule 类用例
 重新打开 SIE 后留下的真实 timer IRQ 异步打断。
 
@@ -132,6 +140,8 @@ task；VFS/ext2/page-cache/virtio 等深层回归路径由 self-test 线程的 t
 - rootfs 挂载必须晚于 virtio-blk 注册，因为文件系统 probe 和 mount 都通过
   block device/page cache 发起 I/O。根挂载失败会立即 panic，因为 PID 1 依赖
   `/sbin/init` 可从根文件系统访问。
+- 上述文件系统初始化和 rootfs 挂载只属于普通启动；KTEST 在 `vfs_init()` 后使用
+  内存 fixture，不依赖真实块设备或文件系统注册。
 
 ## 正式内核地址空间
 
@@ -216,6 +226,16 @@ OpenSBI
   -> virtio-blk + VFS rootfs probe/mount
   -> PID 1 exec /sbin/init
   -> trap/syscall/sched 驱动用户态运行
+```
+
+KTEST 的启动闭环则是：
+
+```text
+OpenSBI
+  -> boot.S 临时地址空间
+  -> kernel_main 子系统初始化至 vfs_init()
+  -> 内存 block/file fixture + kernel_test_run()
+  -> SBI 关机
 ```
 
 新增启动阶段代码时，应保持这个边界：架构层负责 CPU/MMU/trap 的最低级状态，通用初始化负责按依赖装配子系统，具体策略不得塞回 `boot.S`。

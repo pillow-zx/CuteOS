@@ -110,9 +110,9 @@ QEMU 启动后进入串口 shell；使用 `Ctrl-a x` 退出。常用构建和验
 | `make user-rootfs` | 构建交互式用户态 rootfs |
 | `make user-image` | 构建包含用户态 rootfs 的 ext2 镜像 |
 | `make qemu` | 构建镜像并启动 QEMU |
-| `make ktest` | 构建并运行内核自测回归套件 |
+| `make ktest` | 在无磁盘 QEMU 中使用内存 fixture 运行内核自测 |
 | `make utest-build` | 构建用户态测试 ELF 和专用 rootfs 镜像 |
-| `make utest` | 启动用户态回归套件 |
+| `make utest` | 从测试 rootfs 启动用户态回归套件，验证真实存储栈 |
 | `make ci` | 串行运行内核和用户态回归套件 |
 | `make qemu-gdb` | 启动带 GDB stub 的暂停 QEMU |
 | `make analyze` | 运行 GCC analyzer 和额外诊断 |
@@ -120,6 +120,14 @@ QEMU 启动后进入串口 shell；使用 `Ctrl-a x` 退出。常用构建和验
 
 当前默认配置使用一个 QEMU CPU。SMP 目标完成前，不要仅通过增加 QEMU CPU 数量
 就把当前内核当成多核安全实现。
+
+### 测试边界
+
+`make ktest` 只验证内核机制、生命周期、错误路径和接口契约。需要后端的
+page-cache、writeback 和文件映射测试使用内存 block/file fixture，不初始化
+真实文件系统、virtio-blk 或 rootfs。ext2 磁盘格式、路径树、挂载以及驱动与
+文件系统的底层集成由 `make utest` 中的用户程序验证；普通 `make qemu` 仍使用
+ext2 rootfs 和 virtio-blk 启动。
 
 ## 代码与文档导航
 

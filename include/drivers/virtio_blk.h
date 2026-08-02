@@ -25,27 +25,4 @@ constexpr dev_t ROOT_DEV = MKDEV(VIRTIO_BLK_MAJOR, 0);
  */
 void virtio_blk_init(void);
 
-#ifdef KERNEL_SELFTEST
-/**
- * @struct virtio_blk_test_stats
- * @brief Test-only counters exported by the polling virtio-blk driver.
- *
- * @par Fields
- * - @c read_reqs: Number of completed read requests.
- * - @c write_reqs: Number of completed write requests.
- * - @c max_write_nsec: Largest write size in sectors.
- * - @c last_write_nsec: Sector count of the most recent write.
- */
-struct virtio_blk_test_stats {
-	uint32_t read_reqs;
-	uint32_t write_reqs;
-	uint32_t max_write_nsec;
-	uint32_t last_write_nsec;
-};
-
-void virtio_blk_test_reset_stats(void);
-void virtio_blk_test_get_stats(struct virtio_blk_test_stats *stats);
-void virtio_blk_test_fail_next_write(int error);
-#endif
-
 #endif
