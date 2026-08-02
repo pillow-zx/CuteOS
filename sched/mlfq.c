@@ -155,9 +155,10 @@ void mlfq_boost(void)
 		boost_task(task);
 }
 
-void mlfq_tick(void)
+bool mlfq_tick(void)
 {
 	struct task_struct *task = current_task();
+	bool need_resched = false;
 
 	if (task && task != &idle_task &&
 	    task->lifecycle.state == TASK_RUNNING) {
@@ -169,10 +170,12 @@ void mlfq_tick(void)
 			if (task->sched.sched_level + 1 < SCHED_MLFQ_LEVELS)
 				task->sched.sched_level++;
 			reset_budget(task);
-			task->sched.need_resched = 1;
+			need_resched = true;
 		}
 	}
 
 	if (jiffies != 0 && jiffies % HZ == 0)
 		mlfq_boost();
+
+	return need_resched;
 }

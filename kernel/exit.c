@@ -125,11 +125,6 @@ static void finish_task_exit(struct task_struct *task, int status)
 	}
 }
 
-bool exited_threads_pending(void)
-{
-	return exited_threads_reap_pending;
-}
-
 void reap_exited_threads(void)
 {
 	struct list_head *pos;
@@ -170,6 +165,14 @@ static void reap_other_threads(struct task_struct *leader, int status)
 }
 
 __noreturn
+static void exit_schedule(void)
+{
+	schedule();
+
+	unreachable();
+}
+
+__noreturn
 static void do_exit_status(int status)
 {
 	struct task_struct *task = current_task();
@@ -182,9 +185,7 @@ static void do_exit_status(int status)
 		finish_task_exit(task, status);
 	}
 
-	schedule();
-
-	unreachable();
+	exit_schedule();
 }
 
 __noreturn
@@ -210,9 +211,7 @@ void do_exit_group(int code)
 		reap_other_threads(leader, status);
 
 	finish_task_exit(task, status);
-	schedule();
-
-	unreachable();
+	exit_schedule();
 }
 
 __noreturn

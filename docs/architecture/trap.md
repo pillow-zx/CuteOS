@@ -174,9 +174,13 @@ trap 分发器只在实际 IRQ handler 执行期间进入 IRQ context：调用
 IRQ enable 状态。来自用户态的重调度和 `user_return_work()` 位于
 `irq_exit()` 之后，不属于 IRQ handler context。
 
-`sched_tick()` 更新当前任务用户/内核 tick 计费，并让 MLFQ 策略消耗时间片。时间片耗尽时 MLFQ 提升调度等级并重置预算，然后设置 `need_resched`。
+`sched_tick()` 更新当前任务用户/内核 tick 计费，并让 MLFQ 策略消耗时间片。时间片耗尽时 MLFQ 提升调度等级并重置预算，然后通过 `sched_request()` 设置 `need_resched`。
 
-如果 timer trap 来源是用户态，且当前任务需要重调度，`trap_handler()` 会清除 `need_resched` 并调用 `schedule()`。这就是当前用户态时钟抢占点。
+如果 timer trap 来源是用户态，`irq_exit()` 后统一进入
+`trap_user_return()`。该路径先执行 `user_return_work()`，再在当前任务有
+`need_resched` 时调用 `schedule()`；调度 core 清除已消费的请求。
+用户 syscall、page fault 和 timer trap 共用这个 handoff，`schedule()` 保留
+trap 返回时的 IRQ-off 状态。
 
 ## syscall trap
 
@@ -223,12 +227,15 @@ ssize_t handler(struct trap_frame *tf);
 ```c
 rseq_resume_user(tf);
 do_signal(tf);
+if (task_need_resched(current_task()))
+    schedule();
 ```
 
 顺序很重要：
 
 1. rseq 先检查是否需要更新用户 rseq area，必要时处理 critical section abort。
 2. signal 再决定是否在用户栈上建立 signal frame 并改写 `sepc/sp/ra/a0`。
+3. 若仍有 deferred reschedule request，在保留 IRQ 状态的 handoff 中切换任务。
 
 signal 投递本身还会强制调用 `rseq_signal_deliver(tf)`，保证信号打断 rseq critical section 时符合 rseq 语义。
 

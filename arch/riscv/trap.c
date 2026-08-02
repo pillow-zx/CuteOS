@@ -113,6 +113,13 @@ static void handle_timer_irq(void)
 	sched_tick();
 }
 
+static void trap_user_return(struct trap_frame *tf)
+{
+	user_return_work(tf);
+	if (current_task() && task_need_resched(current_task()))
+		schedule();
+}
+
 void trap_handler(struct trap_frame *tf)
 {
 	uint64_t scause = trap_frame_cause(tf);
@@ -134,13 +141,8 @@ void trap_handler(struct trap_frame *tf)
 		case IRQ_S_TIMER:
 			handle_timer_irq();
 			irq_exit();
-			if (user && current_task() &&
-			    task_need_resched(current_task())) {
-				task_set_need_resched(current_task(), 0);
-				schedule();
-			}
 			if (user)
-				user_return_work(tf);
+				trap_user_return(tf);
 			return;
 		default:
 			irq_exit();
@@ -158,12 +160,13 @@ void trap_handler(struct trap_frame *tf)
 		case TRAP_EXCEPTION_SYSCALL:
 			trap_advance_pc(tf, 4);
 			do_syscall(tf);
-			user_return_work(tf);
+			if (user)
+				trap_user_return(tf);
 			return;
 		case TRAP_EXCEPTION_PAGE_FAULT:
 			do_page_fault(tf);
 			if (user)
-				user_return_work(tf);
+				trap_user_return(tf);
 			return;
 		case TRAP_EXCEPTION_USER_SIGNAL:
 			if (exception.info.si_code == SI_KERNEL)
@@ -177,7 +180,7 @@ void trap_handler(struct trap_frame *tf)
 					      &exception.info,
 					      current_task()) < 0)
 				do_exit_signal(exception.info.si_signo);
-			user_return_work(tf);
+			trap_user_return(tf);
 			return;
 		case TRAP_EXCEPTION_KERNEL_FATAL:
 			panic("unhandled exception: origin=%s scause=0x%lx "

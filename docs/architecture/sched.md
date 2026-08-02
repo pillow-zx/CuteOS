@@ -1,6 +1,6 @@
 # 调度架构
 
-cuteOS 当前调度器是单核、非抢占内核模型下的 4 级 MLFQ。timer tick 负责计费和设置重调度标志，真正的上下文切换只发生在显式 `schedule()` 调用或用户 trap 返回安全点。
+cuteOS 当前调度器是单核、非抢占内核模型下的 4 级 MLFQ。timer tick 负责计费和提出重调度请求，真正的上下文切换只发生在显式调度入口或用户 trap 返回安全点。
 
 ## 代码边界
 
@@ -21,26 +21,23 @@ cuteOS 当前调度器是单核、非抢占内核模型下的 4 级 MLFQ。timer
 
 当前 `task_init()` 只让 CPU 0 online。调度器全局队列没有 per-CPU 分片，也没有跨 CPU 负载均衡。spinlock 和 wait channel 使用 irqsave 既保护中断上下文交错，锁字也使用原子竞争；但多核执行仍未启用。
 
-`preempt_disable()`/`preempt_enable()` 只修改
-`current_cpu()->preempt_count`。IRQ handler 通过独立的
-`irq_enter()`/`irq_exit()` 维护 IRQ nesting，`in_irq()` 不读取或修改
+`preempt_disable()` 增加当前 CPU 的 `preempt_count`；
+`preempt_enable()` 递减该计数，并在计数归零、普通调度入口安全且当前任务
+有 deferred reschedule request 时进入 `schedule()`。如果 IRQ 关闭、处于
+hard IRQ、持有 spinlock 或仍不可抢占，请求会继续延后。IRQ handler 通过
+独立的 `irq_enter()`/`irq_exit()` 维护 IRQ nesting，`in_irq()` 不读取或修改
 `preempt_count`。`preemptible()` 只检查 `preempt_count`，不会把 IRQ
 nesting 编码进抢占计数。
 
-`schedule()` 入口先检查 IRQ context：在 hard IRQ handler 内调用是内核
-错误并触发 `BUG_ON(in_irq())`。随后使用独立的调度上下文 guard；它同时
-要求不在 IRQ context 且 `preempt_count == 0`。`preemptible()` 本身仍然只
-检查 `preempt_count`。
+`schedule()` 是唯一的立即调度入口，只允许 task context、非 hard IRQ、无
+held spinlock 且 `preempt_count == 0`；违反这些条件直接触发 `BUG_ON`。
+本地 IRQ 可以开启或关闭，`schedule()` 保留进入时的 IRQ 状态，因此 trap
+返回和其他 IRQ-off task handoff 不需要单独的入口。
 
-```c
-BUG_ON(in_irq());
-if (!sched_context_can_schedule())
-    return;
-```
-
-因此内核临界区内不会主动切换。timer handler 返回并执行
-`irq_exit()` 后，来自用户态的 timer trap 才能在返回安全点调用
-`schedule()`。
+`sched_context_can_schedule()` 是不改变状态的可返回 guard，描述
+`schedule()` 的上下文前提，但不检查本地 IRQ 状态。`preempt_enable()` 仍只
+在 IRQ enabled 的普通安全点消费 deferred reschedule request。
+调度 core 本身不分配、不等待、不执行 I/O、reclaim 或 task reaping。
 
 ## 调度实体
 
@@ -61,7 +58,7 @@ struct task_sched_entity {
 
 - `run_list` 是 MLFQ 队列节点。
 - 等待注册不在调度实体中：`task_struct` 只暂存 opaque 活动等待指针供 exit 撤销（见等待队列一节）。
-- `need_resched` 由 timer tick 设置，用户 trap 返回点消费。
+- `need_resched` 由 `sched_request()` 设置，用户 trap 返回点或显式调度点消费。
 - `sched_level` 是 MLFQ 层级，0 最高。
 - `time_slice` 是当前层剩余预算。
 - `sched_ticks` 记录已用 tick。
@@ -124,19 +121,19 @@ tick 规则：
 - 当前非 idle running task 每 tick 减少 `time_slice`。
 - `time_slice` 到 0 时，如果未到最低优先级则 level++。
 - 重置该 level 的时间片。
-- 设置 `need_resched=1`。
+- 返回重调度需求给 generic scheduler，由 `sched_request()` 设置
+  `need_resched=1`。
 
 每当 `jiffies != 0` 且 `jiffies % HZ == 0`，执行全局 boost：所有队列中任务和当前 running task 回到 level 0。
 
-## schedule()
+## schedule() 的上下文契约与核心流程
 
-`schedule()` 的核心流程：
+`schedule()` 先验证上下文，再调用 `schedule_core()`：
 
 ```mermaid
 flowchart TD
     Enter["schedule()"]
-    Preempt{"preemptible?"}
-    Reap["reap exited threads if pending"]
+    Guard{"entry context valid?"}
     Empty{"runqueue empty?"}
     Idle{"prev idle or running?"}
     Pick["mlfq_pick_next()"]
@@ -146,9 +143,9 @@ flowchart TD
     Switch["task_switch()"]
     Return["return"]
 
-    Enter --> Preempt
-    Preempt -->|"no"| Return
-    Preempt -->|"yes"| Reap --> Empty
+    Enter --> Guard
+    Guard -->|"no: BUG_ON"| Return
+    Guard -->|"yes"| Empty
     Empty -->|"yes"| Idle
     Idle -->|"yes"| Return
     Idle -->|"no"| SwitchAS
@@ -157,13 +154,13 @@ flowchart TD
     Same -->|"no"| Requeue --> SwitchAS --> Switch
 ```
 
-1. 如果不可抢占，直接返回。
-2. 如果有待回收 exited threads，先 `reap_exited_threads()`。
-3. 取 `prev = current_task()`。
-4. 如果 runqueue 为空：
+1. 入口验证 current、hard IRQ、held lock 和 `preempt_count`；本地 IRQ 可以是
+   任意状态且会被保持。
+2. 清除当前 task 的 `need_resched`，取得 `prev = current_task()`。
+3. 如果 runqueue 为空：
    - 当前是 idle 或仍 running，则继续运行。
    - 否则切到 idle。
-5. 如果 runqueue 非空：
+4. 如果 runqueue 非空：
    - `next = mlfq_pick_next()`。
    - 如果 next 是 prev，返回。
    - 如果 prev 非 idle 且仍 running 且不在 runqueue，将 prev 重新入队。
@@ -173,6 +170,8 @@ flowchart TD
    - `task_switch(prev, next)`。
 
 运行中的 task 通常不在 runqueue 中。被切走时，如果仍 `TASK_RUNNING`，调度器才重新入队。
+退出 task 的 sibling thread reaping 由 idle loop 在调度器外执行；scheduler core
+不拥有资源释放。
 
 ## 地址空间和上下文切换
 
@@ -201,24 +200,23 @@ handle_timer_irq()
   -> sched_tick()
 ```
 
-如果 trap 来源是用户态，且当前 task `need_resched`，trap handler 会：
-
-```c
-task_set_need_resched(current_task(), 0);
-schedule();
-```
-
-这意味着用户代码可被 timer tick 抢占；内核代码不会在任意位置被异步抢占，只在显式调用 `schedule()` 或等待路径中切换。
+如果 trap 来源是用户态，trap handler 在 `irq_exit()` 后进入统一的
+`trap_user_return()`：先执行 `user_return_work()`，再在当前 task 有
+`need_resched` 时调用 `schedule()`。同步 syscall、page fault 和 timer trap
+共用这个 handoff；`schedule_core()` 负责消费请求。
+这意味着用户代码可被 timer tick 抢占；内核代码不会在任意位置被异步抢占，
+只在显式调用、等待路径或统一用户返回安全点切换。
 
 ## 主动让出 CPU
 
 `sched_yield()`：
 
 - 忽略 idle。
-- 清除当前 task 的 `need_resched`。
-- 调用 `schedule()`。
+- 通过 `sched_request()` 提出请求。
+- 直接调用 `schedule()`，由该入口保留当前 IRQ 状态。
 
-当前任务在 `schedule()` 中如果仍 running 会被放回同级队尾。yield 不主动降级，也不刷新剩余时间片。
+当前任务在 `schedule()` 中如果仍 running 会被放回同级队尾。
+yield 不主动降级，也不刷新剩余时间片。
 
 ## 等待队列
 
@@ -312,10 +310,13 @@ mutex 内部有：
 
 ## 设计约束
 
-- 调度策略不拥有 task 生命周期资源释放，exit 路径只通过状态和队列与调度器协作。
+- 调度策略不拥有 task 生命周期资源释放，exit 路径只通过状态和队列与调度器协作；
+  idle loop 在安全上下文中执行 sibling thread reaping。
 - 运行中 task 不应同时留在 runqueue。
 - channel watch 属于一次 `wait_for()` invocation，不是 task 长期状态；
   task 仅暂存用于 exit cancellation 的 opaque 活动上下文。
 - source、probe context、所有登记 wait channel 及其 owner 必须存活到等待返回。
-- tick 只设置重调度标志；不要在任意内核上下文引入异步抢占。
+- tick 只通过 `sched_request()` 设置重调度标志；不要在任意内核上下文引入异步抢占。
+- `schedule()` 是唯一立即调度入口，允许 IRQ enabled 或 IRQ disabled 的 task
+  context，并保持进入时的硬件 IRQ 状态。
 - 多核支持不能只增加 `-smp`，还需要重新设计 runqueue、锁、current task 和 TLB shootdown。

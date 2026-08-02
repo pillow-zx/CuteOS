@@ -1,10 +1,46 @@
-
+#include <kernel/printk.h>
+#include <kernel/rseq.h>
 
 #include "internal.h"
 
-#include <kernel/exit.h>
-#include <kernel/printk.h>
-#include <kernel/rseq.h>
+void schedule(void)
+{
+	BUG_ON(in_irq());
+	BUG_ON(!current_task());
+	BUG_ON(spinlock_held());
+	BUG_ON(!preemptible());
+
+	struct task_struct *prev;
+	struct task_struct *next;
+
+	prev = current_task();
+	task_set_need_resched(prev, 0);
+
+	if (mlfq_empty()) {
+		if (prev == &idle_task || prev->lifecycle.state == TASK_RUNNING)
+			return;
+
+		rseq_sched_switch(prev);
+		task_switch_address_space(prev, &idle_task);
+		set_current_task(&idle_task);
+		task_switch(prev, &idle_task);
+		return;
+	}
+
+	next = mlfq_pick_next();
+
+	if (next == prev)
+		return;
+
+	if (prev != &idle_task && prev->lifecycle.state == TASK_RUNNING &&
+	    list_empty(&prev->sched.run_list))
+		mlfq_enqueue(prev);
+
+	rseq_sched_switch(prev);
+	set_current_task(next);
+	task_switch_address_space(prev, next);
+	task_switch(prev, next);
+}
 
 void sched_init(void)
 {
@@ -63,7 +99,16 @@ static void sched_account_tick(void)
 void sched_tick(void)
 {
 	sched_account_tick();
-	mlfq_tick();
+	if (mlfq_tick())
+		sched_request();
+}
+
+void sched_request(void)
+{
+	struct task_struct *task = current_task();
+
+	if (task && task != &idle_task)
+		task_set_need_resched(task, 1);
 }
 
 void sched_yield(void)
@@ -73,48 +118,8 @@ void sched_yield(void)
 	if (!task || task == &idle_task)
 		return;
 
-	task->sched.need_resched = 0;
+	sched_request();
 	schedule();
-}
-
-void schedule(void)
-{
-	struct task_struct *prev;
-	struct task_struct *next;
-
-	BUG_ON(in_irq());
-	if (!sched_context_can_schedule())
-		return;
-
-	if (exited_threads_pending())
-		reap_exited_threads();
-
-	prev = current_task();
-
-	if (mlfq_empty()) {
-		if (prev == &idle_task || prev->lifecycle.state == TASK_RUNNING)
-			return;
-
-		rseq_sched_switch(prev);
-		task_switch_address_space(prev, &idle_task);
-		set_current_task(&idle_task);
-		task_switch(prev, &idle_task);
-		return;
-	}
-
-	next = mlfq_pick_next();
-
-	if (next == prev)
-		return;
-
-	if (prev != &idle_task && prev->lifecycle.state == TASK_RUNNING &&
-	    list_empty(&prev->sched.run_list))
-		mlfq_enqueue(prev);
-
-	rseq_sched_switch(prev);
-	set_current_task(next);
-	task_switch_address_space(prev, next);
-	task_switch(prev, next);
 }
 
 #ifdef KERNEL_SELFTEST

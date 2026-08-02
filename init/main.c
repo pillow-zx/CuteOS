@@ -20,6 +20,8 @@
 #include <kernel/processor.h>
 #include <kernel/pgtable.h>
 #include <kernel/reboot.h>
+#include <kernel/exit.h>
+#include <kernel/irq.h>
 #include <kernel/user_map_arch.h>
 #include <kernel/tty.h>
 
@@ -141,6 +143,8 @@ void kernel_main(void)
 #endif
 
 	while (true) {
+		local_irq_enable();
+		reap_exited_threads();
 		schedule();
 		wait_for_interrupt();
 	}

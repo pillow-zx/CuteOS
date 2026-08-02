@@ -1,9 +1,9 @@
 # cuteOS 同步与上下文契约
 
 本文是阶段 1 的同步资料，按 `PLAN.md` §8.1 固化共享对象的第一版契约。
-它区分当前单 hart、不可抢占基线与后续目标：本次 A/B 只实现 CPU-local
-context 查询、preempt 计数保护和 held-spinlock 诊断，不提前改变 scheduler、
-wait 或 allocator 的策略入口。
+它区分当前单 hart、不可抢占基线与后续目标：A/B 实现 CPU-local context
+查询、preempt 计数保护和 held-spinlock 诊断，C 收敛 scheduler 的上下文
+入口与 deferred reschedule 契约；wait 和 allocator 的策略入口仍待后续阶段。
 
 ## CPU-local context
 
@@ -74,10 +74,8 @@ reclaim 和 writeback。锁内只可更新由该锁线性化的状态，或取�
 
 ### 当前缺口
 
-- task 的 stable wait session、timer cancel-sync、exit/reaper 和 kernel stack
-  释放仍属于 F/G，当前 `wait_for()` 仍使用调用栈 session。
-- scheduler 仍在 C 之前：`schedule()` 尚未集中 held-lock 断言，`preempt_enable()`
-  也尚未处理 deferred reschedule；当前阶段不改变这些入口契约。
+- wait session、timer cancel-sync、exit/reaper 和 kernel stack 释放仍属于 F/G，
+  当前 `wait_for()` 仍使用调用栈 session。
 - allocator 尚未接受 `ALLOC_NOWAIT` / `ALLOC_SLEEPABLE` mode；page cache、VFS、
   scheduler 锁内分配/free/I/O 的全面审计属于 E/H。
 - mm active CPU/TLB shootdown、SMP page cache busy/in-flight、block request
@@ -104,10 +102,13 @@ hard-IRQ-safe。
 
 ### Scheduler
 
-当前 scheduler 是单核四级 MLFQ，timer tick 只设置 need-resched，切换仍发生在
-显式安全点。目标 `schedule()` 必须拒绝 hard IRQ、持锁和禁抢占；`sched_request()`
-只请求而不立即切换；`preempt_enable()` 归零时处理 deferred request。scheduler
-核心不能执行分配、等待、I/O 或 reaping。C 阶段才接入这些策略断言。
+当前 scheduler 是单核四级 MLFQ，timer tick 通过 `sched_request()` 设置
+need-resched，切换仍发生在显式安全点。唯一的立即调度入口 `schedule()` 要求
+current、非 hard IRQ、无 held spinlock 和 `preempt_count == 0`；本地 IRQ 可以
+enabled 或 disabled，且入口保持硬件状态。`preempt_enable()` 归零时只在 IRQ
+enabled 的安全点消费 deferred request。
+scheduler core 不能执行分配、等待、I/O、reclaim 或 reaping；后者由 idle loop
+在调度器外执行。
 
 ## 上下文矩阵测试
 
@@ -133,7 +134,7 @@ runner 在每个 case 后统一检查 `held_lock_depth()==0`、`preempt_count()=
 
 ## 验证与未闭合范围
 
-已验证：普通 kernel build、debug-off kernel build、kernel self-test 和五个
+已验证：普通 kernel build、debug-off kernel build、kernel self-test 和七个
 panic case。阶段 1 整体仍未完成；secondary hart、内核抢占、stable wait
 session、allocator mode、task reaper、page-cache/block 异步 lifetime、完整
-lockdep 和 C/D/E/F/G/H/I-2 仍按 `TODO.md` 保持未完成。
+lockdep 和 D/E/F/G/H/I-2 仍按 `TODO.md` 保持未完成。

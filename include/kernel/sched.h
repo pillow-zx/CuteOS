@@ -9,12 +9,7 @@
 #include <kernel/list.h>
 #include <kernel/task.h>
 #include <kernel/irq.h>
-
-/**
- * @def SCHED_MLFQ_LEVELS
- * @brief Number of runqueue levels in the single-core MLFQ scheduler.
- */
-constexpr uint8_t SCHED_MLFQ_LEVELS = 4;
+#include <kernel/spinlock.h>
 
 /**
  * @brief Initialize scheduler queues and policy state.
@@ -23,8 +18,17 @@ void sched_init(void);
 
 /**
  * @brief Switch from current task to the next runnable task.
+ *
+ * The caller must be in a task context, with no held spinlock and a zero
+ * preemption-disable depth. Local IRQs may be enabled or disabled; the
+ * scheduler preserves the entry state. Invalid callers trigger a diagnostic.
  */
 void schedule(void);
+
+/**
+ * @brief Request a reschedule of the current task without switching.
+ */
+void sched_request(void);
 
 /**
  * @brief Account one timer tick and request reschedule when needed.
@@ -72,11 +76,6 @@ static inline void preempt_disable(void)
 	cpu_inc_preempt_count(current_cpu());
 }
 
-static inline void preempt_enable(void)
-{
-	cpu_dec_preempt_count(current_cpu());
-}
-
 static inline bool preemptible(void)
 {
 	return cpu_preempt_count(current_cpu()) == 0;
@@ -85,15 +84,28 @@ static inline bool preemptible(void)
 /**
  * @brief Test whether the current context may enter the scheduler.
  *
- * This read-only guard is false in hard-IRQ context and while preemption is
- * disabled. It does not change either counter, hardware IRQ state, task state,
- * or scheduling ownership. The schedule() entry point diagnoses IRQ context
- * with BUG_ON and retains the existing no-op behavior for preemption-disabled
- * context.
+ * This read-only guard describes the schedule() entry contract. It requires a
+ * current task, no hard-IRQ context, no held spinlock, and a zero
+ * preemption-disable depth. Local IRQ state is not part of this guard.
  */
 static inline bool sched_context_can_schedule(void)
 {
-	return !in_irq() && preemptible();
+	return current_task() && !in_irq() &&
+	       preemptible() && !spinlock_held();
+}
+
+/**
+ * @brief Re-enable preemption and consume a safe deferred reschedule.
+ */
+static inline void preempt_enable(void)
+{
+	struct task_struct *task = current_task();
+
+	cpu_dec_preempt_count(current_cpu());
+	if (preemptible() && !irqs_disabled() && task &&
+	    task_need_resched(task) &&
+	    sched_context_can_schedule())
+		schedule();
 }
 
 #ifdef KERNEL_SELFTEST

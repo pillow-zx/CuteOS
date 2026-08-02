@@ -305,7 +305,7 @@ stateDiagram-v2
 8. task 模块为非 idle、已发布的父进程持有 lifecycle reference，然后释放
    child-relation source lock 并发送 `SIGCHLD`；投递后释放该 reference，事件发布
    期间已唤醒 parent wait channel。
-9. 调用 `schedule()`，不再返回。
+9. 调用 `schedule()`，由统一入口保留当前 IRQ 状态；该函数不再返回。
 
 `do_exit_group(code)` 以线程组为单位终止。
 

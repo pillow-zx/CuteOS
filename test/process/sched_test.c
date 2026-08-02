@@ -124,6 +124,85 @@ cleanup:
 	return __test_ret;
 }
 
+int test_sched_context_guards(void)
+{
+	spinlock_t lock = SPINLOCK_INIT;
+	irq_flags_t saved_flags = local_irq_save();
+	irq_flags_t lock_flags;
+	int saved_preempt = preempt_count();
+
+	TEST_BEGIN("sched: context guard accepts both IRQ states");
+	{
+		TEST_ASSERT(sched_context_can_schedule());
+
+		local_irq_enable();
+		TEST_ASSERT(sched_context_can_schedule());
+
+		preempt_disable();
+		TEST_ASSERT(!sched_context_can_schedule());
+		preempt_enable();
+
+		spin_lock_init(&lock);
+		spin_lock_irqsave(&lock, &lock_flags);
+		TEST_ASSERT(!sched_context_can_schedule());
+		spin_unlock_irqrestore(&lock, lock_flags);
+		TEST_ASSERT(sched_context_can_schedule());
+	}
+	TEST_END("sched: context guard accepts both IRQ states");
+	goto cleanup;
+fail:
+	TEST_FAIL("sched: context guard accepts both IRQ states", "see above");
+cleanup:
+	while (preempt_count() > saved_preempt)
+		preempt_enable();
+	local_irq_restore(saved_flags);
+
+	return __test_ret;
+}
+
+int test_sched_deferred_reschedule(void)
+{
+	struct task_struct *task = current_task();
+	uint8_t saved_need = task_need_resched(task);
+	irq_flags_t saved_flags = local_irq_save();
+	int saved_preempt = preempt_count();
+
+	TEST_BEGIN("sched: deferred request and IRQ-state-preserving schedule");
+	{
+		task_set_need_resched(task, 0);
+		preempt_disable();
+		sched_request();
+		preempt_enable();
+
+		TEST_ASSERT_EQ(preempt_count(), 0);
+		TEST_ASSERT_EQ(task_need_resched(task), (uint8_t)1);
+		TEST_ASSERT(sched_context_can_schedule());
+
+		schedule();
+		TEST_ASSERT_EQ(task_need_resched(task), (uint8_t)0);
+		TEST_ASSERT(irqs_disabled());
+
+		local_irq_enable();
+		sched_request();
+		preempt_disable();
+		preempt_enable();
+		TEST_ASSERT_EQ(task_need_resched(task), (uint8_t)0);
+		TEST_ASSERT(sched_context_can_schedule());
+	}
+	TEST_END("sched: deferred request and IRQ-state-preserving schedule");
+	goto cleanup;
+fail:
+	TEST_FAIL("sched: deferred request and IRQ-state-preserving schedule",
+		  "see above");
+cleanup:
+	task_set_need_resched(task, saved_need);
+	while (preempt_count() > saved_preempt)
+		preempt_enable();
+	local_irq_restore(saved_flags);
+
+	return __test_ret;
+}
+
 int test_sched_wakeup_refresh(void)
 {
 	TEST_BEGIN("sched: wakeup refreshes without duplicate enqueue");

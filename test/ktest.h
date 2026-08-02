@@ -156,6 +156,8 @@ int test_sched_init(void);
 int test_sched_enqueue_dequeue(void);
 int test_sched_need_resched(void);
 int test_sched_preempt_count_is_cpu_local(void);
+int test_sched_context_guards(void);
+int test_sched_deferred_reschedule(void);
 int test_sched_wakeup_refresh(void);
 int test_sched_boost(void);
 

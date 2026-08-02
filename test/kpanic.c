@@ -10,7 +10,9 @@
 	!defined(KPANIC_CASE_PREEMPT_OVERFLOW) && \
 	!defined(KPANIC_CASE_SPINLOCK_WRONG_UNLOCK) && \
 	!defined(KPANIC_CASE_SPINLOCK_RECURSIVE) && \
-	!defined(KPANIC_CASE_SPINLOCK_CAPACITY)
+	!defined(KPANIC_CASE_SPINLOCK_CAPACITY) && \
+	!defined(KPANIC_CASE_SCHEDULE_HELD_LOCK) && \
+	!defined(KPANIC_CASE_SCHEDULE_PREEMPT_DISABLED)
 #error "KERNEL_PANIC_TEST requires a valid KERNEL_PANIC_CASE"
 #endif
 
@@ -51,8 +53,19 @@ void kernel_panic_test_run(void)
 		spin_lock_init(&locks[index]);
 	for (uint32_t index = 0; index < CPU_LOCK_MAX; index++)
 		spin_lock_irqsave(&locks[index], &flags[index]);
-	spin_lock_irqsave(&locks[CPU_LOCK_MAX],
-			 &flags[CPU_LOCK_MAX]);
+	spin_lock_irqsave(&locks[CPU_LOCK_MAX], &flags[CPU_LOCK_MAX]);
+#elif defined(KPANIC_CASE_SCHEDULE_HELD_LOCK)
+	spinlock_t lock = SPINLOCK_INIT;
+	irq_flags_t flags;
+
+	pr_info("[KPANIC] case=schedule-held-lock\n");
+	spin_lock_init(&lock);
+	spin_lock_irqsave(&lock, &flags);
+	schedule();
+#elif defined(KPANIC_CASE_SCHEDULE_PREEMPT_DISABLED)
+	pr_info("[KPANIC] case=schedule-preempt-disabled\n");
+	preempt_disable();
+	schedule();
 #endif
 
 	panic("kpanic case returned without triggering its assertion\n");

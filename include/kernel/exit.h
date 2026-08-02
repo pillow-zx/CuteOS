@@ -29,7 +29,7 @@ void do_exit_group(int code);
  */
 __noreturn
 void do_exit_signal(int sig);
-bool exited_threads_pending(void);
+
 void reap_exited_threads(void);
 
 /**

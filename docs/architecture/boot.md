@@ -77,7 +77,7 @@ flowchart TD
     Block["virtio_blk_init()"]
     Root["vfs_mount_root(ROOT_DEV)<br/>probe rootfs"]
     Threads["PID 1 + page cache writeback"]
-    Idle["idle loop<br/>schedule() + wfi"]
+    Idle["idle loop<br/>IRQ enable + reap + schedule() + wfi"]
 
     Console --> PT --> Alloc --> UserMap --> Trap --> Task --> Timer
     Timer --> Sched --> Syscall --> VFS --> FS --> Block --> Root --> Threads --> Idle
@@ -110,7 +110,9 @@ flowchart TD
 22. `set_init_task(init)`：记录 PID 1，供 exit/reparent 路径使用。
 23. `tty_console_start()`：创建轮询 UART 的 console TTY 输入线程。
 24. `kernel_thread(page_cache_wb_thread, NULL)`：创建页缓存后台写回线程。
-25. idle 循环反复调用 `schedule()` 和 `wait_for_interrupt()`。
+25. idle 循环先调用 `local_irq_enable()` 打开本地 IRQ，再调用
+    `reap_exited_threads()` 回收已退出的 sibling threads，最后调用
+    `schedule()` 和 `wait_for_interrupt()`。
 
 `make ktest` 使用 `KERNEL_SELFTEST=1` 构建单独的测试内核，但不构建、附加或挂载
 rootfs。该配置在 `vfs_init()` 后跳过 `filesystems_init()`、`virtio_blk_init()`

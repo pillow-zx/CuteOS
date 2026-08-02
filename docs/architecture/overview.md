@@ -167,7 +167,7 @@ timer interrupt
   -> timer_run_expired()
   -> sched_tick()
   -> MLFQ 更新当前任务预算
-  -> need_resched
+  -> sched_request() / need_resched
   -> 用户 trap 返回前 schedule()
 ```
 

@@ -308,7 +308,8 @@ struct restart_context {
  *
  * @par Fields
  * - @c run_list: Node in the selected run queue.
- * - @c need_resched: User-return path should call schedule.
+ * - @c need_resched: Deferred reschedule request consumed at a safe
+ *   scheduler handoff.
  * - @c sched_level: Current MLFQ priority level.
  * - @c time_slice: Remaining ticks in the current queue level.
  * - @c sched_ticks: Ticks consumed in the current accounting window.

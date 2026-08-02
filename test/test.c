@@ -135,6 +135,8 @@ static const struct ktest_case sched_cases[] = {
 	KTEST_CASE(test_sched_enqueue_dequeue),
 	KTEST_CASE(test_sched_need_resched),
 	KTEST_CASE(test_sched_preempt_count_is_cpu_local),
+	KTEST_CASE(test_sched_context_guards),
+	KTEST_CASE(test_sched_deferred_reschedule),
 	KTEST_CASE(test_sched_wakeup_refresh),
 	KTEST_CASE(test_sched_boost),
 };

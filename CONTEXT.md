@@ -118,8 +118,8 @@ These are current facts, not future guarantees:
   Sv39, S-mode, a high-half kernel mapping, and a static ext2 root image.
 - Only hart 0 is online; secondary harts park during boot.
 - Scheduling uses one global four-level MLFQ. Timer ticks account execution
-  and request rescheduling; switching occurs at explicit scheduling points or
-  user-return timer handling.
+  and call `sched_request()` when a policy budget expires; switching occurs at
+  explicit scheduling points or the unified user-return handoff.
 - The kernel is non-preemptible. `preempt_count` tracks explicit
   preemption-disabled sections, while IRQ context has an independent
   CPU-local nesting depth. Local interrupt masking and held-lock state are
@@ -241,6 +241,14 @@ The scheduler owns runnable-task state, runqueue ownership, wakeup
 orchestration, and architecture switch orchestration. The current MLFQ is the
 default policy, not the generic scheduler contract.
 
+`schedule()` is the only immediate-switch entry. It requires task context, no
+hard IRQ, no held spinlock, and `preempt_count == 0`; local IRQs may be enabled
+or disabled, and the scheduler preserves the entry state. It enters an
+allocation-free, nonblocking, non-I/O scheduler core.
+`sched_request()` only publishes `need_resched`; `preempt_enable()` consumes a
+deferred request only when the ordinary entry is safe. Exited sibling threads
+are reaped by the idle loop, outside scheduler core.
+
 Before SMP and preemption are enabled, the scheduler must define:
 
 - whether a task is queued, running, sleeping, exiting, or migrating;
@@ -276,8 +284,9 @@ owner pointer if the complete owner/waiter protocol is protected by its
 internal lock; making one field atomic is not a complete mutex design.
 
 No path may schedule while holding a spinlock, in IRQ context, or with an
-invalid preemption state. `preempt_enable()` must service deferred
-rescheduling when its count reaches zero. Waiters, timers, and callbacks need
+invalid preemption state. `schedule()` preserves local IRQ state, including an
+IRQ-off entry. `preempt_enable()` must service deferred rescheduling when its
+count reaches zero when the IRQ-enabled entry is safe. Waiters, timers, and callbacks need
 references or cancellation synchronization; raw task pointers and stack
 allocated sessions are not lifetime guarantees.
 
@@ -357,7 +366,8 @@ making every caller understand MLFQ levels, queues, or boost rules.
   number and arguments; a thin handler copies ABI data and calls a subsystem;
   `user_return_work()` performs rseq before signal work.
 - **Scheduling:** the timer updates time, expired timers, accounting, and
-  `need_resched`; `schedule()` switches only at currently permitted points.
+  `need_resched`; the unified `schedule()` entry switches only at permitted
+  context handoffs, including user trap return.
 - **Fork/exec/exit:** clone prepares state, commits task/PID/scheduler
   ownership, and publishes; exec replaces the address space; exit publishes
   task-owned child events and later reaping unpublishes the task.

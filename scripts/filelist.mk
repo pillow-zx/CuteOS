@@ -153,8 +153,11 @@ else ifeq ($(KERNEL_PANIC_CASE),spinlock-recursive)
 CFLAGS += -DKPANIC_CASE_SPINLOCK_RECURSIVE
 else ifeq ($(KERNEL_PANIC_CASE),spinlock-capacity)
 CFLAGS += -DKPANIC_CASE_SPINLOCK_CAPACITY
+else ifeq ($(KERNEL_PANIC_CASE),schedule-held-lock)
+CFLAGS += -DKPANIC_CASE_SCHEDULE_HELD_LOCK
+else ifeq ($(KERNEL_PANIC_CASE),schedule-preempt-disabled)
+CFLAGS += -DKPANIC_CASE_SCHEDULE_PREEMPT_DISABLED
 endif
 else
 KERNEL_PANIC_OBJS =
 endif
-
